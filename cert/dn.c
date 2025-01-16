@@ -214,7 +214,7 @@ static BOOLEAN checkCountryCode( IN_BUFFER_C( 2 ) const BYTE *countryCode )
   /*W*/				   xF|									  xS,					   /*W*/
   /*X*/	0,																			   /*X*/
   /*Y*/				xE|											 xT,				   /*Y*/
-  /*Z*/	xA|									xM|							  xW,		   /*Z*/
+  /*Z*/	xA|									xM|							  xW|	   xZ, /*Z*/
 	/*	 A  B  C  D  E  F  G  H  I  J  K  L  M  N  O  P  Q  R  S  T  U  V  W  X  Y  Z */
 		0, 0	/* Catch overflows */
 		};
