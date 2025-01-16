@@ -1114,17 +1114,7 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 #ifndef INVALID_SOCKET
   #define INVALID_SOCKET			( -1 )
 #endif /* INVALID_SOCKET */
-#if defined( __FreeRTOS__ ) && defined( USE_FREERTOS_SOCKETS )
-  #define isBadSocket( socket )		( ( socket ) == INVALID_SOCKET )
-#elif defined( __WINDOWS__ )
-  #define isBadSocket( socket )		( ( socket ) == INVALID_SOCKET )
-#elif defined( STDERR_FILENO )
-  #define isBadSocket( socket )		( ( socket ) <= STDERR_FILENO || \
-									  ( socket ) >= FD_SETSIZE )
-#else
-  #define isBadSocket( socket )		( ( socket ) <= 0 || \
-									  ( socket ) >= FD_SETSIZE )
-#endif /* STDERR_FILENO */
+#define isBadSocket( socket )		( ( socket ) == INVALID_SOCKET )
 
 #ifndef SOCKET_ERROR
   #define SOCKET_ERROR				( -1 )
