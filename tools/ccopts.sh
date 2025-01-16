@@ -697,7 +697,6 @@ fi
 # of large-displacement jumps, so if you're tuning the code for size/speed
 # you can try -fpic to see if you get any improvement.
 
-if [ $SHARED -gt 0 ] ; then
 	case $OSNAME in
 		'Darwin')
 			CCARGS="$CCARGS -fPIC -fno-common -mmacosx-version-min=%%MIN_MAC_OSX_VERSION%%" ;;
@@ -725,7 +724,6 @@ if [ $SHARED -gt 0 ] ; then
 		*)
 			CCARGS="$CCARGS -fPIC" ;;
 	esac ;
-fi
 
 # Conversely, if we're building a static lib and the system requires it, set
 # up static lib-specific options.
