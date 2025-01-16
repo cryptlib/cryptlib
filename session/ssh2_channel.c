@@ -660,7 +660,7 @@ int setChannelAttribute( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( channelInfoPtr == NULL )
 			return( CRYPT_ERROR_NOTFOUND );
 		return( selectChannel( sessionInfoPtr, channelInfoPtr->writeChannelNo,
-							   CHANNEL_WRITE ) );
+							   CHANNEL_BOTH ) );
 		}
 	channelInfoPtr = ( SSH_CHANNEL_INFO * ) \
 				getCurrentChannelInfo( sessionInfoPtr, CHANNEL_READ );
