@@ -65,6 +65,7 @@
 #define USE_SSH_EXTENDED
 #define USE_CERTLEVEL_STANDARD
 #define PREFER_ECC
+#define USE_SSH_CTR
 /****************************************************************************
 *																			*
 *						Custom Configuration Profiles						*
