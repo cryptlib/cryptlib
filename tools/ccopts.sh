@@ -616,21 +616,21 @@ checkSafeStack()
 	return $RESULT ;
 	}
 
-if [ $ISCLANG -gt 0 ] && [ $ISSPECIAL -eq 0 ] ; then
-	if [ $COMPILER_VER -ge 47 ] ; then
-		SAFESTACK_SUPPORT=checkSafeStack ;
-		case $SAFESTACK_SUPPORT in
-			0)	;;
-			1)	echo "  " >&2 ;
-				echo "  (This system supports clang stack sanitization via -fsanitize=safe-stack" >&2 ;
-				echo "   in $0, however the necessary libclang_rt isn't installed." >&2 ;
-				echo "   If you can install the required library then consider enabling" >&2 ;
-				echo "   -fsanitize=safe-stack in $0)." >&2 ;
-				echo "  " >&2 ;;
-			2)	CCARGS="$CCARGS -fsanitize=safe-stack" ;;
-		esac ;
-	fi ;
-fi
+#if [ $ISCLANG -gt 0 ] && [ $ISSPECIAL -eq 0 ] ; then
+#	if [ $COMPILER_VER -ge 47 ] ; then
+#		SAFESTACK_SUPPORT=checkSafeStack ;
+#		case $SAFESTACK_SUPPORT in
+#			0)	;;
+#			1)	echo "  " >&2 ;
+#				echo "  (This system supports clang stack sanitization via -fsanitize=safe-stack" >&2 ;
+#				echo "   in $0, however the necessary libclang_rt isn't installed." >&2 ;
+#				echo "   If you can install the required library then consider enabling" >&2 ;
+#				echo "   -fsanitize=safe-stack in $0)." >&2 ;
+#				echo "  " >&2 ;;
+#			2)	CCARGS="$CCARGS -fsanitize=safe-stack" ;;
+#		esac ;
+#	fi ;
+#fi
 
 # If we're using clang or gcc and RELRO support is present, enable it.  This
 # is a bit of an odd one, the various descriptions and docs imply it really
