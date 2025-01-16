@@ -443,8 +443,11 @@ static int readPublicKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusError( status ) )
 		{
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+		if (status == CRYPT_ERROR_NOTAVAIL) {
+			return status;
+		}
+		retExt( status,
+				( status, SESSION_ERRINFO, 
 				  "Invalid client pubkey data" ) );
 		}
 
@@ -880,6 +883,12 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		case SSH_AUTHTYPE_PUBKEY:
 			/* Read the public key */
 			status = readPublicKey( sessionInfoPtr, &stream );
+			if (status == CRYPT_ERROR_NOTAVAIL)
+				{
+				sendResponseFailureInfo( sessionInfoPtr, FALSE );
+				*userAuthInfo = USERAUTH_NOOP_2;
+				return( status );
+				}
 			if( cryptStatusError( status ) )
 				{
 				sMemDisconnect( &stream );
@@ -1172,7 +1181,6 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   continue with a password auth */
 	if( credentialType == CREDENTIAL_USERNAME_PUBKEY )
 		{
-		sMemDisconnect( &stream );
 		( void ) sendResponseFailure( sessionInfoPtr );
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
@@ -1455,6 +1463,13 @@ int processServerAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			status = processUserAuth( sessionInfoPtr, handshakeInfo,
 									  &userAuthInfo, 
 									  CREDENTIAL_USERNAME_PUBKEY, FALSE );
+			}
+		if( status == CRYPT_ERROR_NOTAVAIL && userAuthInfo == USERAUTH_NOOP_2 )
+			{
+			/* We can't understand the public key and are falling back to password */
+			status = processUserAuth( sessionInfoPtr, handshakeInfo,
+									  &userAuthInfo, 
+									  CREDENTIAL_USERNAME, FALSE );
 			}
 		}
 	else
