@@ -691,7 +691,8 @@ CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 static int getData( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 					OUT_BUFFER( length, *bytesCopied ) BYTE *buffer, 
 					IN_DATALENGTH const int length, 
-					OUT_DATALENGTH_Z int *bytesCopied )
+					OUT_DATALENGTH_Z int *bytesCopied,
+					BOOLEAN *setTimeout )
 	{
 	const int bytesToCopy = min( length, sessionInfoPtr->receiveBufPos );
 	READSTATE_INFO readInfo;
@@ -827,6 +828,7 @@ static int getData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				sessionInfoPtr->receiveBufSize - sessionInfoPtr->receiveBufEnd )
 			{
 			sioctlSet( &sessionInfoPtr->stream, STREAM_IOCTL_READTIMEOUT, 1 );
+			*setTimeout = TRUE;
 			}
 
 		ENSURES( sanityCheckSessionRead( sessionInfoPtr ) );
@@ -848,6 +850,7 @@ static int getData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   necessary to avoid having the stream always block for the set timeout 
 	   value on the last read */
 	sioctlSet( &sessionInfoPtr->stream, STREAM_IOCTL_READTIMEOUT, 0 );
+	*setTimeout = TRUE;
 
 	ENSURES( sanityCheckSessionRead( sessionInfoPtr ) );
 
@@ -860,6 +863,7 @@ int getSessionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					IN_DATALENGTH const int dataMaxLength, 
 					OUT_DATALENGTH_Z int *bytesCopied )
 	{
+	BOOLEAN setTimeout = FALSE;
 	BYTE *dataPtr = data;
 	int dataLength, status = CRYPT_OK, LOOP_ITERATOR;
 
@@ -889,28 +893,30 @@ int getSessionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 		}
 
-	/* Update the stream read timeout to the current user-selected read 
-	   timeout in case the user has changed the timeout setting.
-	   
-	   This isn't perfect in the case of the extremely chatty SSH protocol 
-	   because what looks like a read to the user can involve several reads 
-	   and writes under the hood, and what gets used for those is the 
-	   overall high-level timeout for the operation as a whole, with the 
-	   hidden internal reads and writes using that as their shared setting.  
-	   
-	   For example if the code performs a read and hits an SSH channel 
-	   command it has to send back a response, leading possibly to further 
-	   reads and writes, before it can actually read any data.  So the top-
-	   level read command sets a read timeout and then the much lower-level 
-	   code ends up in a hidden long exchange with the other side using the
-	   same timeout that was set for the overall read before the higher-
-	   level read code gets to complete the actual read */
-	sioctlSet( &sessionInfoPtr->stream, STREAM_IOCTL_READTIMEOUT, 
-			   sessionInfoPtr->readTimeout );
-
 	LOOP_MAX_REV_INITCHECK( dataLength = dataMaxLength, dataLength > 0 )
 		{
 		int byteCount;
+
+		/* Update the stream read timeout to the current user-selected read 
+		   timeout in case the user has changed the timeout setting.
+	   
+		   This isn't perfect in the case of the extremely chatty SSH protocol 
+		   because what looks like a read to the user can involve several reads 
+		   and writes under the hood, and what gets used for those is the 
+		   overall high-level timeout for the operation as a whole, with the 
+		   hidden internal reads and writes using that as their shared setting.  
+	   
+		   For example if the code performs a read and hits an SSH channel 
+		   command it has to send back a response, leading possibly to further 
+		   reads and writes, before it can actually read any data.  So the top-
+		   level read command sets a read timeout and then the much lower-level 
+		   code ends up in a hidden long exchange with the other side using the
+		   same timeout that was set for the overall read before the higher-
+		   level read code gets to complete the actual read */
+		if (!setTimeout)
+			sioctlSet( &sessionInfoPtr->stream, STREAM_IOCTL_READTIMEOUT, 
+					   sessionInfoPtr->readTimeout );
+		setTimeout = FALSE;
 
 		ENSURES( LOOP_INVARIANT_MAX_REV_XXX( dataLength, 1, dataMaxLength ) );
 				 /* dataLength is decremented by the number of bytes read */
@@ -923,7 +929,7 @@ int getSessionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			   available.
 			3. CRYPT_OK to indicate that data was read and more may be 
 			   available */
-		status = getData( sessionInfoPtr, dataPtr, dataLength, &byteCount );
+		status = getData( sessionInfoPtr, dataPtr, dataLength, &byteCount, &setTimeout );
 		if( cryptStatusError( status ) && status != OK_SPECIAL )
 			break;
 
