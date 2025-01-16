@@ -361,25 +361,25 @@ case $OSNAME in
 esac
 if [ -z "$DISABLE_AUTODETECT" ] && [ $HASDYNLOAD -gt 0 ] ; then
 	# ODBC support
-	for includepath in $ODBCPATHS ; do
-		if [ -f $includepath ] ; then
-			echo "ODBC interface detected, enabling ODBC support." >&2 ;
-			CCARGS="$CCARGS -DHAS_ODBC" ;
-			if [ "$(dirname $includepath)" != "/usr/include" ] ; then
-				CCARGS="$CCARGS -I$(dirname $includepath)" ;
-			fi ;
-			break ;
-		fi ;
-	done
+	#for includepath in $ODBCPATHS ; do
+	#	if [ -f $includepath ] ; then
+	#		echo "ODBC interface detected, enabling ODBC support." >&2 ;
+	#		CCARGS="$CCARGS -DHAS_ODBC" ;
+	#		if [ "$(dirname $includepath)" != "/usr/include" ] ; then
+	#			CCARGS="$CCARGS -I$(dirname $includepath)" ;
+	#		fi ;
+	#		break ;
+	#	fi ;
+	#done
 
 	# LDAP support
-	if [ -f /usr/include/ldap.h ] ; then
-		echo "LDAP interface detected, enabling LDAP support" >&2 ;
-		CCARGS="$CCARGS -DHAS_LDAP" ;
-		if [ $ISDEVELOPMENT -gt 0 ] ; then
-			CCARGS="$CCARGS -DUSE_LDAP" ;
-		fi ;
-	fi
+	#if [ -f /usr/include/ldap.h ] ; then
+	#	echo "LDAP interface detected, enabling LDAP support" >&2 ;
+	#	CCARGS="$CCARGS -DHAS_LDAP" ;
+	#	if [ $ISDEVELOPMENT -gt 0 ] ; then
+	#		CCARGS="$CCARGS -DUSE_LDAP" ;
+	#	fi ;
+	#fi
 
 	# PKCS #11 support
 	for includepath in $PKCS11PATHS ; do
