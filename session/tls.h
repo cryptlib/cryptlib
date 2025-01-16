@@ -88,10 +88,6 @@
    following */
 
 /* #define PREFER_ECC //*/
-#if ( defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ ) ) && \
-	defined( PREFER_ECC ) 
-  #pragma message( "  Building with ECC preferred for TLS." )
-#endif /* Notify preferred ECC use */
 #if defined( PREFER_ECC ) && \
 	!( defined( USE_ECDH ) && defined( USE_ECDSA ) )
   #error PREFER_ECC can only be used with ECDH and ECDSA enabled

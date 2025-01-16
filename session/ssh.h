@@ -9,15 +9,6 @@
 
 #define _SSH_DEFINED
 
-#if defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ ) 
-  #ifdef USE_SSH_EXTENDED
-	#pragma message( "  Building with extended SSH facilities enabled." )
-  #endif /* USE_SSH_EXTENDED */
-  #ifdef USE_SSH_OPENSSH
-	#pragma message( "  Building with nonstandard OpenSSH extensions enabled." )
-  #endif /* USE_SSH_OPENSSH */
-#endif /* Notify extended SSH facilities */
-
 #ifdef USE_SSH
 
 /****************************************************************************
@@ -67,10 +58,6 @@
    in preference to DH, uncomment the following */
 
 /* #define PREFER_ECC */
-#if ( defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ ) ) && \
-	defined( PREFER_ECC ) 
-  #pragma message( "  Building with ECC preferred for SSH." )
-#endif /* Notify ECC preferred use */
 #if defined( PREFER_ECC ) && \
 	!( defined( USE_ECDH ) && defined( USE_ECDSA ) )
   #error PREFER_ECC can only be used with ECDH and ECDSA enabled

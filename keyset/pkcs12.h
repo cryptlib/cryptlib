@@ -9,14 +9,6 @@
 
 #define _PKCS12_DEFINED
 
-#if defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ )
-  #if defined( USE_PKCS12_WRITE )
-	#pragma message( "  Building with PKCS #12 read and write enabled." )
-  #elif defined( USE_PKCS12 )
-	#pragma message( "  Building with PKCS #12 enabled." )
-  #endif /* PKCS #12 options */
-#endif /* Notify PKCS #12 use */
-
 /****************************************************************************
 *																			*
 *								PKCS #12 Constants							*
