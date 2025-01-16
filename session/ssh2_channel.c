@@ -59,6 +59,9 @@ typedef struct {
 
 	/* Channel extra data.  This contains encoded oddball protocol-specific
 	   SSH packets to be sent or having been received */
+	BUFFER( CRYPT_MAX_TEXTSIZE, terminalLen ) \
+	char terminal[ CRYPT_MAX_TEXTSIZE + 8 ];
+	int terminalLen, width, height;
 	BUFFER_FIXED( UINT_SIZE + CRYPT_MAX_TEXTSIZE + ( UINT_SIZE * 4 ) ) \
 	BYTE extraData[ ( UINT_SIZE + CRYPT_MAX_TEXTSIZE ) + \
 					( UINT_SIZE * 4 ) + 8 ];
@@ -235,6 +238,21 @@ static int accessFunction( INOUT_PTR ATTRIBUTE_LIST *attributeListPtr,
 
 			case CRYPT_SESSINFO_SSH_CHANNEL_ARG2:
 				if( channelInfoPtr->arg2Len > 0 )
+					doContinue = FALSE;
+				break;
+
+			case CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL:
+				if ( channelInfoPtr->terminalLen > 0 )
+					doContinue = FALSE;
+				break;
+
+			case CRYPT_SESSINFO_SSH_CHANNEL_WIDTH:
+				if ( channelInfoPtr->width > 0)
+					doContinue = FALSE;
+				break;
+
+			case CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT:
+				if ( channelInfoPtr->height > 0)
 					doContinue = FALSE;
 				break;
 
@@ -481,6 +499,18 @@ int getChannelAttribute( const SESSION_INFO *sessionInfoPtr,
 		case CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE:
 			*value = isActiveChannel( channelInfoPtr ) ? TRUE : FALSE;
 			return( CRYPT_OK );
+
+		case CRYPT_SESSINFO_SSH_CHANNEL_WIDTH:
+			if (channelInfoPtr->width == 0)
+				return CRYPT_ERROR_NOTFOUND;
+			*value = channelInfoPtr->width;
+			return( CRYPT_OK );
+
+		case CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT:
+			if (channelInfoPtr->height == 0)
+				return CRYPT_ERROR_NOTFOUND;
+			*value = channelInfoPtr->height;
+			return( CRYPT_OK );
 		}
 
 	retIntError();
@@ -537,6 +567,13 @@ int getChannelAttributeS( const SESSION_INFO *sessionInfoPtr,
 			return( attributeCopyParams( data, dataMaxLength, dataLength,
 										 channelInfoPtr->arg2,
 										 channelInfoPtr->arg2Len ) );
+
+		case CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL:
+			if (channelInfoPtr->terminalLen == 0)
+				return CRYPT_ERROR_NOTFOUND;
+			return( attributeCopyParams( data, dataMaxLength, dataLength,
+										 channelInfoPtr->terminal,
+										 channelInfoPtr->terminalLen ) );
 		}
 
 	retIntError();
@@ -601,6 +638,20 @@ int setChannelAttribute( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( selectChannel( sessionInfoPtr, channelInfoPtr->writeChannelNo,
 							   CHANNEL_WRITE ) );
 		}
+	channelInfoPtr = ( SSH_CHANNEL_INFO * ) \
+				getCurrentChannelInfo( sessionInfoPtr, CHANNEL_READ );
+	REQUIRES( channelInfoPtr != NULL );
+	if( isNullChannel( channelInfoPtr ) )
+		return( CRYPT_ERROR_NOTFOUND );
+
+	if( attribute == CRYPT_SESSINFO_SSH_CHANNEL_WIDTH ) {
+		channelInfoPtr->width = value;
+		return CRYPT_OK;
+	}
+	if( attribute == CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT ) {
+		channelInfoPtr->height = value;
+		return CRYPT_OK;
+	}
 
 	retIntError();
 	}
@@ -644,6 +695,11 @@ int setChannelAttributeS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( attributeCopyParams( channelInfoPtr->arg2, 
 										 CRYPT_MAX_TEXTSIZE,
 										 &channelInfoPtr->arg2Len, 
+										 data, dataLength ) );
+		case CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL:
+			return( attributeCopyParams( channelInfoPtr->terminal, 
+										 CRYPT_MAX_TEXTSIZE,
+										 &channelInfoPtr->terminalLen, 
 										 data, dataLength ) );
 		}
 

@@ -664,8 +664,20 @@ int processChannelRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   problem but just deny the request */
 	switch( requestInfoPtr->requestType )
 		{
-		case REQUEST_SHELL:
 		case REQUEST_PTY:
+			readString32( stream, stringBuffer, CRYPT_MAX_TEXTSIZE, &stringLength );
+			if (stringLength > 0)
+				setChannelAttributeS(sessionInfoPtr, CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL, stringBuffer, stringLength);
+			status = readUint32(stream);
+			if (status > 0)
+				setChannelAttribute(sessionInfoPtr, CRYPT_SESSINFO_SSH_CHANNEL_WIDTH, status);
+			status = readUint32(stream);
+			if (status > 0)
+				setChannelAttribute(sessionInfoPtr, CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT, status);
+			break;
+		case REQUEST_SHELL:
+			//setChannelAttribute(sessionInfoPtr, status, CRYPT_SESSINFO_SSH_SHELL);
+			break;
 		case REQUEST_NOOP:
 			/* Generic requests containing extra information that we're not
 			   interested in */

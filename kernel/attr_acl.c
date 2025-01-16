@@ -3679,6 +3679,49 @@ static const ATTRIBUTE_ACL subACL_SessinfoSSHChannelArg1[] = {
 	MKACL_END_SUBACL(), MKACL_END_SUBACL()
 	};
 
+static const ATTRIBUTE_ACL subACL_SessinfoSSHChannelTerminal[] = {
+	MKACL_S(	/* SSH client: Read/write */
+		/* Shortest valid name = "sftp" */
+		CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL,
+		ST_NONE, ST_NONE, ST_SESS_SSH, 
+		MKPERM_SSH_EXT( RWx_RWx ),
+		ROUTE( OBJECT_TYPE_SESSION ), RANGE( 1, CRYPT_MAX_TEXTSIZE ) ),
+	MKACL_S(	/* SSH server: Read-only info from client */
+		CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL,
+		ST_NONE, ST_NONE, ST_SESS_SSH_SVR, 
+		MKPERM_SSH_EXT( RWx_xxx ),
+		ROUTE( OBJECT_TYPE_SESSION ), RANGE( 1, CRYPT_MAX_TEXTSIZE ) ),
+	MKACL_END_SUBACL(), MKACL_END_SUBACL()
+	};
+
+static const ATTRIBUTE_ACL subACL_SessinfoSSHChannelWidth[] = {
+	MKACL_N(	/* SSH client: Read/write */
+		CRYPT_SESSINFO_SSH_CHANNEL_WIDTH,
+		ST_NONE, ST_NONE, ST_SESS_SSH, 
+		MKPERM_SSH_EXT( RWx_RWx ),
+		ROUTE( OBJECT_TYPE_SESSION ), RANGE( 0, 800 ) ),
+	MKACL_N(	/* SSH server: Read-only info from client */
+		CRYPT_SESSINFO_SSH_CHANNEL_WIDTH,
+		ST_NONE, ST_NONE, ST_SESS_SSH_SVR, 
+		MKPERM_SSH_EXT( RWx_xxx ),
+		ROUTE( OBJECT_TYPE_SESSION ), RANGE( 0, 800 ) ),
+	MKACL_END_SUBACL(), MKACL_END_SUBACL()
+	};
+
+static const ATTRIBUTE_ACL subACL_SessinfoSSHChannelHeight[] = {
+	MKACL_N(	/* SSH client: Read/write */
+		CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT,
+		ST_NONE, ST_NONE, ST_SESS_SSH, 
+		MKPERM_SSH_EXT( RWx_RWx ),
+		ROUTE( OBJECT_TYPE_SESSION ), RANGE( 0, 800 ) ),
+	MKACL_N(	/* SSH server: Read-only info from client */
+		CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT,
+		ST_NONE, ST_NONE, ST_SESS_SSH_SVR, 
+		MKPERM_SSH_EXT( RWx_xxx ),
+		ROUTE( OBJECT_TYPE_SESSION ), RANGE( 0, 800 ) ),
+	MKACL_END_SUBACL(), MKACL_END_SUBACL()
+	};
+
 /* Session attributes */
 
 static const ATTRIBUTE_ACL sessionACL[] = {
@@ -3913,6 +3956,25 @@ static const ATTRIBUTE_ACL sessionACL[] = {
 		ST_NONE, ST_NONE, ST_SESS_TSP, 
 		MKPERM_TSP( xWD_xWD ),
 		ROUTE( OBJECT_TYPE_SESSION ), &objectCtxHash ),
+
+	MKACL_ST(	/* SSH client: Read/write */
+		CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL,
+		ST_NONE, ST_NONE, ST_SESS_SSH | ST_SESS_SSH_SVR, 
+		MKPERM_SSH_EXT( RWx_RWx ),
+		ROUTE( OBJECT_TYPE_SESSION ),
+		subACL_SessinfoSSHChannelTerminal ),
+	MKACL_ST(	/* SSH client: Read/write */
+		CRYPT_SESSINFO_SSH_CHANNEL_WIDTH,
+		ST_NONE, ST_NONE, ST_SESS_SSH | ST_SESS_SSH_SVR, 
+		MKPERM_SSH_EXT( RWx_RWx ),
+		ROUTE( OBJECT_TYPE_SESSION ),
+		subACL_SessinfoSSHChannelWidth ),
+	MKACL_ST(	/* SSH client: Read/write */
+		CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT,
+		ST_NONE, ST_NONE, ST_SESS_SSH | ST_SESS_SSH_SVR, 
+		MKPERM_SSH_EXT( RWx_RWx ),
+		ROUTE( OBJECT_TYPE_SESSION ),
+		subACL_SessinfoSSHChannelHeight ),
 
 	MKACL_END(), MKACL_END()
 	};
@@ -4901,7 +4963,7 @@ int initAttributeACL( void )
 	static_assert( CRYPT_CERTINFO_FIRST_EXTENSION == 2200, "Attribute value" );
 	static_assert( CRYPT_CERTINFO_FIRST_CMS == 2500, "Attribute value" );
 	static_assert( CRYPT_SESSINFO_FIRST_SPECIFIC == 6017, "Attribute value" );
-	static_assert( CRYPT_SESSINFO_LAST_SPECIFIC == 6036, "Attribute value" );
+	static_assert( CRYPT_SESSINFO_LAST_SPECIFIC == 6039, "Attribute value" );
 	static_assert( CRYPT_CERTFORMAT_LAST == 13, "Attribute value" );
 
 	/* Perform a consistency check on the attribute ACLs.  The ACLs are

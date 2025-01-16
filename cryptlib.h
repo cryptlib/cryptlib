@@ -1272,6 +1272,11 @@ typedef enum {
 	CRYPT_SESSINFO_TLS_EAPDATA,		/* TLS EAP additional data */
 	CRYPT_SESSINFO_TSP_MSGIMPRINT,	/* TSP message imprint */
 
+	/* Terminal attributes */
+	CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL,	/* TERM string sent to remote */
+	CRYPT_SESSINFO_SSH_CHANNEL_WIDTH,	/* Terminal width */
+	CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT,	/* Terminal height */
+
 	/* Used internally */
 	CRYPT_SESSINFO_LAST, CRYPT_USERINFO_FIRST = 7000,
 
@@ -1433,7 +1438,7 @@ typedef enum {
 	CRYPT_CERTINFO_FIRST_CMS = CRYPT_CERTINFO_CMS_CONTENTTYPE,
 	CRYPT_CERTINFO_LAST_CMS = CRYPT_CERTINFO_LAST - 1,
 	CRYPT_SESSINFO_FIRST_SPECIFIC = CRYPT_SESSINFO_REQUEST,
-	CRYPT_SESSINFO_LAST_SPECIFIC = CRYPT_SESSINFO_TSP_MSGIMPRINT
+	CRYPT_SESSINFO_LAST_SPECIFIC = CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT
 
 	/* Point at which private-use values start.  Attribute values sometimes
 	   need to be extended with additional pseudo-values in object-specific

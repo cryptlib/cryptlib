@@ -541,6 +541,9 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_ARG2 || \
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE || \
 			  type == CRYPT_SESSINFO_SSH_OPTIONS || \
+			  type == CRYPT_SESSINFO_SSH_CHANNEL_WIDTH || \
+			  type == CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT || \
+			  type == CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL || \
 			  type == CRYPT_SESSINFO_SSH_PREAUTH );
 #else
 	REQUIRES( type == CRYPT_SESSINFO_SSH_PREAUTH );
@@ -576,7 +579,9 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 
 	if( type == CRYPT_SESSINFO_SSH_CHANNEL || \
-		type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE )
+		type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE || \
+		type == CRYPT_SESSINFO_SSH_CHANNEL_WIDTH || \
+		type == CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT)
 		{
 		status = getChannelAttribute( sessionInfoPtr, type, data );
 		}
@@ -611,6 +616,9 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_ARG2 || \
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE || \
 			  type == CRYPT_SESSINFO_SSH_OPTIONS || \
+			  type == CRYPT_SESSINFO_SSH_CHANNEL_WIDTH || \
+			  type == CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT || \
+			  type == CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL || \
 			  type == CRYPT_SESSINFO_SSH_PREAUTH );
 #else
 	REQUIRES( type == CRYPT_SESSINFO_SSH_PREAUTH );
@@ -629,7 +637,9 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Get the data value if it's an integer parameter */
 	if( type == CRYPT_SESSINFO_SSH_CHANNEL || \
 		type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE || \
-		type == CRYPT_SESSINFO_SSH_OPTIONS )
+		type == CRYPT_SESSINFO_SSH_OPTIONS || \
+		type == CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT || \
+		type == CRYPT_SESSINFO_SSH_CHANNEL_WIDTH) 
 		value = *( ( int * ) data );
 
 	/* If we're selecting a channel and there's unwritten data from a
@@ -680,7 +690,9 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( closeChannel( sessionInfoPtr, FALSE ) );
 		}
 
-	if( type == CRYPT_SESSINFO_SSH_CHANNEL )
+	if( type == CRYPT_SESSINFO_SSH_CHANNEL || \
+		type == CRYPT_SESSINFO_SSH_CHANNEL_WIDTH || \
+		type == CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT)
 		status = setChannelAttribute( sessionInfoPtr, type, value );
 	else
 		{
