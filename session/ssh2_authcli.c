@@ -597,6 +597,7 @@ static int reportAuthFailure( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   and return some sort of useful information to the caller */
 	if( providedAuthType == SSH_AUTHTYPE_PUBKEY )
 		{
+#if 0
 		if( needsPW )
 			{
 			setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD,
@@ -606,6 +607,7 @@ static int reportAuthFailure( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  "Server requested password authentication but only a "
 					  "public/private key was available" ) );
 			}
+#endif
 		return CRYPT_ENVELOPE_RESOURCE;
 		}
 	if( requiredAuthType == SSH_AUTHTYPE_PUBKEY )
