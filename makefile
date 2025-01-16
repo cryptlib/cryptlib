@@ -1815,7 +1815,7 @@ testlib.o:				cryptlib.h crypt.h test/test.h test/testlib.c
 # than the system tools and libraries for the build, so we special-case this
 # step based on the $(OSNAME) setting supplied to the build script.
 
-$(ALIBNAME):	$(OBJS) $(EXTRAOBJS) $(TESTOBJS)
+$(ALIBNAME):	$(OBJS) $(EXTRAOBJS)
 				@./tools/buildlib.sh $(ALIBNAME) $(OSNAME) $(AR) \
 					$(OBJS) $(EXTRAOBJS)
 
