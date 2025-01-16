@@ -969,6 +969,21 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		sMemDisconnect( &stream );
 
+		if( GET_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_DUMMYUSERAUTH ) )
+		{
+			status = sendResponseSuccess( sessionInfoPtr );
+			if( cryptStatusError( status ) )
+				return( status );
+			CFI_CHECK_UPDATE( "sendResponseSuccess" );
+			ENSURES( CFI_CHECK_SEQUENCE_6( "readAuthPacketSSH2", 
+										   "checkAuthPacketSSH2", 
+										   "checkQueryValidity", "readAuthInfo", 
+										   "findSessionInfoEx",
+										   "sendResponseSuccess" ) );
+			*userAuthInfo = USERAUTH_SUCCESS;
+			return( CRYPT_OK );
+		}
+
 		/* Tell the client which authentication methods can continue */
 		status = sendResponseFailureInfo( sessionInfoPtr, allowPubkeyAuth );
 		if( cryptStatusError( status ) )
