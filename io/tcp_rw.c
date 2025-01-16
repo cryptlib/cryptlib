@@ -20,6 +20,10 @@
 
 #ifdef USE_TCP
 
+#ifndef __WINDOWS__
+#include <poll.h>
+#endif
+
 /****************************************************************************
 *																			*
 *						 		Utility Routines							*
@@ -137,6 +141,7 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 		{ CRYPT_ERROR_OPEN, "unknown" }, { CRYPT_ERROR_OPEN, "unknown" }
 		};
 	MONOTIMER_INFO timerInfo;
+#ifdef __WINDOWS__
 	struct timeval tv;
 	fd_set readfds, writefds, exceptfds;
 	fd_set *readFDPtr = ( type == IOWAIT_READ || \
@@ -144,6 +149,11 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 						  type == IOWAIT_ACCEPT ) ? &readfds : NULL;
 	fd_set *writeFDPtr = ( type == IOWAIT_WRITE || \
 						   type == IOWAIT_CONNECT ) ? &writefds : NULL;
+#else
+	struct pollfd fds;
+	int ptimeout;
+#endif
+
 	LOOP_INDEX selectIterations;
 	int status;
 
@@ -153,26 +163,6 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 	REQUIRES( isIntegerRange( timeout ) );
 	REQUIRES( isBooleanValue( previousDataRead ) );
 	REQUIRES( isEnumRange( type, IOWAIT ) );
-
-	/* Check for overflows in FD_SET().  This is an ugly implementation 
-	   issue in which, for sufficiently badly-implemented FD_SET() macros
-	   (and there are plenty of these around), the macro will just take the 
-	   provided socket descriptor and use it to index the fd_set bitmask.
-	   This occurs for the most common implementations under Unix (BSD) and 
-	   BSD-derived embedded OSes, Windows gets it right and uses a bounds-
-	   checked array.  
-	   
-	   The maximum socket descriptor is normally given by FD_SETSIZE, 
-	   typically 64 under Windows (but we don't have to worry this since it 
-	   does FD_SET() right) and 256 or sometimes 1024 under Unix, however 
-	   this can be increased explicitly using setrlimit() or, from the 
-	   shell, 'ulimit -n 512' to make it 512, which will cause an overflow.  
-	   To deal with this, we reject any socket values less than zero (if 
-	   it's a signed variable) or greater than FD_SETSIZE */
-#ifndef __WINDOWS__ 
-	REQUIRES( netStream->netSocket >= 0 && \
-			  netStream->netSocket <= FD_SETSIZE );
-#endif /* !Windows */
 
 	/* Set up the information needed to handle timeouts and wait on the
 	   socket.  If there's no timeout then we wait 5ms on the theory that it 
@@ -216,6 +206,20 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 	status = setMonoTimer( &timerInfo, timeout );
 	if( cryptStatusError( status ) )
 		return( status );
+
+#ifndef __WINDOWS__
+	fds.fd = netStream->netSocket;
+	fds.events = 0;
+	if (type == IOWAIT_READ || type == IOWAIT_CONNECT || type == IOWAIT_ACCEPT )
+		fds.events |= POLLIN;
+	if (type == IOWAIT_WRITE || type == IOWAIT_CONNECT )
+		fds.events |= POLLOUT;
+	if (timeout <= 0)
+		ptimeout = 5;
+	else
+		ptimeout = timeout * 1000;
+#endif
+
 	LOOP_MED( ( selectIterations = 0, status = SOCKET_ERROR ), \
 			  isSocketError( status ) && \
 				( selectIterations <= 0 || \
@@ -225,6 +229,7 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 		{
 		ENSURES( LOOP_INVARIANT_MED( selectIterations, 0, 19 ) );
 
+#ifdef __WINDOWS__
 		if( readFDPtr != NULL )
 			{
 			FD_ZERO( readFDPtr );
@@ -252,6 +257,10 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 		clearErrorState();
 		status = select( ( int ) netStream->netSocket + 1, readFDPtr, 
 						 writeFDPtr, &exceptfds, &tv );
+#else
+		fds.revents = 0;
+		status = poll(&fds, 1, ptimeout);
+#endif
 
 		/* If there's a problem and it's not something transient like an
 		   interrupted system call, exit.  For a transient problem, we just
@@ -335,7 +344,11 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 	   false and an indicator to receive SIGURG's not set, the OOB data byte 
 	   just languishes in a side-buffer), however we shouldn't be receiving 
 	   OOB data so we treat that as an error too */
+#ifdef __WINDOWS__
 	if( FD_ISSET( netStream->netSocket, &exceptfds ) )
+#else
+	if (fds.revents & (POLLERR | POLLNVAL))
+#endif
 		{
 		int socketErrorCode;
 
@@ -389,6 +402,7 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 
 	/* The socket is read for reading or writing */
 	ENSURES( status > 0 );
+#ifdef __WINDOWS__
 	ENSURES( ( type == IOWAIT_READ && \
 			   FD_ISSET( netStream->netSocket, &readfds ) ) || \
 			 ( type == IOWAIT_WRITE && \
@@ -397,6 +411,13 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 			   ( FD_ISSET( netStream->netSocket, &readfds ) || \
 				 FD_ISSET( netStream->netSocket, &writefds ) ) ) || \
 			 ( type == IOWAIT_ACCEPT ) );
+#else
+	ENSURES( \
+			 ( type == IOWAIT_READ && (fds.revents & POLLIN) ) || \
+			 ( type == IOWAIT_WRITE && (fds.revents & POLLOUT) ) || \
+			 ( type == IOWAIT_CONNECT && (fds.revents & (POLLIN | POLLOUT) ) ) || \
+			 ( type == IOWAIT_ACCEPT ) );
+#endif
 	return( CRYPT_OK );
 	}
 
