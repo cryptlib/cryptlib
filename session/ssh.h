@@ -116,8 +116,8 @@
 #define SSH_ID_SIZE				4	/* Size of SSH ID */
 #define SSH_VERSION_SIZE		4	/* Size of SSH version */
 #define SSH_ID_MAX_SIZE			255	/* Max.size of SSH ID string */
-#define SSH_ID_STRING			"SSH-2.0-cryptlib"	/* cryptlib SSH ID strings */
-#define SSH_ID_STRING_SIZE		16	/* Size of ID strings */
+#define SSH_ID_STRING			"SSH-2.0-cryptlib(SBBS)"	/* cryptlib SSH ID strings */
+#define SSH_ID_STRING_SIZE		22	/* Size of ID strings */
 
 /* SSH packet types.  Note that the keyex (static DH keys), keyex_gex 
    (ephemeral DH keys), and keyex_ecdh (static ECDH keys) message types 
