@@ -3194,7 +3194,7 @@ void unlockMemory( IN_BUFFER( size ) void *address,
 #if defined( _MSC_VER ) && ( _MSC_VER >= 1400 )
   #define PTR_TYPE	INT_PTR 
 #else
-  #define PTR_TYPE	long
+  #define PTR_TYPE	intptr_t
 #endif /* Newer versions of VC++ */
 
 #define getPageStartAddress( address ) \
