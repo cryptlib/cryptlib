@@ -502,6 +502,7 @@ typedef enum {
 	CRYPT_OPTION_INFO_MAJORVERSION,	/* Major release version */
 	CRYPT_OPTION_INFO_MINORVERSION,	/* Minor release version */
 	CRYPT_OPTION_INFO_STEPPING,		/* Release stepping */
+	CRYPT_OPTION_INFO_PATCHES,		/* MD5Sum of patches applied */
 
 	/* Encryption options */
 	CRYPT_OPTION_ENCR_ALGO,			/* Conventional encryption algorithm */

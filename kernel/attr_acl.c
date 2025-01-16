@@ -339,6 +339,12 @@ static const ATTRIBUTE_ACL optionACL[] = {
 		MKPERM( Rxx_Rxx ),
 		ROUTE( OBJECT_TYPE_USER ),
 		RANGE( 1, 50 ) ),
+	MKACL_S(	/* Major release version */
+		CRYPT_OPTION_INFO_PATCHES,
+		ST_NONE, ST_NONE, ST_USER_ANY, 
+		MKPERM( Rxx_Rxx ),
+		ROUTE( OBJECT_TYPE_USER ),
+		RANGE( 32, 32 ) ),
 
 	MKACL_SS(	/* Encryption algorithm */
 		/* We restrict the subrange to disallow the selection of the
