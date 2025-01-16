@@ -468,6 +468,16 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			   close before sending a disconnect message, so we record the
 			   presence of an EOF in the log in case this turns into a 
 			   problem later */
+			/* As it happens, it indicates that the remote will send no
+			   more data (and will NOT send a SSH_MSG_CHANNEL_CLOSE in
+			   response to a close packet).  The OpenSSH sftp client
+			   implements the "exit" and "bye" commands as simply sending
+			   a CHANNEL_EOF and waiting for the other end to close.
+			   We are allowed to continue to send responses, but will never
+			   receive more data. */
+			status = deleteChannel( sessionInfoPtr, channelNo, CHANNEL_READ,
+									TRUE );
+
 			DEBUG_PUTS(( "Processing EOF message" ));
 			return( OK_SPECIAL );
 
