@@ -540,6 +540,7 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_ARG1 || \
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_ARG2 || \
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE || \
+			  type == CRYPT_SESSINFO_SSH_OPTIONS || \
 			  type == CRYPT_SESSINFO_SSH_PREAUTH );
 #else
 	REQUIRES( type == CRYPT_SESSINFO_SSH_PREAUTH );
@@ -561,6 +562,19 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   attributeListPtr->valueLength ) );
 		}
 #ifdef USE_SSH_EXTENDED
+	if( type == CRYPT_SESSINFO_SSH_OPTIONS )
+		{
+			int *valuePtr = ( int * ) data;
+
+			*valuePtr = CRYPT_SSHOPTION_NONE;
+			if( TEST_FLAG( sessionInfoPtr->protocolFlags, 
+						   SSH_PFLAG_DUMMYUSERAUTH ) )
+				*valuePtr |= CRYPT_SSHOPTION_NONE_AUTH;
+
+			return( CRYPT_OK );
+		}
+
+
 	if( type == CRYPT_SESSINFO_SSH_CHANNEL || \
 		type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE )
 		{
@@ -596,6 +610,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_ARG1 || \
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_ARG2 || \
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE || \
+			  type == CRYPT_SESSINFO_SSH_OPTIONS || \
 			  type == CRYPT_SESSINFO_SSH_PREAUTH );
 #else
 	REQUIRES( type == CRYPT_SESSINFO_SSH_PREAUTH );
@@ -613,7 +628,8 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_SSH_EXTENDED
 	/* Get the data value if it's an integer parameter */
 	if( type == CRYPT_SESSINFO_SSH_CHANNEL || \
-		type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE )
+		type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE || \
+		type == CRYPT_SESSINFO_SSH_OPTIONS )
 		value = *( ( int * ) data );
 
 	/* If we're selecting a channel and there's unwritten data from a
@@ -645,6 +661,13 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 
 		return( createChannel( sessionInfoPtr ) );
+		}
+
+	if( type == CRYPT_SESSINFO_SSH_OPTIONS )
+		{
+		if (value & CRYPT_SSHOPTION_NONE_AUTH)
+			SET_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_DUMMYUSERAUTH );
+		return( CRYPT_OK );
 		}
 
 	/* If we 're setting the channel-active attribute, this implicitly
@@ -778,8 +801,6 @@ int setAccessMethodSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		 SESSION_PROTOCOL_FIXEDSIZECREDENTIALS,	/* Flags */
 		SSH_PORT,					/* SSH port */
 		SESSION_NEEDS_USERID |		/* Client attributes */
-			SESSION_NEEDS_PASSWORD | \
-			SESSION_NEEDS_KEYORPASSWORD | \
 			SESSION_NEEDS_PRIVKEYSIGN,
 				/* The client private key is optional, but if present it has
 				   to be signature-capable */

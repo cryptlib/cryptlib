@@ -334,12 +334,21 @@ static int readAuthFailureInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( authType, sizeof( SSH_AUTHTYPE_TYPE ) ) );
 	assert( isWritePtr( furtherAuthRequired, sizeof( BOOLEAN ) ) );
 
-	REQUIRES( isShortIntegerRangeNZ( length ) );
 	REQUIRES( isBooleanValue( usedPasswordAuth ) );
 
 	/* Clear return values */
 	*authType = SSH_AUTHTYPE_NONE;
 	*furtherAuthRequired = FALSE;
+
+	if (length == 0 && GET_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_DUMMYUSERAUTH ) && !usedPasswordAuth)
+		{
+		CLEAR_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_DUMMYUSERAUTH );
+		*furtherAuthRequired = TRUE;
+		*authType = SSH_AUTHTYPE_PASSWORD;
+		return( CRYPT_OK );
+		}
+
+	REQUIRES( isShortIntegerRangeNZ( length ) );
 
 	/* Before we can try and interpret the response, we have to check for an
 	   empty response */
@@ -671,6 +680,8 @@ static int sendAuthRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								  SSH_MSG_USERAUTH_REQUEST );
 	if( cryptStatusError( status ) )
 		return( status );
+	if (passwordPtr == NULL && GET_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_DUMMYUSERAUTH ))
+		return( OK_SPECIAL );
 	if( usePasswordAuth )
 		{
 		/*	byte	type = SSH_MSG_USERAUTH_REQUEST
@@ -1255,6 +1266,11 @@ int processClientAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   auth required */
 	if( !hasPassword )
 		{
+		if (length == 0)
+			{
+			return( reportAuthFailure( sessionInfoPtr, SSH_AUTHTYPE_PASSWORD, 
+									   requiredAuthType, TRUE ) );
+			}
 		return( reportAuthFailure( sessionInfoPtr, SSH_AUTHTYPE_PUBKEY, 
 								   requiredAuthType, TRUE ) );
 		}

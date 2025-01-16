@@ -1262,6 +1262,7 @@ typedef enum {
 	CRYPT_SESSINFO_SSH_CHANNEL_ARG2,/* SSH channel argument 2 */
 	CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE,/* SSH channel active */
 	CRYPT_SESSINFO_SSH_PREAUTH,		/* SSH pre-authentication value */
+	CRYPT_SESSINFO_SSH_OPTIONS,		/* SSH protocol options */
 	CRYPT_SESSINFO_TLS_OPTIONS,		/* SSL/TLS protocol options */
 		CRYPT_SESSINFO_SSL_OPTIONS = CRYPT_SESSINFO_TLS_OPTIONS,
 	CRYPT_SESSINFO_TLS_SUBPROTOCOL,	/* SSL/TLS additional sub-protocol */
@@ -1758,6 +1759,14 @@ typedef enum {
 #define CRYPT_TLSOPTION_SUITEB_256			0x200	/*  vanish in future releases) */
 #ifdef _CRYPT_DEFINED
 #define CRYPT_TLSOPTION_MAX					0x07F	/* Defines for range checking */
+#endif /* _CRYPT_DEFINED */
+
+/* SSH protocol options. */
+
+#define CRYPT_SSHOPTION_NONE				0x000
+#define CRYPT_SSHOPTION_NONE_AUTH			0x001	/* Try none authentication */
+#ifdef _CRYPT_DEFINED
+#define CRYPT_SSHOPTION_MAX					0x01	/* Defines for range checking */
 #endif /* _CRYPT_DEFINED */
 
 /****************************************************************************

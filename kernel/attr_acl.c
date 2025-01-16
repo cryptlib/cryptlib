@@ -3866,6 +3866,12 @@ static const ATTRIBUTE_ACL sessionACL[] = {
 		ST_NONE, ST_NONE, ST_SESS_SSH | ST_SESS_SSH_SVR, 
 		MKPERM_SSH( Rxx_RWD ),
 		ROUTE( OBJECT_TYPE_SESSION ), RANGE( 2, CRYPT_MAX_TEXTSIZE ) ),
+	MKACL_N(	/* SSH protocol options */
+		CRYPT_SESSINFO_SSH_OPTIONS,
+		ST_NONE, ST_NONE, ST_SESS_SSH, 
+		MKPERM_SESSIONS( Rxx_RWx ),
+		ROUTE( OBJECT_TYPE_SESSION ),
+		RANGE( CRYPT_SSHOPTION_NONE, CRYPT_SSHOPTION_MAX ) ),
 
 	MKACL_N(	/* TLS protocol options */
 		CRYPT_SESSINFO_TLS_OPTIONS,
@@ -4895,7 +4901,7 @@ int initAttributeACL( void )
 	static_assert( CRYPT_CERTINFO_FIRST_EXTENSION == 2200, "Attribute value" );
 	static_assert( CRYPT_CERTINFO_FIRST_CMS == 2500, "Attribute value" );
 	static_assert( CRYPT_SESSINFO_FIRST_SPECIFIC == 6017, "Attribute value" );
-	static_assert( CRYPT_SESSINFO_LAST_SPECIFIC == 6035, "Attribute value" );
+	static_assert( CRYPT_SESSINFO_LAST_SPECIFIC == 6036, "Attribute value" );
 	static_assert( CRYPT_CERTFORMAT_LAST == 13, "Attribute value" );
 
 	/* Perform a consistency check on the attribute ACLs.  The ACLs are
