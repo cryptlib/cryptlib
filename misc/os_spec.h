@@ -1168,10 +1168,12 @@ int ptr_diff( const void *ptr1, const void *ptr2 );
   #endif /* OpenBSD safe string functions */
 
   /* Widechar functions */
+#if (!defined(__GNUC__)) || (__GNUC__ < 5) || (!defined(__MINGW32__))
   int mbstowcs_s( size_t *retval, wchar_t *dst, size_t dstmax, 
 				  const char *src, size_t len );
   int wcstombs_s( size_t *retval, char *dst, size_t dstmax, 
 				  const wchar_t *src, size_t len );
+#endif
   #if defined( USE_EMBEDDED_OS )
     /* Support for the thread-safe mbtowc() is practially nonexistent in
 	   embedded OSes, but in any case is unlikely to be necessary since

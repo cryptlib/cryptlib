@@ -475,6 +475,7 @@ char *sanitiseString( INOUT_BUFFER( strMaxLen, strLen ) void *string,
 ****************************************************************************/
 
 #ifndef __STDC_LIB_EXT1__
+#if (!defined(__GNUC__)) || (__GNUC__ < 5) || (!defined(__MINGW32__))
 
 /* Minimal wrappers for the TR 24731 functions to map them to older stdlib 
    equivalents.  Because of potential issues when comparing a (signed)
@@ -532,6 +533,7 @@ int wcstombs_s( OUT_PTR size_t *retval,
 	*retval = bytesCopied;
 	return( 0 );
 	}
+#endif
 #endif /* !__STDC_LIB_EXT1__ */
 
 /****************************************************************************
