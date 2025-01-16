@@ -988,234 +988,241 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( sanityCheckSSHHandshakeInfo( handshakeInfo ) );
 
-	/* Set up the security information required for the session */
-	status = initSecurityInfo( sessionInfoPtr, handshakeInfo );
-	if( cryptStatusError( status ) )
-		return( status );
-	CFI_CHECK_UPDATE( "initSecurityInfo" );
-
-	/* Build our change cipherspec message and request authentication with
-	   the server:
-
-		byte	type = SSH_MSG_NEWKEYS
-		...
-
-	   After this point the write channel is in the secure state, so we 
-	   switch from wrapPlaintextPacketSSH2() to wrapPacketSSH2() */
-	status = openPacketStreamSSH( &stream, sessionInfoPtr, SSH_MSG_NEWKEYS );
-	if( cryptStatusError( status ) )
-		return( status );
-	status = wrapPlaintextPacketSSH2( sessionInfoPtr, &stream, 0 );
-	if( cryptStatusError( status ) )
+	if( !TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_PARTIALOPEN ) )
 		{
-		sMemDisconnect( &stream );
-		return( status );
-		}
-	SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE );
-	CFI_CHECK_UPDATE( "SSH_MSG_NEWKEYS" );
+		/* Set up the security information required for the session */
+		status = initSecurityInfo( sessionInfoPtr, handshakeInfo );
+		if( cryptStatusError( status ) )
+			return( status );
+		CFI_CHECK_UPDATE( "initSecurityInfo" );
+
+		/* Build our change cipherspec message and request authentication with
+		   the server:
+
+			byte	type = SSH_MSG_NEWKEYS
+			...
+
+		   After this point the write channel is in the secure state, so we 
+		   switch from wrapPlaintextPacketSSH2() to wrapPacketSSH2() */
+		status = openPacketStreamSSH( &stream, sessionInfoPtr, SSH_MSG_NEWKEYS );
+		if( cryptStatusError( status ) )
+			return( status );
+		status = wrapPlaintextPacketSSH2( sessionInfoPtr, &stream, 0 );
+		if( cryptStatusError( status ) )
+			{
+			sMemDisconnect( &stream );
+			return( status );
+			}
+		SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE );
+		CFI_CHECK_UPDATE( "SSH_MSG_NEWKEYS" );
 
 #if 0
-	/*   byte       SSH_MSG_EXT_INFO
-	     uint32     nr-extensions
-	       string   extension-name
-	       string   extension-value (binary) */
-	if( !TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_NOEXTINFO ) )
-		{
-		status = continuePacketStreamSSH( &stream, SSH_MSG_EXT_INFO, 
+		/*   byte       SSH_MSG_EXT_INFO
+		     uint32     nr-extensions
+		       string   extension-name
+		       string   extension-value (binary) */
+		if( !TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_NOEXTINFO ) )
+			{
+			status = continuePacketStreamSSH( &stream, SSH_MSG_EXT_INFO, 
+											  &packetOffset );
+			if( cryptStatusOK( status ) )
+				{
+				writeUint32( &stream, 1 );
+				writeString32( &stream, "global-requests-ok", 18 );
+				status = writeUint32( &stream, 0 );
+				}
+			if( cryptStatusOK( status ) )
+				{
+				status = wrapPacketSSH2( sessionInfoPtr, &stream, packetOffset, 
+										 FALSE );
+				}
+			}
+#endif /* Test handling of trigger for global request after authentication */ 
+
+		/*	...
+			byte	type = SSH_MSG_SERVICE_REQUEST
+			string	service_name = "ssh-userauth".
+			
+		   For some reason SSH requires the use of two authentication messages, 
+		   an "I'm about to authenticate" packet and an "I'm authenticating" 
+		   packet, so we have to perform the authentication in two parts (dum 
+		   loquimur, fugerit invida aetas) */
+		status = continuePacketStreamSSH( &stream, SSH_MSG_SERVICE_REQUEST,
 										  &packetOffset );
 		if( cryptStatusOK( status ) )
-			{
-			writeUint32( &stream, 1 );
-			writeString32( &stream, "global-requests-ok", 18 );
-			status = writeUint32( &stream, 0 );
-			}
+			status = writeString32( &stream, "ssh-userauth", 12 );
 		if( cryptStatusOK( status ) )
 			{
 			status = wrapPacketSSH2( sessionInfoPtr, &stream, packetOffset, 
 									 FALSE );
 			}
-		}
-#endif /* Test handling of trigger for global request after authentication */ 
-
-	/*	...
-		byte	type = SSH_MSG_SERVICE_REQUEST
-		string	service_name = "ssh-userauth".
-		
-	   For some reason SSH requires the use of two authentication messages, 
-	   an "I'm about to authenticate" packet and an "I'm authenticating" 
-	   packet, so we have to perform the authentication in two parts (dum 
-	   loquimur, fugerit invida aetas) */
-	status = continuePacketStreamSSH( &stream, SSH_MSG_SERVICE_REQUEST,
-									  &packetOffset );
-	if( cryptStatusOK( status ) )
-		status = writeString32( &stream, "ssh-userauth", 12 );
-	if( cryptStatusOK( status ) )
-		{
-		status = wrapPacketSSH2( sessionInfoPtr, &stream, packetOffset, 
-								 FALSE );
-		}
-	if( cryptStatusError( status ) )
-		{
-		sMemDisconnect( &stream );
-		return( status );
-		}
-	CFI_CHECK_UPDATE( "SSH_MSG_SERVICE_REQUEST" );
-
-	/* Send the whole mess to the server.  This is yet another place where 
-	   the SSH spec's vagueness over message ordering causes problems.  TLS 
-	   at this point uses a Finished message in which the client and server 
-	   do a mutual proof-of-possession of encryption and MAC keys via a 
-	   pipeline-stalling message that prevents any further (sensitive) data 
-	   from being exchanged until the PoP has concluded (the TLS Finished 
-	   also authenticates the handshake messages) but SSH doesn't have any
-	   such requirements.  The signed exchange hash from the server proves 
-	   to the client that the server knows the master secret but not 
-	   necessarily that the client and server share encryption and MAC keys.  
-	   Without this mutual PoP the client could potentially end up sending 
-	   passwords to the server using an incorrect (and potentially weak) key 
-	   if it's messed up and derived the key incorrectly.  Although mutual 
-	   PoP isn't a design goal of the SSH handshake we do it anyway (as far 
-	   as we can without a proper Finished message), although this 
-	   introduces a pipeline stall at this point.
-	   
-	   In addition because of the aforementioned ambiguity over message 
-	   ordering we have to send our change cipherspec first because some 
-	   implementations will stop and wait before they send their one, so if 
-	   they don't see our one first they lock up.  To make this even more 
-	   entertaining these are typically older ssh.com implementations with a 
-	   whole smorgasbord of handshaking and crypto bugs, because of the lack 
-	   of PoP and the fact that we have to send the first encrypted/MACd
-	   message, encountering any of these bugs results in garbage from the
-	   server followed by a closed connection with no ability to diagnose 
-	   the problem.
-
-	   Complicating things even further is the fact that the SSH extension
-	   request is sent immediately after the change cipherspec, before
-	   receiving confirmation that that crypto has been correctly set up.
-	   This is because of some vague desire to provide for the insertion
-	   of extensions before the userauth is performed in case there's a 
-	   need to exchange extensions that may affect the authentication 
-	   process.  What this applies to in practice is "server-sig-algs",
-	   which defines the algorithms that the server will accept for 
-	   "publickey"-format userauth.
-
-	   The spec in fact says that after a key exchange with implicit server 
-	   authentication the client has to wait for the server to send a 
-	   service-accept packet before continuing, however it never explains 
-	   what implicit (and, by extension, explicit) server authentication 
-	   actually are.  This text is a leftover from an extremely early SSH 
-	   draft in which the only keyex mechanism was "double-encrypting-sha", 
-	   a mechanism that required a pipeline stall at this point because the 
-	   client wasn't able to authenticate the server until it received the 
-	   first encrypted/MAC'ed message from it.  To extricate ourselves from 
-	   the confusion due to the missing definition we could define "implicit 
-	   authentication" to be "Something completely different from what we're 
-	   doing here" which means that we could send the two packets together 
-	   without having to wait for the server, but it's probably better to 
-	   use TLS-tyle Finished semantics at this point even if it adds an 
-	   extra RTT delay */
-	status = sendPacketSSH2( sessionInfoPtr, &stream );
-	sMemDisconnect( &stream );
-	if( cryptStatusError( status ) )
-		return( status );
-
-	/* Wait for the server's change cipherspec message.  From this point
-	   on the read channel is also in the secure state */
-	status = readHSPacketSSH2( sessionInfoPtr, SSH_MSG_NEWKEYS, ID_SIZE );
-	if( cryptStatusError( status ) )
-		return( status );
-	SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_READ );
-	CFI_CHECK_UPDATE( "readHSPacketSSH2" );
-
-	/* Wait for the server's service-accept message that should follow in
-	   response to the service request sent after out change cipherspec.  
-	   Some buggy versions send an empty service-accept packet so we only 
-	   check the contents if it's a correctly-formatted packet */
-	if( TEST_FLAG( sessionInfoPtr->protocolFlags, 
-				   SSH_PFLAG_EMPTYSVCACCEPT ) )
-		{
-		/* It's a buggy implementation, just check for the presence of a 
-		   packet without looking at the contents */
-		status = readHSPacketSSH2( sessionInfoPtr, SSH_MSG_SERVICE_ACCEPT, 
-								   ID_SIZE );
 		if( cryptStatusError( status ) )
 			{
-			/* This is the first message after the change cipherspec, a 
-			   basic packet format error is more likely to be due to an 
-			   incorrect key than an actual format error */
-			retExtErr( CRYPT_ERROR_WRONGKEY,
-					   ( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
-						 SESSION_ERRINFO, 
-						 "Invalid packet data for SSH_MSG_SERVICE_ACCEPT, "
-						 "probably due to incorrect encryption keys being "
-						 "negotiated during the handshake" ) );
-			}
-		}
-	else
-		{
-		int length;
-
-		/* Check the service-accept packet:
-
-			byte	type = SSH_MSG_SERVICE_ACCEPT
-			string	service_name = "ssh-userauth".
-			
-		   This may also be an extension info packet if the server is using 
-		   extensions: 
-		   
-			byte		type = SSH_MSG_EXT_INFO
-			uint32		no_extensions
-				string	name
-				string	value (binary data) */
-		status = length = \
-			readHSPacketSSH2( sessionInfoPtr, SSH_MSG_SPECIAL_SERVICEACCEPT,
-							  ID_SIZE + UINT32_SIZE );
-		if( cryptStatusError( status ) )
-			{
-			/* This is the first message after the change cipherspec, a 
-			   basic packet format error is more likely to be due to an 
-			   incorrect key than an actual format error */
-			retExtErr( CRYPT_ERROR_WRONGKEY,
-					   ( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
-						 SESSION_ERRINFO, 
-						 "Invalid packet data for SSH_MSG_SERVICE_ACCEPT, "
-						 "probably due to incorrect encryption keys being "
-						 "negotiated during the handshake" ) );
-			}
-#ifdef USE_SSH_EXTENDED
-		if( sessionInfoPtr->sessionSSH->packetType == SSH_MSG_EXT_INFO )
-			{
-			/* The server sent extension information, process it */
-			sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
-			status = readExtensionsSSH( sessionInfoPtr, &stream );
 			sMemDisconnect( &stream );
-			if( cryptStatusError( status ) )
-				return( status );
+			return( status );
+			}
+		CFI_CHECK_UPDATE( "SSH_MSG_SERVICE_REQUEST" );
 
-			/* Retry the service-accept read */
-			status = length = \
-				readHSPacketSSH2( sessionInfoPtr, SSH_MSG_SERVICE_ACCEPT,
-								  ID_SIZE + sizeofString32( 8 ) );
-			if( cryptStatusError( status ) )
-				return( status );
-			}
-#endif /* USE_SSH_EXTENDED */
-		sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
-		status = readString32( &stream, stringBuffer, CRYPT_MAX_TEXTSIZE,
-							   &stringLength );
+		/* Send the whole mess to the server.  This is yet another place where 
+		   the SSH spec's vagueness over message ordering causes problems.  TLS 
+		   at this point uses a Finished message in which the client and server 
+		   do a mutual proof-of-possession of encryption and MAC keys via a 
+		   pipeline-stalling message that prevents any further (sensitive) data 
+		   from being exchanged until the PoP has concluded (the TLS Finished 
+		   also authenticates the handshake messages) but SSH doesn't have any
+		   such requirements.  The signed exchange hash from the server proves 
+		   to the client that the server knows the master secret but not 
+		   necessarily that the client and server share encryption and MAC keys.  
+		   Without this mutual PoP the client could potentially end up sending 
+		   passwords to the server using an incorrect (and potentially weak) key 
+		   if it's messed up and derived the key incorrectly.  Although mutual 
+		   PoP isn't a design goal of the SSH handshake we do it anyway (as far 
+		   as we can without a proper Finished message), although this 
+		   introduces a pipeline stall at this point.
+		   
+		   In addition because of the aforementioned ambiguity over message 
+		   ordering we have to send our change cipherspec first because some 
+		   implementations will stop and wait before they send their one, so if 
+		   they don't see our one first they lock up.  To make this even more 
+		   entertaining these are typically older ssh.com implementations with a 
+		   whole smorgasbord of handshaking and crypto bugs, because of the lack 
+		   of PoP and the fact that we have to send the first encrypted/MACd
+		   message, encountering any of these bugs results in garbage from the
+		   server followed by a closed connection with no ability to diagnose 
+		   the problem.
+
+		   Complicating things even further is the fact that the SSH extension
+		   request is sent immediately after the change cipherspec, before
+		   receiving confirmation that that crypto has been correctly set up.
+		   This is because of some vague desire to provide for the insertion
+		   of extensions before the userauth is performed in case there's a 
+		   need to exchange extensions that may affect the authentication 
+		   process.  What this applies to in practice is "server-sig-algs",
+		   which defines the algorithms that the server will accept for 
+		   "publickey"-format userauth.
+
+		   The spec in fact says that after a key exchange with implicit server 
+		   authentication the client has to wait for the server to send a 
+		   service-accept packet before continuing, however it never explains 
+		   what implicit (and, by extension, explicit) server authentication 
+		   actually are.  This text is a leftover from an extremely early SSH 
+		   draft in which the only keyex mechanism was "double-encrypting-sha", 
+		   a mechanism that required a pipeline stall at this point because the 
+		   client wasn't able to authenticate the server until it received the 
+		   first encrypted/MAC'ed message from it.  To extricate ourselves from 
+		   the confusion due to the missing definition we could define "implicit 
+		   authentication" to be "Something completely different from what we're 
+		   doing here" which means that we could send the two packets together 
+		   without having to wait for the server, but it's probably better to 
+		   use TLS-tyle Finished semantics at this point even if it adds an 
+		   extra RTT delay */
+		status = sendPacketSSH2( sessionInfoPtr, &stream );
 		sMemDisconnect( &stream );
-		if( cryptStatusError( status ) || \
-			stringLength != 12 || \
-			memcmp( stringBuffer, "ssh-userauth", 12 ) )
+		if( cryptStatusError( status ) )
+			return( status );
+
+		/* Wait for the server's change cipherspec message.  From this point
+		   on the read channel is also in the secure state */
+		status = readHSPacketSSH2( sessionInfoPtr, SSH_MSG_NEWKEYS, ID_SIZE );
+		if( cryptStatusError( status ) )
+			return( status );
+		SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_READ );
+		CFI_CHECK_UPDATE( "readHSPacketSSH2" );
+
+		/* Wait for the server's service-accept message that should follow in
+		   response to the service request sent after out change cipherspec.  
+		   Some buggy versions send an empty service-accept packet so we only 
+		   check the contents if it's a correctly-formatted packet */
+		if( TEST_FLAG( sessionInfoPtr->protocolFlags, 
+					   SSH_PFLAG_EMPTYSVCACCEPT ) )
 			{
-			/* More of a sanity check than anything else, the MAC should 
-			   have caught any keying problems */
-			retExt( CRYPT_ERROR_BADDATA,
-					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-					  "Invalid service accept packet" ) );
+			/* It's a buggy implementation, just check for the presence of a 
+			   packet without looking at the contents */
+			status = readHSPacketSSH2( sessionInfoPtr, SSH_MSG_SERVICE_ACCEPT, 
+									   ID_SIZE );
+			if( cryptStatusError( status ) )
+				{
+				/* This is the first message after the change cipherspec, a 
+				   basic packet format error is more likely to be due to an 
+				   incorrect key than an actual format error */
+				retExtErr( CRYPT_ERROR_WRONGKEY,
+						   ( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
+							 SESSION_ERRINFO, 
+							 "Invalid packet data for SSH_MSG_SERVICE_ACCEPT, "
+							 "probably due to incorrect encryption keys being "
+							 "negotiated during the handshake" ) );
+				}
 			}
+		else
+			{
+			int length;
+
+			/* Check the service-accept packet:
+
+				byte	type = SSH_MSG_SERVICE_ACCEPT
+				string	service_name = "ssh-userauth".
+				
+			   This may also be an extension info packet if the server is using 
+			   extensions: 
+			   
+				byte		type = SSH_MSG_EXT_INFO
+				uint32		no_extensions
+					string	name
+					string	value (binary data) */
+			status = length = \
+				readHSPacketSSH2( sessionInfoPtr, SSH_MSG_SPECIAL_SERVICEACCEPT,
+								  ID_SIZE + UINT32_SIZE );
+			if( cryptStatusError( status ) )
+				{
+				/* This is the first message after the change cipherspec, a 
+				   basic packet format error is more likely to be due to an 
+				   incorrect key than an actual format error */
+				retExtErr( CRYPT_ERROR_WRONGKEY,
+						   ( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
+							 SESSION_ERRINFO, 
+							 "Invalid packet data for SSH_MSG_SERVICE_ACCEPT, "
+							 "probably due to incorrect encryption keys being "
+							 "negotiated during the handshake" ) );
+				}
+#ifdef USE_SSH_EXTENDED
+			if( sessionInfoPtr->sessionSSH->packetType == SSH_MSG_EXT_INFO )
+				{
+				/* The server sent extension information, process it */
+				sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
+				status = readExtensionsSSH( sessionInfoPtr, &stream );
+				sMemDisconnect( &stream );
+				if( cryptStatusError( status ) )
+					return( status );
+
+				/* Retry the service-accept read */
+				status = length = \
+					readHSPacketSSH2( sessionInfoPtr, SSH_MSG_SERVICE_ACCEPT,
+									  ID_SIZE + sizeofString32( 8 ) );
+				if( cryptStatusError( status ) )
+					return( status );
+				}
+#endif /* USE_SSH_EXTENDED */
+			sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
+			status = readString32( &stream, stringBuffer, CRYPT_MAX_TEXTSIZE,
+								   &stringLength );
+			sMemDisconnect( &stream );
+			if( cryptStatusError( status ) || \
+				stringLength != 12 || \
+				memcmp( stringBuffer, "ssh-userauth", 12 ) )
+				{
+				/* More of a sanity check than anything else, the MAC should 
+				   have caught any keying problems */
+				retExt( CRYPT_ERROR_BADDATA,
+						( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+						  "Invalid service accept packet" ) );
+				}
+			}
+		CFI_CHECK_UPDATE( "serviceAccept" );
+		REQUIRES( CFI_CHECK_SEQUENCE_5( "initSecurityInfo", "SSH_MSG_NEWKEYS",
+										"SSH_MSG_SERVICE_REQUEST",
+										"readHSPacketSSH2", "serviceAccept") );
+		CFI_CHECK_VALUE = CFI_CHECK_INIT;
 		}
-	CFI_CHECK_UPDATE( "serviceAccept" );
 
 	/* Try and authenticate ourselves to the server */
 	status = processClientAuth( sessionInfoPtr, handshakeInfo );
@@ -1240,10 +1247,7 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 	CFI_CHECK_UPDATE( "sendChannelOpen" );
 
-	ENSURES( CFI_CHECK_SEQUENCE_7( "initSecurityInfo", "SSH_MSG_NEWKEYS",
-								   "SSH_MSG_SERVICE_REQUEST", 
-								   "readHSPacketSSH2", "serviceAccept",
-								   "processClientAuth", 
+	ENSURES( CFI_CHECK_SEQUENCE_2( "processClientAuth", 
 								   "sendChannelOpen" ) );
 	return( CRYPT_OK );
 #else	/* Test handling of OpenSSH "no-more-sessions@openssh.com" */

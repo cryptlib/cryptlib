@@ -606,9 +606,7 @@ static int reportAuthFailure( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  "Server requested password authentication but only a "
 					  "public/private key was available" ) );
 			}
-		retExt( CRYPT_ERROR_WRONGKEY,
-				( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
-				  "Server reported: Invalid public-key authentication" ) );
+		return CRYPT_ENVELOPE_RESOURCE;
 		}
 	if( requiredAuthType == SSH_AUTHTYPE_PUBKEY )
 		{

@@ -3779,7 +3779,7 @@ static const ATTRIBUTE_ACL sessionACL[] = {
 		subACL_SessinfoKeyset ),
 	MKACL_SL(	/* Session authorisation OK */
 		CRYPT_SESSINFO_AUTHRESPONSE, 
-		ST_NONE, ST_NONE, ST_SESS_TLS | ST_SESS_TLS_SVR | ST_SESS_SSH_SVR, 
+		ST_NONE, ST_NONE, ST_SESS_TLS | ST_SESS_TLS_SVR | ST_SESS_SSH | ST_SESS_SSH_SVR, 
 		MKPERM_SESSIONS( RWx_RWx ), 
 		ROUTE( OBJECT_TYPE_SESSION ),
 		allowedAuthResponses ),

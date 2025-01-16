@@ -403,6 +403,18 @@ static int completeStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 
+	/* If we're completing a handshake that was interrupted while we got
+	   confirmation of the client auth, skip the initial handshake stages
+	   and go straight to the handshake completion stage */
+	if( (!isServer(sessionInfoPtr)) && TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_PARTIALOPEN ) )
+		{
+		SSH_HANDSHAKE_INFO handshakeInfo;
+
+		initHandshakeInfo( &handshakeInfo );
+		initSSH2clientProcessing( &handshakeInfo );
+		return( completeHandshake( sessionInfoPtr, &handshakeInfo ) );
+		}
+
 	shutdownFunction = ( SES_SHUTDOWN_FUNCTION ) \
 					   FNPTR_GET( sessionInfoPtr->shutdownFunction );
 	REQUIRES( shutdownFunction != NULL );

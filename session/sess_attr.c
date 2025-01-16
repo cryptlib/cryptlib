@@ -442,6 +442,7 @@ static int addCredential( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			   back out of, and leads to exceptions to exceptions, so we 
 			   keep it simple and only allow passwords to be added if 
 			   there's an immediately preceding username */
+#if 0
 			if( cryptStatusError( status ) )
 				{
 				return( exitErrorNotInited( sessionInfoPtr, 
@@ -455,6 +456,7 @@ static int addCredential( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				return( exitErrorNotInited( sessionInfoPtr, 
 											CRYPT_SESSINFO_USERNAME ) );
 				}
+#endif
 
 			break;
 
