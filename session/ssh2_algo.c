@@ -849,6 +849,7 @@ int writeAlgoList( INOUT_PTR STREAM *stream,
 
 		/* Make sure that any required sub-algorithms are available */
 		if( algoStringInfo->subAlgo != CRYPT_ALGO_NONE && \
+			algoStringInfo->subAlgo != CRYPT_MODE_ECB && \
 			!algoAvailable( algoStringInfo->subAlgo ) )
 			continue;
 
