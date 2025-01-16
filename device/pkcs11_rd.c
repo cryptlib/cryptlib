@@ -157,7 +157,8 @@ static int getObjectLabel( INOUT_PTR PKCS11_INFO *pkcs11Info,
 						   OUT_LENGTH_BOUNDED_Z( maxLabelSize ) \
 								int *labelLength )
 	{
-	char labelBuffer[ CRYPT_MAX_TEXTSIZE + 8 ], *localLabel;
+	char labelBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
+	void *localLabel;
 	int localLabelLength, cryptStatus;
 
 	assert( isWritePtr( pkcs11Info, sizeof( PKCS11_INFO ) ) );
@@ -404,7 +405,8 @@ int getEccCurveInfo( INOUT_PTR PKCS11_INFO *pkcs11Info,
 					 INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	STREAM stream;
-	BYTE ecOidBuffer[ MAX_OID_SIZE + 8 ], *ecOid;
+	BYTE ecOidBuffer[ MAX_OID_SIZE + 8 ];
+	void *ecOid;
 	int ecOidLength, cryptStatus;
 
 	assert( isWritePtr( curveType, sizeof( CRYPT_ECCCURVE_TYPE ) ) );
@@ -622,7 +624,8 @@ static int instantiateCert( INOUT_PTR PKCS11_INFO *pkcs11Info,
 							INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	MESSAGE_CREATEOBJECT_INFO createInfo;
-	BYTE buffer[ MAX_STACK_BUFFER_SIZE + 8 ], *bufPtr;
+	BYTE buffer[ MAX_STACK_BUFFER_SIZE + 8 ];
+	void *bufPtr;
 	int length, cryptStatus;
 
 	assert( isWritePtr( pkcs11Info, sizeof( PKCS11_INFO ) ) );
@@ -837,7 +840,8 @@ int findObjectFromObject( INOUT_PTR PKCS11_INFO *pkcs11Info,
 		{ CKA_CLASS, ( CK_VOID_PTR ) &objectClass, sizeof( CK_OBJECT_CLASS ) },
 		{ CKA_ID, NULL_PTR, 0 }
 		};
-	BYTE buffer[ MAX_STACK_BUFFER_SIZE + 8 ], *bufPtr;
+	BYTE buffer[ MAX_STACK_BUFFER_SIZE + 8 ];
+	void *bufPtr;
 	int length, cryptStatus;
 
 	assert( isWritePtr( pkcs11Info, sizeof( PKCS11_INFO ) ) );
@@ -1048,7 +1052,8 @@ static int findCertFromObject( INOUT_PTR PKCS11_INFO *pkcs11Info,
 									const FINDCERT_ACTION_TYPE findAction,
 							   INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	BYTE buffer[ MAX_STACK_BUFFER_SIZE + 8 ], *bufPtr;
+	BYTE buffer[ MAX_STACK_BUFFER_SIZE + 8 ];
+	void *bufPtr;
 	int length, cryptStatus;
 
 	assert( isWritePtr( pkcs11Info, sizeof( PKCS11_INFO ) ) );
