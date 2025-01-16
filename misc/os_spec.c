@@ -1235,7 +1235,7 @@ HMODULE WINAPI SafeLoadLibrary( IN_STRING LPCTSTR lpFileName )
 #if VC_GE_2005( _MSC_VER )
   #pragma warning( push )
   #pragma warning( disable : 4255 )	/* Errors in VersionHelpers.h */
-  #include <VersionHelpers.h>
+  #include <versionhelpers.h>
   #pragma warning( pop )
 #endif /* VC++ >= 2005 */
 

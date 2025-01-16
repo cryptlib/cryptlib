@@ -6012,7 +6012,7 @@ void fileErase( IN_STRING const char *fileName )
 #if VC_GE_2005( _MSC_VER )
   #pragma warning( push )
   #pragma warning( disable : 4255 )	/* Errors in VersionHelpers.h */
-  #include <VersionHelpers.h>
+  #include <versionhelpers.h>
   #pragma warning( pop )
 #endif /* VC++ >= 2005 */
 #ifdef __WIN64__
