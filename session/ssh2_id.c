@@ -919,7 +919,7 @@ int readSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		versionStringLength = length - startOffset;
 		}
 	if( cryptStatusError( status ) || \
-		!isShortIntegerRangeMin( versionStringLength, 3 ) )
+		!isShortIntegerRangeMin( versionStringLength, 2 ) )
 		{
 		/* We need at least "-x.y" after the initial ID string, we can't 
 		   require any more than this because of CuteFTP (see note below).
