@@ -3712,7 +3712,7 @@ INT8U threadSelf( void );
 #if defined( __WIN32__ )
   #define THREADFUNC_DEFINE( name, arg ) \
 				unsigned __stdcall name( void *arg )
-  #if defined( _MSC_VER ) && VC_GE_2005( _MSC_VER )
+  #if (defined( _MSC_VER ) && VC_GE_2005( _MSC_VER )) || defined(__MINGW64_VERSION_MAJOR)
 	#define THREAD_CREATE( function, arg, threadHandle, syncHandle, status ) \
 				{ \
 				uintptr_t hThread; \
