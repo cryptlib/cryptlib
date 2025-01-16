@@ -61,6 +61,9 @@
   /* Handled by undefining USE_ERRMSGS at the end */
 #endif /* CONFIG_TEST_xxx options */
 
+#define USE_PROBLEMATIC_ALGORITHMS
+#define USE_SSH_EXTENDED
+#define USE_CERTLEVEL_STANDARD
 /****************************************************************************
 *																			*
 *						Custom Configuration Profiles						*
