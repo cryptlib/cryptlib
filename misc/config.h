@@ -66,6 +66,7 @@
 #define USE_CERTLEVEL_STANDARD
 #define PREFER_ECC
 #define USE_SSH_CTR
+#define CONFIG_NUM_OBJECTS 16384
 /****************************************************************************
 *																			*
 *						Custom Configuration Profiles						*
