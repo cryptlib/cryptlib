@@ -743,16 +743,16 @@ fi
 # assembled with ar without any linker involvement, so only the final binary
 # that it's linked with can specify -pie.
 
-if [ $SHARED -eq 0 ] ; then
-	if [ $ISCLANG -gt 0 ] && [ "$COMPILER_VER" -ge 30 ] ; then
-		CCARGS="$CCARGS -fpie" ;
-		echo "Enabling ASLR support, consider linking the final binary with -pie." >&2 ;
-	fi ;
-	if [ $ISGCC -gt 0 ] && [ "$COMPILER_VER" -ge 42 ] ; then
-		CCARGS="$CCARGS -fpie" ;
-		echo "Enabling ASLR support, consider linking the final binary with -pie." >&2 ;
-	fi ;
-fi
+#if [ $SHARED -eq 0 ] ; then
+#	if [ $ISCLANG -gt 0 ] && [ "$COMPILER_VER" -ge 30 ] ; then
+#		CCARGS="$CCARGS -fpie" ;
+#		echo "Enabling ASLR support, consider linking the final binary with -pie." >&2 ;
+#	fi ;
+#	if [ $ISGCC -gt 0 ] && [ "$COMPILER_VER" -ge 42 ] ; then
+#		CCARGS="$CCARGS -fpie" ;
+#		echo "Enabling ASLR support, consider linking the final binary with -pie." >&2 ;
+#	fi ;
+#fi
 
 # If the system supports recursive and/or robust mutexes, indicate that
 # they're available.  We don't use recursive mutexes by default because they
