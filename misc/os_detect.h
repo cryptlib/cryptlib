@@ -297,10 +297,11 @@
      preprocessors get confused if they aren't defined */
   #define VC_16BIT( version )		0
   #define VC_LE_VC6( version )		0
-  #define VC_GE_2002( version )		0
-  #define VC_LT_2005( version )		0
+  #define VC_GE_2002( version )		1
+  #define VC_LT_2005( version )		1
   #define VC_GE_2005( version )		0
   #define VC_GE_2008( version )		0
+  #define VC_LT_2010( version )		1
   #define VC_GE_2010( version )		0
   #define VC_GE_2012( version )		0
   #define VC_GE_2013( version )		0
