@@ -64,6 +64,7 @@
 #define USE_PROBLEMATIC_ALGORITHMS
 #define USE_SSH_EXTENDED
 #define USE_CERTLEVEL_STANDARD
+#define PREFER_ECC
 /****************************************************************************
 *																			*
 *						Custom Configuration Profiles						*
