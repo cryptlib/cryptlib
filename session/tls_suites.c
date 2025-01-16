@@ -418,12 +418,12 @@ static const CIPHERSUITES_LIST cipherSuitesList[] = {
 
 	/* ECC suites if these are preferred */
 #ifdef PREFER_ECC
-  #ifdef USE_GCM
-	{ cipherSuiteGCM, FAILSAFE_ARRAYSIZE( cipherSuiteGCM, CIPHERSUITE_INFO ) },
-  #endif /* USE_GCM */
   #if defined( USE_ECDH )
 	{ cipherSuiteECC, FAILSAFE_ARRAYSIZE( cipherSuiteECC, CIPHERSUITE_INFO ) },
   #endif /* USE_ECDH */
+  #ifdef USE_GCM
+	{ cipherSuiteGCM, FAILSAFE_ARRAYSIZE( cipherSuiteGCM, CIPHERSUITE_INFO ) },
+  #endif /* USE_GCM */
   #ifdef USE_CHACHA20
 	{ cipherSuiteBernstein, FAILSAFE_ARRAYSIZE( cipherSuiteBernstein, CIPHERSUITE_INFO ) },
   #endif /* USE_CHACH20 */
