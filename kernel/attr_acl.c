@@ -779,6 +779,11 @@ static const ATTRIBUTE_ACL contextACL[] = {
 		MKPERM( Rxx_RWD ),
 		ROUTE( OBJECT_TYPE_CONTEXT ),
 		subACL_CtxinfoPersistent ),
+	MKACL_S(	/* Hash value */
+		CRYPT_CTXINFO_SSH_PUBLIC_KEY,
+		ST_CTX_PKC, ST_NONE, ST_NONE, 
+		MKPERM( Rxx_Rxx ),
+		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( 16 + MIN_PKCSIZE, ( CRYPT_MAX_PKCSIZE * 4 ) + 20 ) ),
 	MKACL_END(), MKACL_END()
 	};
 

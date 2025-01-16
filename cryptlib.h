@@ -592,6 +592,7 @@ typedef enum {
 	/* Misc.information */
 	CRYPT_CTXINFO_LABEL,			/* Label for private/secret key */
 	CRYPT_CTXINFO_PERSISTENT,		/* Obj.is backed by device or keyset */
+	CRYPT_CTXINFO_SSH_PUBLIC_KEY,
 
 	/* Used internally */
 	CRYPT_CTXINFO_LAST, CRYPT_CERTINFO_FIRST = 2000,

@@ -422,6 +422,11 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 			STDC_FALLTHROUGH;
 
+		case CRYPT_CTXINFO_SSH_PUBLIC_KEY:
+			if ( needsKey( contextInfoPtr ) )
+				return CRYPT_ERROR_NOTFOUND;
+			if (contextType != CONTEXT_PKC)
+				return CRYPT_ERROR_NOTFOUND;
 		case CRYPT_IATTRIBUTE_KEY_PGP:
 		case CRYPT_IATTRIBUTE_KEY_SSH:
 		case CRYPT_IATTRIBUTE_KEY_TLS:
