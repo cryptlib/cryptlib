@@ -235,11 +235,13 @@ static int addUrl( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* If there's already a network socket specified then we can't set a 
 	   server name as well */
+/*
 	if( sessionInfoPtr->networkSocket != CRYPT_ERROR )
 		{
 		return( exitErrorInited( sessionInfoPtr, 
 								 CRYPT_SESSINFO_NETWORKSOCKET ) );
 		}
+*/
 
 	/* Parse the server name.  The PKI protocols all use HTTP as their 
 	   substrate so if it's not SSH or TLS we require HTTP */
