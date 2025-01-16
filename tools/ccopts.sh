@@ -459,10 +459,10 @@ if [ -z "$DISABLE_AUTODETECT" ] && [ $HASDYNLOAD -gt 0 ] ; then
 		fi ;
 	done
 fi
-if [ -f /usr/include/zlib.h ] ; then
-	echo "  (Enabling use of system zlib)." >&2 ;
-	CCARGS="$CCARGS -DHAS_ZLIB" ;
-fi
+#if [ -f /usr/include/zlib.h ] ; then
+#	echo "  (Enabling use of system zlib)." >&2 ;
+#	CCARGS="$CCARGS -DHAS_ZLIB" ;
+#fi
 
 # If we're building a development or analysis build, enable various unsafe
 # options that are normally disabled by default.  Enabling USE_ANALYSER
