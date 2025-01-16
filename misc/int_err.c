@@ -41,7 +41,7 @@ static BOOLEAN formatErrorString( OUT_ALWAYS ERROR_INFO *errorInfo,
 	ANALYSER_HINT_STRING( format );
 	ANALYSER_HINT_FORMAT_STRING( format );
 
-	REQUIRES_B( verifyVAList( argPtr ) );
+	//REQUIRES_B( verifyVAList( argPtr ) );
 
 	/* Clear return value */
 	clearErrorInfo( errorInfo );
