@@ -269,6 +269,7 @@ static int setSuiteInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( cryptStatusError( status ) )
 			return( status );
 		sessionInfoPtr->cryptBlocksize = queryInfo.blockSize;
+		CLEAR_FLAG( sessionInfoPtr->protocolFlags, TLS_PFLAG_GCM );
 		}
 	DEBUG_PRINT(( "Cipher suite set to %s.\n", 
 				  cipherSuiteInfoPtr->debugText ));
