@@ -700,7 +700,7 @@ fi
 if [ $SHARED -gt 0 ] ; then
 	case $OSNAME in
 		'Darwin')
-			CCARGS="$CCARGS -fPIC -fno-common" ;;
+			CCARGS="$CCARGS -fPIC -fno-common -mmacosx-version-min=%%MIN_MAC_OSX_VERSION%%" ;;
 
 		'CYGWIN_NT-5.0'|'CYGWIN_NT-5.1'|'CYGWIN_NT-6.1')
 			;;
