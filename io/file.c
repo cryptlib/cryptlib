@@ -4419,7 +4419,7 @@ void fileErase( IN_STRING const char *fileName )
   #if defined( __FreeBSD__ )
 	struct timeval timeVals[ 2 ];
   #elif !( defined( __APPLE__ ) || defined( __FreeBSD__ ) || \
-		   defined( __linux__ ) )
+		   defined( __linux__ ) || defined( __HAIKU__ ) )
 	struct utimbuf timeStamp;
   #endif /* OS-specific variable declarations */
 #endif /* USE_EMBEDDED_OS */
@@ -4482,7 +4482,7 @@ void fileErase( IN_STRING const char *fileName )
 	   generic DoS that they could perform anyway if they have the user's
 	   rights */
 #ifndef USE_EMBEDDED_OS /* Embedded systems have no file timestamps */
-  #if defined( __Android__ )
+  #if defined( __Android__ ) || defined( __HAIKU__ )
 	sFileClose( &stream );
 	utimes( fileName, NULL );	/* Android's Linux doesn't have futimes() */
   #elif defined( __APPLE__ )

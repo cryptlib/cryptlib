@@ -66,7 +66,8 @@
    memory-based polling with a stub the prints an error message for the
    caller */
 
-#if defined( __Android__ ) || ( defined( __QNX__ ) && OSVERSION <= 4 )
+#if defined( __Android__ ) || ( defined( __QNX__ ) && OSVERSION <= 4 ) || \
+	defined( __HAIKU__ )
   #define NO_SYSV_SHAREDMEM
 #endif /* Android || QNX <= 4.x */
 
@@ -122,7 +123,7 @@
   #include <sys/sem.h>
   #include <sys/shm.h>
 #endif /* CYGWIN */
-#if !( defined( __Android__ ) || defined( __CYGWIN__ ) || defined( __QNX__ ) )
+#if !( defined( __Android__ ) || defined( __CYGWIN__ ) || defined( __QNX__ ) || defined( __HAIKU__) )
   #include <sys/shm.h>
 #endif /* !( __Android__  || Cygwin || QNX ) */
 #if defined( __linux__ ) && ( defined(__i386__) || defined(__x86_64__) )
@@ -1950,7 +1951,12 @@ static int getEGDdata( void )
 *																			*
 ****************************************************************************/
 
-#ifndef NO_SYSV_SHAREDMEM
+#ifdef NO_SYSV_SHAREDMEM
+#ifdef USE_THREADS
+  static pthread_mutex_t gathererMutex;	/* Mutex to protect the polling */
+#endif /* USE_THREADS */
+static pid_t gathererProcess = 0;/* The child process that fills the buffer */
+#else
 
 /* The structure containing information on random-data sources.  Each record 
    contains the source and a relative estimate of its usefulness (weighting) 

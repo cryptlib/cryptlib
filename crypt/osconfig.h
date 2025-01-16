@@ -310,7 +310,7 @@
    identical, even if they differ at a higher level */
 #elif defined( __FreeBSD__ ) || defined( __bsdi__ ) || \
 	  defined( __OpenBSD__ ) || defined( __NetBSD__ ) || \
-	  defined( __linux__ )
+	  defined( __linux__ ) || defined( __HAIKU__ )
   #if defined( __x86_64__ ) || defined( __amd64__ )
 	/* 64-bit x86 has both 'long' and 'long long' as 64 bits.  In addition
 	   we use DES_INT since int's are 64-bit.  We have to check for the

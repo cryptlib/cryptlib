@@ -3184,7 +3184,8 @@ INT8U threadSelf( void );
   #endif /* Slowaris 5.7 / 7.x or newer */
 #elif defined( _AIX ) || defined( __Android__ ) || defined( __CYGWIN__ ) || \
 	  ( defined( __hpux ) && ( OSVERSION >= 11 ) ) || \
-	  defined( __NetBSD__ ) || defined( __QNX__ ) || defined( __UCLIBC__ )
+	  defined( __NetBSD__ ) || defined( __QNX__ ) || \
+	  defined( __UCLIBC__ ) || defined( __HAIKU__ )
   #define THREAD_YIELD()		sched_yield()
 #elif defined( __XMK__ )
   /* The XMK underlying scheduling object is the process context, for which
