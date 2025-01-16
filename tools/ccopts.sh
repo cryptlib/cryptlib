@@ -411,30 +411,30 @@ if [ -z "$DISABLE_AUTODETECT" ] && [ $HASDYNLOAD -gt 0 ] ; then
 	# TPM support.  The use of the doubled-up dirname is required because
 	# the TPM header is in a subdirectory tss2/tss2_fapi.h so we have to
 	# remove first the tss2_fapi.h and then the tss2 from the path.
-	for includepath in $TPMPATHS ; do
-		if [ -f $includepath ] ; then
-			echo "TPM interface detected, enabling TPM support." >&2 ;
-			CCARGS="$CCARGS -DHAS_TPM" ;
-			if [ "$(dirname $includepath)" != "/usr/include/tss2" ] ; then
-				CCARGS="$CCARGS -I$(dirname $(dirname $includepath))" ;
-			fi ;
-			break ;
-		fi ;
-	done
+	#for includepath in $TPMPATHS ; do
+	#	if [ -f $includepath ] ; then
+	#		echo "TPM interface detected, enabling TPM support." >&2 ;
+	#		CCARGS="$CCARGS -DHAS_TPM" ;
+	#		if [ "$(dirname $includepath)" != "/usr/include/tss2" ] ; then
+	#			CCARGS="$CCARGS -I$(dirname $(dirname $includepath))" ;
+	#		fi ;
+	#		break ;
+	#	fi ;
+	#done
 
 	# TPM RNG support.  The use of the doubled-up dirname is required because
 	# the TPM header is in a subdirectory tss/tspi.h so we have to remove
 	# first the tspi.h and then the tss from the path.
-	for includepath in $TPMRNGPATHS ; do
-		if [ -f $includepath ] ; then
-			echo "TPM RNG interface detected, enabling TPM RNG support." >&2 ;
-			CCARGS="$CCARGS -DHAS_TPM_RNG" ;
-			if [ "$(dirname $includepath)" != "/usr/include/tss" ] ; then
-				CCARGS="$CCARGS -I$(dirname $(dirname $includepath))" ;
-			fi ;
-			break ;
-		fi ;
-	done
+	#for includepath in $TPMRNGPATHS ; do
+	#	if [ -f $includepath ] ; then
+	#		echo "TPM RNG interface detected, enabling TPM RNG support." >&2 ;
+	#		CCARGS="$CCARGS -DHAS_TPM_RNG" ;
+	#		if [ "$(dirname $includepath)" != "/usr/include/tss" ] ; then
+	#			CCARGS="$CCARGS -I$(dirname $(dirname $includepath))" ;
+	#		fi ;
+	#		break ;
+	#	fi ;
+	#done
 
 	# /dev/crypto support.  The use of the doubled-up dirname is required
 	# because the /dev/crypto header is in a subdirectory crypto/cryptodev.h
