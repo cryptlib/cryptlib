@@ -3770,6 +3770,15 @@ static const ATTRIBUTE_ACL sessionACL[] = {
 		MKPERM_SESSIONS( xWx_xWx ),
 		ROUTE( OBJECT_TYPE_SESSION ),
 		subACL_SessinfoPrivatekey ),
+	MKACL_S(	/* Other side public key */
+		/* We can read this attribute in the low state because we might be
+		   going back to the caller for confirmation before we transition
+		   into the high state */
+		CRYPT_SESSINFO_PUBLICKEY,
+		ST_NONE, ST_NONE, ST_SESS_SSH_SVR, 
+		MKPERM_SESSIONS( Rxx_Rxx ),
+		ROUTE( OBJECT_TYPE_SESSION ),
+		RANGE( 1, CRYPT_MAX_TEXTSIZE ) ),
 	MKACL_ST(	/* Certificate store/auth.keyset */
 		CRYPT_SESSINFO_KEYSET,
 		ST_NONE, ST_NONE, MK_ST_EXCEPTION( ST_SESS_ANY_SVR, ST_SESS_TSP_SVR ) | \
@@ -4973,8 +4982,8 @@ int initAttributeACL( void )
 	static_assert( CRYPT_CERTINFO_LAST_GENERALNAME == 2115, "Attribute value" );
 	static_assert( CRYPT_CERTINFO_FIRST_EXTENSION == 2200, "Attribute value" );
 	static_assert( CRYPT_CERTINFO_FIRST_CMS == 2500, "Attribute value" );
-	static_assert( CRYPT_SESSINFO_FIRST_SPECIFIC == 6017, "Attribute value" );
-	static_assert( CRYPT_SESSINFO_LAST_SPECIFIC == 6040, "Attribute value" );
+	static_assert( CRYPT_SESSINFO_FIRST_SPECIFIC == 6018, "Attribute value" );
+	static_assert( CRYPT_SESSINFO_LAST_SPECIFIC == 6041, "Attribute value" );
 	static_assert( CRYPT_CERTFORMAT_LAST == 13, "Attribute value" );
 
 	/* Perform a consistency check on the attribute ACLs.  The ACLs are

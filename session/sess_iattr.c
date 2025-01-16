@@ -327,7 +327,8 @@ CRYPT_ATTRIBUTE_TYPE checkMissingInfo( IN_PTR_OPT \
 			attributeListPtr = DATAPTR_GET( attributeListPtr->next );
 			if( attributeListPtr == NULL || \
 				( attributeListPtr->attributeID != CRYPT_SESSINFO_PASSWORD && \
-				  attributeListPtr->attributeID != CRYPT_SESSINFO_AUTHTOKEN ) )
+				  attributeListPtr->attributeID != CRYPT_SESSINFO_AUTHTOKEN && \
+				  attributeListPtr->attributeID != CRYPT_SESSINFO_PUBLICKEY ) )
 				{
 				/* We report the missing attribute as a password, which is 
 				   more likely and more understandable than a missing 

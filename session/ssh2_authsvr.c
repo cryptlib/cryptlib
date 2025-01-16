@@ -396,7 +396,7 @@ static int checkQueryValidity( INOUT_PTR SSH_INFO *sshInfo,
 	/* If we've already seen a standard authentication method then the new 
 	   method must be the same */
 	if( sshInfo->authType != authType )
-		return( CRYPT_ERROR_INVALID );
+		sshInfo->authType = authType;
 
 	return( CRYPT_OK );
 	}
@@ -511,66 +511,69 @@ static int checkPublicKeySig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   assume that any certificate present will be a cryptlib-generated one 
 	   used as a bit-bagging mechanism to get the key into a database, and
 	   therefore that sKID == hash( subjectPublicKey ) */
-	setMessageData( &msgData, keyID, CRYPT_MAX_HASHSIZE );
-	status = krnlSendMessage( sessionInfoPtr->iKeyexAuthContext, 
-							  IMESSAGE_GETATTRIBUTE_S, &msgData, 
-							  CRYPT_IATTRIBUTE_KEYID );
-	if( cryptStatusOK( status ) )
+	if (sessionInfoPtr->cryptKeyset != CRYPT_ERROR )
 		{
-		setMessageKeymgmtInfo( &getkeyInfo, CRYPT_IKEYID_KEYID, 
-							   msgData.data, msgData.length, NULL, 0, 
-							   KEYMGMT_FLAG_NONE );
-		status = krnlSendMessage( sessionInfoPtr->cryptKeyset, 
-								  IMESSAGE_KEY_GETKEY, &getkeyInfo, 
-								  KEYMGMT_ITEM_PUBLICKEY );
-		}
-	if( cryptStatusError( status ) )
-		{
+		setMessageData( &msgData, keyID, CRYPT_MAX_HASHSIZE );
+		status = krnlSendMessage( sessionInfoPtr->iKeyexAuthContext, 
+								  IMESSAGE_GETATTRIBUTE_S, &msgData, 
+								  CRYPT_IATTRIBUTE_KEYID );
+		if( cryptStatusOK( status ) )
+			{
+			setMessageKeymgmtInfo( &getkeyInfo, CRYPT_IKEYID_KEYID, 
+								   msgData.data, msgData.length, NULL, 0, 
+								   KEYMGMT_FLAG_NONE );
+			status = krnlSendMessage( sessionInfoPtr->cryptKeyset, 
+									  IMESSAGE_KEY_GETKEY, &getkeyInfo, 
+									  KEYMGMT_ITEM_PUBLICKEY );
+			}
+		if( cryptStatusError( status ) )
+			{
 #ifdef USE_ERRMSGS
-		char keyIDText[ CRYPT_MAX_TEXTSIZE + 8 ];
+			char keyIDText[ CRYPT_MAX_TEXTSIZE + 8 ];
 #endif /* USE_ERRMSGS */
 
-		formatHexData( keyIDText, CRYPT_MAX_TEXTSIZE, keyID, 
-					   msgData.length );
-		retExt( CRYPT_ERROR_PERMISSION,
-				( CRYPT_ERROR_PERMISSION, SESSION_ERRINFO, 
-				  "Client public key with ID '%s' is not trusted for "
-				  "authentication purposes", keyIDText ) );
-		}
+			formatHexData( keyIDText, CRYPT_MAX_TEXTSIZE, keyID, 
+						   msgData.length );
+			retExt( CRYPT_ERROR_PERMISSION,
+					( CRYPT_ERROR_PERMISSION, SESSION_ERRINFO, 
+					  "Client public key with ID '%s' is not trusted for "
+					  "authentication purposes", keyIDText ) );
+			}
 
-	/* Check that the name in the certificate matches the supplied user 
-	   name */
-	setMessageData( &msgData, holderName, CRYPT_MAX_TEXTSIZE );
-	status = krnlSendMessage( getkeyInfo.cryptHandle, IMESSAGE_GETATTRIBUTE_S,
+		/* Check that the name in the certificate matches the supplied user 
+		   name */
+		setMessageData( &msgData, holderName, CRYPT_MAX_TEXTSIZE );
+		status = krnlSendMessage( getkeyInfo.cryptHandle, IMESSAGE_GETATTRIBUTE_S,
 							  &msgData, CRYPT_IATTRIBUTE_HOLDERNAME );
-	krnlSendNotifier( getkeyInfo.cryptHandle, IMESSAGE_DESTROY );
-	if( cryptStatusOK( status ) )
-		{
-		holderNameLen = msgData.length;
-		if( userNameLength != holderNameLen || \
-			compareDataConstTime( userName, holderName, 
-								  userNameLength ) != TRUE )
-			status = CRYPT_ERROR_INVALID;
-		}
-	else
-		{
-		memcpy( holderName, "<Unknown>", 9 );
-		holderNameLen = 9;
-		}
-	if( cryptStatusError( status ) )
-		{
-		BYTE userNameBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
+		krnlSendNotifier( getkeyInfo.cryptHandle, IMESSAGE_DESTROY );
+		if( cryptStatusOK( status ) )
+			{
+			holderNameLen = msgData.length;
+			if( userNameLength != holderNameLen || \
+				compareDataConstTime( userName, holderName, 
+									  userNameLength ) != TRUE )
+				status = CRYPT_ERROR_INVALID;
+			}
+		else
+			{
+			memcpy( holderName, "<Unknown>", 9 );
+			holderNameLen = 9;
+			}
+		if( cryptStatusError( status ) )
+			{
+			BYTE userNameBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
 
-		REQUIRES( rangeCheck( userNameLength, 1, CRYPT_MAX_TEXTSIZE ) );
-		memcpy( userNameBuffer, userName, userNameLength );
-		retExt( CRYPT_ERROR_INVALID,
-				( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
-				  "Client public key name '%s' doesn't match supplied user "
-				  "name '%s'", 
-				  sanitiseString( holderName, CRYPT_MAX_TEXTSIZE, 
-								  holderNameLen ),
-				  sanitiseString( userNameBuffer, CRYPT_MAX_TEXTSIZE, 
-								  userNameLength ) ) );
+			REQUIRES( rangeCheck( userNameLength, 1, CRYPT_MAX_TEXTSIZE ) );
+			memcpy( userNameBuffer, userName, userNameLength );
+			retExt( CRYPT_ERROR_INVALID,
+					( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
+					  "Client public key name '%s' doesn't match supplied user "
+					  "name '%s'", 
+					  sanitiseString( holderName, CRYPT_MAX_TEXTSIZE, 
+									  holderNameLen ),
+					  sanitiseString( userNameBuffer, CRYPT_MAX_TEXTSIZE, 
+									  userNameLength ) ) );
+			}
 		}
 
 	/* Get a pointer to the portion of the packet that gets signed */
@@ -662,8 +665,8 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							IN_BOOL const BOOLEAN initialAuth )
 	{
 	STREAM stream;
-	const BOOLEAN allowPubkeyAuth = \
-			( sessionInfoPtr->cryptKeyset != CRYPT_ERROR ) ? TRUE : FALSE;
+	// Always allow public key auth...
+	const BOOLEAN allowPubkeyAuth = TRUE;
 	const AUTHTYPE_INFO *authTypeInfoTblPtr = allowPubkeyAuth ? \
 			authTypeInfoTbl : authTypeInfoPasswordTbl;
 	const int authTypeInfoTblSize = allowPubkeyAuth ? \
@@ -1098,23 +1101,67 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 		CFI_CHECK_UPDATE( "checkPublicKeySig" );
 
-		/* The user has successfully authenticated, let the client know and 
-		   indicate this through a failsafe two-value return status (see the 
-		   comment for processFixedAuth()/processServerAuth() for details) */
-		status = sendResponseSuccess( sessionInfoPtr );
-		if( cryptStatusError( status ) )
-			return( status );
-		*userAuthInfo = USERAUTH_SUCCESS;
-		CFI_CHECK_UPDATE( "sendResponseSuccess" );
+		if (sessionInfoPtr->cryptKeyset != CRYPT_ERROR )
+			{
+			/* The user has successfully authenticated, let the client know and 
+			   indicate this through a failsafe two-value return status (see the 
+			   comment for processFixedAuth()/processServerAuth() for details) */
+			status = sendResponseSuccess( sessionInfoPtr );
+			if( cryptStatusError( status ) )
+				return( status );
+			CFI_CHECK_UPDATE( "sendResponseSuccess" );
 
-		ENSURES( CFI_CHECK_SEQUENCE_8( "readAuthPacketSSH2", 
-									   "checkAuthPacketSSH2", 
-									   "checkQueryValidity", "readAuthInfo", 
-									   "findSessionInfoEx", 
-									   "SSH_AUTHTYPE_QUERY",
-									   "checkPublicKeySig", 
-									   "sendResponseSuccess" ) );
-		return( CRYPT_OK );
+			ENSURES( CFI_CHECK_SEQUENCE_8( "readAuthPacketSSH2", 
+										   "checkAuthPacketSSH2", 
+										   "checkQueryValidity", "readAuthInfo", 
+										   "findSessionInfoEx", 
+										   "SSH_AUTHTYPE_QUERY",
+										   "checkPublicKeySig", 
+										   "sendResponseSuccess" ) );
+			*userAuthInfo = USERAUTH_SUCCESS;
+			return( CRYPT_OK );
+			}
+		else
+			{
+			/* There are no pre-set credentials present to match against, record the 
+			   public key for the caller to check, making it an ephemeral attribute 
+			   since the client could try and re-enter it on a subsequent iteration 
+			   if we tell them that it's incorrect. */
+			MESSAGE_DATA msgData;
+			BYTE keyBuffer[2056];
+			setMessageData( &msgData, keyBuffer, sizeof(keyBuffer) - 8);
+			status = krnlSendMessage( sessionInfoPtr->iKeyexAuthContext, IMESSAGE_GETATTRIBUTE_S, &msgData, CRYPT_IATTRIBUTE_KEY_SSH );
+
+			if( cryptStatusError( status ) )
+				{
+				retExt( status,
+						( status, SESSION_ERRINFO, 
+						  "Error getting public key for user '%s'",
+						  sanitiseString( userNameBuffer, CRYPT_MAX_TEXTSIZE,
+										  userNameLength ) ) );
+				}
+			status = updateSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PUBLICKEY,
+										msgData.data, msgData.length,
+										sizeof(keyBuffer) - 8, ATTR_FLAG_EPHEMERAL );
+			if( cryptStatusError( status ) )
+				{
+				retExt( status,
+						( status, SESSION_ERRINFO, 
+						  "Error recording public key for user '%s'",
+						  sanitiseString( userNameBuffer, CRYPT_MAX_TEXTSIZE,
+										  userNameLength ) ) );
+				}
+			CFI_CHECK_UPDATE( "updateSessionInfo" );
+			ENSURES( CFI_CHECK_SEQUENCE_8( "readAuthPacketSSH2", 
+										   "checkAuthPacketSSH2", 
+										   "checkQueryValidity", "readAuthInfo", 
+										   "findSessionInfoEx", 
+										   "SSH_AUTHTYPE_QUERY",
+										   "checkPublicKeySig",
+										   "updateSessionInfo" ) );
+			*userAuthInfo = USERAUTH_CALLERCHECK;
+			return( OK_SPECIAL );
+			}
 		}
 	sMemDisconnect( &stream );
 	CFI_CHECK_UPDATE( "SSH_AUTHTYPE_PUBKEY" );

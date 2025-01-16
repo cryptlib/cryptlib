@@ -913,6 +913,7 @@ int getSessionAttributeS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		case CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1:
 		case CRYPT_SESSINFO_SERVER_NAME:
 		case CRYPT_SESSINFO_CLIENT_NAME:
+		case CRYPT_SESSINFO_PUBLICKEY:
 			attributeListPtr = findSessionInfo( sessionInfoPtr, attribute );
 			if( attributeListPtr == NULL )
 				return( exitErrorNotInited( sessionInfoPtr, attribute ) );
