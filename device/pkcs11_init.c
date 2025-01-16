@@ -1054,7 +1054,7 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 	CK_RV status;
 	PKCS11_INFO *pkcs11Info = deviceInfo->devicePKCS11;
 	const PKCS11_MECHANISM_INFO *mechanismInfoPtr;
-	char *labelPtr;
+	const char *labelPtr;
 	int tokenSlot = DEFAULT_SLOT, labelLength, mechanismInfoSize;
 	LOOP_INDEX i;
 	int cryptStatus, cryptStatus2;
