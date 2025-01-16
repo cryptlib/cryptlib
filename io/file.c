@@ -5242,7 +5242,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN isSpecialSID( INOUT_PTR SID *pUserSid )
 	{
-#if defined( _MSC_VER ) && VC_LT_2005( _MSC_VER )
+#if VC_LT_2005( _MSC_VER )
 	BYTE sidBuffer[ SID_BUFFER_SIZE + 8 ];
 	SID *pSid = ( PSID ) sidBuffer;
 	SID_IDENTIFIER_AUTHORITY identifierAuthority = SECURITY_NT_AUTHORITY;
