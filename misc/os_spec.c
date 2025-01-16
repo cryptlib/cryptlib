@@ -2179,106 +2179,6 @@ static int getHWIntrins( void )
 	return( sysCaps );
 	}
 
-#elif defined( __WIN32__ )  && defined( _M_X64 )
-
-/* 64-bit VC++ doesn't allow inline asm, but does provide the __cpuid() 
-   builtin to perform the operation above.  We don't guard this with the 
-   NO_ASM check because it's not (technically) done with inline asm, 
-   although it's a bit unclear whether an intrinsic qualifies as asm or
-   C */
-
-#pragma intrinsic( __cpuid )
-
-typedef struct { unsigned int eax, ebx, ecx, edx; } CPUID_INFO;
-
-STDC_NONNULL_ARG( ( 1 ) ) \
-static void cpuID( OUT_PTR CPUID_INFO *result, const int type )
-	{
-	int intResult[ 4 ];	/* That's what the function prototype says */
-
-	/* Clear return value */
-	memset( result, 0, sizeof( CPUID_INFO ) );
-
-	/* Get the CPUID data and copy it back to the caller.  We clear it 
-	   before calling the __cpuid intrinsic because some analysers don't 
-	   know about it and will warn about use of uninitialised memory */
-	memset( intResult, 0, sizeof( int ) * 4 );
-	__cpuid( intResult, type );
-	result->eax = intResult[ 0 ];
-	result->ebx = intResult[ 1 ];
-	result->ecx = intResult[ 2 ];
-	result->edx = intResult[ 3 ];
-	}
-
-CHECK_RETVAL_ENUM( HWINTRINS_FLAG ) \
-static int getHWIntrins( void )
-	{
-	CPUID_INFO cpuidInfo;
-	char vendorID[ 12 + 8 ];
-	int *vendorIDptr = ( int * ) vendorID;
-	unsigned long processorID, featureFlags, featureFlags2;
-	int sysCaps = HWINTRINS_FLAG_RDTSC;	/* x86-64 always has RDTSC */
-
-	/* Get any CPU info that we need.  There is an 
-	   IsProcessorFeaturePresent() function, but all that this provides is 
-	   an indication of the availability of rdtsc (alongside some stuff that 
-	   we don't care about, like MMX and 3DNow).  Since we still need to 
-	   check for the presence of other features, we do the whole thing 
-	   ourselves */
-	cpuID( &cpuidInfo, 0 );
-	vendorIDptr[ 0 ] = cpuidInfo.ebx;
-	vendorIDptr[ 1 ] = cpuidInfo.edx;
-	vendorIDptr[ 2 ] = cpuidInfo.ecx;
-	cpuID( &cpuidInfo, 1 );
-	processorID = cpuidInfo.eax;
-	featureFlags = cpuidInfo.ecx;
-	featureFlags2 = cpuidInfo.ebx;
-
-	/* Check for vendor-specific special features */
-	if( !memcmp( vendorID, "CentaurHauls", 12 ) )
-		{
-		/* Get the Centaur extended CPUID info and check whether the feature-
-		   flags read capability is present.  VIA only announced their 64-
-		   bit CPUs in mid-2010 and availability is limited so it's 
-		   uncertain whether this code will ever be exercised, but we provide 
-		   it anyway for compatibility with the 32-bit equivalent */
-		cpuID( &cpuidInfo, 0xC0000000 );
-		if( cpuidInfo.eax >= 0xC0000001 )
-			{
-			/* Get the Centaur extended feature flags */
-			cpuID( &cpuidInfo, 0xC0000001 );
-			if( ( cpuidInfo.edx & 0x000C ) == 0x000C )
-				sysCaps |= HWINTRINS_FLAG_XSTORE;
-			if( ( cpuidInfo.edx & 0x00C0 ) == 0x00C0 )
-				sysCaps |= HWINTRINS_FLAG_XCRYPT;
-			if( ( cpuidInfo.edx & 0x0C00 ) == 0x0C00 )
-				sysCaps |= HWINTRINS_FLAG_XSHA;
-			if( ( cpuidInfo.edx & 0x3000 ) == 0x3000 )
-				sysCaps |= HWINTRINS_FLAG_MONTMUL;
-			}
-		}
-	if( !memcmp( vendorID, "AuthenticAMD", 12 ) )
-		{
-		/* Check for AMD Geode LX, family 0x5 = Geode, model 0xA = LX */
-		if( ( processorID & 0x0FF0 ) == 0x05A0 )
-			sysCaps |= HWINTRINS_FLAG_TRNG;
-		}
-	if( !memcmp( vendorID, "GenuineIntel", 12 ) )
-		{
-		/* Check for hardware AES support */
-		if( featureFlags & ( 1 << 25 ) )
-			sysCaps |= HWINTRINS_FLAG_AES;
-
-		/* Check for the return of a hardware RNG */
-		if( featureFlags & ( 1 << 30 ) )
-			sysCaps |= HWINTRINS_FLAG_RDRAND;
-		if( featureFlags2 & ( 1 << 18 ) )
-			sysCaps |= HWINTRINS_FLAG_RDSEED;
-		}
-
-	return( sysCaps );
-	}
-
 #elif ( defined( __clang__ ) || \
 		( defined( __GNUC__ ) && \
 		  ( ( __GNUC__ > 4 ) || \
@@ -2375,6 +2275,106 @@ static int getHWIntrins( void )
 		{
 		/* Get the Centaur extended CPUID info and check whether the feature-
 		   flags read capability is present */
+		cpuID( &cpuidInfo, 0xC0000000 );
+		if( cpuidInfo.eax >= 0xC0000001 )
+			{
+			/* Get the Centaur extended feature flags */
+			cpuID( &cpuidInfo, 0xC0000001 );
+			if( ( cpuidInfo.edx & 0x000C ) == 0x000C )
+				sysCaps |= HWINTRINS_FLAG_XSTORE;
+			if( ( cpuidInfo.edx & 0x00C0 ) == 0x00C0 )
+				sysCaps |= HWINTRINS_FLAG_XCRYPT;
+			if( ( cpuidInfo.edx & 0x0C00 ) == 0x0C00 )
+				sysCaps |= HWINTRINS_FLAG_XSHA;
+			if( ( cpuidInfo.edx & 0x3000 ) == 0x3000 )
+				sysCaps |= HWINTRINS_FLAG_MONTMUL;
+			}
+		}
+	if( !memcmp( vendorID, "AuthenticAMD", 12 ) )
+		{
+		/* Check for AMD Geode LX, family 0x5 = Geode, model 0xA = LX */
+		if( ( processorID & 0x0FF0 ) == 0x05A0 )
+			sysCaps |= HWINTRINS_FLAG_TRNG;
+		}
+	if( !memcmp( vendorID, "GenuineIntel", 12 ) )
+		{
+		/* Check for hardware AES support */
+		if( featureFlags & ( 1 << 25 ) )
+			sysCaps |= HWINTRINS_FLAG_AES;
+
+		/* Check for the return of a hardware RNG */
+		if( featureFlags & ( 1 << 30 ) )
+			sysCaps |= HWINTRINS_FLAG_RDRAND;
+		if( featureFlags2 & ( 1 << 18 ) )
+			sysCaps |= HWINTRINS_FLAG_RDSEED;
+		}
+
+	return( sysCaps );
+	}
+
+#elif defined( __WIN32__ )  && defined( _M_X64 )
+
+/* 64-bit VC++ doesn't allow inline asm, but does provide the __cpuid() 
+   builtin to perform the operation above.  We don't guard this with the 
+   NO_ASM check because it's not (technically) done with inline asm, 
+   although it's a bit unclear whether an intrinsic qualifies as asm or
+   C */
+
+#pragma intrinsic( __cpuid )
+
+typedef struct { unsigned int eax, ebx, ecx, edx; } CPUID_INFO;
+
+STDC_NONNULL_ARG( ( 1 ) ) \
+static void cpuID( OUT_PTR CPUID_INFO *result, const int type )
+	{
+	int intResult[ 4 ];	/* That's what the function prototype says */
+
+	/* Clear return value */
+	memset( result, 0, sizeof( CPUID_INFO ) );
+
+	/* Get the CPUID data and copy it back to the caller.  We clear it 
+	   before calling the __cpuid intrinsic because some analysers don't 
+	   know about it and will warn about use of uninitialised memory */
+	memset( intResult, 0, sizeof( int ) * 4 );
+	__cpuid( intResult, type );
+	result->eax = intResult[ 0 ];
+	result->ebx = intResult[ 1 ];
+	result->ecx = intResult[ 2 ];
+	result->edx = intResult[ 3 ];
+	}
+
+CHECK_RETVAL_ENUM( HWINTRINS_FLAG ) \
+static int getHWIntrins( void )
+	{
+	CPUID_INFO cpuidInfo;
+	char vendorID[ 12 + 8 ];
+	int *vendorIDptr = ( int * ) vendorID;
+	unsigned long processorID, featureFlags, featureFlags2;
+	int sysCaps = HWINTRINS_FLAG_RDTSC;	/* x86-64 always has RDTSC */
+
+	/* Get any CPU info that we need.  There is an 
+	   IsProcessorFeaturePresent() function, but all that this provides is 
+	   an indication of the availability of rdtsc (alongside some stuff that 
+	   we don't care about, like MMX and 3DNow).  Since we still need to 
+	   check for the presence of other features, we do the whole thing 
+	   ourselves */
+	cpuID( &cpuidInfo, 0 );
+	vendorIDptr[ 0 ] = cpuidInfo.ebx;
+	vendorIDptr[ 1 ] = cpuidInfo.edx;
+	vendorIDptr[ 2 ] = cpuidInfo.ecx;
+	cpuID( &cpuidInfo, 1 );
+	processorID = cpuidInfo.eax;
+	featureFlags = cpuidInfo.ecx;
+	featureFlags2 = cpuidInfo.ebx;
+
+	/* Check for vendor-specific special features */
+	if( !memcmp( vendorID, "CentaurHauls", 12 ) )
+		{
+		/* Get the Centaur extended CPUID info and check whether the feature-
+		   flags read capability is present.  VIA only announced their 64-
+		   bit CPUs in mid-2010 and availability is limited so it's 
+		   uncertain whether this code will ever be exercised, but we provide 
+		   it anyway for compatibility with the 32-bit equivalent */
 		cpuID( &cpuidInfo, 0xC0000000 );
 		if( cpuidInfo.eax >= 0xC0000001 )
 			{
