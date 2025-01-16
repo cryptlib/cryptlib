@@ -633,7 +633,7 @@
    manner you must immediately obtain and use an original, unmodified 
    version */
 
-/* #define USE_PKCS12 */
+#define USE_PKCS12
 
 /* Going beyond the PKCS #12 read capability which exists solely to allow 
    the import of keys supplied in that format by third parties, cryptlib has
@@ -651,7 +651,7 @@
    PKCS #12 write is an unsupported facility with special-case usage 
    restrictions that doesn't work like any normal keyset */
 
-/* #define USE_PKCS12_WRITE */
+#define USE_PKCS12_WRITE
 
 #define USE_PKCS15
 #define USE_PGPKEYS
