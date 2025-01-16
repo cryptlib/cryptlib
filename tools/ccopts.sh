@@ -298,7 +298,7 @@ fi
 if [ "$($CC -v 2>&1 | grep -c "ccc-analyzer")" -gt 0 ] ; then
 	ISCLANG_ANALYSER=1 ;
 fi
-if [ $ISCLANG -le 0 ] && [ $CC != "xlc" ] && [ "$($CC -v 2>&1 | grep -c "gcc")" -gt 0 ] ; then
+if [ $ISCLANG -le 0 ] && [ "$CC" != "xlc" ] && [ "$($CC -v 2>&1 | grep -c "gcc")" -gt 0 ] ; then
 	ISGCC=1 ;
 fi
 if [ $ISCLANG_ANALYSER -gt 0 ] ; then
@@ -316,7 +316,7 @@ fi
 # Find out which version of clang or gcc we're using.
 
 if [ $ISCLANG -gt 0 ] || [ $ISGCC -gt 0 ] ; then
-	COMPILER_VER="$(./tools/getcompiler_ver.sh $CC)" ;
+	COMPILER_VER="$(./tools/getcompiler_ver.sh "$CC")" ;
 fi
 
 # Determine whether various optional system features are installed and
@@ -1018,7 +1018,7 @@ fi
 #			 on some versions of the compiler).
 
 if [ "$OSNAME" = "AIX" ] ; then
-	if [ $CC = "xlc" ] ; then
+	if [ "$CC" = "xlc" ] ; then
 		echo "$CCARGS -qlanglvl=extended0x -qmaxmem=-1 -qnolist -qroconst" ;
 		exit 0 ;
 	fi ;

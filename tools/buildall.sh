@@ -123,7 +123,7 @@ checkSunCompilerVersion()
 if [ "$OSNAME" = "SunOS" ] ; then
 	for sunccpath in $SUNCCPATHS ; do
 		if [ -f $sunccpath ] ; then
-			checkSunCompilerVersion $CC $sunccpath ;
+			checkSunCompilerVersion "$CC" $sunccpath ;
 			break ;
 		fi
 	done
@@ -147,9 +147,9 @@ fi
 if [ $ANALYSE -le 0 ] || [ "$CC" != "gcc" ] ; then
 	if [ "$OSNAME" = "SunOS" ] ; then
 		# shellcheck disable=SC2006 # Antediluvian Sun tools.
-		CC=`./tools/getcompiler.sh $CC $OSNAME` ;
+		CC=`./tools/getcompiler.sh "$CC" $OSNAME` ;
 	else
-		CC="$(./tools/getcompiler.sh $CC $OSNAME)" ;
+		CC="$(./tools/getcompiler.sh "$CC" $OSNAME)" ;
 	fi
 fi
 
@@ -219,19 +219,19 @@ fi
 # we add an extra character to the comparison string to avoid syntax errors.
 
 if [ $ANALYSE -gt 0 ] ; then
-	CFLAGS="$(./tools/ccopts.sh analyse $CC $OSNAME)" ;
+	CFLAGS="$(./tools/ccopts.sh analyse "$CC" $OSNAME)" ;
 elif [ $ISSPECIAL -gt 0 ] ; then
-	CFLAGS="$(./tools/ccopts.sh special $CC $OSNAME)" ;
+	CFLAGS="$(./tools/ccopts.sh special "$CC" $OSNAME)" ;
 elif [ $GENERICBUILD -gt 0 ] ; then
-	CFLAGS="$(./tools/ccopts.sh generic $CC $OSNAME)" ;
+	CFLAGS="$(./tools/ccopts.sh generic "$CC" $OSNAME)" ;
 elif [ $SHARED -gt 0 ] ; then
-	CFLAGS="$(./tools/ccopts.sh shared $CC $OSNAME)" ;
+	CFLAGS="$(./tools/ccopts.sh shared "$CC" $OSNAME)" ;
 else
 	if [ "$OSNAME" = "SunOS" ] ; then
 		# shellcheck disable=SC2006 # Antediluvian Sun tools.
-		CFLAGS=`./tools/ccopts.sh $CC $OSNAME` ;
+		CFLAGS=`./tools/ccopts.sh "$CC" $OSNAME` ;
 	else
-		CFLAGS="$(./tools/ccopts.sh $CC $OSNAME)" ;
+		CFLAGS="$(./tools/ccopts.sh "$CC" $OSNAME)" ;
 	fi ;
 fi
 # shellcheck disable=SC2050 # "'x' expression is constant".
@@ -259,7 +259,7 @@ fi
 # shellcheck disable=SC2050 # "'x' expression is constant".
 if [ '$(CROSSCOMPILE)x' = '1x' ] ; then
 	echo "Cross-compiling for OS target $OSNAME" ;
-	CFLAGS="$* $(./tools/ccopts-crosscompile.sh $CC $OSNAME) \
+	CFLAGS="$* $(./tools/ccopts-crosscompile.sh "$CC" $OSNAME) \
 			-DOSVERSION=$(./tools/osversion.sh $OSNAME)" ;
 	if [ $SHARED -gt 0 ] ; then
 		$MAKE TARGET="$SLIBNAME" OBJPATH="$SHARED_OBJ_PATH" "$CFLAGS" "$OSNAME" ;

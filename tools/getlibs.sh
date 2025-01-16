@@ -29,12 +29,12 @@ shift
 if [ $ISSPECIAL -eq 0 ] ; then
 	if [ "$OSNAME" = "SunOS" ] ; then
 		# shellcheck disable=SC2006 # Antediluvian Sun tools.
-		BUILDOPTS=`./tools/ccopts.sh $CC $OSNAME 2>/dev/null` ;
+		BUILDOPTS=`./tools/ccopts.sh "$CC" $OSNAME 2>/dev/null` ;
 	else
-		BUILDOPTS="$(./tools/ccopts.sh $CC $OSNAME 2>/dev/null)" ;
+		BUILDOPTS="$(./tools/ccopts.sh "$CC" $OSNAME 2>/dev/null)" ;
 	fi ;
 else
-	BUILDOPTS="$(./tools/ccopts.sh special $CC $OSNAME 2>/dev/null)" ;
+	BUILDOPTS="$(./tools/ccopts.sh special "$CC" $OSNAME 2>/dev/null)" ;
 fi
 
 hasSubstring()

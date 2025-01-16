@@ -416,19 +416,19 @@ ZLIB_DEP = zlib/zconf.h zlib/zlib.h zlib/zutil.h
 
 default:
 	@$(MAKE) common-tasks
-	@./tools/buildall.sh $(MAKE) $(CC) $(OSNAME) $(CFLAGS) $(BUILDOPTS)
+	@./tools/buildall.sh $(MAKE) "$(CC)" $(OSNAME) $(CFLAGS) $(BUILDOPTS)
 
 shared:
 	@$(MAKE) common-tasks
-	@./tools/buildall.sh shared $(MAKE) $(CC) $(OSNAME) $(CFLAGS) $(BUILDOPTS)
+	@./tools/buildall.sh shared $(MAKE) "$(CC)" $(OSNAME) $(CFLAGS) $(BUILDOPTS)
 
 debug:
 	@$(MAKE) common-tasks
-	@./tools/buildall.sh $(MAKE) $(CC) $(OSNAME) $(CFLAGS_DEBUG) $(BUILDOPTS)
+	@./tools/buildall.sh $(MAKE) "$(CC)" $(OSNAME) $(CFLAGS_DEBUG) $(BUILDOPTS)
 
 generic:
 	@$(MAKE) common-tasks
-	@./tools/buildall.sh generic $(MAKE) $(CC) $(OSNAME) $(CFLAGS) $(BUILDOPTS)
+	@./tools/buildall.sh generic $(MAKE) "$(CC)" $(OSNAME) $(CFLAGS) $(BUILDOPTS)
 
 # Special-case targets.  The "analyse" target isn't used directly but is
 # invoked as part of the clang static analyser build process.  analyse-gcc
