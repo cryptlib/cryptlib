@@ -953,7 +953,7 @@ void displayBacktrace( void )
 #endif /* Win32 vs. Win64 */
 
 #elif defined( __UNIX__ ) && \
-	  ( defined( __APPLE__ ) || defined( __linux__ ) || defined( __sun ) )
+	  ( defined( __APPLE__ ) || defined( __sun ) )
 
 #include <execinfo.h>
 

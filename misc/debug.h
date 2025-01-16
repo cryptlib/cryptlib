@@ -392,7 +392,7 @@ struct ST;
 	#define DEBUG_DUMP_STACKTRACE	displayBacktrace
 	void displayBacktrace( void );
   #elif defined( __UNIX__ ) && \
-		( defined( __APPLE__ ) || defined( __linux__ ) || defined( __sun ) )
+		( defined( __APPLE__ ) || defined( __sun ) )
 	#define DEBUG_DUMP_STACKTRACE	displayBacktrace
 	void displayBacktrace( void );
   #else
