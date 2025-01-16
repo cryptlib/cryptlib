@@ -1308,7 +1308,7 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 
 #if defined( socklen_t ) || defined( __socklen_t_defined ) || \
 	defined( _SOCKLEN_T ) || defined( _SOCKLEN_T_DECLARED ) || \
-	defined( _SOCKLEN_T_DEFINED_ )
+	defined( _SOCKLEN_T_DEFINED_ ) || defined( __DEFINED_socklen_t )
   #define SIZE_TYPE					socklen_t
 #elif defined( __BEOS__ ) || defined( _CRAY ) || defined( __WINDOWS__ ) || \
 	  defined( __VxWorks__ )
