@@ -2164,7 +2164,7 @@ Darwin:
 
 MINGW32_NT-5.1:
 	$(MAKE) OSNAME=win32 target-init
-	$(MAKE) $(DEFINES) CFLAGS="$(XCFLAGS) -O2"
+	$(MAKE) $(DEFINES) CFLAGS="$(XCFLAGS) -O2 -m32"
 
 MINGW32_NT-6.1:
 	$(MAKE) OSNAME=win32 target-init
