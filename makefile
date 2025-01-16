@@ -2168,8 +2168,8 @@ MINGW32_NT-5.1:
 
 MINGW32_NT-6.1:
 	$(MAKE) OSNAME=win32 target-init
-	$(MAKE) $(DEFINES) EXTRAOBJS="$(WIN32ASMOBJS)" \
-		CFLAGS="$(XCFLAGS) -O2 -m32 -Wl,--subsystem,windows,--output-def,cl32.def"
+	$(MAKE) OSNAME=win32 $(DEFINES) EXTRAOBJS="$(WIN32ASMOBJS)" \
+		CFLAGS="$(XCFLAGS) -O2 -m32 -Wl,--subsystem,windows,--output-def,cl32.def -DSTATIC_LIB"
 
 MINGW32_NT-10.0:
 	$(MAKE) OSNAME=win32 target-init
