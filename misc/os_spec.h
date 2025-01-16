@@ -103,7 +103,7 @@
 #ifndef _POSIX_C_SOURCE 
   #if defined( __xlc__ ) || defined( __IBMC__ )
 	#define _POSIX_C_SOURCE			200112L		/* Posix 2001 */
-  #elif defined( __GNUC__ )
+  #elif defined( __GNUC__ ) && defined(__linux__)
 	#define _POSIX_C_SOURCE			200809L		/* Posix 2008 */
 	#define _DEFAULT_SOURCE			1			/* See note above */
 	#define _BSD_SOURCE				1			/* Undo breakage */
