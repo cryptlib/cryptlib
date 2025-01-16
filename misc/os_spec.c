@@ -3389,11 +3389,11 @@ void unlockMemory( IN_BUFFER( size ) void *address,
 
 	/* Walk down the block list checking whether the page(s) contain another 
 	   locked block */
-	status = getBlockListInfo( NULL, &currentBlockPtr, &currentBlockSize );
+	status = getBlockListInfo( NULL, (const void **)&currentBlockPtr, &currentBlockSize );
 	REQUIRES_V( cryptStatusOK( status ) );
 	LOOP_LARGE_CHECKINC( cryptStatusOK( status ),
 						 status = getBlockListInfo( currentBlockPtr, 
-													&currentBlockPtr, 
+													(const void **)&currentBlockPtr, 
 													&currentBlockSize ) )
 		{
 		const PTR_TYPE currentFirstPageAddress = \
