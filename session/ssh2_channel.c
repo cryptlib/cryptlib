@@ -25,6 +25,7 @@
 #define CHANNEL_FLAG_ACTIVE		0x01	/* Channel is active */
 #define CHANNEL_FLAG_WRITECLOSED 0x02	/* Write-side of ch.closed */
 #define CHANNEL_FLAG_READCLOSED 0x04	/* Read-side of ch.closed */
+#define CHANNEL_FLAG_NEEDWINDOW 0x08	/* Needs open session */
 
 /* Per-channel information.  SSH channel IDs are 32-bit/4 byte data values
    and can be reused during sessions so we provide our own guaranteed-unique
@@ -506,7 +507,7 @@ int getChannelAttribute( const SESSION_INFO *sessionInfoPtr,
 		case CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE:
 			if( isNullChannel( writeChannelInfoPtr ) )
 				return( CRYPT_ERROR_NOTFOUND );
-			*value = isActiveChannel( writeChannelInfoPtr ) ? TRUE : FALSE;
+			*value = isActiveChannel( writeChannelInfoPtr ) ? (writeChannelInfoPtr->flags & CHANNEL_FLAG_NEEDWINDOW ? FALSE : TRUE) : FALSE;
 			return( CRYPT_OK );
 
 		case CRYPT_SESSINFO_SSH_CHANNEL_OPEN:
@@ -629,6 +630,10 @@ int getChannelExtAttribute( const SESSION_INFO *sessionInfoPtr,
 		case SSH_ATTRIBUTE_WINDOWSIZE:
 			*value = channelInfoPtr->windowSize;
 			return( CRYPT_OK );
+
+		case SSH_ATTRIBUTE_NEEDWINDOW:
+			*value = (channelInfoPtr->flags & CHANNEL_FLAG_NEEDWINDOW) ? TRUE : FALSE;
+			return( CRYPT_OK );
 		}
 
 	retIntError();
@@ -726,7 +731,7 @@ int setChannelAttributeS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int setChannelExtAttribute( const SESSION_INFO *sessionInfoPtr,
+int setChannelExtAttribute( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							IN_ATTRIBUTE const SSH_ATTRIBUTE_TYPE attribute,
 							IN_INT_Z const int value )
 	{
@@ -748,6 +753,8 @@ int setChannelExtAttribute( const SESSION_INFO *sessionInfoPtr,
 		{
 		case SSH_ATTRIBUTE_ACTIVE:
 			channelInfoPtr->flags |= CHANNEL_FLAG_ACTIVE;
+			if( channelInfoPtr->flags & CHANNEL_FLAG_READCLOSED )
+				deleteChannel(sessionInfoPtr, channelInfoPtr->writeChannelNo, CHANNEL_BOTH, FALSE);
 			return( CRYPT_OK );
 
 		case SSH_ATTRIBUTE_WINDOWCOUNT:
@@ -760,6 +767,13 @@ int setChannelExtAttribute( const SESSION_INFO *sessionInfoPtr,
 
 		case SSH_ATTRIBUTE_ALTCHANNELNO:
 			channelInfoPtr->writeChannelNo = value;
+			return( CRYPT_OK );
+
+		case SSH_ATTRIBUTE_NEEDWINDOW:
+			if (value)
+				channelInfoPtr->flags |= (CHANNEL_FLAG_NEEDWINDOW);
+			else
+				channelInfoPtr->flags &= ~(CHANNEL_FLAG_NEEDWINDOW);
 			return( CRYPT_OK );
 		}
 

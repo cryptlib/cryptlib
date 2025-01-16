@@ -315,8 +315,16 @@ typedef enum {
 	SSH_ATTRIBUTE_WINDOWCOUNT,				/* Data window count */
 	SSH_ATTRIBUTE_WINDOWSIZE,				/* Data window size */
 	SSH_ATTRIBUTE_ALTCHANNELNO,				/* Secondary channel no. */
+	SSH_ATTRIBUTE_NEEDWINDOW,				/* Send session open when window opens */
 	SSH_ATTRIBUTE_LAST						/* Last channel attribute */
 	} SSH_ATTRIBUTE_TYPE;
+
+#ifdef USE_SSH_EXTENDED
+typedef enum { SERVICE_NONE, SERVICE_SHELL, SERVICE_PORTFORWARD, 
+			   SERVICE_SUBSYSTEM, SERVICE_EXEC, SERVICE_LAST } SERVICE_TYPE;
+#else
+typedef enum { SERVICE_NONE, SERVICE_SHELL, SERVICE_LAST } SERVICE_TYPE;
+#endif /* USE_SSH_EXTENDED */
 
 /* Check whether a DH/ECDH value is valid for a given server key size.  The 
    check is slightly different for the ECC version because the value is
@@ -661,7 +669,7 @@ int setChannelAttributeS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  IN_BUFFER( dataLength ) const void *data, 
 						  IN_LENGTH_TEXT const int dataLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int setChannelExtAttribute( const SESSION_INFO *sessionInfoPtr,
+int setChannelExtAttribute( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							IN_ATTRIBUTE const SSH_ATTRIBUTE_TYPE attribute,
 							IN_INT_Z const int value );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -703,6 +711,18 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 /* Prototypes for functions in ssh2_msgcli.c */
 
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int getServiceType( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
+						   OUT_ENUM_OPT( SERVICE ) SERVICE_TYPE *serviceType );
+						   CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int createSessionOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+									 INOUT_PTR STREAM *stream,
+									 IN_ENUM( SERVICE ) \
+										const SERVICE_TYPE serviceType );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int processChannelOpenFailure( INOUT_PTR SESSION_INFO *sessionInfoPtr, INOUT_PTR STREAM *stream );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int processChannelOpenConfirmation( INOUT_PTR SESSION_INFO *sessionInfoPtr, INOUT_PTR STREAM *stream );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr );
 

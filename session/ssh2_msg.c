@@ -319,7 +319,10 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					}
 				}
 			break;
-
+		case SSH_MSG_CHANNEL_OPEN_FAILURE:
+			return processChannelOpenFailure(sessionInfoPtr, stream);
+		case SSH_MSG_CHANNEL_OPEN_CONFIRMATION:
+			return processChannelOpenConfirmation(sessionInfoPtr, stream);
 		default:
 			{
 #ifdef USE_ERRMSGS
@@ -444,10 +447,18 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( OK_SPECIAL );
 
 		case SSH_MSG_CHANNEL_WINDOW_ADJUST:
+			{
+			int value;
 			/* Another noop-equivalent (but a very performance-affecting
 			   one) */
 			DEBUG_PUTS(( "Processing window adjust message" ));
+			status = getChannelExtAttribute(sessionInfoPtr, SSH_ATTRIBUTE_NEEDWINDOW, &value);
+			if (cryptStatusOK(status) && value)
+				{
+				status = setChannelExtAttribute(sessionInfoPtr, SSH_ATTRIBUTE_NEEDWINDOW, FALSE);
+				}
 			return( OK_SPECIAL );
+			}
 
 		case SSH_MSG_CHANNEL_EOF:
 			/* According to the SSH docs the EOF packet is a courtesy 

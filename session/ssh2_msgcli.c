@@ -27,13 +27,6 @@ typedef enum { OPENREQUEST_NONE, /* OPENREQUEST_STANDALONE, */
 			   OPENREQUEST_CHANNELONLY, OPENREQUEST_SESSION,
 			   OPENREQUEST_LAST } OPENREQUEST_TYPE;
 
-#ifdef USE_SSH_EXTENDED
-typedef enum { SERVICE_NONE, SERVICE_SHELL, SERVICE_PORTFORWARD, 
-			   SERVICE_SUBSYSTEM, SERVICE_EXEC, SERVICE_LAST } SERVICE_TYPE;
-#else
-typedef enum { SERVICE_NONE, SERVICE_SHELL, SERVICE_LAST } SERVICE_TYPE;
-#endif /* USE_SSH_EXTENDED */
-
 /****************************************************************************
 *																			*
 *								Utility Functions							*
@@ -45,7 +38,7 @@ typedef enum { SERVICE_NONE, SERVICE_SHELL, SERVICE_LAST } SERVICE_TYPE;
 /* Determine which type of service the caller requested */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int getServiceType( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
+int getServiceType( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 						   OUT_ENUM_OPT( SERVICE ) SERVICE_TYPE *serviceType )
 	{
 	BYTE typeString[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -441,7 +434,7 @@ static int createOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #endif /* USE_SSH_EXTENDED */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int createSessionOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+int createSessionOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									 INOUT_PTR STREAM *stream,
 									 IN_ENUM( SERVICE ) \
 										const SERVICE_TYPE serviceType )
@@ -589,6 +582,180 @@ static int createSessionOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	return( status );
 	}
 
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int processChannelOpenFailure( INOUT_PTR SESSION_INFO *sessionInfoPtr, INOUT_PTR STREAM *stream )
+	{
+	int status;
+	status = getOpenFailInfo( sessionInfoPtr, stream );
+	return( status );
+	}
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int processChannelOpenConfirmation( INOUT_PTR SESSION_INFO *sessionInfoPtr, INOUT_PTR STREAM *stream )
+	{
+	int status;
+	long currentChannelNo;
+	long channelNo;
+	long origWriteChannelNo;
+	SERVICE_TYPE serviceType;
+	long windowSize;
+	STREAM sendStream;
+	BYTE buffer[ UINT32_SIZE + 8 ];
+	BOOLEAN waitforWindow = FALSE;
+	int length;
+
+	status = getServiceType( sessionInfoPtr, &serviceType );
+	if( cryptStatusError( status ) ) {
+		return( status );
+	}
+
+	origWriteChannelNo = sessionInfoPtr->sessionSSH->currWriteChannel;
+	status = currentChannelNo = readUint32( stream );
+
+	// Find channel by number...
+	if (!cryptStatusError(status))
+		status = selectChannel( sessionInfoPtr, currentChannelNo, CHANNEL_NONE );
+	if( cryptStatusError( status ) ) {
+		return( status );
+	}
+	channelNo = currentChannelNo;
+
+	if( !cryptStatusError( status ) )
+		status = currentChannelNo = readUint32( stream );
+	if( cryptStatusError( status ) )
+		{
+		retExt( CRYPT_ERROR_BADDATA,
+				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+				  "Invalid channel information in channel open "
+				  "confirmation for channel %lX", channelNo ) );
+		}
+	status = sread( stream, buffer, UINT32_SIZE );
+	if( !cryptStatusError( status ) && \
+		!memcmp( buffer, "\x00\x00\x00\x00", UINT32_SIZE ) )
+		{
+		/* Some bizarro implementations send a zero-length initial window 
+		   size, then immediately follow it with a window adjust to set the
+		   window to a non-zero size.  To deal with this we wait for a
+		   window adjust after sending our session-open request */
+		DEBUG_PRINT(( "Peer advertised window size 0 in channel open, will "
+					  "wait for window adjust in order to send data.\n" ));
+		waitforWindow = TRUE;
+		status = setChannelExtAttribute(sessionInfoPtr, SSH_ATTRIBUTE_NEEDWINDOW, TRUE);
+		if( cryptStatusError( status ) )
+			{
+			retExt( CRYPT_ERROR_INTERNAL,
+					( CRYPT_ERROR_INTERNAL, SESSION_ERRINFO,
+					  "Unable to set NEEDWINDOW for "
+					  "channel %lX", channelNo ) );
+			}
+		}
+	if( cryptStatusError( status ) )
+		{
+		retExt( CRYPT_ERROR_BADDATA,
+				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+				  "Invalid channel open confirmation window informaton for "
+				  "channel %lX", channelNo ) );
+		}
+
+	/* The channel has been successfully created, mark it as active and
+	   select it for future exchanges */
+	status = setChannelExtAttribute( sessionInfoPtr, SSH_ATTRIBUTE_ACTIVE, 
+									 TRUE );
+	if( cryptStatusOK( status ) && currentChannelNo != channelNo )
+		{
+		/* It's unclear why anyone would want to use different channel
+		   numbers for different directions since it's the same channel that 
+		   the data is moving across, but Cisco do it anyway */
+		status = setChannelExtAttribute( sessionInfoPtr, 
+										 SSH_ATTRIBUTE_ALTCHANNELNO,
+										 currentChannelNo );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		/* The initial window count is the same as the data window size */
+		windowSize = getWindowSize( sessionInfoPtr );
+		status = setChannelExtAttribute( sessionInfoPtr, 
+										 SSH_ATTRIBUTE_WINDOWSIZE,
+										 windowSize );
+		if( cryptStatusOK( status ) )
+			{
+			status = setChannelExtAttribute( sessionInfoPtr, 
+											 SSH_ATTRIBUTE_WINDOWCOUNT,
+											 windowSize );
+			}
+		}
+	if (cryptStatusOK(status))
+		status = selectChannel( sessionInfoPtr, currentChannelNo, CHANNEL_BOTH );
+	if( cryptStatusError( status ) ) {
+		selectChannel( sessionInfoPtr, origWriteChannelNo, CHANNEL_WRITE );
+		return( status );
+	}
+
+	/* If we're just opening a new channel in an existing session then we're 
+	   done */
+	if( serviceType == SERVICE_PORTFORWARD ) {
+		selectChannel( sessionInfoPtr, origWriteChannelNo, CHANNEL_WRITE );
+		return( CRYPT_OK );
+	}
+
+	if ( TRUE || channelNo == 0 || !waitforWindow )
+		{
+		/* It's a session open request that requires additional messages to do
+		   anything useful, create and send the extra packets.  Unlike the 
+		   overall open request, we can't wrap and send the packets in one go
+		   because serviceType == SERVICE_SHELL has to send multiple packets,
+		   which are wrapped in createSessionOpenRequest() */
+		status = createSessionOpenRequest( sessionInfoPtr, &sendStream, 
+										   serviceType );
+		if( cryptStatusOK( status ) )
+			{
+			/* serviceType == SERVICE_SHELL creates two packets */
+			status = sendPacketSSH2( sessionInfoPtr, &sendStream );
+			}
+		sMemDisconnect( &sendStream );
+		if( cryptStatusError( status ) )
+			selectChannel( sessionInfoPtr, origWriteChannelNo, CHANNEL_WRITE );
+			return( status );
+		}
+
+	/* If the peer advertised a zero-length window, we have to wait for a
+	   window adjust before we can send any data.  We know that this is what
+	   will (or at least should) arrive next because we've set want_reply =
+	   FALSE in the session open request */
+	if( waitforWindow )
+		{
+		if ( channelNo == 0 )
+			{
+			/* This isn't really an auth packet any more but to read further
+			   packets we would have to get into the data-read state machine via
+			   readHeaderFunction()/processBodyFunction() which would be quite
+			   difficult, so we read it as a (pseudo-)auth packet */
+			status = length = \
+				readAuthPacketSSH2( sessionInfoPtr, SSH_MSG_CHANNEL_WINDOW_ADJUST,
+									ID_SIZE + UINT32_SIZE + UINT32_SIZE );
+			if( cryptStatusError( status ) ) {
+				selectChannel( sessionInfoPtr, origWriteChannelNo, CHANNEL_WRITE );
+				return( status );
+			}
+			sMemConnect( &sendStream, sessionInfoPtr->receiveBuffer, length );
+			status = currentChannelNo = readUint32( &sendStream );
+			if( !cryptStatusError( status ) && currentChannelNo != channelNo )
+				status = CRYPT_ERROR_BADDATA;
+			sMemDisconnect( &sendStream );
+			if( cryptStatusError( status ) )
+				{
+				retExt( CRYPT_ERROR_BADDATA,
+						( CRYPT_ERROR_BADDATA, SESSION_ERRINFO,
+						  "Invalid channel information in window adjust for "
+						  "channel %lX", channelNo ) );
+				}
+			}
+		}
+
+	selectChannel( sessionInfoPtr, origWriteChannelNo, CHANNEL_WRITE );
+	return( CRYPT_OK );
+	}
+
 /* Send a channel open */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -597,11 +764,8 @@ int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	STREAM stream;
 	SERVICE_TYPE serviceType;
 	OPENREQUEST_TYPE requestType;
-	BOOLEAN waitforWindow = FALSE;
-	BYTE buffer[ UINT32_SIZE + 8 ];
 	const long channelNo = getCurrentChannelNo( sessionInfoPtr,
 												CHANNEL_READ );
-	long currentChannelNo, windowSize;
 	int length, value, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -659,155 +823,39 @@ int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		return( CRYPT_OK );
 #endif /* 0 */
 
-	/* Wait for the server's ack of the channel open request:
+	if (channelNo == 0)
+		{
+		/* Wait for the server's ack of the channel open request:
 
-		byte	SSH_MSG_CHANNEL_OPEN_CONFIRMATION
-		uint32	recipient_channel
-		uint32	sender_channel
-		uint32	initial_window_size
-		uint32	maximum_packet_size
-		... 
-		
-	   Quite a number of implementations use the same approach that we do to 
-	   the windowing problem and advertise a maximum-size window, since this 
-	   is typically INT_MAX (used by e.g. PSFTP, WinSCP, and FileZilla) we 
-	   have to use an sread() rather than the range-checking readUint32() 
-	   to read this */
-	status = length = \
-		readAuthPacketSSH2( sessionInfoPtr, SSH_MSG_SPECIAL_CHANNEL,
-							ID_SIZE + UINT32_SIZE + UINT32_SIZE + \
-								UINT32_SIZE + UINT32_SIZE );
-	if( cryptStatusError( status ) )
-		return( status );
-	sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
-	if( sessionInfoPtr->sessionSSH->packetType == SSH_MSG_CHANNEL_OPEN_FAILURE )
-		{
-		/* The open failed, report the details to the user */
-		status = getOpenFailInfo( sessionInfoPtr, &stream );
-		sMemDisconnect( &stream );
-		return( status );
-		}
-	status = currentChannelNo = readUint32( &stream );
-	if( !cryptStatusError( status ) && currentChannelNo != channelNo )
-		{
-		/* We got back a different channel number than we sent */
-		status = CRYPT_ERROR_BADDATA;
-		}
-	if( !cryptStatusError( status ) )
-		status = currentChannelNo = readUint32( &stream );
-	if( cryptStatusError( status ) )
-		{
-		sMemDisconnect( &stream );
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid channel information in channel open "
-				  "confirmation for channel %lX", channelNo ) );
-		}
-	status = sread( &stream, buffer, UINT32_SIZE );
-	if( !cryptStatusError( status ) && \
-		!memcmp( buffer, "\x00\x00\x00\x00", UINT32_SIZE ) )
-		{
-		/* Some bizarro implementations send a zero-length initial window 
-		   size, then immediately follow it with a window adjust to set the
-		   window to a non-zero size.  To deal with this we wait for a
-		   window adjust after sending our session-open request */
-		DEBUG_PRINT(( "Peer advertised window size 0 in channel open, will "
-					  "wait for window adjust in order to send data.\n" ));
-		waitforWindow = TRUE;
-		}
-	sMemDisconnect( &stream );
-	if( cryptStatusError( status ) )
-		{
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid channel open confirmation window informaton for "
-				  "channel %lX", channelNo ) );
-		}
-
-	/* The channel has been successfully created, mark it as active and
-	   select it for future exchanges */
-	status = setChannelExtAttribute( sessionInfoPtr, SSH_ATTRIBUTE_ACTIVE, 
-									 TRUE );
-	if( cryptStatusOK( status ) && currentChannelNo != channelNo )
-		{
-		/* It's unclear why anyone would want to use different channel
-		   numbers for different directions since it's the same channel that 
-		   the data is moving across, but Cisco do it anyway */
-		status = setChannelExtAttribute( sessionInfoPtr, 
-										 SSH_ATTRIBUTE_ALTCHANNELNO,
-										 currentChannelNo );
-		}
-	if( cryptStatusOK( status ) )
-		{
-		/* The initial window count is the same as the data window size */
-		windowSize = getWindowSize( sessionInfoPtr );
-		status = setChannelExtAttribute( sessionInfoPtr, 
-										 SSH_ATTRIBUTE_WINDOWSIZE,
-										 windowSize );
-		if( cryptStatusOK( status ) )
-			{
-			status = setChannelExtAttribute( sessionInfoPtr, 
-											 SSH_ATTRIBUTE_WINDOWCOUNT,
-											 windowSize );
-			}
-		}
-	if( cryptStatusOK( status ) )
-		status = selectChannel( sessionInfoPtr, channelNo, CHANNEL_BOTH );
-	if( cryptStatusError( status ) )
-		return( status );
-
-	/* If we're just opening a new channel in an existing session then we're 
-	   done */
-	if( requestType == OPENREQUEST_CHANNELONLY )
-		return( CRYPT_OK );
-
-	REQUIRES( requestType == OPENREQUEST_SESSION );
-
-	/* It's a session open request that requires additional messages to do
-	   anything useful, create and send the extra packets.  Unlike the 
-	   overall open request, we can't wrap and send the packets in one go
-	   because serviceType == SERVICE_SHELL has to send multiple packets,
-	   which are wrapped in createSessionOpenRequest() */
-	status = createSessionOpenRequest( sessionInfoPtr, &stream, 
-									   serviceType );
-	if( cryptStatusOK( status ) )
-		{
-		/* serviceType == SERVICE_SHELL creates two packets */
-		status = sendPacketSSH2( sessionInfoPtr, &stream );
-		}
-	sMemDisconnect( &stream );
-	if( cryptStatusError( status ) )
-		return( status );
-	
-	/* If the peer advertised a zero-length window, we have to wait for a 
-	   window adjust before we can send any data.  We know that this is what
-	   will (or at least should) arrive next because we've set want_reply = 
-	   FALSE in the session open request */
-	if( waitforWindow )
-		{
-		/* This isn't really an auth packet any more but to read further 
-		   packets we would have to get into the data-read state machine via
-		   readHeaderFunction()/processBodyFunction() which would be quite
-		   difficult, so we read it as a (pseudo-)auth packet */
+			byte	SSH_MSG_CHANNEL_OPEN_CONFIRMATION
+			uint32	recipient_channel
+			uint32	sender_channel
+			uint32	initial_window_size
+			uint32	maximum_packet_size
+			... 
+			
+		   Quite a number of implementations use the same approach that we do to 
+		   the windowing problem and advertise a maximum-size window, since this 
+		   is typically INT_MAX (used by e.g. PSFTP, WinSCP, and FileZilla) we 
+		   have to use an sread() rather than the range-checking readUint32() 
+		   to read this */
 		status = length = \
-			readAuthPacketSSH2( sessionInfoPtr, SSH_MSG_CHANNEL_WINDOW_ADJUST,
-								ID_SIZE + UINT32_SIZE + UINT32_SIZE );
+			readAuthPacketSSH2( sessionInfoPtr, SSH_MSG_SPECIAL_CHANNEL,
+								ID_SIZE + UINT32_SIZE + UINT32_SIZE + \
+									UINT32_SIZE + UINT32_SIZE );
 		if( cryptStatusError( status ) )
 			return( status );
 		sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
-		status = currentChannelNo = readUint32( &stream );
-		if( !cryptStatusError( status ) && currentChannelNo != channelNo )
-			status = CRYPT_ERROR_BADDATA;
-		sMemDisconnect( &stream );
-		if( cryptStatusError( status ) )
+		if( sessionInfoPtr->sessionSSH->packetType == SSH_MSG_CHANNEL_OPEN_FAILURE )
 			{
-			retExt( CRYPT_ERROR_BADDATA,
-					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-					  "Invalid channel information in window adjust for "
-					  "channel %lX", channelNo ) );
+			status = processChannelOpenFailure(sessionInfoPtr, &stream);
+			sMemDisconnect( &stream );
+			return status;
 			}
+		status = processChannelOpenConfirmation(sessionInfoPtr, &stream);
+		sMemDisconnect( &stream );
+		return status;
 		}
-
-	return( CRYPT_OK );
+	return (CRYPT_ENVELOPE_RESOURCE);
 	}
 #endif /* USE_SSH */

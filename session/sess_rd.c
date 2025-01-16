@@ -744,7 +744,7 @@ static int getData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* Remember how much we've copied and, if we've satisfied the 
 		   request, exit */
 		*bytesCopied = bytesToCopy;
-		if( bytesToCopy >= length )
+		if( bytesToCopy >= length || sessionInfoPtr->type == CRYPT_SESSION_SSH || sessionInfoPtr->type == CRYPT_SESSION_SSH_SERVER)
 			{
 			ENSURES( sanityCheckSessionRead( sessionInfoPtr ) );
 
@@ -934,6 +934,22 @@ int getSessionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			dataPtr += byteCount;
 			dataLength -= byteCount;
 			}
+		/*
+		 * SyncTERM hack for SSH channels... after a full packet has been received, *and*
+		 * some data has been received, always return.
+		 *
+		 * This ensures that we can never return data from two different channels in the
+		 * same cryptPopData() response.
+		 */
+		if (*bytesCopied > 0) {
+			if (sessionInfoPtr->type == CRYPT_SESSION_SSH || sessionInfoPtr->type == CRYPT_SESSION_SSH_SERVER)
+				{
+				if (sessionInfoPtr->receiveBufPos <= 0)
+					{
+					status = OK_SPECIAL;
+					}
+				}
+		}
 		if( status == OK_SPECIAL )
 			{
 			/* That was the last of the data, exit */
