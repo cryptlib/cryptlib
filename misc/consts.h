@@ -247,7 +247,7 @@
    creating things like certs containing MPEGs of themselves playing with
    their cat */
 
-#define MAX_ATTRIBUTE_SIZE		1024
+#define MAX_ATTRIBUTE_SIZE		4096
 
 /* Some objects contain internal buffers used to process data whose size can 
    be specified by the user, the following is the minimum and maximum size 
