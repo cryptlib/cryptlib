@@ -564,8 +564,10 @@ static const SYSCTL_INFO sysctlInfo[] = {
 									/* IPv4 routing table */
 	{ 6, { CTL_NET, AF_ROUTE, 0, AF_INET6, NET_RT_DUMP, 0 }, 5 },
 									/* IPv6 routing table */
+#ifdef RTF_LLINFO
 	{ 6, { CTL_NET, AF_ROUTE, 0, AF_INET, NET_RT_FLAGS, RTF_LLINFO }, 5 },
 									/* ARP cache */
+#endif
 
 	/* VM info */
 #ifdef VM_LOADAVG 
@@ -751,7 +753,7 @@ static int getIfaddrsData( void )
 
 /* BSD-specific polling using getfsstat() */
 
-#if defined( __FreeBSD__ ) || defined( __NetBSD__ ) || \
+#if defined( __FreeBSD__ ) || \
 	defined( __OpenBSD__ ) || defined( __APPLE__ )
 
 #define USE_GETFSSTAT
