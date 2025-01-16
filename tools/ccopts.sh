@@ -1118,34 +1118,35 @@ fi
 # -march=native.  As a result we have to use the pretty bad -march=x86-64
 # for most gcc versions, which doesn't even get us native AES support.
 
-if [ "$ARCH" = "i586" ] || [ "$ARCH" = "i686" ] || [ "$ARCH" = "x86_64" ] ; then
-	if [ "$COMPILER_VER" -ge 110 ] ; then
-		if [ $GENERICBUILD -gt 0 ] ; then
-			echo "  (Enabling lowest-common-denominator build options for cross-platform library)." >&2 ;
-		else
-			CCARGS="$CCARGS -march=x86-64-v3" ;
-		fi
-	elif [ "$COMPILER_VER" -ge 45 ] ; then
-		if [ $GENERICBUILD -gt 0 ] ; then
-			echo "  (Enabling lowest-common-denominator build options for cross-platform library)." >&2 ;
-		else
-			CCARGS="$CCARGS -march=x86-64" ;
-		fi
-	elif [ "$COMPILER_VER" -ge 30 ] ; then
-		case $ARCH in
-			'x86_64')
-				CCARGS="$CCARGS -march=opteron -fPIC" ;;
-
-			'i686')
-				CCARGS="$CCARGS -march=pentiumpro" ;;
-
-			*)
-				CCARGS="$CCARGS -march=pentium" ;;
-		esac ;
-	else
-		CCARGS="$CCARGS -mcpu=pentium" ;
-	fi ;
-fi
+# We can't use the generic target because we use an explcit target for mingw
+#if [ "$ARCH" = "i586" ] || [ "$ARCH" = "i686" ] || [ "$ARCH" = "x86_64" ] ; then
+#	if [ "$COMPILER_VER" -ge 110 ] ; then
+#		if [ $GENERICBUILD -gt 0 ] ; then
+#			echo "  (Enabling lowest-common-denominator build options for cross-platform library)." >&2 ;
+#		else
+#			CCARGS="$CCARGS -march=x86-64-v3" ;
+#		fi
+#	elif [ "$COMPILER_VER" -ge 45 ] ; then
+#		if [ $GENERICBUILD -gt 0 ] ; then
+#			echo "  (Enabling lowest-common-denominator build options for cross-platform library)." >&2 ;
+#		else
+#			CCARGS="$CCARGS -march=x86-64" ;
+#		fi
+#	elif [ "$COMPILER_VER" -ge 30 ] ; then
+#		case $ARCH in
+#			'x86_64')
+#				CCARGS="$CCARGS -march=opteron -fPIC" ;;
+#
+#			'i686')
+#				CCARGS="$CCARGS -march=pentiumpro" ;;
+#
+#			*)
+#				CCARGS="$CCARGS -march=pentium" ;;
+#		esac ;
+#	else
+#		CCARGS="$CCARGS -mcpu=pentium" ;
+#	fi ;
+#fi
 
 # gcc 4.x for 64-bit architectures has an optimiser bug that removes an
 # empty-list check in cryptlib's list-management code (this has been
