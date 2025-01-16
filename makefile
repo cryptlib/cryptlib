@@ -2185,6 +2185,15 @@ MINGW64_NT-10.0:
 	$(MAKE) OSNAME=win64 $(DEFINES) \
 		CFLAGS="$(XCFLAGS) -O2 -m64 -Wl,--subsystem,windows,--output-def,cl32.def -DSTATIC_LIB"
 
+MINGW64_NT-5.1:
+	$(MAKE) OSNAME=win64 target-init
+	$(MAKE) $(DEFINES) CFLAGS="$(XCFLAGS) -O2 -m64"
+
+MINGW64_NT-6.1:
+	$(MAKE) OSNAME=win64 target-init
+	$(MAKE) OSNAME=win64 $(DEFINES) EXTRAOBJS="$(WIN32ASMOBJS)" \
+		CFLAGS="$(XCFLAGS) -O2 -m64 -Wl,--subsystem,windows,--output-def,cl32.def -DSTATIC_LIB"
+
 # NCR MP-RAS: Use the NCR cc.  The "-DNCR_UST" is needed to enable threading
 #			  (User-Space Threads).
 
