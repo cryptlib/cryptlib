@@ -232,7 +232,7 @@ extern "C" {
 #  define PTR_SIZE_INT size_t
 # endif                         /* defined(OPENSSL_SYS_VMS) [else] */
 
-# if !defined(OPENSSL_NO_ASM) && !defined(OPENSSL_NO_INLINE_ASM) && !defined(PEDANTIC)
+# if !defined(PEDANTIC)
 
 /* The original OpenSSL code has a mass of inline asm to handle 64-bit 
    multiplies across different architectures, however if the compiler 
