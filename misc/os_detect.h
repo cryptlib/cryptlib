@@ -684,7 +684,9 @@
 	 __GNUC__ is defined but the gcc include files aren't present.  The
 	 above checks catch the most common cases, if there are other pretend-
 	 gcc's then they'll need to be special-cased before this one */
+#if !defined(__MINGW32__)
   #include <endian.h>
+#endif
 #endif /* System-specific endian.h includes */
 
 #if defined( CONFIG_DATA_LITTLEENDIAN ) || defined( CONFIG_DATA_BIGENDIAN )
