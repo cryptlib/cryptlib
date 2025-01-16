@@ -9,6 +9,10 @@
 
 #define _CRYPT_DEFINED
 
+#define OPENSSL_NO_ASM
+#define OPENSSL_NO_INLINE_ASM
+#define NO_ASM
+
 /* The overall cryptlib header file, which pulls in all other universally-
    used header files.  The include order is:
 
