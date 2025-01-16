@@ -24,6 +24,7 @@
 #define CHANNEL_FLAG_NONE		0x00	/* No channel flag */
 #define CHANNEL_FLAG_ACTIVE		0x01	/* Channel is active */
 #define CHANNEL_FLAG_WRITECLOSED 0x02	/* Write-side of ch.closed */
+#define CHANNEL_FLAG_READCLOSED 0x04	/* Read-side of ch.closed */
 
 /* Per-channel information.  SSH channel IDs are 32-bit/4 byte data values
    and can be reused during sessions so we provide our own guaranteed-unique
@@ -118,6 +119,8 @@ static BOOLEAN isChannelActive( const SESSION_INFO *sessionInfoPtr,
 		   after */
 		ENSURES( attributeListPtr->valueLength == sizeof( SSH_CHANNEL_INFO ) );
 		channelInfoPtr = attributeListPtr->value;
+		if( channelInfoPtr->flags & CHANNEL_FLAG_READCLOSED)
+			continue;
 		if( isActiveChannel( channelInfoPtr ) && \
 			channelInfoPtr->channelID != excludedChannelID )
 			return( TRUE );
@@ -141,7 +144,9 @@ static int accessFunction( INOUT_PTR ATTRIBUTE_LIST *attributeListPtr,
 	static const CRYPT_ATTRIBUTE_TYPE attributeOrderList[] = {
 			CRYPT_SESSINFO_SSH_CHANNEL, CRYPT_SESSINFO_SSH_CHANNEL_TYPE,
 			CRYPT_SESSINFO_SSH_CHANNEL_ARG1, CRYPT_SESSINFO_SSH_CHANNEL_ARG2,
-			CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE, CRYPT_ATTRIBUTE_NONE,
+			CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE, CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL,
+			CRYPT_SESSINFO_SSH_CHANNEL_WIDTH, CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT,
+			CRYPT_SESSINFO_SSH_CHANNEL_OPEN, CRYPT_ATTRIBUTE_NONE,
 			CRYPT_ATTRIBUTE_NONE };
 	SSH_CHANNEL_INFO *channelInfoPtr = attributeListPtr->value;
 	CRYPT_ATTRIBUTE_TYPE attributeType = channelInfoPtr->cursorPos;
@@ -228,6 +233,7 @@ static int accessFunction( INOUT_PTR ATTRIBUTE_LIST *attributeListPtr,
 			case CRYPT_SESSINFO_SSH_CHANNEL:
 			case CRYPT_SESSINFO_SSH_CHANNEL_TYPE:
 			case CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE:
+			case CRYPT_SESSINFO_SSH_CHANNEL_OPEN:
 				doContinue = FALSE;	/* Always present */
 				break;
 
@@ -476,6 +482,8 @@ int getChannelAttribute( const SESSION_INFO *sessionInfoPtr,
 	{
 	const SSH_CHANNEL_INFO *channelInfoPtr = \
 				getCurrentChannelInfo( sessionInfoPtr, CHANNEL_READ );
+	const SSH_CHANNEL_INFO *writeChannelInfoPtr = \
+				getCurrentChannelInfo( sessionInfoPtr, CHANNEL_WRITE );
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( value, sizeof( int ) ) );
@@ -487,27 +495,38 @@ int getChannelAttribute( const SESSION_INFO *sessionInfoPtr,
 	/* Clear return values */
 	*value = 0;
 
-	if( isNullChannel( channelInfoPtr ) )
-		return( CRYPT_ERROR_NOTFOUND );
-
 	switch( attribute )
 		{
 		case CRYPT_SESSINFO_SSH_CHANNEL:
+			if( isNullChannel( channelInfoPtr ) )
+				return( CRYPT_ERROR_NOTFOUND );
 			*value = channelInfoPtr->channelID;
 			return( CRYPT_OK );
 
 		case CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE:
-			*value = isActiveChannel( channelInfoPtr ) ? TRUE : FALSE;
+			if( isNullChannel( writeChannelInfoPtr ) )
+				return( CRYPT_ERROR_NOTFOUND );
+			*value = isActiveChannel( writeChannelInfoPtr ) ? TRUE : FALSE;
+			return( CRYPT_OK );
+
+		case CRYPT_SESSINFO_SSH_CHANNEL_OPEN:
+			if( isNullChannel( writeChannelInfoPtr ) )
+				return( CRYPT_ERROR_NOTFOUND );
+			*value = ( writeChannelInfoPtr->flags & CHANNEL_FLAG_READCLOSED ) ? FALSE : TRUE;
 			return( CRYPT_OK );
 
 		case CRYPT_SESSINFO_SSH_CHANNEL_WIDTH:
-			if (channelInfoPtr->width == 0)
+			if( isNullChannel( writeChannelInfoPtr ) )
+				return( CRYPT_ERROR_NOTFOUND );
+			if (writeChannelInfoPtr->width == 0)
 				return CRYPT_ERROR_NOTFOUND;
 			*value = channelInfoPtr->width;
 			return( CRYPT_OK );
 
 		case CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT:
-			if (channelInfoPtr->height == 0)
+			if( isNullChannel( writeChannelInfoPtr ) )
+				return( CRYPT_ERROR_NOTFOUND );
+			if (writeChannelInfoPtr->height == 0)
 				return CRYPT_ERROR_NOTFOUND;
 			*value = channelInfoPtr->height;
 			return( CRYPT_OK );
@@ -765,7 +784,7 @@ CHANNEL_TYPE getChannelStatusByChannelNo( const SESSION_INFO *sessionInfoPtr,
 	channelInfoPtr = findChannelByChannelNo( sessionInfoPtr, channelNo );
 	return( ( channelInfoPtr == NULL ) ? CHANNEL_NONE : \
 			( channelInfoPtr->flags & CHANNEL_FLAG_WRITECLOSED ) ? \
-				CHANNEL_READ : CHANNEL_BOTH );
+				CHANNEL_READ : ( channelInfoPtr->flags & CHANNEL_FLAG_READCLOSED ) ? CHANNEL_WRITE : CHANNEL_BOTH );
 	}
 
 CHECK_RETVAL_ENUM( CHANNEL ) STDC_NONNULL_ARG( ( 1 ) ) \
@@ -785,7 +804,7 @@ CHANNEL_TYPE getChannelStatusByAddr( const SESSION_INFO *sessionInfoPtr,
 										addrInfoLen );
 	return( ( channelInfoPtr == NULL ) ? CHANNEL_NONE : \
 			( channelInfoPtr->flags & CHANNEL_FLAG_WRITECLOSED ) ? \
-				CHANNEL_READ : CHANNEL_BOTH );
+				CHANNEL_READ : ( channelInfoPtr->flags & CHANNEL_FLAG_READCLOSED ) ? CHANNEL_WRITE : CHANNEL_BOTH );
 	}
 
 /****************************************************************************
@@ -1013,12 +1032,22 @@ int deleteChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Delete the channel entry.  If we're only closing the write side we
 	   mark the channel as closed for write but leave the overall channel
 	   open */
-	if( channelType == CHANNEL_WRITE )
+	if( channelType == CHANNEL_WRITE  && !(channelInfoPtr->flags & CHANNEL_FLAG_READCLOSED))
 		{
 		REQUIRES( !( channelInfoPtr->flags & CHANNEL_FLAG_WRITECLOSED ) );
 		channelInfoPtr->flags |= CHANNEL_FLAG_WRITECLOSED;
 		if( channelID == sshInfo->currWriteChannel )
 			sshInfo->currWriteChannel = UNUSED_CHANNEL_ID;
+		return( isChannelActive( sessionInfoPtr, \
+								 channelInfoPtr->channelID ) ? \
+				CRYPT_OK : OK_SPECIAL );
+		}
+	if( channelType == CHANNEL_READ && !(channelInfoPtr->flags & CHANNEL_FLAG_WRITECLOSED) && isChannelActive( sessionInfoPtr, channelID ) )
+		{
+		REQUIRES( !( channelInfoPtr->flags & CHANNEL_FLAG_READCLOSED ) );
+		channelInfoPtr->flags |= CHANNEL_FLAG_READCLOSED;
+		if( channelID == sshInfo->currReadChannel )
+			sshInfo->currReadChannel = UNUSED_CHANNEL_ID;
 		return( isChannelActive( sessionInfoPtr, \
 								 channelInfoPtr->channelID ) ? \
 				CRYPT_OK : OK_SPECIAL );

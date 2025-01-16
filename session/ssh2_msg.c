@@ -468,7 +468,7 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											 channelNo ) == CHANNEL_BOTH )
 				{
 				status = sendChannelClose( sessionInfoPtr, channelNo,
-										   CHANNEL_BOTH, TRUE );
+										   CHANNEL_READ, TRUE );
 				}
 			else
 				{
@@ -527,6 +527,8 @@ static int sendChannelClose( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   no more channels left to close */
 	status = deleteChannel( sessionInfoPtr, channelNo, channelType,
 							closeLastChannel  );
+	if( getChannelStatusByChannelNo( sessionInfoPtr, channelNo ) == CHANNEL_NONE )
+		return CRYPT_OK;
 	if( cryptStatusError( status ) )
 		{
 		if( status != OK_SPECIAL )

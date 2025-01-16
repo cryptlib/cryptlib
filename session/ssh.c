@@ -556,6 +556,7 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_WIDTH || \
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT || \
 			  type == CRYPT_SESSINFO_SSH_CHANNEL_TERMINAL || \
+			  type == CRYPT_SESSINFO_SSH_CHANNEL_OPEN || \
 			  type == CRYPT_SESSINFO_SSH_PREAUTH );
 #else
 	REQUIRES( type == CRYPT_SESSINFO_SSH_PREAUTH );
@@ -593,7 +594,8 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( type == CRYPT_SESSINFO_SSH_CHANNEL || \
 		type == CRYPT_SESSINFO_SSH_CHANNEL_ACTIVE || \
 		type == CRYPT_SESSINFO_SSH_CHANNEL_WIDTH || \
-		type == CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT)
+		type == CRYPT_SESSINFO_SSH_CHANNEL_HEIGHT || \
+		type == CRYPT_SESSINFO_SSH_CHANNEL_OPEN)
 		{
 		status = getChannelAttribute( sessionInfoPtr, type, data );
 		}
