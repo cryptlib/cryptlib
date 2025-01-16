@@ -293,22 +293,41 @@
   #define VC_GE_2017( version )		( ( version ) >= 1910 )
   #define VC_GE_2019( version )		( ( version ) >= 1920 )
 #else
-  /* These aren't specifically required on non-VC++ systems, but some 
-     preprocessors get confused if they aren't defined */
-  #define VC_16BIT( version )		0
-  #define VC_LE_VC6( version )		0
-  #define VC_GE_2002( version )		1
-  #define VC_LT_2005( version )		1
-  #define VC_GE_2005( version )		0
-  #define VC_GE_2008( version )		0
-  #define VC_LT_2010( version )		1
-  #define VC_GE_2010( version )		0
-  #define VC_GE_2012( version )		0
-  #define VC_GE_2013( version )		0
-  #define VC_GE_2015( version )		0
-  #define VC_LT_2017( version )		0
-  #define VC_GE_2017( version )		0
-  #define VC_GE_2019( version )		0
+  #ifdef __MINGW64_VERSION_MAJOR
+    /* These aren't specifically required on non-VC++ systems, but
+       cryptlib code get confused if they aren't defined */
+    #define VC_16BIT( version )		0
+    #define VC_LE_VC6( version )		0
+    #define VC_GE_2002( version )		1
+    #define VC_LT_2005( version )		0
+    #define VC_GE_2005( version )		1
+    #define VC_GE_2008( version )		1
+    #define VC_LT_2010( version )		0
+    #define VC_GE_2010( version )		1
+    #define VC_GE_2012( version )		1
+    #define VC_GE_2013( version )		1
+    #define VC_GE_2015( version )		1
+    #define VC_LT_2017( version )		0
+    #define VC_GE_2017( version )		1
+    #define VC_GE_2019( version )		1
+  #else
+    /* These aren't specifically required on non-VC++ systems, but some 
+       preprocessors get confused if they aren't defined */
+    #define VC_16BIT( version )		0
+    #define VC_LE_VC6( version )		0
+    #define VC_GE_2002( version )		1
+    #define VC_LT_2005( version )		1
+    #define VC_GE_2005( version )		0
+    #define VC_GE_2008( version )		0
+    #define VC_LT_2010( version )		1
+    #define VC_GE_2010( version )		0
+    #define VC_GE_2012( version )		0
+    #define VC_GE_2013( version )		0
+    #define VC_GE_2015( version )		0
+    #define VC_LT_2017( version )		0
+    #define VC_GE_2017( version )		0
+    #define VC_GE_2019( version )		0
+  #endif
 #endif /* Visual C++ */
 
 /* If we're compiling under VC++ with the maximum level of warnings, turn
