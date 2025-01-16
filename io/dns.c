@@ -56,8 +56,8 @@ static int getAddrInfoError( INOUT_PTR NET_STREAM_INFO *netStream,
 									 errorStringBuffer, 1024, NULL );
 	if( errorStringLen <= 0 )
 		{
-		memcpy( errorStringBuffer, "<Unknown>", 13 );
-		errorStringLen = 13;
+		memcpy( errorStringBuffer, "<Unknown>", 10 );
+		errorStringLen = 9;
 		}
 	setErrorString( NETSTREAM_ERRINFO, errorStringBuffer, errorStringLen );
   #elif defined( USE_IPv6 )
