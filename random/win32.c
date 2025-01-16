@@ -2105,8 +2105,8 @@ static void slowPollWindows( void )
 	#pragma warning( push )
 	#pragma warning( disable:28159 )	/* Incorrect annotation in lmstats.h */
 #endif /* VC++ >= 2010 */
-	if( NetStatisticsGet( NULL, isWorkstation ? SERVICE_WORKSTATION : \
-												SERVICE_SERVER, 0, 0, 
+	if( NetStatisticsGet( NULL, isWorkstation ? L"LanmanWorkstation": \
+												L"LanmanServer", 0, 0, 
 						  &lpBuffer ) == NERR_Success )
 		{
 		if( NetApiBufferSize( lpBuffer, &dwSize ) == NERR_Success )
