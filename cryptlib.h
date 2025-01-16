@@ -41,6 +41,7 @@
   #pragma warning( push )
   #pragma warning( disable: 4255 )	/* No function prototype given */
   #pragma warning( disable: 4514 )	/* Unreferenced inline function has been removed */
+  #define WIN32_LEAN_AND_MEAN
   #include <windows.h>
   #pragma warning( pop )
 
