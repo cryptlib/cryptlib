@@ -625,8 +625,6 @@ static int getSysctlData( void )
 			DEBUG_DIAG(( "Overflow in sysctl %d:%d, using %d bytes", 
 						 sysctlInfo[ i ].mib[ 0 ], sysctlInfo[ i ].mib[ 1 ], 
 						 size ));
-			if( size >= SYSCTL_BUFFER_SIZE / 2 )
-				status = 0;
 			}
 		if( status )
 			continue;
