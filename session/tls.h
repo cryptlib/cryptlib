@@ -156,7 +156,8 @@
 #define TLS_PFLAG_TLS12LTS			0x1000	/* Use TLS 1.2 LTS profile */
 #define TLS_PFLAG_SERVER_SNI		0x2000	/* Apply server key switching for SNI */
 #define TLS_PFLAG_RESUMED_SESSION	0x4000	/* Session is resumed */
-#define TLS_PFLAG_MAX				0x7FFF	/* Maximum possible flag value */
+#define TLS_PFLAG_USED_PSK			0x8000	/* Session is resumed */
+#define TLS_PFLAG_MAX				0xFFFF	/* Maximum possible flag value */
 
 /* Some of the flags above denote extended TLS facilities that need to be
    preserved across session resumptions.  The following value defines the 

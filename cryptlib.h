@@ -1767,6 +1767,7 @@ typedef enum {
 #define CRYPT_TLSOPTION_RESUMED				0x080	/* TLS session is resumed */
 #define CRYPT_TLSOPTION_SUITEB_128			0x100	/* SuiteB security levels (will */
 #define CRYPT_TLSOPTION_SUITEB_256			0x200	/*  vanish in future releases) */
+#define CRYPT_TLSOPTION_USED_PSK			0x200	/*  Synchronet extension */
 #ifdef _CRYPT_DEFINED
 #define CRYPT_TLSOPTION_MAX					0x07F	/* Defines for range checking */
 #endif /* _CRYPT_DEFINED */

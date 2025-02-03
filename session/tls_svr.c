@@ -700,6 +700,9 @@ static int processPSKKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	ENSURES( LOOP_BOUND_OK );
 
+	/* Indicate we used PSK */
+	SET_FLAG(sessionInfoPtr->protocolFlags, TLS_PFLAG_USED_PSK);
+
 	/* If it's PSK with DH, perform the keyex with the PSK added */
 	if( isKeyex )
 		{

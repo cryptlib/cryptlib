@@ -1219,6 +1219,9 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( TEST_FLAG( sessionInfoPtr->protocolFlags, \
 					   TLS_PFLAG_RESUMED_SESSION ) )
 			*valuePtr |= CRYPT_TLSOPTION_RESUMED;
+		if( TEST_FLAG( sessionInfoPtr->protocolFlags, \
+					   TLS_PFLAG_USED_PSK) )
+			*valuePtr |= CRYPT_TLSOPTION_USED_PSK;
 
 		return( CRYPT_OK );
 		}
