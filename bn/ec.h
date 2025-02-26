@@ -75,7 +75,6 @@
 
 #ifndef HEADER_EC_H
 # define HEADER_EC_H
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 
@@ -108,40 +107,6 @@
 /* Remove include of OpenSSL-specific headers following OPENSSL_NO_EC check */
 
 /* End changes for cryptlib - pcg */
-=======
-
-/* Changes for cryptlib - pcg */
-
-#if defined( INC_ALL )		/* pcg */
-  #include "osconfig.h"
-#else
-  #include "crypt/osconfig.h"
-#endif /* Compiler-specific includes */
-#define ECerr(a,b)
-#define ERR_clear_error()
-#define ERR_peek_last_error()	0
-#define ERR_GET_LIB( dummy )	0
-#define ERR_GET_REASON( dummy )	0
-#define ERR_LIB_BN				0
-#define CRYPTO_add( dummy1, dummy2, dummy3 )	0
-#define OPENSSL_NO_BIO
-#define OPENSSL_NO_FP_API
-
-/* Disable a pile of bloat that we don't need */
-
-#define OPENSSL_NO_EC2M
-#define OPENSSL_NO_EC_NISTP_64_GCC_128
-
-/* Other changes:
-
-	- Replace OPENSSL_malloc() with clBnAlloc() in ecp_smpl.c, ec_lib.c,
-		ec_mult.c, ec_rand.c.
-	- Replace OPENSSL_free() with clBnFree() in ec_lib.c */
-
-/* Remove include of OpenSSL-specific headers following OPENSSL_NO_EC check */
-
-/* End changes for cryptlib - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 # ifdef OPENSSL_NO_EC
 #  error EC is disabled.

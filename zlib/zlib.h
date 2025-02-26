@@ -31,7 +31,6 @@
 #ifndef ZLIB_H
 #define ZLIB_H
 
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "config.h"
   #include "zconf.h"
@@ -71,47 +70,6 @@
    declarations internally, requiring manual editing of every single internal 
    function prototype in every single zlib file in order for it to compile 
    - pcg */
-=======
-#if defined( INC_ALL )
-  #include "config.h"
-  #include "zconf.h"
-#else
-  #include "misc/config.h"
-  #include "zlib/zconf.h"
-#endif /* Compiler-specific includes */
-
-/* Disable gzip header inclusion and crc32 code - pcg */
-
-#define NO_GZIP
-#define NO_GUNZIP
-
-/* VxWorks includes its own internal copy of zlib so we need to correct 
-   clashing global symbols in order to avoid link errors */
-
-#ifdef __VxWorks__
-  #define inflate				cl_inflate
-  #define inflate_copyright		cl_inflate_copyright
-  #define zlibVersion			cl_zlibVersion
-#endif /* __VxWorks__ */
-
-/* Also need to disable attempt to include errno.h, this is never used so
-   it's easiest to edit it out of zutil.h - pcg */
-
-#if defined( ZLIB_INTERNAL ) && defined( _MSC_VER )
-  /* cryptlib is built with the highest warning level, disable some of the
-     more irritating warnings produced by the zlib code.  In theory we
-	 could also disable warnings about K&R style declarations with
-	 '#pragma warning( disable: 4131 )', but we need to catch and manually
-	 fix all of these for the PalmOS gcc, so we leave them enabled - pcg */
-  #pragma warning( disable: 4127 )	/* Conditional is constant: while( TRUE ) */
-  #pragma warning( disable: 4244 )	/* int <-> unsigned char/short */
-#endif /* zlib-internal code under VC++ */
-
-/* For some totally insane reason zlib uses 1970s-vintage K&R-style function 
-   declarations internally, requiring manual editing of every single internal 
-   function prototype in every single zlib file in order for it to compile 
-   - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #ifdef __cplusplus
 extern "C" {

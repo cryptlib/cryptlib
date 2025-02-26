@@ -60,7 +60,6 @@
  * Portions of this software developed by SUN MICROSYSTEMS, INC.,
  * and contributed to the OpenSSL project.
  */
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 
@@ -75,22 +74,6 @@
 #if defined( USE_ECDH ) || defined( USE_ECDSA )	/* pcg */
 
 #if 0	/* pcg */
-=======
-
-/* Changes for cryptlib - pcg */
-
-#if defined( INC_ALL )
-  #include "ec_lcl.h"
-#else
-  #include "bn/ec_lcl.h"
-#endif /* Compiler-specific includes */
-
-/* End changes for cryptlib - pcg */
-
-#if defined( USE_ECDH ) || defined( USE_ECDSA )	/* pcg */
-
-#if 0	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 const EC_METHOD *EC_GFp_mont_method(void)
 {
@@ -141,13 +124,8 @@ const EC_METHOD *EC_GFp_mont_method(void)
 
     return &ret;
 }
-<<<<<<< HEAD
 
 #endif /* 0 - pcg */
-=======
-
-#endif /* 0 - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 int ec_GFp_mont_group_init(EC_GROUP *group)
 {
@@ -312,11 +290,7 @@ int ec_GFp_mont_field_encode(const EC_GROUP *group, BIGNUM *r,
 
     return BN_to_montgomery(r, a, (BN_MONT_CTX *)group->field_data1, ctx);
 }
-<<<<<<< HEAD
 
-=======
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #if 0	/* pcg */
 int ec_GFp_mont_field_decode(const EC_GROUP *group, BIGNUM *r,
                              const BIGNUM *a, BN_CTX *ctx)
@@ -327,11 +301,7 @@ int ec_GFp_mont_field_decode(const EC_GROUP *group, BIGNUM *r,
     }
 
     return BN_from_montgomery(r, a, group->field_data1, ctx);
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #endif /* 0 */
 
 int ec_GFp_mont_field_set_to_one(const EC_GROUP *group, BIGNUM *r,
@@ -346,8 +316,4 @@ int ec_GFp_mont_field_set_to_one(const EC_GROUP *group, BIGNUM *r,
         return 0;
     return 1;
 }
-<<<<<<< HEAD
 #endif /* USE_ECDH || USE_ECDSA */	/* pcg */
-=======
-#endif /* USE_ECDH || USE_ECDSA */	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

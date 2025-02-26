@@ -55,7 +55,6 @@
  * copied and put under another distribution licence
  * [including the GNU Public Licence.]
  */
-<<<<<<< HEAD
 
 #if defined( INC_ALL )
   #include "osconfig.h"
@@ -70,22 +69,6 @@
 #ifdef USE_IDEA
 
 #if 0	/* pcg */
-=======
-
-#if defined( INC_ALL )
-  #include "osconfig.h"
-  #include "idea.h"
-  #include "idealocl.h"
-#else
-  #include "crypt/osconfig.h"
-  #include "crypt/idea.h"
-  #include "crypt/idealocl.h"
-#endif /* Compiler-specific includes */
-
-#ifdef USE_IDEA
-
-#if 0	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 const char *idea_options(void)
 	{
@@ -93,11 +76,7 @@ const char *idea_options(void)
 		return("idea(int)");
 	else
 		return("idea(short)");
-<<<<<<< HEAD
 	}
-=======
-	}
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #endif /* 0 */
 
 void idea_ecb_encrypt(const unsigned char *in, unsigned char *out,
@@ -112,8 +91,4 @@ void idea_ecb_encrypt(const unsigned char *in, unsigned char *out,
 	l1=d[1]; l2n(l1,out);
 	l0=l1=d[0]=d[1]=0;
 	}
-<<<<<<< HEAD
 #endif /* USE_IDEA */
-=======
-#endif /* USE_IDEA */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

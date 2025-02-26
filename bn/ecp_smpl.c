@@ -62,7 +62,6 @@
  * Portions of this software developed by SUN MICROSYSTEMS, INC.,
  * and contributed to the OpenSSL project.
  */
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 
@@ -85,30 +84,6 @@
 
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
 
-=======
-
-/* Changes for cryptlib - pcg */
-
-#if defined( INC_ALL )
-  #include "ec_lcl.h"
-#else
-  #include "bn/ec_lcl.h"
-#endif /* Compiler-specific includes */
-
-#ifdef _MSC_VER		/* For sizeof <-> int conversion */
-  #pragma warning( disable: 4267 )
-#endif /* _MSC_VER */
-
-/* Normally defined in /crypto/objects/obj_mac.h */
-
-#define NID_X9_62_prime_field		406
-#define NID_X9_62_characteristic_two_field		407
-
-/* End changes for cryptlib - pcg */
-
-#if defined( USE_ECDH ) || defined( USE_ECDSA )
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 const EC_METHOD *EC_GFp_simple_method(void)
 {
     static const EC_METHOD ret = {
@@ -1302,22 +1277,14 @@ int ec_GFp_simple_points_make_affine(const EC_GROUP *group, size_t num,
         if (ctx == NULL)
             return 0;
     }
-<<<<<<< HEAD
 
-=======
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     BN_CTX_start(ctx);
     tmp = BN_CTX_get(ctx);
     tmp_Z = BN_CTX_get(ctx);
     if (tmp == NULL || tmp_Z == NULL)
         goto err;
 
-<<<<<<< HEAD
 	prod_Z = clBnAlloc("ec_GFp_simple_points_make_affine", num * sizeof prod_Z[0]);		/* pcg */
-=======
-	prod_Z = clBnAlloc("ec_GFp_simple_points_make_affine", num * sizeof prod_Z[0]);		/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     if (prod_Z == NULL)
         goto err;
     for (i = 0; i < num; i++) {
@@ -1463,8 +1430,4 @@ int ec_GFp_simple_field_sqr(const EC_GROUP *group, BIGNUM *r, const BIGNUM *a,
 {
     return BN_mod_sqr(r, a, &group->field, ctx);
 }
-<<<<<<< HEAD
 #endif /* USE_ECDH || USE_ECDSA */	/* pcg */
-=======
-#endif /* USE_ECDH || USE_ECDSA */	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

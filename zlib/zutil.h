@@ -19,19 +19,11 @@
 #  define ZLIB_INTERNAL
 #endif
 
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "zlib.h"
 #else
   #include "zlib/zlib.h"
 #endif /* Compiler-specific includes */
-=======
-#if defined( INC_ALL )
-  #include "zlib.h"
-#else
-  #include "zlib/zlib.h"
-#endif /* Compiler-specific includes */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #if defined(STDC) && !defined(Z_SOLO)
 #  if !(defined(_WIN32_WCE) && defined(_MSC_VER))
@@ -40,19 +32,11 @@
 #  include <string.h>
 #  include <stdlib.h>
 #endif
-<<<<<<< HEAD
 
 #if 0	/* pcg */
 #if defined( Z_SOLO ) && !defined( _M_X64 )
    typedef long ptrdiff_t;  /* guess -- will be caught if guess is wrong */
 #endif
-=======
-
-#if 0	/* pcg */
-#if defined( Z_SOLO ) && !defined( _M_X64 )
-   typedef long ptrdiff_t;  /* guess -- will be caught if guess is wrong */
-#endif
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #endif /* 0 */
 
 #ifndef local

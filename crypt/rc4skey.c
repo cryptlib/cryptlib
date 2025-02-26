@@ -65,15 +65,9 @@
   #include "crypt/rc4.h"
   #include "crypt/rc4locl.h"
 #endif /* Compiler-specific includes */
-<<<<<<< HEAD
 
 #ifdef USE_RC4
 
-=======
-
-#ifdef USE_RC4
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 const char *RC4_options(void)
 	{
 #ifdef RC4_INDEX
@@ -126,8 +120,4 @@ void RC4_set_key(RC4_KEY *key, int len, const unsigned char *data)
 		SK_LOOP(i+3);
 		}
 	}
-<<<<<<< HEAD
 #endif /* USE_RC4 */
-=======
-#endif /* USE_RC4 */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

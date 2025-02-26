@@ -58,7 +58,6 @@
 
 #ifndef HEADER_DES_H
 #define HEADER_DES_H
-<<<<<<< HEAD
 
 #ifndef _OSCONFIG_DEFINED		/* pcg */
   #if defined( INC_ALL )
@@ -73,22 +72,6 @@
 #else
   #define DES_LONG	unsigned long
 #endif /* Alpha */
-=======
-
-#ifndef _OSCONFIG_DEFINED		/* pcg */
-  #if defined( INC_ALL )
-	#include "osconfig.h"
-  #else
-	#include "crypt/osconfig.h"
-  #endif /* Compiler-specific includes */
-#endif /* _OSCONFIG_DEFINED */
-
-#ifdef DES_INT	/* pcg */
-  #define DES_LONG	unsigned int
-#else
-  #define DES_LONG	unsigned long
-#endif /* Alpha */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #ifdef NO_DES
 #error DES is disabled.

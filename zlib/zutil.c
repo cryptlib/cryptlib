@@ -4,7 +4,6 @@
  */
 
 /* @(#) $Id$ */
-<<<<<<< HEAD
 
 #include <stdlib.h>		/* For malloc()/free() - pcg */
 #if defined( INC_ALL )
@@ -18,21 +17,6 @@
 #undef Z_SOLO
 
 #if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )
-=======
-
-#include <stdlib.h>		/* For malloc()/free() - pcg */
-#if defined( INC_ALL )
-  #include "zutil.h"
-#else
-  #include "zlib/zutil.h"
-#endif /* Compiler-specific includes */
-
-/* Re-enable use of malloc() - pcg */
-
-#undef Z_SOLO
-
-#if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 z_const char * const z_errmsg[10] = {
     (z_const char *)"need dictionary",     /* Z_NEED_DICT       2  */
@@ -309,19 +293,13 @@ void ZLIB_INTERNAL zcfree (voidpf opaque, voidpf ptr)
 
 
 #ifndef MY_ZCALLOC /* Any system without a special alloc function */
-<<<<<<< HEAD
 
 #if 0					/* No idea why zlib wants to do its own nonstandard
-=======
-
-#if 0					/* No idea why zlib wants to do its own nonstandard
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 						   prototype of malloc() - pcg */
 #ifndef STDC
 extern voidp  malloc OF((uInt size));
 extern voidp  calloc OF((uInt items, uInt size));
 extern void   free   OF((voidpf ptr));
-<<<<<<< HEAD
 #endif
 #endif /* 0 */
 
@@ -333,19 +311,6 @@ extern void   free   OF((voidpf ptr));
   #define malloc	clAlloc
   #define free		clFree
 #endif /* Nucleus */
-=======
-#endif
-#endif /* 0 */
-
-#ifdef __Nucleus__		/* pcg */
-  /* Nucleus uses a wrapper for the OS-internal allocation functions rather 
-	 than calling malloc()/free(), so we just map those calls to the 
-	 standard cryptlib allocator (which calls down to the Nucleus OS-
-	 internal function) */
-  #define malloc	clAlloc
-  #define free		clFree
-#endif /* Nucleus */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 voidpf ZLIB_INTERNAL zcalloc ( voidpf opaque, unsigned items, unsigned size )	/* pcg */
 {
@@ -363,10 +328,5 @@ void ZLIB_INTERNAL zcfree ( voidpf opaque, voidpf ptr )	/* pcg */
 #endif /* MY_ZCALLOC */
 
 #endif /* !Z_SOLO */
-<<<<<<< HEAD
 
 #endif /* USE_COMPRESSION && !HAS_ZLIB */
-=======
-
-#endif /* USE_COMPRESSION && !HAS_ZLIB */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

@@ -58,7 +58,6 @@
 
 #ifndef HEADER_RC4_H
 #define HEADER_RC4_H
-<<<<<<< HEAD
 
 #ifndef _OSCONFIG_DEFINED		/* pcg */
   #if defined( INC_ALL )
@@ -67,16 +66,6 @@
 	#include "crypt/osconfig.h"
   #endif /* Compiler-specific includes */
 #endif /* _OSCONFIG_DEFINED */
-=======
-
-#ifndef _OSCONFIG_DEFINED		/* pcg */
-  #if defined( INC_ALL )
-	#include "osconfig.h"
-  #else
-	#include "crypt/osconfig.h"
-  #endif /* Compiler-specific includes */
-#endif /* _OSCONFIG_DEFINED */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #ifdef NO_RC4
 #error RC4 is disabled.

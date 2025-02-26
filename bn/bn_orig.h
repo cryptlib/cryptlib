@@ -1,14 +1,7 @@
-<<<<<<< HEAD
 /* Original bn.h with unnecessary parts removed for clarity.  In other words 
    this represents the leftover portions of the OpenSSL bignum code that 
    cryptlib uses */
 
-=======
-/* Original bn.h with unnecessary parts removed for clarity.  In other words 
-   this represents the leftover portions of the OpenSSL bignum code that 
-   cryptlib uses */
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 /* crypto/bn/bn.h */
 /* Copyright (C) 1995-1997 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
@@ -155,11 +148,7 @@ int BN_mod_exp_simple(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
 int BN_mask_bits(BIGNUM *a, const int n);	/* const - pcg */
 int BN_reciprocal(BIGNUM *r, const BIGNUM *m, int len, BN_CTX *ctx);
 int BN_gcd(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx);
-<<<<<<< HEAD
 
-=======
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 BIGNUM *BN_mod_inverse(BIGNUM *ret,
                        const BIGNUM *a, const BIGNUM *n, BN_CTX *ctx);
 BIGNUM *BN_mod_sqrt(BIGNUM *ret,
@@ -181,9 +170,5 @@ BN_ULONG bn_add_words(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
                       int num);
 BN_ULONG bn_sub_words(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
                       int num);
-<<<<<<< HEAD
 
-=======
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #endif

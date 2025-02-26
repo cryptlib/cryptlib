@@ -34,7 +34,6 @@
 
 /* #define GEN_TREES_H */
 
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "deflate.h"
 #else
@@ -42,15 +41,6 @@
 #endif /* Compiler-specific includes */
 
 #if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )
-=======
-#if defined( INC_ALL )
-  #include "deflate.h"
-#else
-  #include "zlib/deflate.h"
-#endif /* Compiler-specific includes */
-
-#if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #ifdef ZLIB_DEBUG
 #  include <ctype.h>
@@ -1172,8 +1162,4 @@ local void bi_windup( deflate_state *s )	/* pcg */
     s->bits_sent = (s->bits_sent+7) & ~7;
 #endif
 }
-<<<<<<< HEAD
 #endif /* USE_COMPRESSION && !HAS_ZLIB */
-=======
-#endif /* USE_COMPRESSION && !HAS_ZLIB */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

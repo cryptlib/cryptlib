@@ -26,19 +26,11 @@ Issue Date: 20/12/2007
 
 #include <stdlib.h>
 
-<<<<<<< HEAD
 #if defined( INC_ALL )		/* pcg */
   #include "brg_types.h"
 #else
   #include "crypt/brg_types.h"
 #endif /* Compiler-specific includes */
-=======
-#if defined( INC_ALL )		/* pcg */
-  #include "brg_types.h"
-#else
-  #include "crypt/brg_types.h"
-#endif /* Compiler-specific includes */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #if defined(__cplusplus)
 extern "C"
@@ -46,13 +38,8 @@ extern "C"
 #endif
 
 #define AES_128     /* if a fast 128 bit key scheduler is needed    */
-<<<<<<< HEAD
 #ifndef CONFIG_CONSERVE_MEMORY	/* pcg */
 #define AES_192     /* if a fast 192 bit key scheduler is needed    */
-=======
-#ifndef CONFIG_CONSERVE_MEMORY	/* pcg */
-#define AES_192     /* if a fast 192 bit key scheduler is needed    */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #endif /* CONFIG_CONSERVE_MEMORY */
 #define AES_256     /* if a fast 256 bit key scheduler is needed    */
 #define AES_VAR     /* if variable key size scheduler is needed     */

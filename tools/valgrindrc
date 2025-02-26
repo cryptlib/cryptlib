@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # The ODBC drivers leak memory like crazy when a connection is set up so we
 # suppress any leaks that result from calling openDatabase().
 
@@ -18,24 +17,3 @@ Memcheck:Leak
 ...
 fun:_dl_open
 }
-=======
-# The ODBC drivers leak memory like crazy when a connection is set up so we
-# suppress any leaks that result from calling openDatabase().
-
-{
-ignore_odbc_driver_leaks
-Memcheck:Leak
-...
-fun:openDatabase
-}
-
-# dlopen() also leaks via an internal function _dl_open() that gets
-# called via various paths.
-
-{
-ignore_dlopen_leaks
-Memcheck:Leak
-...
-fun:_dl_open
-}
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

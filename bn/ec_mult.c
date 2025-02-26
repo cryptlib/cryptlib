@@ -62,7 +62,6 @@
  */
 
 #include <string.h>
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 
@@ -79,24 +78,6 @@
 /* End changes for cryptlib - pcg */
 
 #if defined( USE_ECDH ) || defined( USE_ECDSA )		/* pcg */
-=======
-
-/* Changes for cryptlib - pcg */
-
-#if defined( INC_ALL )
-  #include "ec_lcl.h"
-#else
-  #include "bn/ec_lcl.h"
-#endif /* Compiler-specific includes */
-
-#ifdef _MSC_VER		/* For sizeof <-> int conversion */
-  #pragma warning( disable: 4267 )
-#endif /* _MSC_VER */
-
-/* End changes for cryptlib - pcg */
-
-#if defined( USE_ECDH ) || defined( USE_ECDSA )		/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 /*
  * This file implements the wNAF-based interleaving multi-exponentation method
@@ -131,11 +112,7 @@ static EC_PRE_COMP *ec_pre_comp_new(const EC_GROUP *group)
     if (!group)
         return NULL;
 
-<<<<<<< HEAD
 	ret = (EC_PRE_COMP *)clBnAlloc("ec_pre_comp_new",sizeof(EC_PRE_COMP));		/* pcg */
-=======
-	ret = (EC_PRE_COMP *)clBnAlloc("ec_pre_comp_new",sizeof(EC_PRE_COMP));		/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     if (!ret) {
         ECerr(EC_F_EC_PRE_COMP_NEW, ERR_R_MALLOC_FAILURE);
         return ret;
@@ -152,15 +129,9 @@ static EC_PRE_COMP *ec_pre_comp_new(const EC_GROUP *group)
 
 static void *ec_pre_comp_dup(void *src_)
 {
-<<<<<<< HEAD
 #if 0	/* pcg */
 	EC_PRE_COMP *src = src_;
 #endif /* 0 */
-=======
-#if 0	/* pcg */
-	EC_PRE_COMP *src = src_;
-#endif /* 0 */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
     /* no need to actually copy, these objects never change! */
 
@@ -235,11 +206,7 @@ static signed char *compute_wNAF(const BIGNUM *scalar, int w, size_t *ret_len)
     size_t len = 0, j;
 
     if (BN_is_zero(scalar)) {
-<<<<<<< HEAD
 		r = clBnAlloc("compute_wNAF",1);	/* pcg */
-=======
-		r = clBnAlloc("compute_wNAF",1);	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
         if (!r) {
             ECerr(EC_F_COMPUTE_WNAF, ERR_R_MALLOC_FAILURE);
             goto err;
@@ -268,11 +235,7 @@ static signed char *compute_wNAF(const BIGNUM *scalar, int w, size_t *ret_len)
     }
 
     len = BN_num_bits(scalar);
-<<<<<<< HEAD
 	r = clBnAlloc("compute_wNAF",		/* pcg */
-=======
-	r = clBnAlloc("compute_wNAF",		/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 					   len + 1); /* modified wNAF may be one digit longer
                                   * than binary representation (*ret_len will
                                   * be set to the actual length, i.e. at most
@@ -349,11 +312,7 @@ static signed char *compute_wNAF(const BIGNUM *scalar, int w, size_t *ret_len)
     ok = 1;
 
  err:
-<<<<<<< HEAD
     if (!ok) {
-=======
-    if (!ok) {
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 		if( r != NULL )		/* pcg */
 			OPENSSL_free(r);
         r = NULL;
@@ -482,19 +441,11 @@ int ec_wNAF_mul(const EC_GROUP *group, EC_POINT *r, const BIGNUM *scalar,
     }
 
     totalnum = num + numblocks;
-<<<<<<< HEAD
 
 	wsize    = clBnAlloc("ec_wNAF_mul",totalnum * sizeof wsize[0]);		/* pcg */
 	wNAF_len = clBnAlloc("ec_wNAF_mul",totalnum * sizeof wNAF_len[0]);	/* pcg */
 	wNAF     = clBnAlloc("ec_wNAF_mul",(totalnum + 1) * sizeof wNAF[0]); /* includes space for pivot */
 	val_sub  = clBnAlloc("ec_wNAF_mul",totalnum * sizeof val_sub[0]);	/* pcg */
-=======
-
-	wsize    = clBnAlloc("ec_wNAF_mul",totalnum * sizeof wsize[0]);		/* pcg */
-	wNAF_len = clBnAlloc("ec_wNAF_mul",totalnum * sizeof wNAF_len[0]);	/* pcg */
-	wNAF     = clBnAlloc("ec_wNAF_mul",(totalnum + 1) * sizeof wNAF[0]); /* includes space for pivot */
-	val_sub  = clBnAlloc("ec_wNAF_mul",totalnum * sizeof val_sub[0]);	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
     /* Ensure wNAF is initialised in case we end up going to err */
     if (wNAF)
@@ -611,11 +562,7 @@ int ec_wNAF_mul(const EC_GROUP *group, EC_POINT *r, const BIGNUM *scalar,
                         wNAF_len[i] = tmp_len;
 
                     wNAF[i + 1] = NULL;
-<<<<<<< HEAD
 					wNAF[i] = clBnAlloc("ec_wNAF_mul",wNAF_len[i]);		/* pcg */
-=======
-					wNAF[i] = clBnAlloc("ec_wNAF_mul",wNAF_len[i]);		/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
                     if (wNAF[i] == NULL) {
                         ECerr(EC_F_EC_WNAF_MUL, ERR_R_MALLOC_FAILURE);
                         OPENSSL_free(tmp_wNAF);
@@ -644,11 +591,7 @@ int ec_wNAF_mul(const EC_GROUP *group, EC_POINT *r, const BIGNUM *scalar,
      * 'val_sub[i]' is a pointer to the subarray for the i-th point, or to a
      * subarray of 'pre_comp->points' if we already have precomputation.
      */
-<<<<<<< HEAD
 	val = clBnAlloc("ec_wNAF_mul",(num_val + 1) * sizeof val[0]);	/* pcg */
-=======
-	val = clBnAlloc("ec_wNAF_mul",(num_val + 1) * sizeof val[0]);	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     if (val == NULL) {
         ECerr(EC_F_EC_WNAF_MUL, ERR_R_MALLOC_FAILURE);
         goto err;
@@ -671,11 +614,7 @@ int ec_wNAF_mul(const EC_GROUP *group, EC_POINT *r, const BIGNUM *scalar,
         goto err;
     }
 
-<<<<<<< HEAD
 	if ((tmp = EC_POINT_new(group)) == 0 )		/* pcg */
-=======
-	if ((tmp = EC_POINT_new(group)) == 0 )		/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
         goto err;
 
     /*-
@@ -878,11 +817,7 @@ int ec_wNAF_precompute_mult(EC_GROUP *group, BN_CTX *ctx)
     num = pre_points_per_block * numblocks; /* number of points to compute
                                              * and store */
 
-<<<<<<< HEAD
 	points = clBnAlloc("ec_wNAF_precompute_mult",sizeof (EC_POINT*)*(num + 1));		/* pcg */
-=======
-	points = clBnAlloc("ec_wNAF_precompute_mult",sizeof (EC_POINT*)*(num + 1));		/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     if (!points) {
         ECerr(EC_F_EC_WNAF_PRECOMPUTE_MULT, ERR_R_MALLOC_FAILURE);
         goto err;
@@ -897,11 +832,7 @@ int ec_wNAF_precompute_mult(EC_GROUP *group, BN_CTX *ctx)
         }
     }
 
-<<<<<<< HEAD
 	if ( (tmp_point = EC_POINT_new(group)) == 0 || (base = EC_POINT_new(group)) == 0 ) {	/* pcg */
-=======
-	if ( (tmp_point = EC_POINT_new(group)) == 0 || (base = EC_POINT_new(group)) == 0 ) {	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
         ECerr(EC_F_EC_WNAF_PRECOMPUTE_MULT, ERR_R_MALLOC_FAILURE);
         goto err;
     }
@@ -995,8 +926,4 @@ int ec_wNAF_have_precompute_mult(const EC_GROUP *group)
     else
         return 0;
 }
-<<<<<<< HEAD
 #endif /* USE_ECDH || USE_ECDSA */	/* pcg */
-=======
-#endif /* USE_ECDH || USE_ECDSA */	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

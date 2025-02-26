@@ -56,7 +56,6 @@
  * [including the GNU Public Licence.]
  */
 
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "osconfig.h"
   #include "cast.h"
@@ -69,20 +68,6 @@
 
 #ifdef USE_CAST
 
-=======
-#if defined( INC_ALL )
-  #include "osconfig.h"
-  #include "cast.h"
-  #include "castlcl.h"
-#else
-  #include "crypt/osconfig.h"
-  #include "crypt/cast.h"
-  #include "crypt/castlcl.h"
-#endif /* Compiler-specific includes */
-
-#ifdef USE_CAST
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 void CAST_encrypt(CAST_LONG *data, CAST_KEY *key)
 	{
 	register CAST_LONG l,r,*k,t;
@@ -228,8 +213,4 @@ void CAST_cbc_encrypt(const unsigned char *in, unsigned char *out, long length,
 	tin0=tin1=tout0=tout1=xor0=xor1=0;
 	tin[0]=tin[1]=0;
 	}
-<<<<<<< HEAD
 #endif /* USE_CAST */
-=======
-#endif /* USE_CAST */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

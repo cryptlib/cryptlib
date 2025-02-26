@@ -112,7 +112,6 @@
 #ifndef HEADER_BN_LCL_H
 # define HEADER_BN_LCL_H
 
-<<<<<<< HEAD
 /* Changes for cryptlib - pcg */
 
 #if defined( INC_ALL )
@@ -124,19 +123,6 @@
 #endif /* Compiler-specific includes */
 
 /* End changes for cryptlib - pcg */
-=======
-/* Changes for cryptlib - pcg */
-
-#if defined( INC_ALL )
-  #include "osconfig.h"
-  #include "bn.h"
-#else
-  #include "crypt/osconfig.h"
-  #include "bn/bn.h"
-#endif /* Compiler-specific includes */
-
-/* End changes for cryptlib - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #ifdef  __cplusplus
 extern "C" {
@@ -247,7 +233,6 @@ extern "C" {
 # endif                         /* defined(OPENSSL_SYS_VMS) [else] */
 
 # if !defined(OPENSSL_NO_ASM) && !defined(OPENSSL_NO_INLINE_ASM) && !defined(PEDANTIC)
-<<<<<<< HEAD
 
 /* The original OpenSSL code has a mass of inline asm to handle 64-bit 
    multiplies across different architectures, however if the compiler 
@@ -279,39 +264,6 @@ extern "C" {
 #else
 
 /* Original OpenSSL asm - pcg */
-=======
-
-/* The original OpenSSL code has a mass of inline asm to handle 64-bit 
-   multiplies across different architectures, however if the compiler 
-   supports 128-bit values as the most widely-used ones do we construct
-   BN_UMULT_HI()/BN_UMULT_LOHI() using those and let the compiler sort it 
-   out.  This also means that the compiler can optimise the resulting code, 
-   which it can't easily do with the original inline asm versions.
-   
-   MSVC doesn't have direct int128 support but has the intrinsics __umulh() 
-   and _umul128() which do the same thing, so we use those with the same 
-   effect as above - pcg */
-
-#if defined( __SIZEOF_INT128__ )
-  /* int128 support */
-  #define BN_UMULT_HIGH( a, b ) \
-		  ( ( ( unsigned __int128 ) ( a ) * ( b ) ) >> 64 )
-  #define BN_UMULT_LOHI( low, high, a, b ) \
-	{ \
-	unsigned __int128 result = ( unsigned __int128 ) ( a ) * ( b ); \
-	( low ) = ( BN_ULONG ) result; \
-	( high ) = result >> 64; \
-	}
-#elif defined( _MSC_VER ) && defined( _M_X64 )
-  /* int128 intrinsics */
-  #define BN_UMULT_HIGH( a, b ) \
-		  __umulh( ( a ), ( b ) )
-  #define BN_UMULT_LOHI( low, high, a, b )\
-		  ( ( low ) = _umul128( ( a ), ( b ), &( high ) ) )
-#else
-
-/* Original OpenSSL asm - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 /*
  * BN_UMULT_HIGH section.
  *
@@ -348,11 +300,7 @@ extern "C" {
         ret;                    })
 #   endif                       /* compiler */
 /*#  elif defined(_ARCH_PPC) && defined(__64BIT__) && defined(SIXTY_FOUR_BIT_LONG)*/
-<<<<<<< HEAD
 #  elif ( defined( _ARCH_PPC64 ) || defined( __powerpc64__ ) ) && defined(SIXTY_FOUR_BIT_LONG)	/* pcg */
-=======
-#  elif ( defined( _ARCH_PPC64 ) || defined( __powerpc64__ ) ) && defined(SIXTY_FOUR_BIT_LONG)	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #   if defined(__GNUC__) && __GNUC__>=2
 #    define BN_UMULT_HIGH(a,b)   ({      \
         register BN_ULONG ret;          \
@@ -420,15 +368,9 @@ unsigned __int64 _umul128(unsigned __int64 a, unsigned __int64 b,
 #   endif
 #  endif                        /* cpu */
 # endif                         /* OPENSSL_NO_ASM */
-<<<<<<< HEAD
 
 #endif /* int128 native support */
 
-=======
-
-#endif /* int128 native support */
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 /*************************************************************
  * Using the long long type
  */
@@ -530,17 +472,10 @@ unsigned __int64 _umul128(unsigned __int64 a, unsigned __int64 b,
 /*************************************************************
  * No long long type
  */
-<<<<<<< HEAD
 
 /* This code is only ever used by c89 on 64-bit Tandem systems since it
    doesn't otherwise support 128-bit ints, 64-bit multiply intrinsics, or
    inline asm to achieve the same effect - pcg */
-=======
-
-/* This code is only ever used by c89 on 64-bit Tandem systems since it
-   doesn't otherwise support 128-bit ints, 64-bit multiply intrinsics, or
-   inline asm to achieve the same effect - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #  define LBITS(a)        ((a)&BN_MASK2l)
 #  define HBITS(a)        (((a)>>BN_BITS4)&BN_MASK2l)
@@ -567,7 +502,6 @@ unsigned __int64 _umul128(unsigned __int64 a, unsigned __int64 b,
         (l)=lt; \
         (h)=ht; \
         }
-<<<<<<< HEAD
 
 #ifdef SIXTY_FOUR_BIT_LONG
   #define BN_MASK2h1      (0xffffffff80000000L)
@@ -592,32 +526,6 @@ unsigned __int64 _umul128(unsigned __int64 a, unsigned __int64 b,
         (ho)=h; \
         }
 
-=======
-
-#ifdef SIXTY_FOUR_BIT_LONG
-  #define BN_MASK2h1      (0xffffffff80000000L)
-#else
-  #define BN_MASK2h1      (0xffffffff80000000LL)
-#endif /* 64-bit architecture types */
-
-#  define sqr64(lo,ho,in) \
-        { \
-        BN_ULONG l,h,m; \
- \
-        h=(in); \
-        l=LBITS(h); \
-        h=HBITS(h); \
-        m =(l)*(h); \
-        l*=l; \
-        h*=h; \
-        h+=(m&BN_MASK2h1)>>(BN_BITS4-1); \
-        m =(m&BN_MASK2l)<<(BN_BITS4+1); \
-        l=(l+m)&BN_MASK2; if (l < m) h++; \
-        (lo)=l; \
-        (ho)=h; \
-        }
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #  define mul_add(r,a,bl,bh,c) { \
         BN_ULONG l,h; \
  \
@@ -659,15 +567,9 @@ void bn_mul_comba4(BN_ULONG *r, const BN_ULONG *a, const BN_ULONG *b);	/* const 
 void bn_sqr_normal(BN_ULONG *r, const BN_ULONG *a, int n, BN_ULONG *tmp);
 void bn_sqr_comba8(BN_ULONG *r, const BN_ULONG *a);
 void bn_sqr_comba4(BN_ULONG *r, const BN_ULONG *a);
-<<<<<<< HEAD
 #if 0	/* pcg */
 int bn_cmp_words(const BN_ULONG *a, const BN_ULONG *b, int n);
 int bn_cmp_part_words(const BN_ULONG *a, const BN_ULONG *b, int cl, int dl);
-=======
-#if 0	/* pcg */
-int bn_cmp_words(const BN_ULONG *a, const BN_ULONG *b, int n);
-int bn_cmp_part_words(const BN_ULONG *a, const BN_ULONG *b, int cl, int dl);
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #endif /* 0 */
 void bn_mul_recursive(BN_ULONG *r, const BN_ULONG *a, const BN_ULONG *b, int n2,	/* const - pcg */
                       int dna, int dnb, BN_ULONG *t);

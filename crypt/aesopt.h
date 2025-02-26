@@ -91,7 +91,6 @@ Issue Date: 20/12/2007
 
 #include "crypt.h"
 
-<<<<<<< HEAD
 /* Cryptlib options: Enable use of asm encryption with C key schedule (the
    fastest combination) and use Intel NI and VIA ACE if possible, but for
    VIA ACE not under WinCE, both because it's possible that we could be 
@@ -147,63 +146,6 @@ Issue Date: 20/12/2007
 	 undefine it so that the AES code can define it below */
   #undef NONE
 #endif /* __VxWorks__ - pcg */
-=======
-/* Cryptlib options: Enable use of asm encryption with C key schedule (the
-   fastest combination) and use Intel NI and VIA ACE if possible, but for
-   VIA ACE not under WinCE, both because it's possible that we could be 
-   running on an oddball embedded x86 that doesn't understand the necessary 
-   opcodes, and because eVC++ doesn't understand some of the extensions 
-   used in the ACE-support code - pcg */
-
-#if defined( _MSC_VER ) && ( _MSC_VER > 1500 ) && \
-	defined( _M_X64 )
-  #define USE_INTEL_AES_IF_PRESENT
-#endif /* VC++ on x64 under Win64 - pcg */
-#if defined( _MSC_VER ) && ( _MSC_VER > 800 ) && \
-	defined( _M_IX86 ) && \
-	!( defined( _WIN32_WCE ) || defined( NO_ASM ) )
-  #ifndef USE_VIA_ACE_IF_PRESENT
-	#define USE_VIA_ACE_IF_PRESENT
-  #endif
-#endif /* VC++ on x86 under Win32 - pcg */
-
-#if defined( _MSC_VER ) && ( _MSC_VER > 800 ) && \
-	!( defined( _WIN32_WCE ) || defined( NO_ASM ) )
-  /* The apparently redundant guards are necessary in case users manually
-     define the values to enable various asm options */
-  #if defined( _M_X64 )
-	#ifndef ASM_AMD64_C
-	  #define ASM_AMD64_C
-	#endif /* ASM_AMD64_C */
-  #elif defined( _M_IX86 )
-	#ifndef ASM_X86_V2C
-	  #define ASM_X86_V2C
-	#endif /* ASM_X86_V2C */
-  #else
-	#define NO_ASM
-  #endif /* Different x86 architectures */
-#endif /* VC++ on x86 under Win32 - pcg */
-
-#if defined( INC_ALL )
-  #include "aes.h"
-#else
-  #include "crypt/aes.h"
-#endif /* Compiler-specific includes - pcg */
-
-/*  PLATFORM SPECIFIC INCLUDES */
-
-#if defined( INC_ALL )
-  #include "brg_endian.h"
-#else
-  #include "crypt/brg_endian.h"
-#endif /* Compiler-specific includes - pcg */
-
-#ifdef __VxWorks__
-  /* vxWorksCommon.h defines NONE ("for times when NULL won't do") so we 
-	 undefine it so that the AES code can define it below */
-  #undef NONE
-#endif /* __VxWorks__ - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 /*  CONFIGURATION - THE USE OF DEFINES
 
@@ -276,7 +218,6 @@ Issue Date: 20/12/2007
  || defined( _WIN32_WCE ) || defined( _MSC_VER ) && ( _MSC_VER <= 800 ))
 #  define VIA_ACE_POSSIBLE
 #endif
-<<<<<<< HEAD
 
 /* AES is supported out of the box by Windows x64 compilers, but by gcc only 
    if the stars are right, we have to feature-test for SSE 2, SSE 3, and AES 
@@ -309,40 +250,6 @@ Issue Date: 20/12/2007
 	#define INTEL_AES_POSSIBLE
   #endif /* Compiler-specific AES instruction support */
 #endif /* INTEL_AES_POSSIBLE */
-=======
-
-/* AES is supported out of the box by Windows x64 compilers, but by gcc only 
-   if the stars are right, we have to feature-test for SSE 2, SSE 3, and AES 
-   to enable it (we don't actually explicitly test for SSE2 since SSE3 
-   implies SSE2).  However neither gcc nor clang define the expected __AES__
-   no matter what x86-64 architecture level we select:
-
-	gcc -march=x86-64-v3 -dM -E -x c /dev/null | grep -i aes
-	gcc -march=x86-64-v4 -dM -E -x c /dev/null | grep -i aes
-	clang -march=x86-64-v3 -dM -E -x c /dev/null | grep -i aes
-	clang -march=x86-64-v4 -dM -E -x c /dev/null | grep -i aes
-
-   unless we use the risky -march=native (see the long comment in ccopts.sh
-   about why this is unsafe to use):
-
-	gcc -march=native -dM -E -x c /dev/null | grep -i aes
-	clang -march=native -dM -E -x c /dev/null | grep -i aes
-
-   so we use __SSE4_2__ as a proxy since that (Nehalem, Nov.2008) came out 
-   at approximately the same time as the AES instructions (Westmere, 
-   Jan.2010, the Nehalem die shrink) - pcg */
-
-#ifndef INTEL_AES_POSSIBLE
-  #if defined( _WIN64 ) && defined( _MSC_VER ) 
-	#define INTEL_AES_POSSIBLE
-  #elif ( ( defined( __GNUC__ ) && ( __GNUC__ >= 7 ) ) || \
-		  ( defined( __clang__ ) ) ) && \
-		defined( __x86_64__ ) && defined( __SSE3__ ) && \
-		defined( __SSE4_2__ ) 
-	#define INTEL_AES_POSSIBLE
-  #endif /* Compiler-specific AES instruction support */
-#endif /* INTEL_AES_POSSIBLE */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 /*  Define this option if support for the Intel AESNI is required
     If USE_INTEL_AES_IF_PRESENT is defined then AESNI will be used
@@ -625,7 +532,6 @@ Issue Date: 20/12/2007
 #if defined( ASSUME_VIA_ACE_PRESENT ) && !defined( USE_VIA_ACE_IF_PRESENT )
 #  define USE_VIA_ACE_IF_PRESENT
 #endif
-<<<<<<< HEAD
 
 #if defined( __APPLE__ ) && TARGET_OS_SIMULATOR
   /* The iPhone simmulator, even though it's simulating an ARM platform, 
@@ -641,23 +547,6 @@ Issue Date: 20/12/2007
      that reliably determines if a VIA CPU is available */
   #undef USE_VIA_ACE_IF_PRESENT
 #endif /* BeOS gcc - pcg */
-=======
-
-#if defined( __APPLE__ ) && TARGET_OS_SIMULATOR
-  /* The iPhone simmulator, even though it's simulating an ARM platform, 
-     actually builds x86 (ARMv7) or x86 (ARM64) binaries.  In addition the
-	 simulator isn't very complete, and crashes with an EXC_BAD_ACCESS when 
-	 we do the CPUID check for the Via ACE, so we disable it */
-  #undef ASSUME_VIA_ACE_PRESENT
-  #undef USE_VIA_ACE_IF_PRESENT
-#endif /* iPhone simulator - pcg */
-
-#if defined(__BEOS__)
-  /* The BeOS compiler (and ancient version of gcc) cannot generate code 
-     that reliably determines if a VIA CPU is available */
-  #undef USE_VIA_ACE_IF_PRESENT
-#endif /* BeOS gcc - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 /* define to reverse decryption key schedule    */
 #if 1 || defined( USE_VIA_ACE_IF_PRESENT ) && !defined ( AES_REV_DKS )

@@ -68,13 +68,8 @@ if (ul != 0) \
 	} \
 else \
 	r=(-(int)a-b+1); /* assuming a or b is 0 and in range */ 
-<<<<<<< HEAD
 
 /* Removed spurious trailing '\' in previous line and non-used macro 
-=======
-
-/* Removed spurious trailing '\' in previous line and non-used macro 
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
    here - pcg */
 
 /*  7/12/95 - Many thanks to Rhys Weatherley <rweather@us.oracle.com>

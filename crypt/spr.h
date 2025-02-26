@@ -55,7 +55,6 @@
  * copied and put under another distribution licence
  * [including the GNU Public Licence.]
  */
-<<<<<<< HEAD
 
 #ifndef _OSCONFIG_DEFINED		/* pcg */
   #if defined( INC_ALL )
@@ -64,16 +63,6 @@
 	#include "crypt/osconfig.h"
   #endif /* Compiler-specific includes */
 #endif /* _OSCONFIG_DEFINED */
-=======
-
-#ifndef _OSCONFIG_DEFINED		/* pcg */
-  #if defined( INC_ALL )
-	#include "osconfig.h"
-  #else
-	#include "crypt/osconfig.h"
-  #endif /* Compiler-specific includes */
-#endif /* _OSCONFIG_DEFINED */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 OPENSSL_GLOBAL const DES_LONG ASM_EXPORT des_SPtrans[8][64]={	/* pcg */
 {

@@ -3,7 +3,6 @@
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "zutil.h"
   #include "inftrees.h"
@@ -13,17 +12,6 @@
 #endif /* Compiler-specific includes */
 
 #if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )
-=======
-#if defined( INC_ALL )
-  #include "zutil.h"
-  #include "inftrees.h"
-#else
-  #include "zlib/zutil.h"
-  #include "zlib/inftrees.h"
-#endif /* Compiler-specific includes */
-
-#if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #define MAXBITS 15
 
@@ -316,8 +304,4 @@ int ZLIB_INTERNAL inflate_table( codetype type, unsigned short FAR *lens, unsign
     *bits = root;
     return 0;
 }
-<<<<<<< HEAD
 #endif /* USE_COMPRESSION && !HAS_ZLIB */
-=======
-#endif /* USE_COMPRESSION && !HAS_ZLIB */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

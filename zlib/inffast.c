@@ -3,7 +3,6 @@
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "zutil.h"
   #include "inftrees.h"
@@ -17,21 +16,6 @@
 #endif /* Compiler-specific includes */
 
 #if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )
-=======
-#if defined( INC_ALL )
-  #include "zutil.h"
-  #include "inftrees.h"
-  #include "inflate.h"
-  #include "inffast.h"
-#else
-  #include "zlib/zutil.h"
-  #include "zlib/inftrees.h"
-  #include "zlib/inflate.h"
-  #include "zlib/inffast.h"
-#endif /* Compiler-specific includes */
-
-#if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #ifdef ASMINF
 #  pragma message("Assembler code may have bugs -- use at your own risk")
@@ -344,8 +328,4 @@ void ZLIB_INTERNAL inflate_fast( z_streamp strm, unsigned start )	/* pcg */
  */
 
 #endif /* !ASMINF */
-<<<<<<< HEAD
 #endif /* USE_COMPRESSION && !HAS_ZLIB */
-=======
-#endif /* USE_COMPRESSION && !HAS_ZLIB */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 Microsoft eMbedded Visual Tools Workspace File, Format Version 4.00
 # WARNING: DO NOT EDIT OR DELETE THIS WORKSPACE FILE!
 
@@ -28,34 +27,3 @@ Package=<3>
 
 ###############################################################################
 
-=======
-Microsoft eMbedded Visual Tools Workspace File, Format Version 4.00
-# WARNING: DO NOT EDIT OR DELETE THIS WORKSPACE FILE!
-
-###############################################################################
-
-Project: "Test32"=.\test32ce.vcp - Package Owner=<4>
-
-Package=<5>
-{{{
-}}}
-
-Package=<4>
-{{{
-}}}
-
-###############################################################################
-
-Global:
-
-Package=<5>
-{{{
-}}}
-
-Package=<3>
-{{{
-}}}
-
-###############################################################################
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

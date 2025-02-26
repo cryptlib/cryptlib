@@ -29,7 +29,6 @@ Issue Date: 30/03/2011
    a bug in the fast buffer operations on big endian systems.
 */
 
-<<<<<<< HEAD
 #if defined( INC_ALL )		/* pcg */
   #include "gcm.h"
   #include "mode_hdr.h"
@@ -39,17 +38,6 @@ Issue Date: 30/03/2011
 #endif /* Compiler-specific includes */
 
 #ifdef USE_GCM
-=======
-#if defined( INC_ALL )		/* pcg */
-  #include "gcm.h"
-  #include "mode_hdr.h"
-#else
-  #include "crypt/gcm.h"
-  #include "crypt/mode_hdr.h"
-#endif /* Compiler-specific includes */
-
-#ifdef USE_GCM
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 /*  This GCM implementation needs a Galois Field multiplier for GF(2^128).
     which operates on field elements using a polynomial field representation
@@ -564,8 +552,4 @@ ret_type gcm_decrypt_message(               /* decrypt an entire message    */
 #if defined(__cplusplus)
 }
 #endif
-<<<<<<< HEAD
 #endif /* USE_GCM */
-=======
-#endif /* USE_GCM */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

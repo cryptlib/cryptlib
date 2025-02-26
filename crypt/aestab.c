@@ -20,7 +20,6 @@ Issue Date: 20/12/2007
 
 #define DO_TABLES
 
-<<<<<<< HEAD
 #if defined( INC_ALL )		/* pcg */
   #include "aes.h"
   #include "aesopt.h"
@@ -28,15 +27,6 @@ Issue Date: 20/12/2007
   #include "crypt/aes.h"
   #include "crypt/aesopt.h"
 #endif /* Compiler-specific includes */
-=======
-#if defined( INC_ALL )		/* pcg */
-  #include "aes.h"
-  #include "aesopt.h"
-#else
-  #include "crypt/aes.h"
-  #include "crypt/aesopt.h"
-#endif /* Compiler-specific includes */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #if defined(STATIC_TABLES)
 

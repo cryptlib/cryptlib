@@ -39,30 +39,17 @@ extern "C" {
 /* Include portions of crypt.h.  This is necessary because the maze of 
    headers and infinitely-nested macros in the AES code get confused by
    something in crypt.h that's proven impossible to track through said
-<<<<<<< HEAD
    maze - pcg */
 #if 1
   #include "crypt.h"
-=======
-   maze - pcg */
-#if 1
-  #include "crypt.h"
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #else
   #include "misc/os_detect.h"
   #include "misc/config.h"
   #include "misc/os_spec.h"
-<<<<<<< HEAD
 #endif /* 0 */
 
 #define ptrint_t	intptr_t
 
-=======
-#endif /* 0 */
-
-#define ptrint_t	intptr_t
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #ifndef BRG_UI32
 #  define BRG_UI32
 #  if UINT_MAX == 4294967295u
@@ -70,17 +57,10 @@ extern "C" {
 #  elif ULONG_MAX == 4294967295u
 #    define li_32(h) 0x##h##ul
 #  elif defined( _CRAY )
-<<<<<<< HEAD
   /* USE_AES is undefined on Crays, however we define a dummy data type
      to get the code to compile - pcg */
 /*#error Crays don't support 32-bit data types, this code won't compile on a Cray*/
 	typedef   unsigned int     uint32_t;
-=======
-  /* USE_AES is undefined on Crays, however we define a dummy data type
-     to get the code to compile - pcg */
-/*#error Crays don't support 32-bit data types, this code won't compile on a Cray*/
-	typedef   unsigned int     uint32_t;
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #  else
 #    error Please define uint32_t as a 32-bit unsigned integer type in brg_types.h
 #  endif
@@ -103,26 +83,15 @@ extern "C" {
 #    if UINT_MAX == 18446744073709551615u
 #      define BRG_UI64
 #      define li_64(h) 0x##h##u
-<<<<<<< HEAD
 #    endif
-=======
-#    endif
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #  elif defined( ULONG_MAX ) && ULONG_MAX > 4294967295u
 #    if ULONG_MAX == 18446744073709551615ul
 #      define BRG_UI64
 #      define li_64(h) 0x##h##ul
-<<<<<<< HEAD
 	#if !( defined( _UINT64_T ) || defined( _UINT64_T_DEFINED_ ) )
 		/* Apple and OpenBSD define their own version - pcg */
 		typedef unsigned long uint64_t;		/* AES-GCM - pcg */
 	#endif /* !( _UINT64_T || _UINT64_T_DEFINED_ ) */
-=======
-	#if !( defined( _UINT64_T ) || defined( _UINT64_T_DEFINED_ ) )
-		/* Apple and OpenBSD define their own version - pcg */
-		typedef unsigned long uint64_t;		/* AES-GCM - pcg */
-	#endif /* !( _UINT64_T || _UINT64_T_DEFINED_ ) */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #    endif
 #  elif defined( ULLONG_MAX ) && ULLONG_MAX > 4294967295u
 #    if ULLONG_MAX == 18446744073709551615ull
@@ -134,19 +103,11 @@ extern "C" {
 #      define BRG_UI64
 #      define li_64(h) 0x##h##ull
 #    endif
-<<<<<<< HEAD
    #elif defined( __clang__ ) || defined( __GNUC__ )
 		/* clang and gcc support 64-bit ints no matter what limits.h 
 		   says - pcg */
 		#define BRG_UI64
 		#define li_64(h)	0x##h##ul
-=======
-   #elif defined( __clang__ ) || defined( __GNUC__ )
-		/* clang and gcc support 64-bit ints no matter what limits.h 
-		   says - pcg */
-		#define BRG_UI64
-		#define li_64(h)	0x##h##ul
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
    #endif /* __clang__ || __GNUC__ */
 #endif
 

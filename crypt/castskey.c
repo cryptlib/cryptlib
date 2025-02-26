@@ -63,7 +63,6 @@
   #include "crypt/osconfig.h"
   #include "crypt/cast.h"
 #endif /* Compiler-specific includes */
-<<<<<<< HEAD
 
 #ifdef USE_CAST
 
@@ -77,21 +76,6 @@
   #include "crypt/castsbox.h"
 #endif /* Compiler-specific includes */
 
-=======
-
-#ifdef USE_CAST
-
-/* castsbox.h declates an enormous static const lookup table, so we need to 
-   include it after we've checked whether we want to build the BF code or
-   not - pcg */
-
-#if defined( INC_ALL )
-  #include "castsbox.h"
-#else
-  #include "crypt/castsbox.h"
-#endif /* Compiler-specific includes */
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #define CAST_exp(l,A,a,n) \
 	A[n/4]=l; \
 	a[n+3]=(l    )&0xff; \
@@ -195,8 +179,4 @@ void CAST_set_key(CAST_KEY *key, int len, const unsigned char *data)
 		key->data[i*2+1]=((k[i+16])+16)&0x1f;
 		}
 	}
-<<<<<<< HEAD
 #endif /* USE_CAST */
-=======
-#endif /* USE_CAST */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

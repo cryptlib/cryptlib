@@ -65,13 +65,8 @@
   #include "crypt/rc2.h"
   #include "crypt/rc2locl.h"
 #endif /* Compiler-specific includes */
-<<<<<<< HEAD
 
 #ifdef USE_RC2
-=======
-
-#ifdef USE_RC2
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 /* RC2 as implemented frm a posting from
  * Newsgroups: sci.crypt
@@ -96,8 +91,4 @@ void RC2_ecb_encrypt(const unsigned char *in, unsigned char *out, RC2_KEY *ks,
 	l=d[1]; l2c(l,out);
 	l=d[0]=d[1]=0;
 	}
-<<<<<<< HEAD
 #endif /* USE_RC2 */
-=======
-#endif /* USE_RC2 */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

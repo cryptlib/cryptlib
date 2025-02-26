@@ -108,7 +108,6 @@
  * Hudson (tjh@cryptsoft.com).
  *
  */
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 
@@ -132,31 +131,6 @@
 #endif /* VC++ */
 
 /* End changes for cryptlib - pcg */
-=======
-
-/* Changes for cryptlib - pcg */
-
-/* This version of bn_exp.c uses an older BN_mod_exp_mont_consttime() that 
-   uses standard bignum ops rather than overlaying the bignum data onto a 
-   fixed memory array that's used by CPU-specific code if RSAZ_ENABLED or 
-   SPARC_T4_MONT is defined.  This causes problems because it assumes that 
-   we can point BIGNUM.d values into a fixed block of memory and then mess 
-   around with that which, as a side-effect, changes the values of the 
-   bignums.  Since we're allocating the bignum storage ourselves we can't
-   use this memory-aliasing hack to modify the contents of the bignums via
-   external code */
-
-#if defined( INC_ALL )
-  #include "bn_lcl.h"
-#else
-  #include "bn/bn_lcl.h"
-#endif /* Compiler-specific includes */
-#if defined( _MSC_VER )
-  #pragma warning( disable: 4311 )	/* Warning about ugly 32-bit align ptr.cast */
-#endif /* VC++ */
-
-/* End changes for cryptlib - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #undef SPARC_T4_MONT
 #if defined(OPENSSL_BN_ASM_MONT) && (defined(__sparc__) || defined(__sparc))
@@ -209,11 +183,7 @@ int BN_exp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p, BN_CTX *ctx)
                 goto err;
         }
     }
-<<<<<<< HEAD
 	if (r != rr)
-=======
-	if (r != rr)
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
         BN_copy(r, rr);
     ret = 1;
  err:
@@ -275,7 +245,6 @@ int BN_mod_exp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p, const BIGNUM *m,
     /* if ((m->d[m->top-1]&BN_TBIT) && BN_is_odd(m)) */
 
     if (BN_is_odd(m)) {
-<<<<<<< HEAD
 # ifdef MONT_EXP_WORD
         if (a->top == 1 && !a->neg
             && (BN_get_flags(p, BN_FLG_CONSTTIME) == 0)) 
@@ -296,28 +265,6 @@ int BN_mod_exp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p, const BIGNUM *m,
 			ret = BN_mod_exp_mont_word(r, A, p, m, ctx, mont);
 			BN_MONT_CTX_free( mont );
 			} 
-=======
-# ifdef MONT_EXP_WORD
-        if (a->top == 1 && !a->neg
-            && (BN_get_flags(p, BN_FLG_CONSTTIME) == 0)) 
-			{
-			BN_MONT_CTX *mont;
-			BN_ULONG A = a->d[ 0 ];
-
-			/* Added code to allocate and free the necessary BN_MONT_CTX 
-			   rather than requiring that BN_mod_exp_mont_word() sort it
-			   out - pcg */
-			if( ( mont = BN_MONT_CTX_new() ) == NULL )
-				return 0;
-			if( !BN_MONT_CTX_set( mont, m, ctx ) )
-				{
-				BN_MONT_CTX_free( mont );
-				return 0;
-				}
-			ret = BN_mod_exp_mont_word(r, A, p, m, ctx, mont);
-			BN_MONT_CTX_free( mont );
-			} 
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 		else
 # endif
             ret = BN_mod_exp_mont(r, a, p, m, ctx, NULL);
@@ -716,7 +663,6 @@ static int MOD_EXP_CTIME_COPY_FROM_PREBUF(BIGNUM *b, int top,
 int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
                               const BIGNUM *m, BN_CTX *ctx,
                               BN_MONT_CTX *in_mont)
-<<<<<<< HEAD
 {
 	int i, bits, ret = 0, idx, window, wvalue;
 	int top;
@@ -885,176 +831,6 @@ err:
 		BN_clear(computeTemp);
 	BN_CTX_end(ctx);
 	return(ret);
-=======
-{
-	int i, bits, ret = 0, idx, window, wvalue;
-	int top;
- 	BIGNUM *r;
-	const BIGNUM *aa;
-	BN_MONT_CTX *mont = NULL;
-
-	int numPowers;
-	unsigned char *powerbufFree = NULL;
-	int powerbufLen = 0;
-	unsigned char *powerbuf = NULL;
-	BIGNUM *computeTemp = NULL, *am = NULL;
-
-	bn_check_top(a);
-	bn_check_top(p);
-	bn_check_top(m);
-
-	if (!BN_is_odd(m))
-		{
-		BNerr(BN_F_BN_MOD_EXP_MONT_CONSTTIME,BN_R_CALLED_WITH_EVEN_MODULUS);
-		return(0);
-		}
-
-	top = m->top;
-
-	bits = BN_num_bits(p);
-	if (bits == 0)
-		{
-		ret = BN_one(rr);
-		return ret;
-		}
-
- 	/* Initialize BIGNUM context and allocate intermediate result */
-	BN_CTX_start(ctx);
-	r = BN_CTX_get(ctx);
-	if (r == NULL) 
-		goto err;
-
-	/* Allocate a montgomery context if it was not supplied by the caller.
-	 * If this is not done, things will break in the montgomery part.
- 	 */
-	if (in_mont != NULL)
-		mont=in_mont;
-	else
-		{
-		if ((mont = BN_MONT_CTX_new()) == NULL) 
-			goto err;
-		if (!BN_MONT_CTX_set(mont, m, ctx)) 
-			goto err;
-		}
-
-	/* Get the window size to use with size of p. */
-	window = BN_window_bits_for_ctime_exponent_size(bits);
-
-	/* Allocate a buffer large enough to hold all of the pre-computed
-	 * powers of a.
-	 */
-	numPowers = 1 << window;
-	powerbufLen = sizeof(m->d[0]) * top * numPowers;
-	if ((powerbufFree = (unsigned char*)clBnAlloc("BN_mod_exp_mont_consttime",	/* pcg */
-												powerbufLen + MOD_EXP_CTIME_MIN_CACHE_LINE_WIDTH)) == NULL)
-		goto err;
-		
-	powerbuf = MOD_EXP_CTIME_ALIGN(powerbufFree);
-	memset(powerbuf, 0, powerbufLen);
-
- 	/* Initialize the intermediate result. Do this early to save double conversion,
-	 * once each for a^0 and intermediate result.
-	 */
- 	if (!BN_to_montgomery(r, BN_value_one(), mont, ctx)) 
-		goto err;
-	if (!MOD_EXP_CTIME_COPY_TO_PREBUF(r, top, powerbuf, 0, numPowers)) 
-		goto err;
-
-	/* Initialize computeTemp as a^1 with montgomery precalcs */
-	computeTemp = BN_CTX_get(ctx);
-	am = BN_CTX_get(ctx);
-	if (computeTemp == NULL || am == NULL) 
-		goto err;
-
-	if (a->neg || BN_ucmp(a, m) >= 0)
-		{
-		if (!BN_mod(am, a, m, ctx))
-			goto err;
-		aa = am;
-		}
-	else
-		aa = a;
-	if (!BN_to_montgomery(am, aa, mont, ctx)) 
-		goto err;
-	if (!BN_copy(computeTemp, am)) 
-		goto err;
-	if (!MOD_EXP_CTIME_COPY_TO_PREBUF(am, top, powerbuf, 1, numPowers)) 
-		goto err;
-
-	/* If the window size is greater than 1, then calculate
-	 * val[i=2..2^winsize-1]. Powers are computed as a*a^(i-1)
-	 * (even powers could instead be computed as (a^(i/2))^2
-	 * to use the slight performance advantage of sqr over mul).
-	 */
-	if (window > 1)
-		{
-		for (i = 2; i < numPowers; i++)
-			{
-			/* Calculate a^i = a^(i-1) * a */
-			if (!BN_mod_mul_montgomery(computeTemp, am, computeTemp, mont, ctx))
-				goto err;
-			if (!MOD_EXP_CTIME_COPY_TO_PREBUF(computeTemp, top, powerbuf, i, numPowers)) 
-				goto err;
-			}
-		}
-
- 	/* Adjust the number of bits up to a multiple of the window size.
- 	 * If the exponent length is not a multiple of the window size, then
- 	 * this pads the most significant bits with zeros to normalize the
- 	 * scanning loop to there's no special cases.
- 	 *
- 	 * * NOTE: Making the window size a power of two less than the native
-	 * * word size ensures that the padded bits won't go past the last
- 	 * * word in the internal BIGNUM structure. Going past the end will
- 	 * * still produce the correct result, but causes a different branch
- 	 * * to be taken in the BN_is_bit_set function.
- 	 */
- 	bits = ((bits + window - 1) / window) * window;
- 	idx = bits - 1;	/* The top bit of the window */
-
- 	/* Scan the exponent one window at a time starting from the most
- 	 * significant bits.
- 	 */
- 	while (idx >= 0)
-  		{
- 		wvalue = 0; /* The 'value' of the window */
- 		
- 		/* Scan the window, squaring the result as we go */
- 		for (i = 0; i < window; i++, idx--)
- 			{
-			if (!BN_mod_mul_montgomery(r, r, r, mont, ctx))	
-				goto err;
-			wvalue = (wvalue << 1) + ( BN_is_bit_set(p, idx) ? 1 : 0 );	/* pcg */
-  			}
- 		
-		/* Fetch the appropriate pre-computed value from the pre-buf */
-		if (!MOD_EXP_CTIME_COPY_FROM_PREBUF(computeTemp, top, powerbuf, wvalue, numPowers)) 
-			goto err;
-
- 		/* Multiply the result into the intermediate result */
- 		if (!BN_mod_mul_montgomery(r, r, computeTemp, mont, ctx)) 
-			goto err;
-  		}
-
- 	/* Convert the final result from montgomery to standard format */
-	if (!BN_from_montgomery(rr, r, mont, ctx)) 
-		goto err;
-	ret = 1;
-err:
-	if ((in_mont == NULL) && (mont != NULL)) 
-		BN_MONT_CTX_free(mont);
-	if (powerbuf != NULL)
-		{
-		OPENSSL_cleanse(powerbuf, powerbufLen);
-		OPENSSL_free(powerbufFree);
-		}
- 	if (am != NULL) 
-		BN_clear(am);
- 	if (computeTemp != NULL) 
-		BN_clear(computeTemp);
-	BN_CTX_end(ctx);
-	return(ret);
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 }
 
 int BN_mod_exp_mont_word(BIGNUM *rr, BN_ULONG a, const BIGNUM *p,
@@ -1191,13 +967,8 @@ int BN_mod_exp_mont_word(BIGNUM *rr, BN_ULONG a, const BIGNUM *p,
     bn_check_top(rr);
     return (ret);
 }
-<<<<<<< HEAD
 
 #ifdef RECP_MUL_MOD	/* pcg */
-=======
-
-#ifdef RECP_MUL_MOD	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 /* The old fallback, simple version :-) */
 int BN_mod_exp_simple(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
@@ -1312,8 +1083,4 @@ int BN_mod_exp_simple(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
     bn_check_top(r);
     return (ret);
 }
-<<<<<<< HEAD
 #endif /* RECP_MUL_MOD - pcg */
-=======
-#endif /* RECP_MUL_MOD - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

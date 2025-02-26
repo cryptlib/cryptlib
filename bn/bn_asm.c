@@ -56,7 +56,6 @@
  * [including the GNU Public Licence.]
  */
 
-<<<<<<< HEAD
 /* Changes for cryptlib - pcg */
 
 #include <stdio.h>
@@ -84,35 +83,6 @@
 
 #if defined(BN_LLONG) || defined(BN_UMULT_HIGH)
 
-=======
-/* Changes for cryptlib - pcg */
-
-#include <stdio.h>
-#include <assert.h>
-#if defined( _WIN32_WCE ) && _WIN32_WCE < 400
-  #define assert( x )
-#else
-  #include <assert.h>
-#endif /* Systems without assert() */
-#if defined( INC_ALL )
-  #include "bn_lcl.h"
-#else
-  #include "bn/bn_lcl.h"
-#endif /* Compiler-specific includes */
-
-#if defined( _MSC_VER )
-  /* cryptlib is built with the highest warning level, disable some of the
-     more irritating warnings produced by the OpenSSL code */
-  #pragma warning( disable: 4127 )	/* Conditional is constant: while( TRUE ) */
-#endif /* Visual C++ */
-
-/* End changes for cryptlib - pcg */
-
-#ifndef BN_ASM				/* pcg */
-
-#if defined(BN_LLONG) || defined(BN_UMULT_HIGH)
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 BN_ULONG bn_mul_add_words(BN_ULONG *rp, const BN_ULONG *ap, int num,
                           BN_ULONG w)
 {
@@ -291,11 +261,7 @@ void bn_sqr_words(BN_ULONG *r, const BN_ULONG *a, int n)
 
 #endif                          /* !(defined(BN_LLONG) ||
                                  * defined(BN_UMULT_HIGH)) */
-<<<<<<< HEAD
 
-=======
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #if defined(BN_LLONG) && defined(BN_DIV2W)
 
 BN_ULONG bn_div_words(BN_ULONG h, BN_ULONG l, BN_ULONG d)
@@ -1066,11 +1032,7 @@ void bn_sqr_comba8(BN_ULONG *r, const BN_ULONG *a)
     BN_ULONG t[16];
     bn_sqr_normal(r, a, 8, t);
 }
-<<<<<<< HEAD
 
-=======
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 void bn_mul_comba4(BN_ULONG *r, BN_ULONG *a, const BN_ULONG *b)	/* const - pcg */
 {
     r[4] = bn_mul_words(&(r[0]), a, 4, b[0]);
@@ -1144,10 +1106,5 @@ int bn_mul_mont(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
 # endif
 
 #endif                          /* !BN_MUL_COMBA */
-<<<<<<< HEAD
 
 #endif /* !BN_ASM */	/* pcg */
-=======
-
-#endif /* !BN_ASM */	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

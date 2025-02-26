@@ -108,7 +108,6 @@
  * Hudson (tjh@cryptsoft.com).
  *
  */
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 
@@ -119,18 +118,6 @@
 #endif /* Compiler-specific includes */
 
 /* End changes for cryptlib - pcg */
-=======
-
-/* Changes for cryptlib - pcg */
-
-#if defined( INC_ALL )
-  #include "bn_lcl.h"
-#else
-  #include "bn/bn_lcl.h"
-#endif /* Compiler-specific includes */
-
-/* End changes for cryptlib - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 static BIGNUM *euclid(BIGNUM *a, BIGNUM *b);
 
@@ -720,15 +707,9 @@ static BIGNUM *BN_mod_inverse_no_branch(BIGNUM *in,
     ret = R;
  err:
     if ((ret == NULL) && (in == NULL))
-<<<<<<< HEAD
 		{
 		if( R != NULL )	/* pcg */
 			BN_free(R);
-=======
-		{
-		if( R != NULL )	/* pcg */
-			BN_free(R);
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 		}
     BN_CTX_end(ctx);
     bn_check_top(ret);

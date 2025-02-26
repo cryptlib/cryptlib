@@ -56,7 +56,6 @@
  * [including the GNU Public Licence.]
  */
 
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "osconfig.h"
   #include "idea.h"
@@ -68,19 +67,6 @@
 #endif /* Compiler-specific includes */
 
 #ifdef USE_IDEA
-=======
-#if defined( INC_ALL )
-  #include "osconfig.h"
-  #include "idea.h"
-  #include "idealocl.h"
-#else
-  #include "crypt/osconfig.h"
-  #include "crypt/idea.h"
-  #include "crypt/idealocl.h"
-#endif /* Compiler-specific includes */
-
-#ifdef USE_IDEA
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 static IDEA_INT inverse(unsigned int xin);
 void idea_set_encrypt_key(const unsigned char *key, IDEA_KEY_SCHEDULE *ks)
@@ -177,8 +163,4 @@ static IDEA_INT inverse(unsigned int xin)
 		}
 	return((IDEA_INT)b2);
 	}
-<<<<<<< HEAD
 #endif /* USE_IDEA */
-=======
-#endif /* USE_IDEA */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

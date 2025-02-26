@@ -65,13 +65,8 @@
   #include "crypt/cast.h"
   #include "crypt/castlcl.h"
 #endif /* Compiler-specific includes */
-<<<<<<< HEAD
 
 #ifdef USE_CAST
-=======
-
-#ifdef USE_CAST
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 void CAST_ecb_encrypt(const unsigned char *in, unsigned char *out,
 		      CAST_KEY *ks, int enc)
@@ -88,8 +83,4 @@ void CAST_ecb_encrypt(const unsigned char *in, unsigned char *out,
 	l=d[1]; l2n(l,out);
 	l=d[0]=d[1]=0;
 	}
-<<<<<<< HEAD
 #endif /* USE_CAST */
-=======
-#endif /* USE_CAST */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

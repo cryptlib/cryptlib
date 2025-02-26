@@ -70,11 +70,7 @@
 #define MD5_LONG_LOG2 2 /* default to 32 bits */
 #endif
 
-<<<<<<< HEAD
 #ifdef MD5_ASM
-=======
-#ifdef MD5_ASM
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 # if defined(__i386) || defined(__i386__) || defined(_M_IX86) || defined(__INTEL__)
 #  define md5_block_host_order md5_block_asm_host_order
 # elif defined(__sparc) && defined(ULTRASPARC)

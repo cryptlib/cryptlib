@@ -61,7 +61,6 @@
  * [including the GNU Public Licence.]
  */
 
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "osconfig.h"
   #include "des.h"
@@ -74,20 +73,6 @@
 
 #ifndef USE_ASM	/* Needed for complex asm-replacement or C code */
 
-=======
-#if defined( INC_ALL )
-  #include "osconfig.h"
-  #include "des.h"
-  #include "deslocl.h"
-#else
-  #include "crypt/osconfig.h"
-  #include "crypt/des.h"
-  #include "crypt/deslocl.h"
-#endif /* Compiler-specific includes */
-
-#ifndef USE_ASM	/* Needed for complex asm-replacement or C code */
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #ifdef CBC_ENC_C__DONT_UPDATE_IV
 void des_cbc_encrypt(const unsigned char *in, unsigned char *out, long length,
 	     des_key_schedule schedule, des_cblock *ivec, int enc)
@@ -171,8 +156,4 @@ void des_ncbc_encrypt(const unsigned char *in, unsigned char *out, long length,
 	tin0=tin1=tout0=tout1=xor0=xor1=0;
 	tin[0]=tin[1]=0;
 	}
-<<<<<<< HEAD
 #endif /* USE_ASM */
-=======
-#endif /* USE_ASM */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

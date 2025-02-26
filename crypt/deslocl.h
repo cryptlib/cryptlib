@@ -85,7 +85,6 @@
 
 /* used in des_read and des_write */
 #define MAXWRITE	(1024*16)
-<<<<<<< HEAD
 #ifdef BSIZE
   /* If it's already defined, undefine it completely so that it can be
    * resolved by the user.  This macro is redefined on HP-UX 10.20 using
@@ -94,16 +93,6 @@
 #else
   #define BSIZE		(MAXWRITE+4)
 #endif
-=======
-#ifdef BSIZE
-  /* If it's already defined, undefine it completely so that it can be
-   * resolved by the user.  This macro is redefined on HP-UX 10.20 using
-   * gcc 2.95.2.   Fortunately, BSIZE is not used in the DES code. */
-  #undef BSIZE
-#else
-  #define BSIZE		(MAXWRITE+4)
-#endif
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #define c2l(c,l)	(l =((DES_LONG)(*((c)++)))    , \
 			 l|=((DES_LONG)(*((c)++)))<< 8L, \

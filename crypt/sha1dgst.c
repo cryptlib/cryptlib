@@ -63,7 +63,6 @@
 
 /* The implementation is in ../md32_common.h */
 
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "osconfig.h"
   #include "sha1locl.h"
@@ -72,14 +71,4 @@
   #include "crypt/sha1locl.h"
 #endif /* Compiler-specific includes */
 
-=======
-#if defined( INC_ALL )
-  #include "osconfig.h"
-  #include "sha1locl.h"
-#else
-  #include "crypt/osconfig.h"
-  #include "crypt/sha1locl.h"
-#endif /* Compiler-specific includes */
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #endif

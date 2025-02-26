@@ -1,27 +1,14 @@
-<<<<<<< HEAD
 /* /libsodium-stable/src/libsodium/crypto_onetimeauth/poly1305/donna/	- pcg */
 
-=======
-/* /libsodium-stable/src/libsodium/crypto_onetimeauth/poly1305/donna/	- pcg */
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 /*
    poly1305 implementation using 32 bit * 32 bit = 64 bit multiplication
    and 64 bit addition
 */
-<<<<<<< HEAD
 
 /* Other changes - pcg
    Replace all 'long long' in function parameters with 'long'.
    Replace all 'long long' in function body with LONGLONG_TYPE (since these
 			   are 'unsigned long long' they should really be uint64_t) */
-=======
-
-/* Other changes - pcg
-   Replace all 'long long' in function parameters with 'long'.
-   Replace all 'long long' in function body with LONGLONG_TYPE (since these
-			   are 'unsigned long long' they should really be uint64_t) */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #if defined(_MSC_VER) && _MSC_VER > 1700	/* pcg */
 # define POLY1305_NOINLINE __declspec(noinline)

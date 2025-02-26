@@ -500,15 +500,9 @@ INLINE volatile  void via_ofb_op6(
 #else
 #error VIA ACE is not available with this compiler
 #endif
-<<<<<<< HEAD
 
 #if 0	/* This code segfaults randomly and is a Heisebug depending on 
 		   surrounding code, possibly an alignment issue - pcg */
-=======
-
-#if 0	/* This code segfaults randomly and is a Heisebug depending on 
-		   surrounding code, possibly an alignment issue - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 INLINE int via_ace_test(void)
 {
@@ -525,7 +519,6 @@ INLINE int via_rng_test(void)
 
 #define VIA_RNG_AVAILABLE   (((via_flags & NEH_RNG_FLAGS) == NEH_RNG_FLAGS)         \
     || (via_flags & NEH_CPU_READ) && (via_flags & NEH_CPU_IS_VIA) || via_rng_test())
-<<<<<<< HEAD
 
 #else
 
@@ -533,15 +526,6 @@ INLINE int via_rng_test(void)
 #define VIA_RNG_AVAILABLE	( getSysVar( SYSVAR_HWINTRINS ) & HWINTRINS_FLAG_XSTORE )
 
 #endif /* 0 */
-=======
-
-#else
-
-#define VIA_ACE_AVAILABLE	( getSysVar( SYSVAR_HWINTRINS ) & HWINTRINS_FLAG_XCRYPT )
-#define VIA_RNG_AVAILABLE	( getSysVar( SYSVAR_HWINTRINS ) & HWINTRINS_FLAG_XSTORE )
-
-#endif /* 0 */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 INLINE int read_via_rng(void *buf, int count)
 {   int nbr, max_reads, lcnt = count;

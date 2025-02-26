@@ -110,7 +110,6 @@
  */
 
 #include <stdio.h>
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 
@@ -123,20 +122,6 @@
 #if defined USE_DSA		/* Only called once from ctx_dsa.c */
 
 /* End changes for cryptlib - pcg */
-=======
-
-/* Changes for cryptlib - pcg */
-
-#if defined( INC_ALL )
-  #include "bn_lcl.h"
-#else
-  #include "bn/bn_lcl.h"
-#endif /* Compiler-specific includes */
-
-#if defined USE_DSA		/* Only called once from ctx_dsa.c */
-
-/* End changes for cryptlib - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #define TABLE_SIZE      32
 
@@ -152,13 +137,8 @@ int BN_mod_exp2_mont(BIGNUM *rr, const BIGNUM *a1, const BIGNUM *p1,
     /* Tables of variables obtained from 'ctx' */
     BIGNUM *val1[TABLE_SIZE], *val2[TABLE_SIZE];
     BN_MONT_CTX *mont = NULL;
-<<<<<<< HEAD
 
 	assert( in_mont != NULL );	/* pcg */
-=======
-
-	assert( in_mont != NULL );	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
     bn_check_top(a1);
     bn_check_top(p1);

@@ -93,11 +93,7 @@ AES_RETURN aes_ni(encrypt_key128)(const unsigned char *key, aes_encrypt_ctx cx[1
 		return aes_xi(encrypt_key128)(key, cx);
 	}
 
-<<<<<<< HEAD
 	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
-=======
-	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 	t1 = _mm_loadu_si128((__m128i*)key);
 
@@ -175,11 +171,7 @@ AES_RETURN aes_ni(encrypt_key192)(const unsigned char *key, aes_encrypt_ctx cx[1
 		return aes_xi(encrypt_key192)(key, cx);
 	}
 
-<<<<<<< HEAD
 	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
-=======
-	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 	t1 = _mm_loadu_si128((__m128i*)key);
 	t3 = _mm_loadu_si128((__m128i*)(key + 16));
@@ -269,11 +261,7 @@ AES_RETURN aes_ni(encrypt_key256)(const unsigned char *key, aes_encrypt_ctx cx[1
 		return aes_xi(encrypt_key256)(key, cx);
 	}
 
-<<<<<<< HEAD
 	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
-=======
-	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 	t1 = _mm_loadu_si128((__m128i*)key);
 	t3 = _mm_loadu_si128((__m128i*)(key + 16));
@@ -342,11 +330,7 @@ AES_RETURN aes_ni(decrypt_key128)(const unsigned char *key, aes_decrypt_ctx cx[1
 		return aes_xi(decrypt_key128)(key, cx);
 	}
 
-<<<<<<< HEAD
 	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
-=======
-	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 	if(aes_ni(encrypt_key128)(key, (aes_encrypt_ctx*)cx) == EXIT_SUCCESS)
 	{
@@ -365,11 +349,7 @@ AES_RETURN aes_ni(decrypt_key192)(const unsigned char *key, aes_decrypt_ctx cx[1
 		return aes_xi(decrypt_key192)(key, cx);
 	}
 
-<<<<<<< HEAD
 	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
-=======
-	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 	if(aes_ni(encrypt_key192)(key, (aes_encrypt_ctx*)cx) == EXIT_SUCCESS)
 	{
@@ -387,11 +367,7 @@ AES_RETURN aes_ni(decrypt_key256)(const unsigned char *key, aes_decrypt_ctx cx[1
 		return aes_xi(decrypt_key256)(key, cx);
 	}
 
-<<<<<<< HEAD
 	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
-=======
-	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 	if(aes_ni(encrypt_key256)(key, (aes_encrypt_ctx*)cx) == EXIT_SUCCESS)
 	{
@@ -414,11 +390,7 @@ AES_RETURN aes_ni(encrypt)(const unsigned char *in, unsigned char *out, const ae
 		return aes_xi(encrypt)(in, out, cx);
 	}
 
-<<<<<<< HEAD
 	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
-=======
-	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 	t = _mm_xor_si128(_mm_loadu_si128((__m128i*)in), *(__m128i*)key);
 
@@ -459,11 +431,7 @@ AES_RETURN aes_ni(decrypt)(const unsigned char *in, unsigned char *out, const ae
 		return aes_xi(decrypt)(in, out, cx);
 	}
 
-<<<<<<< HEAD
 	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
-=======
-	assert( ALIGN_OFFSET( cx, 16 ) == 0 );	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 	t = _mm_xor_si128(_mm_loadu_si128((__m128i*)in), *(__m128i*)key);
 

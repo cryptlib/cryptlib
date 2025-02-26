@@ -56,7 +56,6 @@
  * [including the GNU Public Licence.]
  */
 
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "osconfig.h"
   #include "idea.h"
@@ -68,19 +67,6 @@
 #endif /* Compiler-specific includes */
 
 #ifdef USE_IDEA
-=======
-#if defined( INC_ALL )
-  #include "osconfig.h"
-  #include "idea.h"
-  #include "idealocl.h"
-#else
-  #include "crypt/osconfig.h"
-  #include "crypt/idea.h"
-  #include "crypt/idealocl.h"
-#endif /* Compiler-specific includes */
-
-#ifdef USE_IDEA
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 void idea_cbc_encrypt(const unsigned char *in, unsigned char *out, long length,
 	     IDEA_KEY_SCHEDULE *ks, unsigned char *iv, int encrypt)
@@ -189,8 +175,4 @@ void idea_encrypt(unsigned long *d, IDEA_KEY_SCHEDULE *key)
 	d[0]=(t0&0xffff)|((x1&0xffff)<<16);
 	d[1]=(x4&0xffff)|((t1&0xffff)<<16);
 	}
-<<<<<<< HEAD
 #endif /* USE_IDEA */
-=======
-#endif /* USE_IDEA */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

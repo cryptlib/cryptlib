@@ -57,7 +57,6 @@
  */
 
 #include <stdio.h>
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 
@@ -71,21 +70,6 @@
 
 #if 0	/* pcg */
 
-=======
-
-/* Changes for cryptlib - pcg */
-
-#if defined( INC_ALL )
-  #include "bn_lcl.h"
-#else
-  #include "bn/bn_lcl.h"
-#endif /* Compiler-specific includes */
-
-/* End changes for cryptlib - pcg */
-
-#if 0	/* pcg */
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 void BN_RECP_CTX_init(BN_RECP_CTX *recp)
 {
     BN_init(&(recp->N));
@@ -98,11 +82,7 @@ BN_RECP_CTX *BN_RECP_CTX_new(void)
 {
     BN_RECP_CTX *ret;
 
-<<<<<<< HEAD
 	if ((ret=(BN_RECP_CTX *)clBnAlloc("BN_RECP_CTX_new",sizeof(BN_RECP_CTX))) == NULL)	/* pcg */
-=======
-	if ((ret=(BN_RECP_CTX *)clBnAlloc("BN_RECP_CTX_new",sizeof(BN_RECP_CTX))) == NULL)	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
         return (NULL);
 
     BN_RECP_CTX_init(ret);
@@ -129,11 +109,7 @@ int BN_RECP_CTX_set(BN_RECP_CTX *recp, const BIGNUM *d, BN_CTX *ctx)
     recp->num_bits = BN_num_bits(d);
     recp->shift = 0;
     return (1);
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 #endif /* 0 */
 
 int BN_mod_mul_reciprocal(BIGNUM *r, const BIGNUM *x, const BIGNUM *y,

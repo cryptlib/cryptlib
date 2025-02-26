@@ -61,17 +61,10 @@
 
 #define IDEA_ENCRYPT	1
 #define IDEA_DECRYPT	0
-<<<<<<< HEAD
 
 #define IDEA_BLOCK	8
 #define IDEA_KEY_LENGTH	16
 #define IDEA_INT unsigned int
-=======
-
-#define IDEA_BLOCK	8
-#define IDEA_KEY_LENGTH	16
-#define IDEA_INT unsigned int
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #ifdef  __cplusplus
 extern "C" {

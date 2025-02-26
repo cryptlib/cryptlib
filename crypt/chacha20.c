@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 /* /libsodium-stable/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
 
    Changes for cryptlib.  In addition, replace all 'long long' in function 
@@ -13,22 +12,6 @@
 
 /* End changes for cryptlib - pcg */
 
-=======
-/* /libsodium-stable/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
-
-   Changes for cryptlib.  In addition, replace all 'long long' in function 
-   parameters with 'long'	- pcg */
-
-#define DJB_INTERNAL
-
-#include "crypt.h"
-#include "djb.h"
-
-#define crypto_stream_chacha20_KEYBYTES	32
-
-/* End changes for cryptlib - pcg */
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 /*
  chacha-merged.c version 20080118
  D. J. Bernstein
@@ -71,13 +54,8 @@ void chacha_keysetup(chacha_ctx *ctx, const uint8_t *k)	/* pcg */
     ctx->input[10] = LOAD32_LE(k + 24);
     ctx->input[11] = LOAD32_LE(k + 28);
 }
-<<<<<<< HEAD
 
 #if 0	/* pcg */
-=======
-
-#if 0	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 static void
 chacha_ivsetup(chacha_ctx *ctx, const uint8_t *iv, const uint8_t *counter)
@@ -87,11 +65,7 @@ chacha_ivsetup(chacha_ctx *ctx, const uint8_t *iv, const uint8_t *counter)
     ctx->input[14] = LOAD32_LE(iv + 0);
     ctx->input[15] = LOAD32_LE(iv + 4);
 }
-<<<<<<< HEAD
 #endif /* 0 */
-=======
-#endif /* 0 */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 void chacha_ietf_ivsetup(chacha_ctx *ctx, const uint8_t *iv, const uint8_t *counter)	/* pcg */
 {
@@ -243,13 +217,8 @@ void chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
     }
 }
 
-<<<<<<< HEAD
 #if 0	/* pcg */
 
-=======
-#if 0	/* pcg */
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 static int
 stream_ref(unsigned char *c, unsigned long clen, const unsigned char *n,
            const unsigned char *k)
@@ -332,11 +301,7 @@ stream_ietf_ext_ref_xor_ic(unsigned char *c, const unsigned char *m,
 
     return 0;
 }
-<<<<<<< HEAD
 
-=======
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 struct crypto_stream_chacha20_implementation
     crypto_stream_chacha20_ref_implementation = {
         SODIUM_C99(.stream =) stream_ref,
@@ -344,8 +309,4 @@ struct crypto_stream_chacha20_implementation
         SODIUM_C99(.stream_xor_ic =) stream_ref_xor_ic,
         SODIUM_C99(.stream_ietf_ext_xor_ic =) stream_ietf_ext_ref_xor_ic
     };
-<<<<<<< HEAD
 #endif /* 0 */
-=======
-#endif /* 0 */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

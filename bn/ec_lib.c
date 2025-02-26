@@ -62,7 +62,6 @@
  */
 
 #include <string.h>
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 
@@ -75,20 +74,6 @@
 /* End changes for cryptlib - pcg */
 
 #if defined( USE_ECDH ) || defined( USE_ECDSA )		/* pcg */
-=======
-
-/* Changes for cryptlib - pcg */
-
-#if defined( INC_ALL )
-  #include "ec_lcl.h"
-#else
-  #include "bn/ec_lcl.h"
-#endif /* Compiler-specific includes */
-
-/* End changes for cryptlib - pcg */
-
-#if defined( USE_ECDH ) || defined( USE_ECDSA )		/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 /* functions for EC_GROUP objects */
 
@@ -105,20 +90,12 @@ EC_GROUP *EC_GROUP_new(const EC_METHOD *meth)
         return NULL;
     }
 
-<<<<<<< HEAD
 	ret = clBnAlloc( "EC_GROUP_new",sizeof *ret);	/* pcg */
-=======
-	ret = clBnAlloc( "EC_GROUP_new",sizeof *ret);	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     if (ret == NULL) {
         ECerr(EC_F_EC_GROUP_NEW, ERR_R_MALLOC_FAILURE);
         return NULL;
     }
-<<<<<<< HEAD
 	memset( ret, 0, sizeof( EC_GROUP ) );			/* pcg */
-=======
-	memset( ret, 0, sizeof( EC_GROUP ) );			/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
     ret->meth = meth;
 
@@ -269,11 +246,7 @@ int EC_GROUP_copy(EC_GROUP *dest, const EC_GROUP *src)
     if (src->seed) {
         if (dest->seed)
             OPENSSL_free(dest->seed);
-<<<<<<< HEAD
 		dest->seed = clBnAlloc( "EC_GROUP_copy",src->seed_len);		/* pcg */
-=======
-		dest->seed = clBnAlloc( "EC_GROUP_copy",src->seed_len);		/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
         if (dest->seed == NULL)
             return 0;
         if (!memcpy(dest->seed, src->seed, src->seed_len))
@@ -432,11 +405,7 @@ size_t EC_GROUP_set_seed(EC_GROUP *group, const unsigned char *p, size_t len)
     if (!len || !p)
         return 1;
 
-<<<<<<< HEAD
 	if ((group->seed = clBnAlloc( "EC_GROUP_set_seed",len)) == NULL)	/* pcg */
-=======
-	if ((group->seed = clBnAlloc( "EC_GROUP_set_seed",len)) == NULL)	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
         return 0;
     memcpy(group->seed, p, len);
     group->seed_len = len;
@@ -612,11 +581,7 @@ int EC_EX_DATA_set_data(EC_EXTRA_DATA **ex_data, void *data,
         /* no explicit entry needed */
         return 1;
 
-<<<<<<< HEAD
 	d = clBnAlloc( "EC_EX_DATA_set_data",sizeof *d);	/* pcg */
-=======
-	d = clBnAlloc( "EC_EX_DATA_set_data",sizeof *d);	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     if (d == NULL)
         return 0;
 
@@ -753,20 +718,12 @@ EC_POINT *EC_POINT_new(const EC_GROUP *group)
         return NULL;
     }
 
-<<<<<<< HEAD
 	ret = clBnAlloc( "EC_POINT_new",sizeof *ret);	/* pcg */
-=======
-	ret = clBnAlloc( "EC_POINT_new",sizeof *ret);	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     if (ret == NULL) {
         ECerr(EC_F_EC_POINT_NEW, ERR_R_MALLOC_FAILURE);
         return NULL;
     }
-<<<<<<< HEAD
 	memset( ret, 0, sizeof( EC_POINT ) );			/* pcg */
-=======
-	memset( ret, 0, sizeof( EC_POINT ) );			/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
     ret->meth = group->meth;
 
@@ -1182,8 +1139,4 @@ int ec_precompute_mont_data(EC_GROUP *group)
         BN_CTX_free(ctx);
     return ret;
 }
-<<<<<<< HEAD
 #endif /* USE_ECDH || USE_ECDSA */	/* pcg */
-=======
-#endif /* USE_ECDH || USE_ECDSA */	/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

@@ -95,11 +95,7 @@ static const unsigned char odd_parity[256]={
 241,241,242,242,244,244,247,247,248,248,251,251,253,253,254,254};
 
 void des_set_odd_parity(des_cblock *key)
-<<<<<<< HEAD
 	{
-=======
-	{
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 	unsigned char *keyPtr = *key;	/* Work around XMK compiler bug - pcg */
 	int i;
 

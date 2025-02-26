@@ -57,7 +57,6 @@
  */
 
 #include <stdio.h>
-<<<<<<< HEAD
 #if defined( INC_ALL )
   #include "osconfig.h"
 #else
@@ -76,26 +75,6 @@
   #include "crypt/md5locl.h"
 #endif /* Compiler-specific includes */
 
-=======
-#if defined( INC_ALL )
-  #include "osconfig.h"
-#else
-  #include "crypt/osconfig.h"
-#endif /* Compiler-specific includes */
-
-#ifdef USE_MD5
-
-/* We can only include md5locl.h at this point since it creates code for 
-   various functions via complicated nesting of includes and macro 
-   manipulation */
-
-#if defined( INC_ALL )
-  #include "md5locl.h"
-#else
-  #include "crypt/md5locl.h"
-#endif /* Compiler-specific includes */
-
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 /* Implemented from RFC1321 The MD5 Message-Digest Algorithm
  */
 
@@ -351,8 +330,4 @@ int printit(unsigned long *l)
 		}
 	}
 #endif
-<<<<<<< HEAD
 #endif /* USE_MD5 */
-=======
-#endif /* USE_MD5 */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae

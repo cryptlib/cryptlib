@@ -55,7 +55,6 @@
  * copied and put under another distribution licence
  * [including the GNU Public Licence.]
  */
-<<<<<<< HEAD
 
 #include <stdio.h>
 #include <assert.h>
@@ -76,28 +75,6 @@
 #endif /* x86 asm code */
 
 /* End changes for cryptlib - pcg */
-=======
-
-#include <stdio.h>
-#include <assert.h>
-
-/* Changes for cryptlib - pcg */
-
-/* Removed NDEBUG redefinition */
-/* NB: See also SunPro compiler bug fix at line 475 */
-
-#if defined( INC_ALL )
-  #include "bn_lcl.h"
-#else
-  #include "bn/bn_lcl.h"
-#endif /* Compiler-specific includes */
-
-#ifdef BN_ASM	/* Implies use of x86 asm code */
-  #define OPENSSL_BN_ASM_PART_WORDS
-#endif /* x86 asm code */
-
-/* End changes for cryptlib - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #if defined(OPENSSL_NO_ASM) || !defined(OPENSSL_BN_ASM_PART_WORDS)
 /*
@@ -495,15 +472,9 @@ void bn_mul_recursive(BN_ULONG *r, const BN_ULONG *a, const BN_ULONG *b, int n2,
     /* r=(a[0]-a[1])*(b[1]-b[0]) */
     c1 = bn_cmp_part_words(a, &(a[n]), tna, n - tna);
     c2 = bn_cmp_part_words(&(b[n]), b, tnb, tnb - n);
-<<<<<<< HEAD
 #if defined __SUNPRO_C	/* pcg */
 	asm("");
 #endif /* Sun compiler bug */
-=======
-#if defined __SUNPRO_C	/* pcg */
-	asm("");
-#endif /* Sun compiler bug */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     zero = neg = 0;
     switch (c1 * 3 + c2) {
     case -4:
@@ -996,7 +967,6 @@ int BN_mul(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx)
     bn_check_top(a);
     bn_check_top(b);
     bn_check_top(r);
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 	/* If the two input values are the same (which is frequently the case), 
@@ -1004,15 +974,6 @@ int BN_mul(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx)
 	if( a == b )
 		return( BN_sqr( r, a, ctx ) );
 /* End changes for cryptlib - pcg */
-=======
-
-/* Changes for cryptlib - pcg */
-	/* If the two input values are the same (which is frequently the case), 
-	   use the more optimal squaring code */
-	if( a == b )
-		return( BN_sqr( r, a, ctx ) );
-/* End changes for cryptlib - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
     al = a->top;
     bl = b->top;
@@ -1028,7 +989,6 @@ int BN_mul(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx)
         if ((rr = BN_CTX_get(ctx)) == NULL)
             goto err;
     } else
-<<<<<<< HEAD
 /* Changes for cryptlib - pcg */
 		{
 		/* Usually we can set:
@@ -1044,23 +1004,6 @@ int BN_mul(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx)
 			goto err;
 		}
 /* End changes for cryptlib - pcg */
-=======
-/* Changes for cryptlib - pcg */
-		{
-		/* Usually we can set:
-
-			rr = r;
-
-		   but in the cases where t gets large (see the check further down
-		   for overflow due to k * 2 / k * 4) the value of rr needs to be
-		   large as well.  We can't predict in advance when this will occur 
-		   so we have to use an extended-size bignum for rr in all cases */
-		rr = ( BIGNUM * ) BN_CTX_get_ext( ctx, BIGNUM_EXT_MUL1 );
-		if( rr == NULL )
-			goto err;
-		}
-/* End changes for cryptlib - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     rr->neg = a->neg ^ b->neg;
 
 #if defined(BN_MUL_COMBA) || defined(BN_RECURSION)
@@ -1101,7 +1044,6 @@ int BN_mul(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx)
             }
             j = 1 << (j - 1);
             assert(j <= al || j <= bl);
-<<<<<<< HEAD
             k = j + j;
 /* Changes for cryptlib - pcg */
 			if( ( k * 2 > BIGNUM_ALLOC_WORDS ) || \
@@ -1138,44 +1080,6 @@ int BN_mul(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx)
 					goto err;
 					}
 /* End changes for cryptlib - pcg */
-=======
-            k = j + j;
-/* Changes for cryptlib - pcg */
-			if( ( k * 2 > BIGNUM_ALLOC_WORDS ) || \
-				( ( al > j || bl > j ) && ( k * 4 > BIGNUM_ALLOC_WORDS ) ) )
-				{
-				/* We're about to expand the temporary bignum that we're 
-				   using to an enormous size, get a special extended-size 
-				   bignum that won't result in a storage size-check error
-				   when used */
-				t = BN_CTX_get_ext( ctx, BIGNUM_EXT_MUL2 );
-				}
-			else
-				t = BN_CTX_get( ctx );
-/* End changes for cryptlib - pcg */
-            if (t == NULL)
-                goto err;
-			BN_set_flags( t, BN_FLG_SCRATCH );	/* pcg */
-            if (al > j || bl > j) {
-/* Changes for cryptlib - pcg */
-				/* At this point we run into a problem, if 
-				   BIGNUM_ALLOC_WORDS isn't a power of 2 then this code is
-				   triggered which tries to expand the bignum to four times
-				   its current size rather than the usual twice which would 
-				   be covered by BIGNUM_ALLOC_WORDS_EXT2.  Since this is 
-				   larger than even BIGNUM_ALLOC_WORDS_EXT2, the following 
-				   operation would always fail.
-                   
-				   This is worked around by changing the way 
-				   BIGNUM_ALLOC_WORDS_EXT2 is set in bn/bn.h, the following 
-				   code is present only to document the issue */
-				if( k * 4 > BIGNUM_ALLOC_WORDS_EXT2 )
-					{
-					DEBUG_DIAG(( "Attempt to allocate over-large bignum due to non-power-of-2 BIGNUM_ALLOC_WORDS" ));
-					goto err;
-					}
-/* End changes for cryptlib - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
                 if (bn_wexpand(t, k * 4) == NULL)
                     goto err;
                 if (bn_wexpand(rr, k * 4) == NULL)
@@ -1249,11 +1153,7 @@ int BN_mul(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx)
     ret = 1;
  err:
     bn_check_top(r);
-<<<<<<< HEAD
 	BN_CTX_end_ext( ctx, BIGNUM_EXT_MUL1 );			/* pcg */
-=======
-	BN_CTX_end_ext( ctx, BIGNUM_EXT_MUL1 );			/* pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
     return (ret);
 }
 
@@ -1267,11 +1167,7 @@ void bn_mul_normal(BN_ULONG *r, const BN_ULONG *a, int na, const BN_ULONG *b, in
 
     if (na < nb) {
         int itmp;
-<<<<<<< HEAD
 		const BN_ULONG *ltmp;	/* const - pcg */
-=======
-		const BN_ULONG *ltmp;	/* const - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
         itmp = na;
         na = nb;

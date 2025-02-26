@@ -70,7 +70,6 @@
  */
 
 #include <stdlib.h>
-<<<<<<< HEAD
 
 /* Changes for cryptlib - pcg */
 
@@ -83,20 +82,6 @@
 #endif /* Compiler-specific includes */
 
 /* End changes for cryptlib - pcg */
-=======
-
-/* Changes for cryptlib - pcg */
-
-#if defined( INC_ALL )
-  #include "bn.h"
-  #include "ec.h"
-#else
-  #include "bn/bn.h"
-  #include "bn/ec.h"
-#endif /* Compiler-specific includes */
-
-/* End changes for cryptlib - pcg */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 #if defined(__SUNPRO_C)
 # if __SUNPRO_C >= 0x520

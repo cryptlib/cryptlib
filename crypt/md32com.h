@@ -485,19 +485,11 @@ void HASH_UPDATE (HASH_CTX *c, const void *data_, unsigned long len)
 		 * Masking is needed to suppress warnings from VS in 64-bit 
 		 * mode - pcg
 		 */
-<<<<<<< HEAD
 	#if defined( _WIN32 ) && defined( _M_X64 )
 		if ((((__int64)data)%4) == 0)
 	#else
 		if ((((unsigned long)data)%4) == 0)
 	#endif /* Win64 vs. standard */
-=======
-	#if defined( _WIN32 ) && defined( _M_X64 )
-		if ((((__int64)data)%4) == 0)
-	#else
-		if ((((unsigned long)data)%4) == 0)
-	#endif /* Win64 vs. standard */
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 			{
 			/* data is properly aligned so that we can cast it: */
 			HASH_BLOCK_DATA_ORDER_ALIGNED (c,(HASH_LONG *)data,sw);

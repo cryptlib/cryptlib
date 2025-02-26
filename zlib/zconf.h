@@ -7,17 +7,10 @@
 
 #ifndef ZCONF_H
 #define ZCONF_H
-<<<<<<< HEAD
 
 /* Disable use of gz* functions and optional add-ons that we don't need - pcg */
 
 #define Z_SOLO
-=======
-
-/* Disable use of gz* functions and optional add-ons that we don't need - pcg */
-
-#define Z_SOLO
->>>>>>> c627b7fdce5a7d3fb5a3cfac7f910c556c3573ae
 
 /*
  * If you *really* need a unique prefix for all types and library functions,
