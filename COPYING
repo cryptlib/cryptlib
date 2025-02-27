@@ -1,16 +1,12 @@
-This file contains the usage terms for cryptlib.  The full details of cryptlib
-usage are provided on the cryptlib home page; although this file and the
-information on the web page should be identical, in case of any dispute the
-web page takes precedence.  This file is included because some distributions
-require the presence of a COPYING file.
+This file contains the usage terms for cryptlib.  This file is included because 
+some distributions require the presence of a COPYING file.
 
 cryptlib is distributed under a dual license that allows free, open-source use
 under a GPL-compatible license and closed-source use under a standard
 commercial license.  The GPL-compatible license (a.k.a. the Sleepycat license)
-is given below.  Further details on this license are available from the
-cryptlib home page.
+is given below.
 
-  Copyright 1992-2024 Peter Gutmann. All rights reserved.
+  Copyright 1992-2025 Peter Gutmann. All rights reserved.
 
   Redistribution and use in source and binary forms, with or without
   modification, are permitted provided that the following conditions are met:
