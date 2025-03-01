@@ -69,17 +69,11 @@ VDK, VxWorks, XMK, and Zephyr OS.
 
 ## Installation and Usage
 
-cryptlib is provided in source code form, and optionally precompiled DLLs for
-Windows.  To extract it into the current directory:
-
-```
-unzip -a cryptlibXXX.zip
-```
-
-where XXX is the version number.  From there you can load the project file
-into Visual Studio to build it or for non-Windows environments either `make`
-or `make shared` depending on whether you want the static or shared library.
-More details are given in the
+cryptlib is provided in source code form and optionally as precompiled DLLs
+for Windows.  To build it from source, you can load the project file into
+Visual Studio to build for Windows, or for non-Windows environments either
+`make` or `make shared` depending on whether you want the static or shared
+library.  More details are given in the
 [manual](https://github.com/cryptlib/cryptlib/blob/main/manual.pdf).
 
 cryptlib has a comprehensive [user
