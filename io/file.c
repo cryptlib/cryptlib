@@ -5279,7 +5279,7 @@ CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static const char *getUncName( OUT_PTR UNIVERSAL_NAME_INFO *nameInfo,
 							   IN_PTR const char *fileName )
 	{
-	typedef DWORD ( *WNETGETUNIVERSALNAMEA )( LPCSTR lpLocalPath,
+	typedef DWORD ( WINAPI *WNETGETUNIVERSALNAMEA )( LPCSTR lpLocalPath,
 				DWORD dwInfoLevel, LPVOID lpBuffer, LPDWORD lpBufferSize );
 	WNETGETUNIVERSALNAMEA pWNetGetUniversalNameA;
 	HINSTANCE hMPR;
