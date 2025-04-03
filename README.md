@@ -74,7 +74,7 @@ for Windows.  To build it from source, you can load the project file into
 Visual Studio to build for Windows, or for non-Windows environments either
 `make` or `make shared` depending on whether you want the static or shared
 library.  When you're done, `make install` will set things up for use
-systemwide.  More details are given in the 
+systemwide.  More details are given in the
 [manual](https://github.com/cryptlib/cryptlib/blob/main/manual.pdf).
 
 cryptlib has a comprehensive [user
