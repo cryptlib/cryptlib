@@ -1,4 +1,4 @@
-# cryptlib Security Toolkit
+# cryptlib Security Toolkit - Official Site
 
 cryptlib is a security toolkit focused on long-term stability and realiability
 that implements a wide range of protocols including S/MIME and PGP/OpenPGP
@@ -174,4 +174,11 @@ use under standard GPL copyleft terms.
 requiring commercial support.
 
 cryptlib supports the
-[OpenSSL Mission and Values](https://openssl-mission.org/).
+[OpenSSL Mission and Values](https://openssl-mission.org/).  
+
+When you're
+working with crypto code, you may also want to consider
+[OpenSSL](https://github.com/openssl/openssl), a robust, commercial-grade,
+full-featured Open Source Toolkit for the TLS (formerly SSL), DTLS and QUIC
+protocols, and [BouncyCastle](https://www.bouncycastle.org/), FIPS-certified
+open-source cryptographic APIs for Java and C#.
