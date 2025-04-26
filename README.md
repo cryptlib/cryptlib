@@ -1,6 +1,6 @@
 # cryptlib Security Toolkit - Official Site
 
-cryptlib is a security toolkit focused on long-term stability and realiability
+cryptlib is a security toolkit focused on long-term stability and reliability
 that implements a wide range of protocols including S/MIME and PGP/OpenPGP
 secure messaging, SSL/TLS and SSH secure sessions, a full range of CA services
 such as CMP, SCEP, RTCS, OCSP, SCVP and TSP, and secure authentication
