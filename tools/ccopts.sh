@@ -126,7 +126,7 @@ getFQDNName()
 	# case we fall back to the bare host name.  Also in some cases
 	# 'hostname -f' will return "localhost" while the bare 'hostname' will
 	# return the (unqualified) hostname, so we check for this case as well.
-	if command -v hostname -f >/dev/null 2>&1 ; then
+	if hostname -f >/dev/null 2>&1 ; then
 		HOSTNAME="$(hostname -f)" ;
 		if [ $HOSTNAME = "localhost" ] ; then
 			HOSTNAME="$(hostname)" ;
@@ -520,7 +520,7 @@ fi
 hasStackClashProtection()
 	{
 	TMPFILE=$(mktemp)
-	RETURN_STATUS=255
+	RETURN_STATUS=0
 
 	# Check whether clang supports -fstack-clash-protection.  In theory
 	# any version past 7.0 should support it, however support for some
@@ -529,7 +529,8 @@ hasStackClashProtection()
 	# warnings about 'argument unused during compilation' for each file.
 	echo "int main(void) {return 0;}" >> $TMPFILE.c
 	if [ "$(clang $TMPFILE.c -o $TMPFILE -fstack-clash-protection 2>&1 | grep -c "argument unused")" -gt 0 ] ; then
-		RETURN_STATUS=0 ;
+		# No support for -fstack-clash-protection.
+		RETURN_STATUS=255 ;
 	fi
 	rm $TMPFILE.c
 	if [ -f $TMPFILE ] ; then
