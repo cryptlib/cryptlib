@@ -848,12 +848,12 @@ static const wchar_t unicodeStr3[] = {	/* ASCII as Unicode */
 #endif /* USE_UTF8 */
 
 static const CERT_DATA textStringCertData[] = {
-	/* Identification information: A latin-1 string, an obviously Unicode 
-	   string, either a UTF-8 string or an explicit ASCII-in-Unicode string, 
-	   a less-obviously Unicode string (only the 0x160 value is larger than 
-	   8 bits), either another UTF-8 string or an implicit ASCII-in-Unicode 
-	   string, and an ASCII string */
-	{ CRYPT_CERTINFO_COMMONNAME, IS_STRING, 0, TEXT( "Hörr Østerix" ) },
+	/* Identification information: A latin-1 string (0xF6 = 'Ã¶', 0xD8 = 
+	   'Ã˜'), an obviously Unicode string, either a UTF-8 string or an 
+	   explicit ASCII-in-Unicode string, a less-obviously Unicode string 
+	   (only the 0x160 value is larger than 8 bits), either another UTF-8 
+	   string or an implicit ASCII-in-Unicode string, and an ASCII string */
+	{ CRYPT_CERTINFO_COMMONNAME, IS_STRING, 0, TEXT( "H\xF6rr \xD8sterix" ) },
 	{ CRYPT_CERTINFO_ORGANIZATIONALUNITNAME, IS_WCSTRING, 0, unicodeStr1 },
 #ifdef USE_UTF8
 	{ CRYPT_CERTINFO_ORGANIZATIONNAME, IS_STRING, 0, utf8EncodedStr1 },
