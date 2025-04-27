@@ -467,7 +467,7 @@ static CAPABILITY_INFO *getCapability( const DEVICE_INFO *deviceInfo,
 		{
 		/* The driver reported that this mechanism is available but didn't
 		   update the mechanism information, it's lying */
-		DEBUG_DIAG(( "Driver reports that mechanism %X is available even "
+		DEBUG_DIAG(( "Driver reports that mechanism 0x%X is available even "
 					 "though it isn't", mechanismInfoPtr->mechanism ));
 		assert( DEBUG_WARN );
 		return( NULL );
@@ -478,7 +478,7 @@ static CAPABILITY_INFO *getCapability( const DEVICE_INFO *deviceInfo,
 	if( cryptStatusOK( status ) && hardwareOnly == TRUE && \
 		!( pMechanism.flags & CKF_HW ) )
 		{
-		DEBUG_DIAG(( "Skipping mechanism %X, which is only available in "
+		DEBUG_DIAG(( "Skipping mechanism 0x%X, which is only available in "
 					 "software emulation", mechanismInfoPtr->mechanism ));
 		return( NULL );
 		}
@@ -489,11 +489,12 @@ static CAPABILITY_INFO *getCapability( const DEVICE_INFO *deviceInfo,
 		if( ( mechanismInfoPtr->requiredFlags & \
 			  pMechanism.flags ) != mechanismInfoPtr->requiredFlags )
 			{
-			DEBUG_DIAG(( "Driver reports that mechanism %X only has "
-						 "capabilities %lX when we require %lX", 
+			DEBUG_DIAG(( "Driver reports that mechanism 0x%X only has "
+						 "required capabilities 0x%lX (raw value 0x%lX) "
+						 "when we require 0x%lX", 
 						 mechanismInfoPtr->mechanism, 
 						 mechanismInfoPtr->requiredFlags & pMechanism.flags,
-						 mechanismInfoPtr->requiredFlags ));
+						 pMechanism.flags, mechanismInfoPtr->requiredFlags ));
 			assert( DEBUG_WARN );
 			return( NULL );
 			}
@@ -1054,7 +1055,7 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 	CK_RV status;
 	PKCS11_INFO *pkcs11Info = deviceInfo->devicePKCS11;
 	const PKCS11_MECHANISM_INFO *mechanismInfoPtr;
-	char *labelPtr;
+	const char *labelPtr;
 	int tokenSlot = DEFAULT_SLOT, labelLength, mechanismInfoSize;
 	LOOP_INDEX i;
 	int cryptStatus, cryptStatus2;
