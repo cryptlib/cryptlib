@@ -1991,10 +1991,13 @@ int xxxCertImport( const char *fileName )
 	count = fread( bufPtr, 1, length, filePtr );
 	assert( count == length );
 	fclose( filePtr );
+#if 0	/* Different options to handle broken certificates */
 	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CERT_COMPLIANCELEVEL,
-					   /* CRYPT_COMPLIANCELEVEL_REDUCED /**/
-					   /* CRYPT_COMPLIANCELEVEL_OBLIVIOUS /**/
-					   complianceLevel /**/ );
+					   CRYPT_COMPLIANCELEVEL_REDUCED );
+#elif 0
+	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CERT_COMPLIANCELEVEL,
+					   CRYPT_COMPLIANCELEVEL_OBLIVIOUS );
+#endif /* 0 */
 	status = cryptImportCert( bufPtr, count, CRYPT_UNUSED, &cryptCert );
 	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CERT_COMPLIANCELEVEL,
 					   complianceLevel );
