@@ -1446,12 +1446,26 @@ BOOLEAN testUsers( void )
 *																			*
 ****************************************************************************/
 
+#if defined( __GNUC__ )
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic ignored "-Wcomment"
+#elif defined( __clang__ )
+  #pragma clang diagnostic push
+  #pragma clang diagnostic ignored "-Wcomment"
+#endif /* Compiler-specific warning suppression */
+
 /* Test error-handling code paths by forcing memory-allocation faults at
    every location in which cryptlib allocates memory.  Note that this test
    can only be run if all of the cryptlib self-tests complete successfully,
    since it injects memory faults until the self-tests report success */
 
-/*#define TEST_MEMFAULT	/* Undefine to perform memory-fault tests */
+/*#define TEST_MEMFAULT	/* Uncomment to perform memory-fault tests */
+
+#if defined( __GNUC__ )
+  #pragma GCC diagnostic pop
+#elif defined( __clang__ )
+  #pragma clang diagnostic pop
+#endif /* Compiler-specific warning suppression */
 
 #ifdef TEST_MEMFAULT
 
