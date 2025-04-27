@@ -1082,7 +1082,7 @@ static const CA_INFO caInfoTbl[] = {
 
 /* Define the following to sign the OCSP request */
 
-/* #define OCSP_SIGN_REQUEST /**/
+/* #define OCSP_SIGN_REQUEST */
 
 /* Perform an OCSP test */
 
