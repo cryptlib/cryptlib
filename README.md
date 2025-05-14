@@ -147,7 +147,7 @@ CRYPT_SESSION_SSH.
 
 All contributions are welcome, however because we carefully vet any code that
 goes into cryptlib to maintain the stability and reliability guarantees (see
-the principles in the [overview](#overview) we'll probably rewrite it, add
+the principles in the [overview](#overview)) we'll probably rewrite it, add
 unit tests and documentation, and so on rather than taking it as is.
 
 To request new features or ask a question, please use the [Discussion
@@ -173,10 +173,10 @@ use under standard GPL copyleft terms.
 * Optionally [closed-source use](https://www.cryptlib.com) for anyone
 requiring commercial support.
 
-cryptlib supports the
-[OpenSSL Mission and Values](https://openssl-mission.org/).  
+## Related Projects
 
-When you're
+cryptlib supports the
+[OpenSSL Mission and Values](https://openssl-mission.org/).  When you're
 working with crypto code, you may also want to consider
 [OpenSSL](https://github.com/openssl/openssl), a robust, commercial-grade,
 full-featured Open Source Toolkit for the TLS (formerly SSL), DTLS and QUIC
