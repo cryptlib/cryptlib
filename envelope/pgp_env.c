@@ -571,7 +571,8 @@ static int writeEncryptedContentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr
 	   combined inner data header, payload, and optional MDC */
 	sMemOpen( &stream, envelopeInfoPtr->buffer + envelopeInfoPtr->bufPos, 
 			  dataLeft );
-        /* Without a correction of the PGP_PACKET_ENCR_MDC length value a number
+		
+    /* Without a correction of the PGP_PACKET_ENCR_MDC length value a number
 	   of files of a certain length cannot be decrypted after they have been
 	   encrypted with a MDC present in the encrypted data.
 	   There are two intervals of plaintext lengths (164 - 185 bytes) and
@@ -591,14 +592,14 @@ static int writeEncryptedContentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr
 	   6 bytes of header = 192 bytes) and length correction is no longer
 	   necessary to ensure proper decryption.
            
-           The same issue arises once the length of the data to be hashed reaches
+       The same issue arises once the length of the data to be hashed reaches
 	   8384 bytes, because the pgpSizeofLength of the whole packet increases 
 	   from 2 to 4 bytes while the literal data packet length remains at 2 byte.
 	   The necessary length correction of -2 vanishes for bigger plaintext the
 	   moment the literal data packet itself increased its pgpSizeofLength
 	   from 2 to 4 bytes (8378 + 6 = 8384).
 
-           There cannot be a third interval of mismatch as for all bigger plaintext both
+       There cannot be a third interval of mismatch as for all bigger plaintext both
 	   lengths are registered as 4 byte length values. So the correction below
 	   will fix the entire issue.
 
