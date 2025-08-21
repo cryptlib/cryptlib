@@ -571,10 +571,54 @@ static int writeEncryptedContentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr
 	   combined inner data header, payload, and optional MDC */
 	sMemOpen( &stream, envelopeInfoPtr->buffer + envelopeInfoPtr->bufPos, 
 			  dataLeft );
+        /* Without a correction of the PGP_PACKET_ENCR_MDC length value a number
+	   of files of a certain length cannot be decrypted after they have been
+	   encrypted with a MDC present in the encrypted data.
+	   There are two intervals of plaintext lengths (164 - 185 bytes) and
+	   (8356 - 8377 bytes) where an CRYPT_ERROR_SIGNATURE occurs, because
+	   of a mismatch between the computed packet size and the actual size
+	   of the encrypted packet.
+
+	   Once the size of the data to be hashed for the MDC SHA-1 hash value
+	   (which includes the 18 bytes iv, the literal data packet and the two
+	   bytes of the MDC header) crosses the threshold of 191 to 192, the 
+	   pgpSizeofLength of the whole package increases from 1 to 2 bytes,
+	   while the pgpSizeofLength of the literal data packet remains at 1 byte.
+	   Thus the the PGP_PACKET_ENCR_MDC length needs to be corrected by -1
+	   in order to ensure proper decryption of this packet.
+	   For any bigger plaintext this mismatch remains until the pgpSizeofLength 
+	   of the literal data packet itself increased to 2 bytes (186 bytes +
+	   6 bytes of header = 192 bytes) and length correction is no longer
+	   necessary to ensure proper decryption.
+           
+           The same issue arises once the length of the data to be hashed reaches
+	   8384 bytes, because the pgpSizeofLength of the whole packet increases 
+	   from 2 to 4 bytes while the literal data packet length remains at 2 byte.
+	   The necessary length correction of -2 vanishes for bigger plaintext the
+	   moment the literal data packet itself increased its pgpSizeofLength
+	   from 2 to 4 bytes (8378 + 6 = 8384).
+
+           There cannot be a third interval of mismatch as for all bigger plaintext both
+	   lengths are registered as 4 byte length values. So the correction below
+	   will fix the entire issue.
+
+                     PGP_PACKET_ENCR_MDC length fix, Ralf Senderek, Aug. 2025 */
+
+    const int MDCHashDataLength = ( ivSize + 2 ) + 1 + pgpSizeofLength( payloadDataSize ) + \
+	                              payloadDataSize - 20 ;
+    const int LiteralDataLength = PGP_DATA_HEADER_SIZE + envelopeInfoPtr->payloadSize ;
+    int LengthCorrection = 0;
+
+    if( (pgpSizeofLength( MDCHashDataLength ) - pgpSizeofLength( LiteralDataLength ) != 0 ) )
+         {
+         LengthCorrection = pgpSizeofLength( MDCHashDataLength ) - pgpSizeofLength( LiteralDataLength ) ;
+         }
+
 	pgpWritePacketHeader( &stream, packetType, 
 						  ( hasMDC ? 1 : 0 ) + ( ivSize + 2 ) + \
 						  1 + pgpSizeofLength( payloadDataSize ) + \
-						  payloadDataSize );
+						  payloadDataSize - LengthCorrection );
+
 	if( hasMDC )
 		{
 		/* MDC-encrypted data has a version number before the data */
