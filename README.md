@@ -75,7 +75,9 @@ Visual Studio to build for Windows, or for non-Windows environments either
 `make` or `make shared` depending on whether you want the static or shared
 library.  When you're done, `make install` will set things up for use
 systemwide.  More details are given in the
-[manual](https://github.com/cryptlib/cryptlib/blob/main/manual.pdf).
+[manual](https://github.com/cryptlib/cryptlib/blob/main/manual.pdf), with
+an overview in the
+[cryptlib architecture document](https://github.com/cryptlib/cryptlib/blob/main/architecture.md).
 
 cryptlib has a comprehensive [user
 manual](https://github.com/cryptlib/cryptlib/blob/main/manual.pdf) containing
@@ -182,3 +184,4 @@ working with crypto code, you may also want to consider
 full-featured Open Source Toolkit for the TLS (formerly SSL), DTLS and QUIC
 protocols, and [BouncyCastle](https://www.bouncycastle.org/), FIPS-certified
 open-source cryptographic APIs for Java and C#.
+
