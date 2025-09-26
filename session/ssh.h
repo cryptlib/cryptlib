@@ -15,6 +15,7 @@
   #endif /* USE_SSH_EXTENDED */
   #ifdef USE_SSH_OPENSSH
 	#pragma message( "  Building with nonstandard OpenSSH extensions enabled." )
+	#pragma message( "  Warning: This enables support for the insecure EtM OpenSSH extension." )
   #endif /* USE_SSH_OPENSSH */
 #endif /* Notify extended SSH facilities */
 
