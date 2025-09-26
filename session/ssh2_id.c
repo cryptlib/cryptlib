@@ -244,6 +244,11 @@ static int checkPreAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		"1.99" even though it can't actually do SSHv1, which means that 
 		it'll fail if it ever tries to connect to an SSHv1 peer.
 
+	MobaXTerm:
+		Placeholder, ID "MoTTY_Release".  Based on the PuTTY code so will
+		presumably have the same issues if any are discovered in newer
+		versions.
+
 	OpenSSH:
 		Omits hashing the exchange hash length when creating the hash to be 
 		signed for client auth for version 2.0 (all subversions).
@@ -482,6 +487,14 @@ static int processStringID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		DEBUG_PUTS(( "Enabling workaround for ProFTPD mod_sftp old-GEX "
 					 "bug." ));
 
+		return( CRYPT_OK );
+		}
+	if( versionStringLength >= 14 + 3 && \
+		!memcmp( versionString, "MoTTY_Release_", 14 ) )
+		{
+		/* MobaXTerm: : Nothing yet, this is present only as a placeholder,
+		   full string is "MoTTY_Release_x.xx" where x.xx tracks the PuTTY 
+		   version number that it's based on */
 		return( CRYPT_OK );
 		}
 	if( versionStringLength >= 8 + 3 && \
