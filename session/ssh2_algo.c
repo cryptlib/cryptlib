@@ -48,11 +48,49 @@
    the selected fixed group.  
    
    We don't support the 1024-bit DH group even though it's mandatory because
-   it's too obvious a target for an offline attack.  Unfortunately this 
-   presents a problem with assorted Cisco security appliances which are
-   secure by executive fiat rather than by design, supporting only 
-   "diffie-hellman-group1-sha1", and not even the mandatory-to-support 
-   "diffie-hellman-group14-sha1" let alone the group-exchange suites */
+   it's too obvious a target for an offline attack and (more annoyingly)
+   vulnerability scanners will report it as insecure whether it really is or
+   not.  Unfortunately this presents a problem with assorted Cisco security 
+   appliances which are secure by executive fiat rather than by design, 
+   supporting only "diffie-hellman-group1-sha1", and not even the mandatory-
+   to-support "diffie-hellman-group14-sha1" let alone the group-exchange 
+   suites.
+
+   Another issue exists around the use of OpenSSH fashion-statement 
+   mechanisms like EtM (at least as specified by OpenSSH) and ChaCha20-
+   Poly1305, which are vulnerable to the Terrapin attack.  We aren't 
+   vulnerable because we either don't support the vulnerable mechanism 
+   (ChaCha20) or only enable it for testing and fuzzing (EtM).  However if 
+   these are ever added and enabled then the OpenSSH countermeasures to the 
+   OpenSSH-created vulnerability have to be applied, see
+   https://cvsweb.openbsd.org/cgi-bin/cvsweb/src/usr.bin/ssh/PROTOCOL?rev=1.55
+   section 1.10.
+
+		"Once again, the Wellington Police have come up with a perfect
+		solution to the problem / That's right - by removing the solution we
+		had to another problem / The fact that if we hadn't put that sign up
+		in the first place none of this would've happened is irrelevant.
+		What matters is that we've identified the problem / That we caused /
+		Job well done / Good result"
+			- "Wellington Paranormal".
+
+   Specifically, with "kex-strict-c-v00@openssh.com" (client) and
+   "kex-strict-s-v00@openssh.com" (server) exchanged in the SSH2_MSG_KEXINIT 
+   we have to (1) retroactively check whether there were any messages before 
+   the KEXINIT, (2) check whether any optional messages are added during the 
+   keyex, not just the obvious SSH2_MSG_DEBUG and SSH2_MSG_IGNORE but 
+   anything not relevant to the crypto exchange, and since there are 
+   multiple different paths through the negotiation possible that no message 
+   not strictly part of the appropriate flow is present, and (3) that we 
+   keep these checks up until both sides have successfully exchanged their 
+   SSH2_MSG_NEWKEYS.
+
+   We actually do a lot of this already since we implement the handshake as 
+   a ladder diagram rather than a state machine and so enforce flow-dependent
+   messages, but there's still a lot of scope for getting things wrong and 
+   since we're not vulnerable in the first place there doesn't seem much 
+   point to adding a vulnerable mechanism and then having to patch around the
+   vulnerability that we've just added */
 
 static const ALGO_STRING_INFO algoStringKeyexTbl[] = {
 #if defined( USE_ECDH ) && defined( PREFER_ECC )
