@@ -119,6 +119,7 @@ static int readAddressAndPort( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   buffer is actually declared as 16 bytes in size for those systems 
 	   that don't have sprintf_s() */
 	portLength = sprintf_s( portBuffer, 8, ":%d", port );
+	ENSURES( rangeCheck( portLength, 2, 7 ) );
 	REQUIRES( rangeCheck( stringLength, 1, hostInfoMaxLen ) );
 	memcpy( hostInfo, stringBuffer, stringLength );
 	if( stringLength + portLength <= hostInfoMaxLen )
