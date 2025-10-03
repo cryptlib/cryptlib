@@ -210,7 +210,7 @@ static void getObjectDescription( IN_HANDLE const int objectHandle,
 	const OBJECT_INFO *objectTable = \
 							getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
 	const OBJECT_INFO *objectInfoPtr;
-	int offset;
+	int offset, length;
 
 	assert( isValidObject( objectHandle ) );
 
@@ -244,28 +244,33 @@ static void getObjectDescription( IN_HANDLE const int objectHandle,
 									   FAILSAFE_ARRAYSIZE( objectNameInfo, \
 														   OBJECT_NAME_INFO ),
 									   objectInfoPtr->subType ) );
+	ENSURES_V( rangeCheck( offset, 14, descriptionMaxLength - 1 ) );
 	if( objectInfoPtr->owner < NO_SYSTEM_OBJECTS )
 		{
-		offset += sprintf_s( description + offset, 
-							 descriptionMaxLength - offset, 
-							 " owned by %s", 
+		length = sprintf_s( description + offset, 
+							descriptionMaxLength - offset, 
+							" owned by %s", 
 					( objectInfoPtr->owner == SYSTEM_OBJECT_HANDLE ) ? \
 					  "system object" : "default user object" );
 		}
 	else
 		{
-		offset += sprintf_s( description + offset, 
-							 descriptionMaxLength - offset, 
-							 " owned by %d", objectInfoPtr->owner );
+		length = sprintf_s( description + offset, 
+							descriptionMaxLength - offset, 
+							" owned by %d", objectInfoPtr->owner );
 		}
+	ENSURES_V( rangeCheck( length, 24, descriptionMaxLength - 1 ) );
+	offset += length;
 	if( objectInfoPtr->dependentObject != CRYPT_ERROR )
 		{
-		offset += sprintf_s( description + offset, 
-							 descriptionMaxLength - offset, 
-							 ", dependent object %d", 
-							 objectInfoPtr->dependentObject );
+		length = sprintf_s( description + offset, 
+							descriptionMaxLength - offset, 
+							", dependent object %d", 
+							objectInfoPtr->dependentObject );
+		ENSURES_V( rangeCheck( length, 44, descriptionMaxLength - 1 ) );
+		offset += length;
 		}
-	assert( offset < descriptionMaxLength );
+	ENSURES_V( rangeCheck( offset, 24, descriptionMaxLength - 1 ) );
 	}
 
 /* Non thread-safe version of the above that can be used directly in
