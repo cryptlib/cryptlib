@@ -286,6 +286,7 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 										"result",
 										errorInfo[ type ].errorString, 
 										selectIterations );
+		ENSURES( rangeCheck( errorMessageLength, 1, 127 ) );
 		return( setSocketError( netStream, errorMessage, errorMessageLength,
 								CRYPT_ERROR_TIMEOUT, FALSE ) );
 		}
@@ -317,8 +318,7 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 										"second%s",
 										errorInfo[ type ].errorString, 
 										timeout, ( timeout > 1 ) ? "s" : "" );
-		ENSURES( errorMessageLength > 0 && \
-				 errorMessageLength < 128 );
+		ENSURES( rangeCheck( errorMessageLength, 1, 127 ) );
 		return( setSocketError( netStream, errorMessage, errorMessageLength,
 								CRYPT_ERROR_TIMEOUT, FALSE ) );
 		}
