@@ -345,19 +345,19 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						 sshInfo->packetType ));
 			assert( DEBUG_WARN );
 #ifdef USE_ERRMSGS
-			totalLength = length = \
+			totalLength = \
 				sprintf_s( stringBuffer, 256, 
 						   "Unexpected control packet %s (%d) received",
 						   getSSHPacketName( sshInfo->packetType ), 
 						   sshInfo->packetType );
-			ENSURES( length > 0 && length <= 256 );
+			ENSURES( rangeCheck( totalLength, 40, 256 - 1 ) );
 			if( channelNo != -1 )
 				{
-				REQUIRES( rangeCheck( totalLength, 1, 256 - 1 ) );
+				REQUIRES( rangeCheck( totalLength, 40, 256 - 1 ) );
 				length = sprintf_s( stringBuffer + totalLength, 
 									256 - totalLength, ", channel = %lX", 
 									channelNo );
-				ENSURES( length > 0 && length <= 256 );
+				ENSURES( rangeCheck( length, 12, 256 - 1 ) );
 				totalLength += length;
 				}
 			LOOP_MED( i = 0, i < 16, i++ )
@@ -373,13 +373,13 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					REQUIRES( rangeCheck( totalLength, 1, 256 - 1 ) );
 					length = sprintf_s( stringBuffer + totalLength, 
 										256 - totalLength, ", data begins" );
-					ENSURES( length > 0 && length <= 256 );
+					ENSURES( rangeCheck( length, 12, 256 - 1 ) );
 					totalLength += length;
 					}
 				REQUIRES( rangeCheck( totalLength, 1, 256 - 1 ) );
 				length = sprintf_s( stringBuffer + totalLength, 
 									256 - totalLength, " %02X", ch );
-				ENSURES( length > 0 && length <= 256 );
+				ENSURES( rangeCheck( length, 2, 256 - 1 ) );
 				totalLength += length;
 				}
 			ENSURES( LOOP_BOUND_OK );
