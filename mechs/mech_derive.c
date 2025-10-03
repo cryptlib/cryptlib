@@ -934,80 +934,6 @@ typedef struct {
 	int processedKeyLength;
 	} TLS_PRF_INFO;
 
-/* Perform SSL key derivation */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
-int deriveSSL( STDC_UNUSED void *dummy, 
-			   INOUT_PTR MECHANISM_DERIVE_INFO *mechanismInfo )
-	{
-	HASH_FUNCTION md5HashFunction, shaHashFunction;
-	HASHINFO hashInfo;
-	BYTE hash[ CRYPT_MAX_HASHSIZE + 8 ], counterData[ 16 + 8 ];
-	BYTE *dataOutPtr = mechanismInfo->dataOut;
-	LOOP_INDEX keyIndex;
-	int md5HashSize, shaHashSize, counter = 0;
-
-	UNUSED_ARG_OPT( dummy );
-	assert( isWritePtr( mechanismInfo, sizeof( MECHANISM_DERIVE_INFO ) ) );
-
-	/* Clear return value */
-	REQUIRES( isShortIntegerRangeNZ( mechanismInfo->dataOutLength ) ); 
-	memset( mechanismInfo->dataOut, 0, mechanismInfo->dataOutLength );
-
-	getHashParameters( CRYPT_ALGO_MD5, 0, &md5HashFunction, &md5HashSize );
-	getHashParameters( CRYPT_ALGO_SHA1, 0, &shaHashFunction, &shaHashSize );
-
-	/* Produce enough blocks of output to fill the key */
-	LOOP_MED( keyIndex = 0, 
-			  keyIndex < mechanismInfo->dataOutLength, 
-			  keyIndex += md5HashSize )
-		{
-		const int noKeyBytes = \
-			( mechanismInfo->dataOutLength - keyIndex > md5HashSize ) ? \
-			md5HashSize : mechanismInfo->dataOutLength - keyIndex;
-		LOOP_INDEX_ALT i;
-
-		ENSURES( LOOP_INVARIANT_MED_XXX( keyIndex, 0, 
-										 mechanismInfo->dataOutLength - 1 ) );
-	 
-		/* Set up the counter data */
-		LOOP_EXT_ALT( i = 0, i <= counter, i++, 16 + 1 )
-			{
-			ENSURES( LOOP_INVARIANT_EXT_ALT( i, 0, counter,
-											 16 + 1 ) );
-
-			counterData[ i ] = intToByte( 'A' + counter );
-			}
-		ENSURES( LOOP_BOUND_OK_ALT );
-		counter++;
-
-		/* Calculate SHA1( 'A'/'BB'/'CCC'/... || keyData || salt ) */
-		shaHashFunction( hashInfo, NULL, 0, counterData, counter, 
-						 HASH_STATE_START );
-		shaHashFunction( hashInfo, NULL, 0, mechanismInfo->dataIn,
-						 mechanismInfo->dataInLength, HASH_STATE_CONTINUE );
-		shaHashFunction( hashInfo, hash, CRYPT_MAX_HASHSIZE, 
-						 mechanismInfo->salt, mechanismInfo->saltLength, 
-						 HASH_STATE_END );
-
-		/* Calculate MD5( keyData || SHA1-hash ) */
-		md5HashFunction( hashInfo, NULL, 0, mechanismInfo->dataIn,
-						 mechanismInfo->dataInLength, HASH_STATE_START );
-		md5HashFunction( hashInfo, hash, CRYPT_MAX_HASHSIZE,
-						 hash, shaHashSize, HASH_STATE_END );
-
-		/* Copy the result to the output */
-		REQUIRES( boundsCheckZ( keyIndex, noKeyBytes, 
-								mechanismInfo->dataOutLength ) );
-		memcpy( dataOutPtr + keyIndex, hash, noKeyBytes );
-		}
-	ENSURES( LOOP_BOUND_OK );
-	zeroise( hashInfo, sizeof( HASHINFO ) );
-	zeroise( hash, CRYPT_MAX_HASHSIZE );
-
-	return( CRYPT_OK );
-	}
-
 /* Initialise the TLS PRF */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
@@ -1558,7 +1484,7 @@ int deriveHOTP( STDC_UNUSED void *dummy,
 	BYTE processedKey[ HMAC_DATASIZE + 8 ];
 	BYTE hash[ CRYPT_MAX_HASHSIZE + 8 ];
 	long value;
-	int hashSize, processedKeyLength, index, status;
+	int hashSize, processedKeyLength, index, result, status;
 
 	UNUSED_ARG_OPT( dummy );
 	assert( isWritePtr( mechanismInfo, sizeof( MECHANISM_DERIVE_INFO ) ) );
@@ -1604,7 +1530,8 @@ int deriveHOTP( STDC_UNUSED void *dummy,
 	   string.  The RFC never states how results shorter than 6 digits are 
 	   treated but Authy adds leading zeroes so we go with that */
 	value %= 1000000L;
-	sprintf_s( hash, CRYPT_MAX_HASHSIZE, "%06ld", value );
+	result = sprintf_s( hash, CRYPT_MAX_HASHSIZE, "%06ld", value );
+	ENSURES( rangeCheck( result, 6, CRYPT_MAX_HASHSIZE - 1 ) );
 	memcpy( mechanismInfo->dataOut, hash, 6 ); 
 
 	zeroise( hash, CRYPT_MAX_HASHSIZE );
@@ -1740,12 +1667,6 @@ static const MECHANISM_TEST_INFO deriveMechanismTestInfo[] = {
   #endif /* 0 */
 #endif /* USE_TLS || USE_SSH */
 #ifdef USE_TLS
-	{ { MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_SSL, ( FUNCTION_CAST ) deriveSSL },
-	  { MKDATA( "\x87\x46\xDD\x7D\xAD\x5F\x48\xB6\xFC\x8D\x92\xC4\xDB\x38\x79\x9A"
-				"\x3D\xEA\x22\xFA\xCD\x7E\x86\xD5\x23\x6E\x10\x4C\xBD\x84\x89\xDF"
-				"\x1C\x87\x60\xBF\xFA\x2B\xCA\xFE\xFE\x65\xC7\xA2\xCF\x04\xFF\xEB" ), MECHANISM_OUTPUT_SIZE_TLS,
-		inputValue, MECHANISM_INPUT_SIZE_TLS, ( CRYPT_ALGO_TYPE ) CRYPT_USE_DEFAULT, 0,
-		saltValue, MECHANISM_SALT_SIZE_TLS, 1 } },				  /* Both MD5 and SHA1 */
 	{ { MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_TLS, ( FUNCTION_CAST ) deriveTLS },
 	  { MKDATA( "\xD3\xD4\x2F\xD6\xE3\x7D\xC0\x3C\xA6\x9F\x92\xDF\x3E\x40\x0A\x64"
 				"\x49\xB4\x0E\xC4\x14\x04\x2F\xC8\xDD\x27\xD5\x1C\x62\xD2\x2C\x97"
