@@ -61,7 +61,7 @@ static BOOLEAN formatErrorString( OUT_ALWAYS ERROR_INFO *errorInfo,
 				vsprintf_s( errorInfo->errorString, MAX_ERRMSG_SIZE, 
 							format, argPtr ); 
 	if( errorInfo->errorStringLength <= 0 || \
-		errorInfo->errorStringLength > MAX_ERRMSG_SIZE )
+		errorInfo->errorStringLength >= MAX_ERRMSG_SIZE )
 		{
 		DEBUG_DIAG(( "Invalid error string data" ));
 		assert( DEBUG_WARN );
@@ -484,7 +484,7 @@ int retExtAdditionalFn( IN_ERROR const int status,
 	extErrorStringLength = vsprintf_s( extErrorString, MAX_ERRMSG_SIZE, 
 									   format, argPtr ); 
 	va_end( argPtr );
-	if( extErrorStringLength <= 0 || extErrorStringLength > MAX_ERRMSG_SIZE )
+	if( extErrorStringLength <= 0 || extErrorStringLength >= MAX_ERRMSG_SIZE )
 		{
 		DEBUG_DIAG(( "Invalid error string data" ));
 		assert( DEBUG_WARN );
@@ -723,6 +723,8 @@ void formatHexData( OUT_BUFFER_FIXED( hexTextMaxLen ) char *hexText,
 					IN_BUFFER( hexDataLen ) const BYTE *hexData,
 					IN_LENGTH_SHORT_MIN( 4 ) const int hexDataLen )
 	{
+	int length;
+
 	assert( isWritePtr( hexText, hexTextMaxLen ) );
 	assert( isReadPtr( hexData, hexDataLen ) );
 
@@ -734,7 +736,8 @@ void formatHexData( OUT_BUFFER_FIXED( hexTextMaxLen ) char *hexText,
 	memset( hexText, 0, min( 16, hexTextMaxLen ) );
 
 	/* Format the hex data as ASCII hex.  If it's 10 bytes or less then we 
-	   output the entire quantity */
+	   output the entire quantity for a maximum total of 30 bytes, well 
+	   under the 48-byte minimum buffer size */
 	if( hexDataLen <= 10 )
 		{
 		int offset = 0;
@@ -745,10 +748,14 @@ void formatHexData( OUT_BUFFER_FIXED( hexTextMaxLen ) char *hexText,
 			ENSURES_V( LOOP_INVARIANT_SMALL( i, 0, hexDataLen - 2 ) );
 
 			REQUIRES_V( isShortIntegerRangeNZ( hexTextMaxLen - offset ) );
-			offset += sprintf_s( hexText + offset, hexTextMaxLen - offset, 
-								 "%02X ", byteToInt( hexData[ i ] ) );
+			length = sprintf_s( hexText + offset, hexTextMaxLen - offset, 
+								"%02X ", byteToInt( hexData[ i ] ) );
+			ENSURES_V( rangeCheck( length, 2, hexTextMaxLen - 1 ) );
+			offset += length;
 			}
 		ENSURES_V( LOOP_BOUND_OK );
+		ENSURES_V( rangeCheck( offset, 12, hexTextMaxLen - 1 ) );
+
 		REQUIRES_V( isShortIntegerRangeNZ( hexTextMaxLen - offset ) );
 		sprintf_s( hexText + offset, hexTextMaxLen - offset, "%02X", 
 				   byteToInt( hexData[ i ] ) );
@@ -760,14 +767,15 @@ void formatHexData( OUT_BUFFER_FIXED( hexTextMaxLen ) char *hexText,
 	   The potential expansion factor is ( hexDataLen * 3 ) + 1 (+3 for the 
 	   ellipses, but -2 for the absent spaces at the start and end of the 
 	   string).  Since we currently limit the input to 10 bytes we never 
-	   output more than 31 characters of text which is well under the 
+	   output more than 31 characters of text which again is well under the 
 	   48-byte minimum buffer size */
-	sprintf_s( hexText, hexTextMaxLen, 
-			   "%02X %02X %02X %02X %02X %02X ... %02X %02X %02X %02X",
-			   hexData[ 0 ], hexData[ 1 ], hexData[ 2 ], hexData[ 3 ],
-			   hexData[ 4 ], hexData[ 5 ],
-			   hexData[ hexDataLen - 4 ], hexData[ hexDataLen - 3 ],
-			   hexData[ hexDataLen - 2 ], hexData[ hexDataLen - 1 ] );
+	length = sprintf_s( hexText, hexTextMaxLen, 
+						"%02X %02X %02X %02X %02X %02X ... %02X %02X %02X %02X",
+						hexData[ 0 ], hexData[ 1 ], hexData[ 2 ], 
+						hexData[ 3 ], hexData[ 4 ], hexData[ 5 ],
+						hexData[ hexDataLen - 4 ], hexData[ hexDataLen - 3 ],
+						hexData[ hexDataLen - 2 ], hexData[ hexDataLen - 1 ] );
+	ENSURES_V( rangeCheck( length, 30, hexTextMaxLen - 1 ) );
 	}
 #else
 
