@@ -1169,6 +1169,7 @@ static int getDatatypeInfo( INOUT_PTR DBMS_STATE_INFO *dbmsInfo,
 			sprintf_s( errorMessage, 128,
 					   "Database blob type can only store %d bytes, we need "
 					   "at least %d", maxBlobSize, MAX_ENCODED_CERT_SIZE );
+		ENSURES( rangeCheck( errorMessageLength, 1, 127 ) );
 		setErrorString( errorInfo, errorMessage, errorMessageLength );
 		return( CRYPT_ERROR_OPEN );
 		}
