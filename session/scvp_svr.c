@@ -510,7 +510,7 @@ static int processScvpRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								getCertHolderName( sessionInfoPtr->privateKey, 
 												   certName, 
 												   CRYPT_MAX_TEXTSIZE ) );
-		ENSURES( textLength > 16 && textLength <= 64 + CRYPT_MAX_TEXTSIZE );
+		ENSURES( rangeCheck( textLength, 17, 64 + CRYPT_MAX_TEXTSIZE - 1 ) );
 		setErrorString( SESSION_ERRINFO, textBuffer, textLength );
 #endif /* USE_ERRMSGS */
 
