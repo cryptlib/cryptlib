@@ -185,3 +185,31 @@ full-featured Open Source Toolkit for the TLS (formerly SSL), DTLS and QUIC
 protocols, and [BouncyCastle](https://www.bouncycastle.org/), FIPS-certified
 open-source cryptographic APIs for Java and C#.
 
+## SAST Tools
+
+cryptlib acknowledges the following SAST and runtime tools, which are used to
+check the cryptlib code base.
+
+[AFL/AFLplusplus](https://aflplus.plus/) - Code fuzzing tool.
+
+[Clang Static Analyzer](https://clang-analyzer.llvm.org/) - Source code
+analysis tool that finds bugs in C, C++, and Objective-C programs.
+
+[Coverity Scan](https://scan.coverity.com/) - Static source code analysis tool
+for a variety of languages.
+
+[Cppcheck](https://cppcheck.sourceforge.io/) - Static analysis tool for C/C++
+code.
+
+[Infer](https://fbinfer.com/) - Infer static analyzer.
+
+[libfuzzer](https://llvm.org/docs/LibFuzzer.html) - In-process,
+coverage-guided, evolutionary fuzzing engine.
+
+[PREfast](https://visualstudio.microsoft.com/) - Code analysis tool for Visual
+Studio.
+
+[PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source)
+- Static analyzer for C, C++, C#, and Java code.
+
+[valgrind](https://valgrind.org/) - Dynamic code analysis tool.
