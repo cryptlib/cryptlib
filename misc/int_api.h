@@ -1191,8 +1191,8 @@ void freeMemPool( INOUT_PTR void *statePtr, IN_PTR void *memblock );
 
 #define initVarStruct( structure, structureType, size, valueName ) \
 		memset( structure, 0, sizeof( structureType ) ); \
-		structure->valueName = structure->storage; \
-		structure->storageSize = size
+		structure->storageSize = size; \
+		structure->valueName = structure->storage
 
 #define copyVarStruct( destStructure, srcStructure, structureType, valueName ) \
 		memcpy( destStructure, srcStructure, \
