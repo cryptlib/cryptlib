@@ -377,6 +377,8 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		if( ( contentListObjectPtr = clAlloc( "addContentListItem", \
 											  objectSize ) ) == NULL )
 			return( CRYPT_ERROR_MEMORY );
+		REQUIRES_PTR( rangeCheck( objectSize, 1, MAX_INTLENGTH_SHORT ),
+					  contentListObjectPtr );
 		status = sread( stream, contentListObjectPtr, objectSize );
 		if( cryptStatusError( status ) )
 			{
@@ -567,8 +569,8 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int processEncryptionHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr, 
 									INOUT_PTR STREAM *stream )
 	{
-	ACTION_LIST *actionListPtr = \
-					DATAPTR_GET( envelopeInfoPtr->actionList );
+	const ACTION_LIST *actionListPtr = \
+				DATAPTR_GET( envelopeInfoPtr->actionList );
 	QUERY_INFO queryInfo;
 	int contentType, status;
 
@@ -1718,6 +1720,8 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				envelopeInfoPtr->auxBufSize = certSetLength;
 				}
 			ENSURES( envelopeInfoPtr->auxBufSize == certSetLength );
+			REQUIRES( rangeCheck( envelopeInfoPtr->auxBufSize, \
+								  1, MAX_INTLENGTH_SHORT ) );
 			status = sread( &stream, envelopeInfoPtr->auxBuffer,
 							envelopeInfoPtr->auxBufSize );
 			if( cryptStatusError( status ) )

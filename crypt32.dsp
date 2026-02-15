@@ -494,6 +494,10 @@ SOURCE=.\context\ctx_sha2.c
 # End Source File
 # Begin Source File
 
+SOURCE=.\context\ctx_x25519.c
+# End Source File
+# Begin Source File
+
 SOURCE=.\context\key_id.c
 # End Source File
 # Begin Source File
@@ -515,6 +519,10 @@ SOURCE=.\context\key_wrpub.c
 # Begin Source File
 
 SOURCE=.\context\keyload.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\context\kg_25519.c
 # End Source File
 # Begin Source File
 
@@ -567,6 +575,10 @@ SOURCE=.\crypt\castskey.c
 # Begin Source File
 
 SOURCE=.\crypt\chacha20.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\crypt\curve25519.c
 # End Source File
 # Begin Source File
 

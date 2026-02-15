@@ -753,7 +753,7 @@ static int addPrivateKeyMetadata( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 	if( cryptStatusOK( status ) )
 		{
 		newPrivKeyOffset = stell( &stream );
-		ENSURES( isIntegerRangeNZ( newPrivKeyOffset ) );
+		ENSURES_SC( isIntegerRangeNZ( newPrivKeyOffset ) );
 		writeSequence( &stream, privKeySize );
 		status = writeOctetString( &stream, storageID, KEYID_SIZE, 
 								   DEFAULT_TAG );
@@ -899,7 +899,7 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 	if( cryptStatusOK( status ) )
 		{
 		macDataOffset = stell( &stream );
-		ENSURES( isShortIntegerRangeNZ( macDataOffset ) );
+		ENSURES_SC( isShortIntegerRangeNZ( macDataOffset ) );
 		status = writeCMSencrHeader( &stream, OID_CMS_DATA, 
 									 sizeofOID( OID_CMS_DATA ), privKeySize,
 									 privKeyParams->iGenericContext );
@@ -913,7 +913,7 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 					 "key" ) );
 		}
 	envelopeHeaderSize = stell( &stream );
-	REQUIRES( isShortIntegerRangeNZ( envelopeHeaderSize ) );
+	REQUIRES_SC( isShortIntegerRangeNZ( envelopeHeaderSize ) );
 	envelopeContentSize = envelopeHeaderSize + privKeySize + macSize;
 	sMemDisconnect( &stream );
 
@@ -985,7 +985,7 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 	if( cryptStatusOK( status ) )
 		{
 		*newPrivKeyOffset = stell( &stream );
-		ENSURES( isIntegerRangeNZ( *newPrivKeyOffset ) );
+		ENSURES_SC( isIntegerRangeNZ( *newPrivKeyOffset ) );
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -1098,7 +1098,7 @@ int pkcs15AddPrivateKey( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 	CRYPT_CONTEXT iGenericContext, iCryptContext, iMacContext;
 	PRIVKEY_WRITE_PARAMS privKeyParams;
 	void *newPrivKeyData;
-	int newPrivKeyDataSize, newPrivKeyOffset, keyTypeTag, status;
+	int newPrivKeyDataSize, newPrivKeyOffset, privKeyTypeTag, status;
 
 	assert( isWritePtr( pkcs15infoPtr, sizeof( PKCS15_INFO ) ) );
 	assert( ( isStorageObject && password == NULL && passwordLength == 0 ) || \
@@ -1132,14 +1132,14 @@ int pkcs15AddPrivateKey( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 		   to information held in a storage object), use the extended 
 		   format */
 		pkcs15infoPtr->isPrivKeyExt = TRUE;
-		status = getKeyTypeTag( CRYPT_UNUSED, pkcCryptAlgo, TRUE, 
-								&keyTypeTag );
+		status = getKeyTypeTag( CRYPT_UNUSED, pkcCryptAlgo, 
+								KEYTYPE_TAG_PRIVKEY_EXT, &privKeyTypeTag );
 		}
 	else
 #endif /* USE_NONEXT_FORMAT */
 		{
-		status = getKeyTypeTag( CRYPT_UNUSED, pkcCryptAlgo, FALSE, 
-								&keyTypeTag );
+		status = getKeyTypeTag( CRYPT_UNUSED, pkcCryptAlgo, 
+								KEYTYPE_TAG_PRIVKEY, &privKeyTypeTag );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1153,7 +1153,7 @@ int pkcs15AddPrivateKey( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 		initPrivKeyParams( &privKeyParams, CRYPT_UNUSED, CRYPT_UNUSED, 
 						   CRYPT_UNUSED, privKeyAttributes, 
 						   privKeyAttributeSize, pkcCryptAlgo, modulusSize,
-						   keyTypeTag );
+						   privKeyTypeTag );
 		status = addPrivateKeyMetadata( pkcs15infoPtr, iPrivKeyContext, 
 										&privKeyParams );
 		if( cryptStatusError( status ) )
@@ -1181,7 +1181,7 @@ int pkcs15AddPrivateKey( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 	initPrivKeyParams( &privKeyParams, iGenericContext, iCryptContext, 
 					   iMacContext, privKeyAttributes, 
 					   privKeyAttributeSize, pkcCryptAlgo, modulusSize,
-					   keyTypeTag );
+					   privKeyTypeTag );
 	status = writePrivateKey( iPrivKeyContext, iCryptOwner, password, 
 							  passwordLength, &privKeyParams,
 							  pkcs15infoPtr->privKeyData,

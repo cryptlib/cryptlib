@@ -1039,7 +1039,7 @@ int readHeaderLines( INOUT_PTR STREAM *stream,
 				static const URI_PARSE_INFO subtypeParseInfo = \
 						{ '\0', ';', 2, CRYPT_MAX_TEXTSIZE, 0 };
 				BOOLEAN dummy;
-				char *contentType;
+				const char *contentType;
 				int contentTypeLen, subTypeLen;
 
 				/* Sometimes if there's an error it'll be returned as content

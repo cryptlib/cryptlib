@@ -61,11 +61,10 @@ BOOLEAN sanityCheckDevice( IN_PTR const DEVICE_INFO *deviceInfoPtr )
 
 	/* Check safe pointers.  We don't have to check the function pointers
 	   because they're validated each time they're dereferenced */
-	if( !DATAPTR_ISVALID( deviceInfoPtr->capabilityInfoList ) || \
+	if( !DATAPTR_ISVALID( deviceInfoPtr->createObjectFunctions ) || \
+		!rangeCheck( deviceInfoPtr->createObjectFunctionCount, 0, 10 ) || \
 		!DATAPTR_ISVALID( deviceInfoPtr->mechanismFunctions ) || \
-		!rangeCheck( deviceInfoPtr->mechanismFunctionCount, 0, 50 ) || \
-		!DATAPTR_ISVALID( deviceInfoPtr->createObjectFunctions ) || \
-		!rangeCheck( deviceInfoPtr->createObjectFunctionCount, 0, 10 ) )
+		!rangeCheck( deviceInfoPtr->mechanismFunctionCount, 0, 50 ) )
 		{
 		DEBUG_PUTS(( "sanityCheckDevice: Data pointers" ));
 		return( FALSE );
@@ -736,7 +735,9 @@ static int createObject( DEVICE_INFO *deviceInfoPtr,
 		}
 	else
 		{
-		int objectFlags = CREATEOBJECT_FLAG_DUMMY;
+		int objectFlags = \
+			TEST_FLAG( deviceInfoPtr->flags, DEVICE_FLAG_PASSTHROUGH ) ? \
+			CREATEOBJECT_FLAG_NONE : CREATEOBJECT_FLAG_DUMMY;
 
 		/* If we're being created via the crypto object as a substitute for 
 		   the system object then we need to indicate this to ensure that 
@@ -747,12 +748,13 @@ static int createObject( DEVICE_INFO *deviceInfoPtr,
 			objectFlags |= CREATEOBJECT_FLAG_CRYPTOBJ;
 #endif /* CONFIG_CRYPTO_HW1 || CONFIG_CRYPTO_HW2 */
 
-		/* Create a dummy object, with all details handled by the device.
-		   Unlike the system device we don't unlock the device information 
-		   before we call the create object function because there may be 
-		   auxiliary information held in the device object that we need in 
-		   order to create the object.  This is OK since we're not tying up 
-		   the system device but only some auxiliary crypto device */
+		/* Create a dummy object, with all details handled by the device,
+		   unless it's a passthrough device.  Unlike the system device we 
+		   don't unlock the device information before we call the create 
+		   object function because there may be auxiliary information held 
+		   in the device object that we need in order to create the object.  
+		   This is OK since we're not tying up the system device but only 
+		   some auxiliary crypto device */
 		status = createObjectFunction( createInfo, auxInfo, objectFlags );
 		}
 	if( cryptStatusError( status ) )
@@ -1004,9 +1006,15 @@ static int deviceMessageFunction( INOUT_PTR TYPECAST( MESSAGE_FUNCTION_EXTINFO *
 								( MESSAGE_KEYMGMT_INFO * ) messageDataPtr;
 
 		REQUIRES( setItemFunction != NULL );
+		REQUIRES( isEnumRange( messageValue, KEYMGMT_ITEM ) );
 
-		/* Update the device with the certificate */
-		return( setItemFunction( deviceInfoPtr, setkeyInfo->cryptHandle ) );
+		/* If the device can't have objects added to it, complain */
+		if( TEST_FLAG( deviceInfoPtr->flags, DEVICE_FLAG_READONLY ) )
+			return( CRYPT_ERROR_PERMISSION );
+
+		/* Update the device with the context or certificate */
+		return( setItemFunction( deviceInfoPtr, setkeyInfo->cryptHandle, 
+								 messageValue ) );
 		}
 	if( message == MESSAGE_KEY_DELETEKEY )
 		{
@@ -1325,6 +1333,27 @@ static int openDevice( OUT_HANDLE_OPT CRYPT_DEVICE *iCryptDevice,
 		deviceInfoPtr->createObjectFunctionCount = \
 							FAILSAFE_ARRAYSIZE( defaultCreateFunctions, \
 												CREATEOBJECT_FUNCTION_INFO );
+		}
+	if( cryptStatusOK( status ) && \
+		DATAPTR_GET( deviceInfoPtr->capabilityInfoList ) == NULL )
+		{
+		DEVICE_INFO systemDeviceInfo;
+		
+		/* Passthrough devices don't provide their own built-in capabilities 
+		   and mechanisms but use the system ones.  To get access to these 
+		   we set up a dummy DEVICE_INFO object and then initialise it with 
+		   system-device values, which we copy them across to the current 
+		   device */
+		ENSURES( TEST_FLAG( deviceInfoPtr->flags, 
+							DEVICE_FLAG_PASSTHROUGH ) );
+		memset( &systemDeviceInfo, 0, sizeof( DEVICE_INFO ) );
+		( void ) setDeviceSystem( &systemDeviceInfo );
+		deviceInfoPtr->capabilityInfoList = \
+				systemDeviceInfo.capabilityInfoList;
+		deviceInfoPtr->mechanismFunctions = \
+				systemDeviceInfo.mechanismFunctions;
+		deviceInfoPtr->mechanismFunctionCount = \
+				systemDeviceInfo.mechanismFunctionCount;
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1704,6 +1733,9 @@ int deviceManagementFunction( IN_ENUM( MANAGEMENT_ACTION ) \
 			ENSURES( i < FAILSAFE_ARRAYSIZE( deviceInitTbl, \
 											 DEVICEINIT_INFO ) );
 			return( CRYPT_OK );
+
+		default:
+			retIntError();
 		}
 
 	retIntError();

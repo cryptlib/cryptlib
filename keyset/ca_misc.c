@@ -64,8 +64,8 @@ static int getSuccessorCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 			"SELECT certID FROM certLog WHERE subjCertID = ? "
 			"AND action = " TEXT_CERTACTION_REQUEST_RENEWAL,
 							certData, &certDataLength, certID,
-							strlen( certID ), 0, DBMS_CACHEDQUERY_NONE,
-							DBMS_QUERY_NORMAL );
+							strnlen_s( certID, CRYPT_MAX_TEXTSIZE ), 
+							0, DBMS_CACHEDQUERY_NONE, DBMS_QUERY_NORMAL );
 		if( cryptStatusError( status ) )
 			return( status );
 
@@ -77,8 +77,8 @@ static int getSuccessorCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 			"SELECT certID FROM certLog WHERE reqCertID = ? "
 				"AND action = " TEXT_CERTACTION_CERT_CREATION,
 							certData, &certDataLength, certID,
-							strlen( certID ), 0, DBMS_CACHEDQUERY_NONE,
-							DBMS_QUERY_NORMAL );
+							strnlen_s( certID, CRYPT_MAX_TEXTSIZE ), 
+							0, DBMS_CACHEDQUERY_NONE, DBMS_QUERY_NORMAL );
 		if( cryptStatusOK( status ) )
 			{
 			status = length = \
@@ -133,7 +133,8 @@ int updateCertLog( INOUT_PTR DBMS_INFO *dbmsInfo,
 	char certIDbuffer[ ENCODED_DBXKEYID_SIZE + 8 ];
 	char encodedCertData[ MAX_ENCODED_CERT_SIZE + 8 ];
 	const time_t boundDate = getTime( GETTIME_NOFAIL );
-	int localCertIDlength = certIDlength, sqlOffset, sqlLength, boundDataIndex;
+	int localCertIDlength = certIDlength, sqlOffset, sqlLength;
+	int boundDataIndex, result;
 
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
 	assert( ( certID == NULL && certIDlength == 0 ) || \
@@ -174,10 +175,12 @@ int updateCertLog( INOUT_PTR DBMS_INFO *dbmsInfo,
 	if( data != NULL )
 		strlcat_s( sqlBuffer, MAX_SQL_QUERY_SIZE, ", certData" );
 	strlcat_s( sqlBuffer, MAX_SQL_QUERY_SIZE, ") VALUES (" );
-	sqlOffset = strlen( sqlBuffer );
+	sqlOffset = strnlen_s( sqlBuffer, MAX_SQL_QUERY_SIZE );
 	sqlLength = MAX_SQL_QUERY_SIZE - sqlOffset;
 	ENSURES( isShortIntegerRangeMin( sqlLength, 16 ) );
-	sprintf_s( sqlBuffer + sqlOffset, sqlLength, "%d, ?, ?", action );
+	result = sprintf_s( sqlBuffer + sqlOffset, sqlLength, "%d, ?, ?", 
+						action );
+	ENSURES( rangeCheck( result, 7, sqlLength - 1 ) );
 	if( reqCertID != NULL )
 		strlcat_s( sqlBuffer + sqlOffset, sqlLength, ", ?" );
 	if( subjCertID != NULL )
@@ -271,7 +274,7 @@ int updateCertErrorLog( INOUT_PTR DBMS_INFO *dbmsInfo,
 	{
 	STREAM stream;
 	BYTE errorData[ 64 + MAX_CERT_SIZE + 8 ];
-	const int errorStringLength = strlen( errorString );
+	const int errorStringLength = strnlen_s( errorString, MAX_ERRMSG_SIZE );
 	int errorDataLength DUMMY_INIT, status;
 
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );

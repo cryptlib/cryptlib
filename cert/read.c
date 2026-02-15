@@ -398,6 +398,7 @@ static int readUniqueID( INOUT_PTR STREAM *stream,
 			certInfoPtr->cCertCert->issuerUniqueID = bufPtr;
 			certInfoPtr->cCertCert->issuerUniqueIDlength = length;
 			}
+		REQUIRES( rangeCheck( length, 1, 256 ) );
 		status = sread( stream, bufPtr, length );
 		}
 	if( cryptStatusError( status ) )

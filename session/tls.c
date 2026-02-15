@@ -60,6 +60,8 @@ BOOLEAN sanityCheckSessionTLS( IN_PTR const SESSION_INFO *sessionInfoPtr )
 		}
 	if( tlsInfo->minVersion < 0 || \
 		tlsInfo->minVersion > TLS_MINOR_VERSION_TLS13 || \
+		tlsInfo->maxVersion < 0 || \
+		tlsInfo->maxVersion > TLS_MINOR_VERSION_TLS13 || \
 		( tlsInfo->ivSize != 0 && tlsInfo->ivSize != 8 && \
 		  tlsInfo->ivSize != 16 ) || \
 		tlsInfo->readSeqNo < 0 || tlsInfo->readSeqNo > LONG_MAX / 2 || \
@@ -124,11 +126,15 @@ BOOLEAN sanityCheckTLSHandshakeInfo( IN_PTR \
 		}
 
 	/* Check encryption information */
-	if( !( handshakeInfo->dhContext == CRYPT_ERROR || \
-		   isHandleRangeValid( handshakeInfo->dhContext ) ) || 
+	if( !( handshakeInfo->keyexContext == CRYPT_ERROR || \
+		   isHandleRangeValid( handshakeInfo->keyexContext ) ) || 
 #ifdef USE_TLS13
-		!( handshakeInfo->dhContextAlt == CRYPT_ERROR || \
-		   isHandleRangeValid( handshakeInfo->dhContextAlt ) ) || 
+		!( handshakeInfo->keyexEcdhContext == CRYPT_ERROR || \
+		   isHandleRangeValid( handshakeInfo->keyexEcdhContext ) ) || 
+  #ifdef USE_25519
+		!( handshakeInfo->keyex25519Context == CRYPT_ERROR || \
+		   isHandleRangeValid( handshakeInfo->keyex25519Context ) ) || 
+  #endif /* USE_25519 */
 #endif /* USE_TLS13 */
 		!( handshakeInfo->keyexAlgo == CRYPT_ALGO_NONE || \
 		   isKeyexAlgo( handshakeInfo->keyexAlgo ) || \
@@ -158,7 +164,6 @@ BOOLEAN sanityCheckTLSHandshakeInfo( IN_PTR \
 
 	/* Check ECC information */
 	if( !isBooleanValue( handshakeInfo->disableECC ) || \
-		!isEnumRangeOpt( handshakeInfo->eccCurveID, CRYPT_ECCCURVE ) || \
 		!isBooleanValue( handshakeInfo->sendECCPointExtn ) )
 		{
 		DEBUG_PUTS(( "sanityCheckTLSHandshakeInfo: ECC information" ));
@@ -204,6 +209,7 @@ void debugDumpTLS( const SESSION_INFO *sessionInfoPtr,
 			TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE ) ) ) ? \
 		TRUE : FALSE;
 	char fileName[ 1024 + 8 ];
+	int result;
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtrDynamic( buffer1,  buffer1size ) );
@@ -212,9 +218,10 @@ void debugDumpTLS( const SESSION_INFO *sessionInfoPtr,
 
 	if( messageCount > 20 )
 		return;	/* Don't dump too many messages */
-	sprintf_s( fileName, 1024, "tls3%d_%02d%c_", 
-			   sessionInfoPtr->version, messageCount++, 
-			   isRead ? 'r' : 'w' );
+	result = sprintf_s( fileName, 1024, "tls3%d_%02d%c_", 
+						sessionInfoPtr->version, messageCount++, 
+						isRead ? 'r' : 'w' );
+	assert( isShortIntegerRangeNZ( result ) );
 	if( bufPtr[ 0 ] == TLS_MSG_HANDSHAKE && !encryptionActive )
 		{
 		if( isRead && buffer2size >= 1 )
@@ -289,6 +296,26 @@ static int initHandshakeInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* Set the minimum accepted protocol version if required */
 		sessionInfoPtr->sessionTLS->minVersion = protocolInfo->minVersion;
+		}
+	if( sessionInfoPtr->sessionTLS->maxVersion <= 0 )
+		{
+		/* Set the maximum accepted protocol version if required */
+		sessionInfoPtr->sessionTLS->maxVersion = \
+			( sessionInfoPtr->version > 0 ) ? \
+			sessionInfoPtr->version : protocolInfo->maxVersion;
+		}
+	if( sessionInfoPtr->privateKey != CRYPT_ERROR )
+		{
+		/* Now that we've got the version numbering set up, make sure that 
+		   the key we're using is compatible with the protocol version */
+		if( sessionInfoPtr->privateKeyAlgo == CRYPT_ALGO_ED25519 && \
+			sessionInfoPtr->sessionTLS->maxVersion < TLS_MINOR_VERSION_TLS13 )
+			{
+			retExt( CRYPT_ERROR_NOTAVAIL,
+					( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
+					  "Ed25519 keys can only be used with TLS 1.3 and "
+					  "newer" ) );
+			}
 		}
 	return( initHandshakeCryptInfo( sessionInfoPtr, handshakeInfo ) );
 	}
@@ -425,11 +452,13 @@ int readEcdhValue( INOUT_PTR STREAM *stream,
 		return( status );
 	if( isShortECCKey( length / 2 ) )
 		return( CRYPT_ERROR_NOSECURE );
-	if( length < MIN_PKCSIZE_ECCPOINT || length > MAX_PKCSIZE_ECCPOINT )
+	if( length < MIN_PKCSIZE_ECCPOINT || length > valueMaxLen || \
+		length > MAX_PKCSIZE_ECCPOINT )
 		return( CRYPT_ERROR_BADDATA );
 	*valueLen = length;
 
 	/* Read the X9.62 point value */
+	REQUIRES( rangeCheck( length, 1, valueMaxLen ) );
 	return( sread( stream, value, length ) );
 	}
 
@@ -605,7 +634,7 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	CRYPT_CERTIFICATE iLocalCertChain;
 	const ATTRIBUTE_LIST *fingerprintPtr = \
 				findSessionInfo( sessionInfoPtr,
-								 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 );
+								 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 );
 	MESSAGE_DATA msgData;
 	ERROR_INFO localErrorInfo;
 	BYTE certFingerprint[ CRYPT_MAX_HASHSIZE + 8 ];
@@ -638,7 +667,7 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* There is one special case in which a too-short certificate packet 
 		   is valid and that's where it constitutes the TLS equivalent of an 
-		   TLS no-certificates alert.  SSLv3 sent an 
+		   SSL no-certificates alert.  SSLv3 sent an 
 		   TLS_ALERT_NO_CERTIFICATE alert to indicate that the client 
 		   doesn't have a certificate, which is handled by the 
 		   readHSPacketTLS() call.  TLS changed this to send an empty 
@@ -674,6 +703,8 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				status = CRYPT_ERROR_BADDATA;
 			else
 				{
+				REQUIRES( rangeCheck( certContextLength, \
+									  1, CRYPT_MAX_HASHSIZE ) );
 				status = sread( stream, 
 								handshakeInfo->tls13CertContext, 
 								certContextLength );
@@ -734,25 +765,8 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 		}
 	setMessageData( &msgData, certFingerprint, CRYPT_MAX_HASHSIZE );
-	if( fingerprintPtr != NULL )
-		{
-		const CRYPT_ATTRIBUTE_TYPE fingerprintAttribute = \
-							( fingerprintPtr->valueLength == 32 ) ? \
-								CRYPT_CERTINFO_FINGERPRINT_SHA2 : \
-							CRYPT_CERTINFO_FINGERPRINT_SHA1;
-
-		/* Use the hint provided by the fingerprint size to select the
-		   appropriate algorithm to generate the fingerprint that we want
-		   to compare against */
-		status = krnlSendMessage( iLocalCertChain, IMESSAGE_GETATTRIBUTE_S,
-								  &msgData, fingerprintAttribute );
-		}
-	else
-		{
-		/* There's no algorithm hint available, use the default of SHA-1 */
-		status = krnlSendMessage( iLocalCertChain, IMESSAGE_GETATTRIBUTE_S,
-								  &msgData, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
-		}
+	status = krnlSendMessage( iLocalCertChain, IMESSAGE_GETATTRIBUTE_S,
+							  &msgData, CRYPT_CERTINFO_FINGERPRINT_SHA2 );
 	if( cryptStatusError( status ) )
 		{
 		krnlSendNotifier( iLocalCertChain, IMESSAGE_DECREFCOUNT );
@@ -801,7 +815,7 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   check it.  We don't worry if the add fails, it's a minor thing 
 		   and not worth aborting the handshake for */
 		( void ) addSessionInfoS( sessionInfoPtr,
-								  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
+								  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
 								  certFingerprint, certFingerprintLength );
 		}
 
@@ -957,7 +971,7 @@ int writeTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 STDC_NONNULL_ARG( ( 1 ) ) \
 static void shutdownFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	const TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
@@ -1001,31 +1015,27 @@ static int commonStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( isBooleanValue( isServer ) );
 
-	/* TLS 1.2 switched from the MD5+SHA-1 dual hash/MACs to SHA-2 so if the
-	   user has requesetd TLS 1.2 or newer we need to make sure that SHA-2
-	   is available */
-	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS12 && \
-		!algoAvailable( CRYPT_ALGO_SHA2 ) )
+	/* TLS 1.3 requires a bunch of new algorithms and mechanisms including 
+	   AES-GCM, so if the user has requested TLS 1.3 or newer we need to 
+	   make sure that these are available.  We can't really do the GCM check 
+	   at runtime without creating an AES context each time we check so we 
+	   rely on USE_GCM being defined to tell us whether it's available */
+#ifdef USE_TLS13
+	if( !algoAvailable( CRYPT_ALGO_ECDH ) || \
+		!algoAvailable( CRYPT_ALGO_ECDSA ) )
 		{
 		retExt( CRYPT_ERROR_NOTAVAIL,
 				( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
-				  "TLS 1.2 and newer requires the SHA-2 hash algorithm which "
-				  "isn't available in this build of cryptlib" ) );
+				  "TLS 1.3 and newer require the ECDH and ECDSA algorithms "
+				  "which aren't available in this build of cryptlib" ) );
 		}
-
-	/* TLS 1.3 requires AES-GCM so if the user has requested TLS 1.3 or 
-	   newer we need to make sure that this is available.  We can't really do
-	   this at runtime without creating an AES context each time we check so
-	   we rely on USE_GCM being defined to tell us whether it's available */
-#if !defined( USE_GCM )
-	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
-		{
-		retExt( CRYPT_ERROR_NOTAVAIL,
-				( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
-				  "TLS 1.3 and newer require the AES-GCM algorithm which "
-				  "isn't available in this build of cryptlib" ) );
-		}
-#endif /* !USE_GCM */
+  #if !defined( USE_GCM )
+	retExt( CRYPT_ERROR_NOTAVAIL,
+			( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
+			  "TLS 1.3 and newer require the AES-GCM algorithm which "
+			  "isn't available in this build of cryptlib" ) );
+  #endif /* !USE_GCM */
+#endif /* USE_TLS13 */
 
 	/* Begin the handshake, unless we're continuing a partially-opened 
 	   session */
@@ -1603,6 +1613,18 @@ static int checkAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			break;
 #endif /* CONFIG_SUITEB */
 
+#if defined( USE_ED25519 ) && defined( USE_TLS13 )
+		case CRYPT_ALGO_ED25519:
+			if( !checkContextCapability( cryptContext, 
+										 MESSAGE_CHECK_PKC_SIGN ) )
+				{
+				retExt( CRYPT_ARGERROR_NUM1,
+						( CRYPT_ARGERROR_NUM1, SESSION_ERRINFO,
+						  "Server key can't be used for signing" ) );
+				}
+			break;
+#endif /* USE_ED25519 && USE_TLS13 */
+
 		default:
 			retExt( CRYPT_ARGERROR_NUM1,
 					( CRYPT_ARGERROR_NUM1, SESSION_ERRINFO,
@@ -1918,7 +1940,11 @@ int setAccessMethodTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			   
 			   For the minimum version, we allowed TLS 1.0 up until 2024 to
 			   deal with older implementations because of the lack of 
-			   support for 1.1, see the note above */
+			   support for 1.1, see the note above.  TLS 1.0 is still needed
+			   even post-2024 but it also triggers some braindead 
+			   "vulnerability" scanners to report a problem even though 
+			   there isn't one if they find TLS 1.0 enabled so we disable it
+			   by default to avoid creating headaches for users */
 		CRYPT_SUBPROTOCOL_NONE, CRYPT_SUBPROTOCOL_PEAP,
 			/* Allowed sub-protocols */
 

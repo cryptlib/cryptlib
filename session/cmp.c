@@ -86,6 +86,8 @@ BOOLEAN sanityCheckCMPProtocolInfo( IN_PTR \
 		protocolInfo->transIDsize > CRYPT_MAX_HASHSIZE || \
 		protocolInfo->certIDsize < 0 || \
 		protocolInfo->certIDsize > CRYPT_MAX_HASHSIZE || \
+		protocolInfo->certIDv2size < 0 || \
+		protocolInfo->certIDv2size > CRYPT_MAX_HASHSIZE || \
 		protocolInfo->senderNonceSize < 0 || \
 		protocolInfo->senderNonceSize > CRYPT_MAX_HASHSIZE || \
 		protocolInfo->recipNonceSize < 0 || \
@@ -96,6 +98,7 @@ BOOLEAN sanityCheckCMPProtocolInfo( IN_PTR \
 		}
 	if( !isBooleanValue( protocolInfo->userIDchanged ) || \
 		!isBooleanValue( protocolInfo->certIDchanged ) || \
+		!isBooleanValue( protocolInfo->certIDv2changed ) || \
 		!isBooleanValue( protocolInfo->noIntegrity ) || \
 		!isBooleanValue( protocolInfo->headerRead ) || \
 		!isBooleanValue( protocolInfo->useAltAuthKey ) )
@@ -253,7 +256,7 @@ void debugDumpCMP( IN_ENUM( CMP_MESSAGE ) const CMP_MESSAGE_TYPE type,
 	if( isServer( sessionInfoPtr ) )
 		{
 		MESSAGE_DATA msgData;
-		const int pathLength = strlen( fileName );
+		const int pathLength = strnlen_s( fileName, MAX_PATH_LENGTH );
 		LOOP_INDEX i;
 
 		setMessageData( &msgData, fileName + pathLength, 1024 - pathLength );
@@ -474,7 +477,7 @@ void destroyCMPprotocolInfo( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo )
 STDC_NONNULL_ARG( ( 1 ) ) \
 static void shutdownFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
-	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	const CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
@@ -500,7 +503,7 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 INOUT_PTR void *data, 
 								 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
-	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	const CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
 	CRYPT_CERTIFICATE *cmpResponsePtr = ( CRYPT_CERTIFICATE * ) data;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );

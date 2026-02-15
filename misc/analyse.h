@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib Source Analysis Header File 					*
-*						Copyright Peter Gutmann 1997-2014					*
+*						Copyright Peter Gutmann 1997-2024					*
 *																			*
 ****************************************************************************/
 
@@ -791,6 +791,7 @@
 #define ANALYSER_HINT_V( expr )	__analysis_assume( expr )
 								/* Attribute SAL has no equivalent for this, 
 								   but __analysis_assume() still works */
+#define ANALYSER_HINT_DEADSTORE_OK( variable ) 
 #define FORMAT_STRING			_Printf_format_string_
 #define IN_STRING				_In_z_
 #define IN_STRING_OPT			_In_opt_z_
@@ -818,6 +819,7 @@
 #ifdef PVS_STUDIO
   #define ANALYSER_HINT( expr )		ENSURES( expr )
   #define ANALYSER_HINT_V( expr )	ENSURES_V( expr )
+  #define ANALYSER_HINT_DEADSTORE_OK( variable ) 
 #endif /* PVS_STUDIO */
 
 #endif /* VC++ */
@@ -925,10 +927,14 @@
    took a complaint from no less then Linus Torvalds to get fixed (see 
    "[PATCH] Don't compare unsigned variable for <0 in sys_prctl()", 
    http://lkml.org/lkml/2006/11/28/239, and even then it took them six
-   years to fix the problem).
+   years to fix the problem).  More usually though their response is not
+   to fix anything, see "The Scourge of 00UB" below.
    
    For a more general discussion of this, see "How ISO C became unusable
-   for operating systems development", Victor Yodaiken, PLOS'21.
+   for operating systems development", Victor Yodaiken, PLOS'21 and
+   "C and C++ Prioritize Performance over Correctness", 
+   https://research.swtch.com/ub.  For the causes, see "The Scourge of 
+   00UB", https://gavinhoward.com/2023/08/the-scourge-of-00ub.
 
    The distinct double guard when using __has_attribute() below is 
    necessary here because gcc chokes if it sees the __has_attribute() on 
@@ -941,19 +947,12 @@
 
 #if ( defined( __clang__ ) && ( __clang_major__ >= 15 ) || \
 	  defined( __GNUC__ ) && ( __GNUC__ >= 15 ) )
-  /* Flex-arrays, used with DECLARE_VARSTRUCT_VARS.  We need to indicate 
-	 support for this with HAS_STDC_FLEXARRAY when it's used later to deal 
-	 with C99 wanting to see '[]' while other compilers want to see '[ 1 ]' 
-	 for the array size */
+  /* Counted flexible arrays, used with DECLARE_VARSTRUCT_VARS */
   #if __has_attribute( counted_by )
-	#define STDC_FLEXARRAY( count )	__attribute__(( counted_by( count ) ))
-	#define HAS_STDC_FLEXARRAY
-  #else
-	#define STDC_FLEXARRAY( count )
-  #endif /* LLVM attributes */
-#else
-  #define STDC_FLEXARRAY( count )
-#endif /* Compiler-specific flex-array support */
+	#define FLEXARRAY_COUNT( count )	__attribute__(( counted_by( count ) ))
+	#define HAS_COUNTED_FLEXARRAY
+  #endif /* Flexible array attributes */
+#endif /* Compiler-specific counted flex-array support */
 
 #if defined( __clang__ ) && ( __clang_major__ >= 5 ) && \
 	( !defined( __apple_build_version__ ) || \
@@ -976,6 +975,15 @@
 #else
   #define STDC_FALLTHROUGH
 #endif /* Compiler-specific fallthrough-annotation support */
+
+#if defined( __clang__ ) && defined( __has_feature ) && \
+	!defined( __SANITIZE_ADDRESS__ )
+  /* Some older versions of clang don't define __SANITIZE_ADDRESS__ (gcc 
+	 always does) so we define it here if required */
+  #if __has_feature( address_sanitizer )
+	#define __SANITIZE_ADDRESS__
+  #endif /* __has_feature( address_sanitizer ) */
+#endif /* LLVM define of gcc's __SANITIZE_ADDRESS__ */
 
 #define STDC_UNUSED			__attribute__(( unused ))
 #define HAS_STDC_UNUSED
@@ -1057,6 +1065,8 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 
 #define ANALYSER_HINT( expr )	ENSURES( expr )
 #define ANALYSER_HINT_V( expr )	ENSURES_V( expr )
+#define ANALYSER_HINT_DEADSTORE_OK( variable ) \
+								( void ) variable
 
 #endif /* clang/LLVM */
 
@@ -1103,6 +1113,7 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 
 #define ANALYSER_HINT( expr )	ENSURES( expr )
 #define ANALYSER_HINT_V( expr )	ENSURES_V( expr )
+#define ANALYSER_HINT_DEADSTORE_OK( variable ) 
 
 #endif /* gcc analyser */
 
@@ -1164,6 +1175,28 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 #define VALUE_INT_SHORT			__cppcheck_low__( 0 ) \
 								__cppcheck_low__( MAX_INTLENGTH_SHORT ) 
 #endif /* __cppcheck__ */
+
+/****************************************************************************
+*																			*
+*								Sanitiser Support 							*
+*																			*
+****************************************************************************/
+
+#ifdef __SANITIZE_ADDRESS__
+
+/* zlib and the AES-GCM code rely on implicit integer truncation, so we 
+   disable checking in the affected functions.
+   
+   MSVC borrows some of the clang tools and can define __SANITIZE_ADDRESS__ 
+   so we have to add an extra guard to only enable the suppression attribute 
+   for gcc or clang */
+
+#if defined( __GNUC__ ) || defined( __clang__ )
+  #define ASAN_NOCHECK_INTEGER_TRUNC \
+								__attribute__((no_sanitize("implicit-signed-integer-truncation")))
+#endif /* Compilers with attribute support */
+
+#endif /* __SANITIZE_ADDRESS__ */
 
 /****************************************************************************
 *																			*
@@ -1426,6 +1459,7 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 #ifndef ANALYSER_HINT
   #define ANALYSER_HINT( expr )
   #define ANALYSER_HINT_V( expr )
+  #define ANALYSER_HINT_DEADSTORE_OK( variable ) 
 #endif /* ANALYSER_HINT */
 #define FORMAT_STRING
 #define IN_STRING
@@ -1448,8 +1482,12 @@ STDC_NONNULL_ARG( ( 1 ) ) \
   #define STDC_FALLTHROUGH
   #define STDC_UNUSED
 #endif /* No C'0x attribute support */
-#ifndef STDC_FLEXARRAY
-  #define STDC_FLEXARRAY( count )
-#endif /* No gcc/clang extensions */
+#ifndef HAS_COUNTED_FLEXARRAY
+  #define FLEXARRAY_COUNT( count )
+#endif /* Compiler-specific counted flex-array support */
+
+#ifndef ASAN_NOCHECK_INTEGER_TRUNC
+  #define ASAN_NOCHECK_INTEGER_TRUNC
+#endif /* ASAN_NOCHECK_INTEGER_TRUNC */
 
 #endif /* _ANALYSE_DEFINED */

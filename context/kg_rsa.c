@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib RSA Key Generation/Checking Routines				*
-*						Copyright Peter Gutmann 1997-2019					*
+*						Copyright Peter Gutmann 1997-2024					*
 *																			*
 ****************************************************************************/
 
@@ -77,7 +77,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int enableSidechannelProtection( INOUT_PTR PKC_INFO *pkcInfo, 
 										IN_BOOL const BOOLEAN isPrivateKey )
 	{
-	BIGNUM *n = &pkcInfo->rsaParam_n, *e = &pkcInfo->rsaParam_e;
+	const BIGNUM *n = &pkcInfo->rsaParam_n, *e = &pkcInfo->rsaParam_e;
 	BIGNUM *k = &pkcInfo->rsaParam_blind_k;
 	BIGNUM *kInv = &pkcInfo->rsaParam_blind_kInv;
 	MESSAGE_DATA msgData;
@@ -214,6 +214,258 @@ static int getRSAMontgomery( INOUT_PTR PKC_INFO *pkcInfo,
 	return( CRYPT_OK );
 	}
 
+/* Check whether a public key has too-close prime factors using Fermat's 
+   factorisation method.  This should never happen, but apparently did for
+   keys from some printer manufacturers:
+
+	a = ceil( sqrt( n ) );
+	b2 = a^2 - n;
+	repeat until b2 is a square:
+		a = a + 1;
+		b2 = a^2 - n;
+   
+   We can quickly weed out most candidates for squares by checking whether 
+   the input is a quadratic residue mod 256, and theoretically take it even 
+   further by testing mod small primes, but the initial test weeds out most 
+   candidates already.
+   
+   Table generated with:
+
+	BYTE table[ 32 ];
+	int i;
+	
+	memset( table, 0, 64 );
+	for( i = 0; i < 0x100; i++ )
+		{
+		int value, index, bit;
+		
+		value = ( i * i ) % 0x100;
+		index = value / 8;
+		bit = 1 << ( value % 8 );
+		table[ index ] |= bit;
+		}
+	for( i = 0; i < 32; i++ )
+		{
+		if( i > 0 && ( i % 8 ) == 0 )
+			printf( "\n" );
+		printf( "0x%02X, ", table[ i ] );
+		} 
+
+   This has 44 entries so we weed out 82% of values with this check */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int checkPrimeFactors( INOUT_PTR PKC_INFO *pkcInfo )
+	{
+	static const BYTE residueTable[ 32 ] = {
+		0x13, 0x02, 0x03, 0x02, 0x12, 0x02, 0x02, 0x02,
+		0x13, 0x02, 0x02, 0x02, 0x12, 0x02, 0x02, 0x02,
+		0x12, 0x02, 0x03, 0x02, 0x12, 0x02, 0x02, 0x02,
+		0x12, 0x02, 0x02, 0x02, 0x12, 0x02, 0x02, 0x02
+		};
+	const BIGNUM *n = &pkcInfo->rsaParam_n;
+	BIGNUM *a, *b2, *tmp; 
+	BN_CTX *bnCTX = &pkcInfo->bnCTX;
+	BN_ULONG lsWord;
+	int bnStatus = BN_STATUS;
+	LOOP_INDEX i;
+
+	assert( isReadPtr( pkcInfo, sizeof( PKC_INFO ) ) );
+
+	REQUIRES( sanityCheckPKCInfo( pkcInfo ) );
+
+	BN_CTX_start( bnCTX );
+	a = BN_CTX_get( bnCTX );
+	b2 = BN_CTX_get( bnCTX );
+	tmp = BN_CTX_get( bnCTX );
+	if( a == NULL || b2 == NULL || tmp == NULL )
+		{
+		BN_CTX_end( bnCTX );
+		return( CRYPT_ERROR_OVERFLOW );
+		}
+
+	/* a = ceil( sqrt( n ) );
+		 = sqrt( n ) + 1;
+	   b2 = a^2 - n */
+	CK( BN_isqrt( a, n, bnCTX ) );
+	CK( BN_add_word( a, 1 ) );
+	CK( BN_sqr( b2, a, bnCTX ) );
+	CK( BN_sub( b2, b2, n ) );
+	if( bnStatusError( bnStatus ) )
+		{
+		BN_CTX_end( bnCTX );
+		return( bnStatus );
+		}
+
+	/* Perform n iterations of the Fermat factorisation:
+
+		repeat until b2 is a square:
+			a = a + 1;
+			b2 = a^2 - n;
+
+	   Note that we can merge this with the initialisation step above 
+	   because of the way ceil( n ) is calculated, but we keep it distinct 
+	   in order to follow the pseudocode */
+	LOOP_MED( i = 0, i < 20, i++ )
+		{
+		ENSURES( LOOP_INVARIANT_MED( i, 0, 20 - 1 ) );
+
+		/* Check whether it's a perfect square by performing an initial 
+		   quadratic residue test via the residue table bitmap before going 
+		   on to the full test */
+		lsWord = b2->d[ 0 ] % 0x100;
+		if( residueTable[ lsWord / 8 ] & ( 1 << ( lsWord % 8 ) ) )
+			{
+			CK( BN_isqrt( tmp, b2, bnCTX ) );
+			CK( BN_sqr( tmp, tmp, bnCTX ) );
+			if( !BN_cmp( b2, tmp ) )
+				{
+				/* It's a square, the factors are sqrt( b2 ) + a, 
+				   sqrt( b2 ) - a */
+				DEBUG_DIAG(( "Prime factors for public key found" ));
+				return( CRYPT_ERROR_NOSECURE );
+				}
+			}
+
+		CK( BN_add_word( a, 1 ) );
+		CK( BN_sqr( b2, a, bnCTX ) );
+		CK( BN_sub( b2, b2, n ) );
+		if( bnStatusError( bnStatus ) )
+			{
+			BN_CTX_end( bnCTX );
+			return( bnStatus );
+			}
+		}
+	ENSURES( LOOP_BOUND_OK );
+		
+	return( CRYPT_OK );
+	}
+
+#ifdef CHECK_PRIMETEST
+
+int rsaTestFactors( INOUT_PTR PKC_INFO *pkcInfo )
+	{
+	static const BYTE testValue1[ 4 ] = {
+		/* Small values that can be verified by hand.  The reason why some
+		   of the values take a large number of rounds is because Fermat's 
+		   method works best if the two factors share half their leading 
+		   bits, in other words that the gap between them is less than 
+		   isqrt( n ) */
+		/* 101 * 59 = 5959 = 0x1747, 3 rounds */
+		/* 0x00, 0x00, 0x17, 0x47 */
+		/* 10501 * 14753 = 154921253 = 0x93BE925, 180 rounds */
+		/* 0x09, 0x3B, 0xE9, 0x25 */
+		/* 12263 * 17137 = 210151031 = 0xC86A677, 203 rounds */
+		/* 0x0C, 0x86, 0xA6, 0x77 */
+		/* 54323 * 57641 = 3131232043 = 0xBAA2CF2B, 24 rounds */
+		0xBA, 0xA2, 0xCF, 0x2B
+		};
+	static const BYTE testValue2[ 128 ] = {
+		/* Test value from 
+		   https://wiremask.eu/articles/fermats-prime-numbers-factorization,
+		   7422236843002619998657542152935407597465626963556444983366482781089760760914403641211700959458736191688739694068306773186013683526913015038631710959988771
+		   = 8DB72351E42D5E717ED7C317D06C4B3A6166CB1AAD0B1407C472E6DC8B34 F9488BF0A0CB68FD652D93E54E882A4FB1ECA7CAF8CD9B014D4F4FAE1FC4EE51F023
+		   7422236843002619998657542152935407597465626963556444983366482781089760759017266051147512413638949173306397011800331344424158682304439958652982994939276427
+		   = 8DB72351E42D5E717ED7C317D06C4B3A6166CB1AAD0B1407C472E6DC8B34 B9488BF0A0CB68FD652D93E54E882A4FB1ECA7CAF8CD9B014D4F4FAE1FC4EE51EC8B
+		   found in ?? steps */
+		0x4E, 0x73, 0x3F, 0xEB, 0xB9, 0x4D, 0xB1, 0x7C,
+		0xA3, 0xE6, 0xAA, 0x26, 0xEC, 0x33, 0xB4, 0x96,
+		0x0C, 0x15, 0x0C, 0x52, 0x30, 0x0E, 0x06, 0xC6,
+		0x0B, 0x33, 0x18, 0xF0, 0x74, 0x4F, 0xEF, 0x2D,
+		0x68, 0x7A, 0x8F, 0x5B, 0xF5, 0x98, 0x89, 0x4A,
+		0x22, 0xEE, 0xC4, 0xAB, 0xDA, 0xE0, 0x1B, 0x19,
+		0x7E, 0x4C, 0xC5, 0x60, 0x3D, 0xE6, 0x7E, 0xB6,
+		0x70, 0xE2, 0x61, 0xEB, 0x4E, 0x4C, 0xC5, 0xE2,
+		0x62, 0x41, 0xED, 0xCD, 0xE4, 0x94, 0xCC, 0xE4,
+		0x15, 0xBB, 0xC5, 0xA4, 0x10, 0xAB, 0xCE, 0xFD,
+		0xFF, 0x61, 0x99, 0xBB, 0xCD, 0xF6, 0x2E, 0x9D,
+		0x43, 0x4F, 0xAA, 0x88, 0xA1, 0xD1, 0x60, 0x12,
+		0x52, 0x0F, 0x80, 0xD1, 0x26, 0x20, 0x82, 0x06,
+		0xFF, 0x80, 0x19, 0x1E, 0x20, 0xED, 0x74, 0x23,
+		0xCD, 0xCE, 0x5B, 0x8A, 0x55, 0x5B, 0x41, 0x61,
+		0x53, 0x4E, 0x78, 0x9A, 0x74, 0xF0, 0xA7, 0x01
+		};
+	static const BYTE testValue3[ 128 ] = {
+		/* Test value from 
+		   https://github.com/letsencrypt/boulder/blob/main/goodkey/good_key_test.go,
+		   two very close factors, 
+		   12451309173743450529024753538187635497858772172998414407116324997634262083672423797183640278969532658774374576700091736519352600717664126766443002156788367
+		   = EDBCBB418B43DC58EB31BA2BC8276AA99062E432BCC1A9E84845DC3EAB23BE9489892EBFBF547E11D3B6310E94F482977986EF750BFA2B1CA3074EA9035BAA 8F
+		   12451309173743450529024753538187635497858772172998414407116324997634262083672423797183640278969532658774374576700091736519352600717664126766443002156788337
+		   = EDBCBB418B43DC58EB31BA2BC8276AA99062E432BCC1A9E84845DC3EAB23BE9489892EBFBF547E11D3B6310E94F482977986EF750BFA2B1CA3074EA9035BAA 71
+		   found in 1 step */
+		0xDC, 0xC6, 0xFD, 0xDA, 0xED, 0x19, 0x03, 0xE5, 
+		0x6E, 0x36, 0x13, 0xC6, 0x39, 0xBF, 0x85, 0x5A,
+		0xD8, 0xC0, 0x34, 0xD9, 0x67, 0x36, 0x32, 0x20, 
+		0x78, 0x03, 0x01, 0x73, 0x6B, 0xE6, 0x40, 0xDA,
+		0x25, 0x8E, 0xAE, 0x2C, 0x29, 0x81, 0x7A, 0x77, 
+		0xD8, 0x22, 0x16, 0x9C, 0xA0, 0x8C, 0x47, 0xE9,
+		0x67, 0x45, 0x5C, 0x95, 0x42, 0xD1, 0x8C, 0x1C, 
+		0xCC, 0x87, 0x31, 0x7C, 0x43, 0x09, 0x75, 0xF8,
+		0x9E, 0x96, 0xDC, 0xE7, 0x5E, 0x44, 0x29, 0x4C, 
+		0x6D, 0x28, 0x5C, 0x96, 0x75, 0xAA, 0xB0, 0x98,
+		0x07, 0xA9, 0x53, 0x9F, 0xDD, 0xD1, 0xA4, 0x68, 
+		0xAF, 0xBA, 0x08, 0xA2, 0x23, 0xF1, 0x0D, 0xC5,
+		0x1F, 0xC0, 0x09, 0x62, 0x5A, 0x9B, 0xC6, 0xEF, 
+		0x43, 0xB0, 0x65, 0x6F, 0x8C, 0x2A, 0x75, 0xE6,
+		0x66, 0x61, 0x93, 0x2A, 0x29, 0x04, 0xA3, 0xC3, 
+		0x9D, 0xF8, 0x63, 0xD1, 0xA8, 0x8E, 0x3F, 0x1F
+		};
+	static const BYTE testValue4[ 128 ] = {
+		/* Test value from 
+		   https://github.com/letsencrypt/boulder/blob/main/goodkey/good_key_test.go,
+		   two very factors that differ by around 2^256, 
+		   11779932606551869095289494662458707049283241949932278009554252037480401854504909149712949171865707598142483830639739537075502512627849249573564209082969463
+		   = E0EB1C756F901043799F4B219BDB9C8424758C142D0A9CD0C44E2C60DC73CB 72A0742E1BAF3B79573824F18A760E929D3C41B833A6859A37CFF088B9EE28AD77
+		   11779932606551869095289494662458707049283241949932278009554252037480401854503793357623711855670284027157475142731886267090836872063809791989556295953329083
+		   = E0EB1C756F901043799F4B219BDB9C8424758C142D0A9CD0C44E2C60DC73CB 68FD983CD8CF6EFEA054CE5E63AE8A5F2A924CE5E3484B5A37CFF088B9EE28ABBB
+		   found in 14 steps */
+		0xC5, 0x9C, 0x49, 0xBA, 0xC6, 0x00, 0xD5, 0x3A,
+		0x9E, 0x93, 0xED, 0x63, 0x94, 0xE7, 0xF5, 0x41,
+		0x92, 0xE7, 0xE5, 0xB7, 0x69, 0xE1, 0x08, 0x23,
+		0x2B, 0x71, 0xCA, 0xDC, 0x68, 0xFD, 0xE5, 0xFF,
+		0xE2, 0x8F, 0x68, 0x9B, 0x43, 0x57, 0xF6, 0xBD,
+		0x6E, 0xA9, 0xA8, 0x64, 0xE6, 0x4B, 0x85, 0x92,
+		0x3A, 0xD4, 0x78, 0x3B, 0xF9, 0x71, 0x15, 0xB7,
+		0x70, 0x14, 0x69, 0x63, 0x44, 0x66, 0xC4, 0x2D,
+		0xCC, 0x0D, 0x89, 0xFC, 0x9A, 0xA7, 0x17, 0x88,
+		0xF1, 0x1A, 0xA3, 0xE0, 0xEB, 0x7A, 0xC9, 0xD0,
+		0xBE, 0xB0, 0xB0, 0x93, 0x45, 0x89, 0xAB, 0xAE,
+		0x9D, 0xBF, 0x5C, 0xEF, 0x6F, 0x66, 0x34, 0x34,
+		0x44, 0xF0, 0x69, 0xEF, 0x19, 0xDC, 0xE2, 0x3A,
+		0x40, 0x2D, 0xF3, 0x8C, 0x55, 0x26, 0xBD, 0xD2,
+		0x41, 0xA3, 0x08, 0xF7, 0x32, 0x92, 0xE5, 0x36,
+		0x58, 0x9B, 0xAC, 0x84, 0xE0, 0x2D, 0x32, 0xED
+		};
+	int status;
+
+	BN_clear( &pkcInfo->rsaParam_n );
+	status = importBignum( &pkcInfo->rsaParam_n, testValue1, 4, 
+						   1, CRYPT_MAX_PKCSIZE, NULL, BIGNUM_CHECK_NONE );
+	ENSURES( cryptStatusOK( status ) );
+	checkPrimeFactors( pkcInfo );		/* 24 rounds */
+
+	BN_clear( &pkcInfo->rsaParam_n );
+	status = importBignum( &pkcInfo->rsaParam_n, testValue2, 128, 
+						   3, CRYPT_MAX_PKCSIZE, NULL, BIGNUM_CHECK_NONE );
+	ENSURES( cryptStatusOK( status ) );
+	checkPrimeFactors( pkcInfo );		/* ?? rounds */
+
+	BN_clear( &pkcInfo->rsaParam_n );
+	status = importBignum( &pkcInfo->rsaParam_n, testValue3, 128, 
+						   3, CRYPT_MAX_PKCSIZE, NULL, BIGNUM_CHECK_NONE );
+	ENSURES( cryptStatusOK( status ) );
+	checkPrimeFactors( pkcInfo );		/* 1 round */
+
+	BN_clear( &pkcInfo->rsaParam_n );
+	status = importBignum( &pkcInfo->rsaParam_n, testValue4, 128, 
+						   3, CRYPT_MAX_PKCSIZE, NULL, BIGNUM_CHECK_NONE );
+	ENSURES( cryptStatusOK( status ) );
+	checkPrimeFactors( pkcInfo );		/* 14 rounds */
+
+	return( CRYPT_OK );
+	}
+#endif /* CHECK_PRIMETEST */
+
 /****************************************************************************
 *																			*
 *							Check an RSA Key								*
@@ -225,7 +477,8 @@ static int getRSAMontgomery( INOUT_PTR PKC_INFO *pkcInfo,
    as it's working with them */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo )
+static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo,
+										IN_BOOL const BOOLEAN isPrivateKey )
 	{
 	BIGNUM *n = &pkcInfo->rsaParam_n, *e = &pkcInfo->rsaParam_e;
 	const BN_ULONG eWord = BN_get_word( e );
@@ -235,6 +488,7 @@ static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo )
 	assert( isWritePtr( pkcInfo, sizeof( PKC_INFO ) ) );
 
 	REQUIRES( sanityCheckPKCInfo( pkcInfo ) );
+	REQUIRES( isBooleanValue( isPrivateKey ) );
 	REQUIRES( eLen > 0 && eLen <= bytesToBits( CRYPT_MAX_PKCSIZE ) );
 
 	/* Verify that nLen >= RSAPARAM_MIN_N (= MIN_PKCSIZE), 
@@ -255,6 +509,51 @@ static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo )
 		return( CRYPT_ARGERROR_STR1 );
 		}
 
+	/* Another test that we could apply here is to check whether n is the 
+	   product of two identical primes, i.e. a square.  To do this we'd use 
+	   a probabalistic test involving computing the Legendre symbol with a 
+	   series of small primes p, i.e. checking whether n^((p-1)/2) = 1 (mod 
+	   p).  If n is a perfect square then n mod p will be a quadratic 
+	   residue, if not then the probability of it being a quadratic residue 
+	   is around 0.5, so we have to repeat the test a number of times.  What 
+	   we're actually checking for is a quadratic nonresidue (thus the 
+	   Legendre) which allows us an early-out.  However this is an awful lot 
+	   of work to perform for every public key we encounter:
+
+		for( i = 0; i < NO_TESTS; i++ )
+			{
+			p = small prime;
+			BN_copy( temp, p );
+			BN_sub_word( temp, 1 );
+			BN_rshift1( temp, temp );
+			BN_mod_exp( result, n, temp, p, bnCtx );
+			if( BN_cmp( result, 0 ) < 1 )
+				// Quadratic nonresidue, exit
+			}
+
+	   and it's not clear what we'd be gaining by checking for this one 
+	   particular case when there's a million other ways generate broken 
+	   keys that aren't detectable.  
+	   
+	   A better option is to apply Fermat's factorisation algorithm to look 
+	   for values around the square root, which finds too-close factors and
+	   not just perfect squares.  Since this is a somewhat expensive op
+	   we don't perform it if we have the private key present, for which we 
+	   can just do a comparison */
+	if( isPrivateKey )
+		{
+		int status;
+		
+		status = checkPrimeFactors( pkcInfo );
+		if( cryptStatusError( status ) )
+			{
+			DEBUG_DIAG(( "RSA public key has dangerously close prime "
+						 "factors" ));
+			assert_nofuzz( DEBUG_WARN );	/* Warn in debug build */
+			return( CRYPT_ARGERROR_STR1 );
+			}
+		}
+ 
 	/* Verify that e >= MIN_PUBLIC_EXPONENT, eLen <= RSAPARAM_MAX_E 
 	   (= 32 bits).  The latter check is to preclude DoS attacks due to 
 	   ridiculously large e values.  BN_get_word() works even on 16-bit 
@@ -262,9 +561,9 @@ static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo )
 	   can't be represented in a machine word */
 	if( eWord < MIN_PUBLIC_EXPONENT || bitsToBytes( eLen ) > RSAPARAM_MAX_E )
 		{
-		DEBUG_DIAG(( "RSA e value %d is invalid/insecure, should be "
-					 "%d...%d", eWord, MIN_PUBLIC_EXPONENT, 
-					 ( RSAPARAM_MAX_E == 1 ) ? 0x0FF : \
+		DEBUG_DIAG(( "RSA e value %ld is invalid/insecure, should be "
+					 "%d...%ld", eWord, MIN_PUBLIC_EXPONENT, 
+					 ( RSAPARAM_MAX_E == 1 ) ? 0x0FFL : \
 					 ( RSAPARAM_MAX_E == 2 ) ? 0x0FFFFL : \
 					 ( RSAPARAM_MAX_E == 3 ) ? 0x0FFFFFFL : INT_MAX - 1 ));
 		assert_nofuzz( DEBUG_WARN );	/* Warn in debug build */
@@ -326,14 +625,14 @@ static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo )
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int checkRSAPrivateKeyComponents( INOUT_PTR PKC_INFO *pkcInfo )
 	{
-	BIGNUM *n = &pkcInfo->rsaParam_n, *e = &pkcInfo->rsaParam_e;
-	BIGNUM *d = &pkcInfo->rsaParam_d, *p = &pkcInfo->rsaParam_p;
-	BIGNUM *q = &pkcInfo->rsaParam_q;
+	const BIGNUM *n = &pkcInfo->rsaParam_n, *e = &pkcInfo->rsaParam_e;
+	const BIGNUM *d = &pkcInfo->rsaParam_d, *p = &pkcInfo->rsaParam_p;
+	const BIGNUM *q = &pkcInfo->rsaParam_q;
 	BIGNUM *p1 = &pkcInfo->tmp1, *q1 = &pkcInfo->tmp2, *tmp = &pkcInfo->tmp3;
 	const BN_ULONG eWord = BN_get_word( e );
 	BN_ULONG word DUMMY_INIT;
 	BOOLEAN isPrime;
-	int bnStatus = BN_STATUS, status;
+	int threshold, bnStatus = BN_STATUS, status;
 
 	assert( isWritePtr( pkcInfo, sizeof( PKC_INFO ) ) );
 
@@ -361,25 +660,29 @@ static int checkRSAPrivateKeyComponents( INOUT_PTR PKC_INFO *pkcInfo )
 	if( !isPrime )
 		return( CRYPT_ARGERROR_STR1 );
 
-	/* Verify that |p-q| > 128 bits.  We know that p >= q because this is a
-	   precondition for the CRT decrypt to work.  FIPS 186-3 requires only 
-	   100 bits, this check is slightly more conservative but in any case 
-	   both values are somewhat arbitrary and are merely meant to delimit 
-	   "not too close".  
+	/* Verify that |p-q| > (nBits/2 - 100) bits.  We know that p >= q 
+	   because this is a precondition for the CRT decrypt to work.  FIPS 
+	   186-3 sets this somewhat arbitrary value which is merely meant to 
+	   delimit "not too close", for example the shortest possible key, with 
+	   1024 bits, would require 612 bits difference, well out of reach of 
+	   Fermat's factorisation method.
 	   
 	   There's a second more obscure check that we could in theory perform 
 	   to make sure that p and q don't have the least significant nLen / 4 
-	   bits the same (which would still lead to |p-q| > 128), this would 
-	   make the Boneh/Durfee attack marginally less improbable (result by 
-	   Zhao and Qi).  Since the chance of them having 256 LSB bits the same 
-	   is vanishingly small and the Boneh/Dufree attack requires special 
-	   properties for d (see the comment in generateRSAkey()) we don't 
-	   bother with this check */
+	   bits the same (which would still be caught by the previous check), 
+	   this would make the Boneh/Durfee attack marginally less improbable 
+	   (result by Zhao and Qi).  Since the chance of them having 256 LSB 
+	   bits the same is vanishingly small and the Boneh/Dufree attack 
+	   requires special properties for d (see the comment in 
+	   generateRSAkey()) we don't bother with this check */
+	threshold = ( BN_num_bits( n ) / 2 ) - 100;
+	ENSURES( threshold >= ( MIN_PKCSIZE / 2 ) - 100 && \
+			 threshold <= bytesToBits( CRYPT_MAX_PKCSIZE ) );
 	ENSURES( BN_cmp( p, q ) >= 0 );
 	CKPTR( BN_copy( tmp, p ) );
 	CK( BN_sub( tmp, tmp, q ) );
 	if( bnStatusError( bnStatus ) || \
-		BN_num_bits( tmp ) < 128 )
+		BN_num_bits( tmp ) <= threshold )
 		return( CRYPT_ARGERROR_STR1 );
 
 	/* Calculate p - 1, q - 1 */
@@ -612,7 +915,7 @@ int generateRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								  TRUE );
 
 	/* Make sure that the generated values are valid */
-	status = checkRSAPublicKeyComponents( pkcInfo );
+	status = checkRSAPublicKeyComponents( pkcInfo, TRUE );
 	if( cryptStatusOK( status ) )
 		status = checkRSAPrivateKeyComponents( pkcInfo );
 	if( cryptStatusError( status ) )
@@ -638,9 +941,9 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initCheckRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
-	BIGNUM *n = &pkcInfo->rsaParam_n, *e = &pkcInfo->rsaParam_e;
-	BIGNUM *d = &pkcInfo->rsaParam_d, *p = &pkcInfo->rsaParam_p;
-	BIGNUM *q = &pkcInfo->rsaParam_q;
+	const BIGNUM *n = &pkcInfo->rsaParam_n, *e = &pkcInfo->rsaParam_e;
+	const BIGNUM *d = &pkcInfo->rsaParam_d, *p = &pkcInfo->rsaParam_p;
+	const BIGNUM *q = &pkcInfo->rsaParam_q;
 	const BOOLEAN isPrivateKey = TEST_FLAG( contextInfoPtr->flags,
 											CONTEXT_FLAG_ISPUBLICKEY ) ? \
 								 FALSE : TRUE;
@@ -668,7 +971,7 @@ int initCheckRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 		}
 
 	/* Make sure that the public key parameters are valid */
-	status = checkRSAPublicKeyComponents( pkcInfo );
+	status = checkRSAPublicKeyComponents( pkcInfo, isPrivateKey );
 	if( cryptStatusError( status ) )
 		return( status );
 

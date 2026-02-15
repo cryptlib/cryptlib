@@ -274,7 +274,8 @@ typedef struct {
 	int refCount;				/* Reference count for handle */
 	} SEMAPHORE_INFO;
 
-/* A structure to store the details of a thread */
+/* A structure to store the details of a thread.  See the matching 
+   definition of THREAD_STATE in cryptkrn.h before changing this */
 
 typedef struct {
 	FNPTR threadFunction;			/* Function to call from thread */

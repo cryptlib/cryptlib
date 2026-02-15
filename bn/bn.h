@@ -572,6 +572,10 @@ CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 BOOLEAN BN_sqr( INOUT_PTR BIGNUM *r, 
 				IN_PTR const BIGNUM *a, 
 				INOUT_PTR BN_CTX *bnCTX );
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
+BOOLEAN BN_isqrt( INOUT_PTR BIGNUM *r, 
+				  IN_PTR const BIGNUM *a, 
+				  INOUT_PTR BN_CTX *bnCTX );
 
 /* Bignum division/modulus functions */
 
@@ -653,15 +657,6 @@ int bn_cmp_part_words( const BN_ULONG *a, const BN_ULONG *b,
 					   IN_RANGE( 0, BIGNUM_ALLOC_WORDS_EXT ) const int cl, 
 					   IN_RANGE( -BIGNUM_ALLOC_WORDS_EXT, \
 								 BIGNUM_ALLOC_WORDS_EXT ) const int dl );
-
-/* Bignum read/write functions */
-
-CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1, 3 ) ) \
-BIGNUM *BN_bin2bn( IN_BUFFER( length ) const BYTE *buffer, 
-				   IN_LENGTH_PKC_Z const int length, 
-				   OUT_PTR BIGNUM *bignum );
-CHECK_RETVAL_LENGTH_SHORT STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int BN_bn2bin( const BIGNUM *bignum, BYTE *buffer );
 
 /****************************************************************************
 *																			*

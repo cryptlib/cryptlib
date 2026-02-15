@@ -1,3 +1,4 @@
+/#include/! s/HAS_ZLIB/HAS_ZLIB_DISABLED/g
 /#include/! s/MD5_/CRYPT_MD5_/g
 /#include/! s/md5_/CRYPT_md5_/g
 /#include/! s/SHA1_/CRYPT_SHA1_/g

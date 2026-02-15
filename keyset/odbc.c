@@ -960,7 +960,8 @@ static int getBlobInfo( INOUT_PTR DBMS_STATE_INFO *dbmsInfo,
 		   length value so we have to set it ourselves by taking the length 
 		   of the returned string.  The null-termination occurs as a side-
 		   effect of the buffer being initialised to zeroes */
-		blobNameLength = strlen( dbmsInfo->blobName );
+		blobNameLength = strnlen_s( dbmsInfo->blobName, 
+									CRYPT_MAX_TEXTSIZE );
 		}
 	REQUIRES( isIntegerRange( blobNameLength ) );
 	dbmsInfo->blobNameLength = ( int ) blobNameLength;
@@ -1079,7 +1080,8 @@ static int getDateTimeInfo( INOUT_PTR DBMS_STATE_INFO *dbmsInfo )
 		   length value so we have to set it ourselves by taking the length 
 		   of the returned string.  The null-termination occurs as a side-
 		   effect of the buffer being initialised to zeroes */
-		dateTimeNameLength = strlen( dbmsInfo->dateTimeName );
+		dateTimeNameLength = strnlen_s( dbmsInfo->dateTimeName, 
+										CRYPT_MAX_TEXTSIZE );
 		}
 	REQUIRES( isIntegerRange( dateTimeNameLength ) );
 	dbmsInfo->dateTimeNameLength = ( int ) dateTimeNameLength;
@@ -1934,6 +1936,7 @@ static int performUpdate( INOUT_PTR DBMS_STATE_INFO *dbmsInfo,
 			}
 		return( CRYPT_OK );
 		}
+	ENSURES( command != NULL );
 
 	/* If it's the start of a transaction, turn autocommit off */
 	if( updateType == DBMS_UPDATE_BEGIN )

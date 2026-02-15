@@ -94,6 +94,7 @@ static int copyPayloadData( INOUT_PTR STREAM *stream,
 		}
 	ENSURES( isShortIntegerRangeNZ( bytesToRead ) );
 
+	REQUIRES( rangeCheck( bytesToRead, 1, dataMaxLength ) );
 	status = sread( stream, data, bytesToRead );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -287,6 +288,8 @@ static int processVendorSpecific( INOUT_PTR STREAM *stream,
 	   vendor-specific data that the server has helpfully sent *outside* the 
 	   secure tunnel for ease of attacker access, for later use by the 
 	   caller */
+	REQUIRES( boundsCheckZ( eapInfo->extraDataLength, extraDataLength, 
+							MAX_EXTRADATA_SIZE ) );
 	status = sread( stream, eapInfo->extraData + eapInfo->extraDataLength, 
 					extraDataLength );
 	if( cryptStatusOK( status ) )
@@ -323,7 +326,7 @@ int readRADIUSMessage( INOUT_PTR STREAM *stream,
 	NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
 	STM_TRANSPORTREAD_FUNCTION transportReadFunction;
 	STREAM radiusStream;
-	BYTE nonce[ RADIUS_NONCE_SIZE + 16 ];
+	BYTE nonce[ RADIUS_NONCE_SIZE + 8 ];
 	int type, counter, bytesRead, totalLength;
 	int status;
 
@@ -383,6 +386,7 @@ int readRADIUSMessage( INOUT_PTR STREAM *stream,
 	type = sgetc( &radiusStream );
 	counter = sgetc( &radiusStream );
 	totalLength = readUint16( &radiusStream );
+	REQUIRES( rangeCheck( RADIUS_NONCE_SIZE, 1, RADIUS_NONCE_SIZE ) );
 	status = sread( &radiusStream, nonce, RADIUS_NONCE_SIZE );
 	sMemDisconnect( &radiusStream );
 	if( cryptStatusError( status ) )
@@ -562,6 +566,109 @@ int readRADIUSMessage( INOUT_PTR STREAM *stream,
 	return( CRYPT_OK );
 	}
 
+/* Read an RFC 5997 RADIUS ping response, which is just an empty message:
+
+	byte		type = RADIUS_ACCESS_ACCEPT / RADIUS_ACCESS_REJECT
+	byte		counter
+	uint16		length = 20
+	byte[16]	nonce */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int readRADIUSPingResponse( INOUT_PTR STREAM *stream,
+							INOUT_PTR EAP_INFO *eapInfo )
+	{
+	NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
+	STM_TRANSPORTREAD_FUNCTION transportReadFunction;
+	STREAM radiusStream;
+	BYTE nonce[ RADIUS_NONCE_SIZE + 8 ];
+	int type, counter, bytesRead, totalLength, status;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( eapInfo, sizeof( EAP_INFO ) ) );
+
+	REQUIRES( netStream != NULL && sanityCheckNetStreamEAP( netStream ) );
+
+	/* Set up the function pointers.  We have to do this after the netStream
+	   check otherwise we'd potentially be dereferencing a NULL pointer */
+	transportReadFunction = ( STM_TRANSPORTREAD_FUNCTION ) \
+							FNPTR_GET( netStream->transportReadFunction );
+	REQUIRES( transportReadFunction != NULL );
+
+	/* Read the RADIUS ping response */
+	status = transportReadFunction( netStream, stream->buffer, 
+									RADIUS_MAX_PACKET_SIZE, &bytesRead, 
+									TRANSPORT_FLAG_NONE );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( bytesRead <= 0 && netStream->timeout <= 0 )
+		{
+		/* If this was a nonblocking read and no data was read, this isn't
+		   an error */
+		return( OK_SPECIAL );
+		}
+	if( bytesRead < RADIUS_HEADER_SIZE )
+		{
+		retExt( CRYPT_ERROR_TIMEOUT,
+				( CRYPT_ERROR_TIMEOUT, NETSTREAM_ERRINFO, 
+				  "Timed out reading RADIUS packet header, only got %d of "
+				  "%d bytes", bytesRead, RADIUS_HEADER_SIZE ) );
+		}
+
+	/* Decode the packet, which is an empty RADIUS message */
+	sMemConnect( &radiusStream, stream->buffer, RADIUS_HEADER_SIZE );
+	type = sgetc( &radiusStream );
+	counter = sgetc( &radiusStream );
+	totalLength = readUint16( &radiusStream );
+	REQUIRES( rangeCheck( RADIUS_NONCE_SIZE, 1, RADIUS_NONCE_SIZE ) );
+	status = sread( &radiusStream, nonce, RADIUS_NONCE_SIZE );
+	sMemDisconnect( &radiusStream );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( type <= RADIUS_TYPE_NONE || type >= RADIUS_TYPE_LAST )
+		{
+		retExt( CRYPT_ERROR_BADDATA,
+				( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
+				  "Invalid RADIUS packet type %d", type ) );
+		}
+	if( totalLength < RADIUS_MIN_PACKET_SIZE || \
+		totalLength > RADIUS_MAX_PACKET_SIZE )
+		{
+		/* First a general check that the packet length is valid */
+		retExt( CRYPT_ERROR_BADDATA,
+				( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
+				  "Invalid RADIUS packet length %d for packet type %s (%d), "
+				  "should be %d...%d", totalLength, 
+				  getRADIUSPacketName( type ), type, RADIUS_MIN_PACKET_SIZE, 
+				  RADIUS_MAX_PACKET_SIZE ) );
+		}
+	if( totalLength != bytesRead )
+		{
+		/* Now a more specific check that the packet size corresponds to the 
+		   data that was read */
+		retExt( CRYPT_ERROR_BADDATA,
+				( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
+				  "Invalid RADIUS packet length %d for packet type %s (%d), "
+				  "should have been %d", totalLength, 
+				  getRADIUSPacketName( type ), type, bytesRead ) );
+		}
+	eapInfo->radiusType = type;
+
+	DEBUG_PRINT_BEGIN();
+	DEBUG_PRINT(( "Read %s (%d) RADIUS packet, length %d, packet ID %d.\n", 
+				  getRADIUSPacketName( eapInfo->radiusType ), 
+				  eapInfo->radiusType, eapInfo->radiusLength,
+				  counter ));
+#ifdef DEBUG_TRACE_RADIUS
+	DEBUG_DUMP_DATA( stream->buffer, eapInfo->radiusLength );
+#endif /* DEBUG_TRACE_RADIUS */
+	DEBUG_PRINT_END();
+
+	/* If the server returns an Access Accept then everything is OK, 
+	   otherwise we can't continue */
+	return( ( eapInfo->radiusType == RADIUS_TYPE_ACCEPT ) ? \
+			CRYPT_OK : CRYPT_ERROR_PERMISSION );
+	}
+
 /* Process a RADIUS message consisting of RADIUS TLV packets:
 
 	byte		type
@@ -700,6 +807,14 @@ int processRADIUSTLVs( INOUT_PTR STREAM *stream,
 					status = CRYPT_ERROR_BADDATA;
 					break;
 					}
+				
+				/* If we're being asked to read more data and the tank is 
+				   full, there's a problem with the packet */
+				if( bytesRead >= dataMaxLength )
+					{
+					status = CRYPT_ERROR_OVERFLOW;
+					break;
+					}
 
 				/* Copy out as much payload data as we can */
 				status = copyPayloadData( stream, tlvLength, eapInfo, 
@@ -741,6 +856,7 @@ int processRADIUSTLVs( INOUT_PTR STREAM *stream,
 					status = CRYPT_ERROR_BADDATA;
 					break;
 					}
+				REQUIRES( rangeCheck( tlvLength, 1, CRYPT_MAX_HASHSIZE ) );
 				status = sread( stream, eapInfo->radiusStateNonce, 
 								tlvLength );
 				if( cryptStatusOK( status ) )

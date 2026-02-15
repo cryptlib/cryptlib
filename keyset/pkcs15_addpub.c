@@ -305,8 +305,9 @@ int pkcs15AddCert( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 		/* Get the tag for encoding the private-key data, which we're about 
 		   to update based on information from the certificate */
 		status = getKeyTypeTag( iCryptCert, CRYPT_ALGO_NONE, 
-								pkcs15infoPtr->isPrivKeyExt, 
-								&privKeyTypeTag );
+								pkcs15infoPtr->isPrivKeyExt ? \
+									KEYTYPE_TAG_PRIVKEY_EXT : \
+									KEYTYPE_TAG_PRIVKEY, &privKeyTypeTag );
 		if( cryptStatusError( status ) )
 			return( status );
 
@@ -551,7 +552,7 @@ int pkcs15AddPublicKey( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 	REQUIRES( errorInfo != NULL );
 
 	/* Get the tag for encoding the key data */
-	status = getKeyTypeTag( CRYPT_UNUSED, pkcCryptAlgo, FALSE, 
+	status = getKeyTypeTag( CRYPT_UNUSED, pkcCryptAlgo, KEYTYPE_TAG_PUBKEY, 
 							&keyTypeTag );
 	if( cryptStatusError( status ) )
 		return( status );

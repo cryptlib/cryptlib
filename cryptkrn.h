@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib Kernel Interface Header File 				*
-*						Copyright Peter Gutmann 1992-2019					*
+*						Copyright Peter Gutmann 1992-2024					*
 *																			*
 ****************************************************************************/
 
@@ -282,7 +282,8 @@ typedef enum {
 	MESSAGE_CHANGENOTIFY				&value			attributeType
 
 	MESSAGE_CTX_ENCRYPT/DECRYPT/SIGN/-
-		SIGCHECK/HASH					&value			valueLength
+		SIGCHECK/SIGN_MSG/
+		SIGCHECK_MSG/HASH				&value			valueLength
 	MESSAGE_CTX_GENKEY					NULL			0
 	MESSAGE_CTX_GENIV					NULL			0
 
@@ -354,11 +355,17 @@ typedef enum {
 	   other messages to notify an object of a change in its state */
 	MESSAGE_CHANGENOTIFY,		/* Notification of obj.status chge.*/
 
-	/* Object-type-specific messages */
+	/* Object-type-specific messages.  The reason why there's a SIGN_MSG
+	   alongside the SIGN is to deal with special-snowflake algorithms 
+	   designed to not allow signing a hash value, or at least that in
+	   theory allow it but that were cargo-culted in a form that doesn't
+	   allow it */
 	MESSAGE_CTX_ENCRYPT,		/* Context: Action = encrypt */
 	MESSAGE_CTX_DECRYPT,		/* Context: Action = decrypt */
 	MESSAGE_CTX_SIGN,			/* Context: Action = sign */
 	MESSAGE_CTX_SIGCHECK,		/* Context: Action = sigcheck */
+	MESSAGE_CTX_SIGN_MSG,		/* Context: Action = sign message */
+	MESSAGE_CTX_SIGCHECK_MSG,	/* Context: Action = sigcheck message */
 	MESSAGE_CTX_HASH,			/* Context: Action = hash */
 	MESSAGE_CTX_GENKEY,			/* Context: Generate a key */
 	MESSAGE_CTX_GENIV,			/* Context: Generate an IV */
@@ -412,6 +419,8 @@ typedef enum {
 	IMESSAGE_CTX_DECRYPT = MKINTERNAL( MESSAGE_CTX_DECRYPT ),
 	IMESSAGE_CTX_SIGN = MKINTERNAL( MESSAGE_CTX_SIGN ),
 	IMESSAGE_CTX_SIGCHECK = MKINTERNAL( MESSAGE_CTX_SIGCHECK ),
+	IMESSAGE_CTX_SIGN_MSG = MKINTERNAL( MESSAGE_CTX_SIGN_MSG ),
+	IMESSAGE_CTX_SIGCHECK_MSG = MKINTERNAL( MESSAGE_CTX_SIGCHECK_MSG ),
 	IMESSAGE_CTX_HASH = MKINTERNAL( MESSAGE_CTX_HASH ),
 	IMESSAGE_CTX_GENKEY = MKINTERNAL( MESSAGE_CTX_GENKEY ),
 	IMESSAGE_CTX_GENIV = MKINTERNAL( MESSAGE_CTX_GENIV ),
@@ -770,16 +779,47 @@ extern const int messageValueCursorPrevious, messageValueCursorLast;
 #define ACTION_PERM_BASE	MESSAGE_CTX_ENCRYPT
 #define ACTION_PERM_MASK	0x03
 #define ACTION_PERM_BITS	2
-#define ACTION_PERM_COUNT	( MESSAGE_CTX_GENKEY - \
-							  MESSAGE_CTX_ENCRYPT + 1 )
-#define ACTION_PERM_LAST	\
-		( 1 << ( ( ( ACTION_PERM_COUNT ) * ACTION_PERM_BITS ) + 1 ) )
-#define ACTION_PERM_SHIFT( action ) \
-		( ( ( action ) - ACTION_PERM_BASE ) * ACTION_PERM_BITS )
+#define ACTION_PERM_COUNT	6
+
+#define ACTION_MAP( action ) \
+		( ( ( action ) < MESSAGE_CTX_ENCRYPT || \
+			( action ) > MESSAGE_CTX_GENKEY ) ? ( 32 - 1 ) : \
+		  ( action ) < MESSAGE_CTX_SIGN_MSG ? \
+			( action ) - ACTION_PERM_BASE : \
+			( action ) - ( ACTION_PERM_BASE + 2 ) )
+		/* A complex macro to map an action like MESSAGE_CTX_SIGN to a value
+		   that can be used to create a permission bitmap by acting as a 
+		   shift amount for the base permission.  If the value is out of 
+		   range (programming error) it's given a shift count that will 
+		   typically result in an all-zero permission value, so 
+		   ACTION_PERM_NONE, however we also have to be careful not to use a
+		   too-large amount or some compilers will just optimise it away.
+		   
+		   Failing that, if it's before one of the two alternative signature-
+		   type actions then it's mapped to the value, if it's at or above 
+		   one of the two alternative signature-type actions then it's 
+		   remapped down below the two extra actions and from there to the 
+		   value.  
+		   
+		   This rather complex expression relies on the fact that in almost 
+		   all cases where it's used the preprocessor can evaluate the 
+		   result at compile time from constant values, so the final 
+		   expression is a single integer constant */
+
 #define MK_ACTION_PERM( action, perm ) \
-		( ( perm ) << ACTION_PERM_SHIFT( action ) )
+		( ( perm ) << ( ACTION_MAP( action ) * ACTION_PERM_BITS ) )
+#define EXTRACT_ACTION_PERM( perm, action ) \
+		( ( perm ) >> ( ACTION_MAP( action ) * ACTION_PERM_BITS ) )
+		/* Turn an action + desired permission into a permission bitmap 
+		   and extract a permission from an action and permission bitmap */
+
 #define MK_ACTION_PERM_NONE_EXTERNAL( action ) \
 		( ( action ) & ACTION_PERM_NONE_EXTERNAL_ALL )
+		/* Mask actions so no external access is permitted */
+
+#define ACTION_PERM_LAST	\
+		( 1 << ( ( ( ACTION_PERM_COUNT ) * ACTION_PERM_BITS ) + 1 ) )
+		/* Used for range checks */
 
 /* Symbolic defines to allow the action flags to be range-checked alongside 
    all of the other flag types */
@@ -811,8 +851,7 @@ typedef enum {
 	MECHANISM_DERIVE_PBKDF2,	/* PBKDF2 / PKCS #5v2 derive */
 	MECHANISM_DERIVE_HKDF,		/* HKDF derive */
 	MECHANISM_DERIVE_PKCS12,	/* PKCS #12 derive */
-	MECHANISM_DERIVE_SSL,		/* SSLv3 derive */
-	MECHANISM_DERIVE_TLS,		/* TLS derive */
+	MECHANISM_DERIVE_TLS,		/* TLS 1.0-1.1 derive */
 	MECHANISM_DERIVE_TLS12,		/* TLS 1.2 derive */
 	MECHANISM_DERIVE_CMP,		/* CMP/Entrust derive */
 	MECHANISM_DERIVE_PGP,		/* OpenPGP S2K derive */
@@ -901,8 +940,21 @@ typedef struct {
 	int signatureLength;
 	VALUE_HANDLE CRYPT_CONTEXT hashContext;	/* Hash context */
 	VALUE_HANDLE CRYPT_CONTEXT hashContext2;/* Secondary hash context */
-	VALUE_HANDLE CRYPT_HANDLE signContext;	/* Signing context */
+	VALUE_HANDLE CRYPT_HANDLE signContext;	/* Signing/sig check context */
 	} MECHANISM_SIGN_INFO;
+
+/* A structure to hold information needed by the sign/sig check message 
+   mechanism */
+
+typedef struct {
+	BUFFER_OPT_FIXED( signatureLength ) \
+		void *signature;					/* Signature */
+	int signatureLength;
+	BUFFER_FIXED( messageLength ) \
+		void *message;						/* Message to sign/sig check */
+	int messageLength;
+	VALUE_HANDLE CRYPT_HANDLE signContext;	/* Signing/sig check context */
+	} MECHANISM_SIGN_MSG_INFO;
 
 /* A structure to hold information needed by the key derivation mechanism. 
    This differs from the KDF mechanism that follows in that the "Derive" 
@@ -1003,6 +1055,16 @@ typedef struct {
 		( mechanismInfo )->signatureLength = ( sigLen ); \
 		( mechanismInfo )->hashContext = ( hashCtx ); \
 		( mechanismInfo )->hashContext2 = ( hashCtx2 ); \
+		( mechanismInfo )->signContext = ( signCtx ); \
+		}
+
+#define setMechanismSignMsgInfo( mechanismInfo, sig, sigLen, msg, msgLen, signCtx ) \
+		{ \
+		memset( mechanismInfo, 0, sizeof( MECHANISM_SIGN_MSG_INFO ) ); \
+		( mechanismInfo )->signature = ( sig ); \
+		( mechanismInfo )->signatureLength = ( sigLen ); \
+		( mechanismInfo )->message = ( msg ); \
+		( mechanismInfo )->messageLen = ( msgLen ); \
 		( mechanismInfo )->signContext = ( signCtx ); \
 		}
 
@@ -1410,6 +1472,8 @@ PARAMCHECK_MESSAGE( MESSAGE_CTX_ENCRYPT, INOUT_PTR, IN_LENGTH ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_DECRYPT, INOUT_PTR, IN_LENGTH ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_SIGN, IN_PTR, IN_LENGTH ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_SIGCHECK, IN_PTR, IN_LENGTH ) \
+PARAMCHECK_MESSAGE( MESSAGE_CTX_SIGN_MSG, IN_PTR, IN_LENGTH ) \
+PARAMCHECK_MESSAGE( MESSAGE_CTX_SIGCHECK_MSG, IN_PTR, IN_LENGTH ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_HASH, IN_PTR, IN_LENGTH_Z ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_GENKEY, PARAM_NULL, PARAM_IS( 0 ) ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_GENIV, PARAM_NULL, PARAM_IS( 0 ) ) \
@@ -1538,27 +1602,19 @@ typedef enum {
 	} MUTEX_TYPE;
 
 /* Execute a function in a background thread.  This takes a pointer to the 
-   function to execute in the background thread, a block of memory for 
-   thread state storage, a set of parameters to pass to the thread function, 
-   and an optional semaphore ID to set once the thread is started.  A 
-   function is run via a background thread as follows:
+   function to execute in the background thread and an optional semaphore ID 
+   to set once the thread is started.  A function is run via a background 
+   thread as follows:
 
 	void threadFunction( const THREAD_PARAMS *threadParams )
 		{
 		}
 
-	krnlDispatchThread( threadFunction, &threadState, ptrParam, intParam, 
-						SEMAPHORE_ID );
-
-   Note that the thread parameters must be held in static storage because 
-   the caller's stack frame may have long since disappeared before the 
-   thread gets to access them */
+	krnlDispatchThread( threadFunction, SEMAPHORE_ID ); */
 
 struct TP;
 
 typedef void ( *THREAD_FUNCTION )( const struct TP *threadParams );
-
-typedef BYTE THREAD_STATE[ 56 ];
 
 typedef struct TP {
 	void *ptrParam;					/* Pointer parameter */
@@ -1567,8 +1623,7 @@ typedef struct TP {
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int krnlDispatchThread( THREAD_FUNCTION threadFunction,
-						THREAD_STATE threadState, void *ptrParam, 
-						const int intParam, const SEMAPHORE_TYPE semaphore );
+						const SEMAPHORE_TYPE semaphore );
 
 /* Wait on a semaphore, enter and exit a mutex */
 

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib System Device Routines						*
-*						Copyright Peter Gutmann 1995-2021					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -64,7 +64,6 @@ static const MECHANISM_FUNCTION_INFO mechanismFunctions[] = {
 	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_HOTP, ( MECHANISM_FUNCTION ) deriveHOTP },
 #endif /* USE_TLS || USE_SSH */
 #ifdef USE_TLS
-	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_SSL, ( MECHANISM_FUNCTION ) deriveSSL },
 	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_TLS, ( MECHANISM_FUNCTION ) deriveTLS },
 	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_TLS12, ( MECHANISM_FUNCTION ) deriveTLS12 },
 	{ MESSAGE_DEV_SIGN, MECHANISM_SIG_TLS, ( MECHANISM_FUNCTION ) signTLS },
@@ -495,7 +494,8 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 
 	/* Complete the initialisation and mark the device as active */
 	deviceInfo->label = "cryptlib system device";
-	deviceInfo->labelLen = strlen( deviceInfo->label );
+	deviceInfo->labelLen = strnlen_s( deviceInfo->label, 
+									  CRYPT_MAX_TEXTSIZE );
 	SET_FLAG( deviceInfo->flags, DEVICE_FLAG_ACTIVE | \
 								 DEVICE_FLAG_LOGGEDIN | \
 								 DEVICE_FLAG_TIME );
@@ -711,12 +711,12 @@ static const GETCAPABILITY_FUNCTION getCapabilityTable[] = {
 #ifdef USE_ECDH
 	getECDHCapability,
 #endif /* USE_ECDH */
-#ifdef USE_EDDSA
-//	getEDDSACapability,
-#endif /* USE_EDDSA */
 #ifdef USE_25519
-//	get25519Capability,
+	getX25519Capability,
 #endif /* USE_25519 */
+#ifdef USE_ED25519
+	getEd25519Capability,
+#endif /* USE_ED25519 */
 
 	getGenericSecretCapability,
 

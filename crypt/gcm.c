@@ -180,7 +180,15 @@ ret_type gcm_init_message(                  /* initialise a new message     */
     {   n_pos = iv_len;
         while(n_pos >= BLOCK_SIZE)
         {
-            xor_block_aligned(ctx->ctr_val, ctx->ctr_val, iv);
+			/* The original code assumed that the IV being loaded was machine
+			   word-aligned, which meant the code would segfault if it wasn't.
+			   To deal with this we check for 64-bit alignment and use the 
+			   marginally slower non-aligned XOR instead, this makes next to no
+			   difference since we're just loading a single IV - pcg */
+			if( ( uintptr_t ) iv & 0x03 )
+				xor_block( ctx->ctr_val, ctx->ctr_val, iv );
+			else
+				xor_block_aligned(ctx->ctr_val, ctx->ctr_val, iv);
             n_pos -= BLOCK_SIZE;
             iv += BLOCK_SIZE;
             gf_mul_hh((void*)ctx->ctr_val, ctx);
@@ -321,6 +329,7 @@ ret_type gcm_auth_data(                     /* authenticate ciphertext data */
     return RETURN_GOOD;
 }
 
+ASAN_NOCHECK_INTEGER_TRUNC	/* pcg */
 ret_type gcm_crypt_data(                    /* encrypt or decrypt data      */
             unsigned char data[],           /* the data buffer              */
             unsigned long data_len,         /* and its length in bytes      */

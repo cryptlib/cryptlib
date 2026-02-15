@@ -92,11 +92,14 @@ void fastPoll( void );
    state pointer is declared as a void * because to the caller it's an
    opaque memory block while to the randomData routines it's structured
    storage.
-   
-   RANDOM_STATE is storage for the internal-only RANDOM_INFO so we have to
-   go via a void pointer rather than a forward declaration of a struct RS */
 
-typedef BYTE RANDOM_STATE[ 128 ];
+   The RANDOM_STATE define provides an opaque memory block for this 
+   corresponding to the RANDOM_STATE_INFO structure defined in 
+   random/random.c.  This contains 4 machine-word-sized elements (a pointer 
+   and three integers) that we overallocate by two to get a worst-case of 6 
+   words */
+
+typedef ALIGN_DATA_TYPE( RANDOM_STATE[ 6 ] );
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int initRandomData( OUT_PTR void *statePtr, 

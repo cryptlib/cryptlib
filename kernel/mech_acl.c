@@ -408,21 +408,10 @@ static const MECHANISM_ACL mechanismDeriveACL[] = {
 		MKACP_S( 4, 512 ),					/* Salt */
 		MKACP_N( 1, MAX_KEYSETUP_ITERATIONS ) } },	/* Iterations */
 
-	/* SSL derive */
-#ifdef USE_TLS
-	{ MECHANISM_DERIVE_SSL,
-	  { MKACP_S( 48, 512 ),					/* Master secret/key data */
-		MKACP_S( 48, CRYPT_MAX_PKCSIZE ),	/* Premaster secret/master secret */
-		MKACP_N_FIXED( CRYPT_ALGO_NONE ),	/* Implicit SHA1+MD5 */
-		MKACP_N( 0, 0 ),					/* Hash parameters */
-		MKACP_S( 64, 64 ),					/* Salt */
-		MKACP_N( 1, 1 ) } },				/* Iterations */
-#endif /* USE_TLS */
-
-	/* TLS/TLS 1.2 derive.  The odd lower bounds on the output and salt are 
-	   needed when generating the TLS hashed MAC and (for the salt and 
-	   output) and when generating a master secret from a fixed shared key 
-	   (for the input) */
+	/* TLS 1.0-1.1/TLS 1.2 derive.  The odd lower bounds on the output and 
+	   salt are needed when generating the TLS hashed MAC and (for the salt 
+	   and output) and when generating a master secret from a fixed shared 
+	   key (for the input) */
 #ifdef USE_TLS
 	{ MECHANISM_DERIVE_TLS,
 	  { MKACP_S( 12, 512 ),					/* Master secret/key data (usually 48) */
@@ -1007,7 +996,6 @@ int preDispatchCheckMechanismDeriveAccess( IN_HANDLE const int objectHandle,
 			  message == IMESSAGE_DEV_DERIVE );
 	REQUIRES( messageValue == MECHANISM_DERIVE_PBKDF2 || \
 			  messageValue == MECHANISM_DERIVE_PKCS12 || \
-			  messageValue == MECHANISM_DERIVE_SSL || \
 			  messageValue == MECHANISM_DERIVE_TLS || \
 			  messageValue == MECHANISM_DERIVE_TLS12 || \
 			  messageValue == MECHANISM_DERIVE_CMP || \

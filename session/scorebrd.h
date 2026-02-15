@@ -44,12 +44,6 @@ typedef struct {
 	int metaData;
 	} SCOREBOARD_ENTRY_INFO;
 
-/* Storage for the scoreboard state.  When passed to scoreboard functions
-   it's declared as a void * because to the caller it's an opaque memory 
-   block while to the scoreboard routines it's structured storage */
-
-typedef BYTE SCOREBOARD_STATE[ 64 ];
-
 /****************************************************************************
 *																			*
 *							Scoreboard Functions							*

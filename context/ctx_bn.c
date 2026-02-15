@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Bignum Support Routines					*
-*						Copyright Peter Gutmann 1995-2016					*
+*						Copyright Peter Gutmann 1995-2021					*
 *																			*
 ****************************************************************************/
 
@@ -24,12 +24,12 @@
    
    We also define a few static variables that are used to record the size 
    limits reached by various bignum operations, in this case the highest-
-   used entry in a BN_CTX.  We start at 24 to avoid outputting too many
+   used entry in a BN_CTX.  We start at 28 to avoid outputting too many
    noise values */
 
 #if !defined( NDEBUG ) && defined( USE_ERRMSGS )
 static const BOOLEAN diagOutput = FALSE;
-static int bnCtxMaxIndex = 24;
+static int bnCtxMaxIndex = 28;
 #endif /* Debug build with USE_ERRMSGS */
 
 /* If we're not using dynamically-allocated bignums then we need to convert 
@@ -748,8 +748,8 @@ void BN_CTX_end( INOUT_PTR BN_CTX *bnCTX )
 
 	/* Get the range of bignums that need to be unstacked */
 	stackPosStart = bnCTX->stack[ bnCTX->stackPos - 1 ];
-	stackPosEnd = bnCTX->stack[ bnCTX->stackPos ];
 	ENSURES_V( stackPosStart >= 0 && stackPosStart < BN_CTX_ARRAY_SIZE );
+	stackPosEnd = bnCTX->stack[ bnCTX->stackPos ];
 	ENSURES_V( stackPosEnd >= 0 && stackPosEnd < BN_CTX_ARRAY_SIZE );
 
 	/* Only enable the following when required, the bignum code performs

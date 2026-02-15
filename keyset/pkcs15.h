@@ -190,6 +190,17 @@ typedef enum {
 	CERTADD_LAST			/* Last valid certificate add action */
 	} CERTADD_TYPE;
 
+/* The type of PKCS #15 key-type tag that we want to obtain for a given 
+   cryptlib algorithm */
+
+typedef enum {
+	KEYTYPE_TAG_NONE,		/* No key type tag */
+	KEYTYPE_TAG_PUBKEY,		/* Public-key type tag */
+	KEYTYPE_TAG_PRIVKEY,	/* Private-key type tag */
+	KEYTYPE_TAG_PRIVKEY_EXT,/* Extended private-key type tag */
+	KEYTYPE_TAG_LAST		/* Last valid key type tag */
+	} KEYTYPE_TAG_TYPE;
+
 /* Since PKCS #15 uses more key ID types than are used by the rest of
    cryptlib, we extend the standard range with PKCS15-only types */
 
@@ -318,10 +329,19 @@ enum { CTAG_PK_IDENTIFIERS };
 
 /* Context-specific tags for the public/private key objects record */
 
-enum { CTAG_PK_ECC, CTAG_PK_DH, CTAG_PK_DSA, CTAG_PK_KEA,
-	   CTAG_PK_RSA_EXT, CTAG_PK_ECC_EXT, CTAG_PK_DLP_EXT };
+enum { CTAG_PK_ECC, CTAG_PK_DH, CTAG_PK_DSA, CTAG_PK_KEA, 
+	   CTAG_PK_BERNSTEIN };
+enum { CTAG_PR_ECC, CTAG_PR_DH, CTAG_PR_DSA, CTAG_PR_KEA,
+	   CTAG_PR_RSA_EXT, CTAG_PR_ECC_EXT, CTAG_PR_DLP_EXT, 
+	   CTAG_PR_BERNSTEIN_EXT };
 
-#define isPKExt( tag )		( tag >= CTAG_PK_RSA_EXT ) 
+/* Check whether a private-key tag specifies the use of the extended format.
+   Note that we have to perform a full range check rather than just a check
+   that it's past the first extended tag because untagged RSA keys have a
+   value beyond the last extended tag */
+
+#define isPKExt( tag )		( ( tag ) >= CTAG_PR_RSA_EXT && \
+							  ( tag ) <= CTAG_PR_BERNSTEIN_EXT ) 
 
 /* Context-specific tags for the data objects record */
 
@@ -369,7 +389,7 @@ int getValidityInfo( INOUT_PTR PKCS15_INFO *pkcs15info,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 4 ) ) \
 int getKeyTypeTag( IN_HANDLE_OPT const CRYPT_CONTEXT cryptContext,
 				   IN_ALGO_OPT const CRYPT_ALGO_TYPE cryptAlgo,
-				   IN_BOOL const BOOLEAN isExtFormat,
+				   IN_ENUM( KEYTYPE_TAG ) const KEYTYPE_TAG_TYPE tagType,
 				   OUT_TAG_Z int *tag );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
 int addConfigData( IN_ARRAY( noPkcs15objects ) PKCS15_INFO *pkcs15info, 

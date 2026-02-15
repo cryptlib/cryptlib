@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  Unix Randomness-Gathering Code					*
-*						Copyright Peter Gutmann 1996-2022					*
+*						Copyright Peter Gutmann 1996-2025					*
 *	Contributions to slow-poll code by Paul Kendall and Chris Wedgwood		*
 *																			*
 ****************************************************************************/
@@ -319,7 +319,8 @@ void fastPoll( void )
 #endif /* rdtsc available */
 #if defined( __clang__ ) && \
 	!( defined( __arm ) || defined( __arm__ ) || \
-	   defined( __aarch64__ ) || defined( __arm64 ) )
+	   defined( __aarch64__ ) || defined( __arm64 ) || \
+	   defined( __riscv ) )
   /* ARM systems have a cycle-counter that's accessed via 
      "mrs reg, PMCCNTR_EL0", but access from user-space to this, and the
 	 Performance Monitoring Unit (PMU) that it's part of, is usually 
@@ -329,7 +330,10 @@ void fastPoll( void )
 	 http://zhiyisun.github.io/2016/03/02/How-to-Use-Performance-Monitor-Unit-(PMU)-of-64-bit-ARMv8-A-in-Linux.html  
 	 Because it's unlikely to work in practice, we disable it for ARM
 	 systems even if the compiler would otherwise give us the intrinsic 
-	 needed to access it */
+	 needed to access it.
+	 
+	 We also have to disable it for RISC-V for the same reason, see the note 
+	 below in the RISC-V section */
   #if __has_builtin( __builtin_readcyclecounter )
 	cycleCounterValue = __builtin_readcyclecounter();
 
@@ -338,12 +342,30 @@ void fastPoll( void )
 #endif /* __clang__ */
 #if ( defined( __GNUC__ ) || defined( __clang__ ) ) && defined( __riscv )
 	{
-	long cycles, timer, instret;
-
 	/* RISC-V MSR read code, from "The RISC-V Instruction Set Manual, 
 	   Volume II: Privileged Architecture", section "Control and Status 
 	   Registers", read the cycle count (rdcycle), timer (rdtime), and 
-	   instructions-retired count (rdinstret) */
+	   instructions-retired count (rdinstret).
+
+	   Starting with Linux 6.6 it hasn't been possible to read cycle count 
+	   and instructions-retired values from userspace because of "security 
+	   concerns", see
+	   https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=cc4c07c89aada16229084eeb93895c95b7eabaa3,
+	   https://groups.google.com/a/groups.riscv.org/g/sw-dev/c/REWcwYnzsKE
+	   so we can only use the value from the timer register */
+  #ifdef __linux__ 
+	long timer;
+
+	asm volatile( "csrr %[timer], time\n\n"
+		: [timer] "=r"(timer) /* Output */
+		: /* Input */
+		: /* Registers clobbered */
+		);
+
+	addRandomData( randomState, &timer, sizeof( long ) );
+  #else
+	long cycles, timer, instret;
+
 	asm volatile( "csrr %[cycles], cycle\n\t"
 		"csrr %[timer], time\n\t"
 		"csrr %[instret], instret\n\n"
@@ -353,9 +375,11 @@ void fastPoll( void )
 		: /* Input */
 		: /* Registers clobbered */
 		);
+
 	addRandomData( randomState, &cycles, sizeof( long ) );
 	addRandomData( randomState, &timer, sizeof( long ) );
 	addRandomData( randomState, &instret, sizeof( long ) );
+  #endif /* Linux vs. everything else */
 	}
 #endif /* RISC-V */
 #if ( defined( __QNX__ ) && OSVERSION >= 5 )
@@ -697,7 +721,7 @@ static int getIfaddrsData( void )
 	for( ifAddrPtr = ifAddr; ifAddrPtr != NULL; 
 		 ifAddrPtr = ifAddrPtr->ifa_next )
 		{
-		void *infoPtr = NULL;
+		const void *infoPtr = NULL;
 		int infoSize = 0;
 		
 		if( ifAddrPtr->ifa_addr == NULL )
@@ -897,13 +921,14 @@ static int getProcData( void )
 	RANDOM_STATE randomState;
 	BYTE buffer[ RANDOM_BUFSIZE + 8 ];
 	char fileName[ 128 + 8 ];
-	int fd, noEntries = 0, quality, status;
+	int fd, noEntries = 0, quality, result, status;
 
 	/* Try and open the process info for this process.  We don't use 
 	   O_NOFOLLOW because on some Unixen special files can be symlinks and 
 	   in any case a system that allows attackers to mess with privileged 
 	   filesystems like this is presumably a goner anyway */
-	sprintf_s( fileName, 128, "/proc/%d", getpid() );
+	result = sprintf_s( fileName, 128, "/proc/%d", getpid() );
+	ENSURES( rangeCheck( result, 7, 127 ) );
 	if( ( fd = open( fileName, O_RDONLY ) ) == -1 )
 		return( 0 );
 	if( fd <= 2 )
@@ -1412,13 +1437,13 @@ static int getProcFSdata( void )
 		};
 	MESSAGE_DATA msgData;
 	BYTE buffer[ PROCS_BUFSIZE + 8 ];
-	int procIndex, procFD, procValue = 0, quality;
+	int procIndex, procFD, procValue = 0, result, quality;
 
 	/* Read the first 1K of data from some of the more useful sources (most
 	   of these produce far less than 1K output) */
 	for( procIndex = 0; 
-		 procSources[ procIndex ].source != NULL && \
-			procIndex < FAILSAFE_ARRAYSIZE( procSources, PROCSOURCE_INFO );
+		 procIndex < FAILSAFE_ARRAYSIZE( procSources, PROCSOURCE_INFO ) && \
+			procSources[ procIndex ].source != NULL;
 		 procIndex++ )
 		{
 		char fileName[ 128 + 8 ];
@@ -1428,8 +1453,9 @@ static int getProcFSdata( void )
 		   some Unixen special files can be symlinks and in any case a 
 		   system that allows attackers to mess with privileged filesystems 
 		   like this is presumably a goner anyway */
-		sprintf_s( fileName, 128, "/proc/%s", 
-				   procSources[ procIndex ].source );
+		result = sprintf_s( fileName, 128, "/proc/%s", 
+							procSources[ procIndex ].source );
+		ENSURES( rangeCheck( result, 7, 127 ) );
 		procFD = open( fileName, O_RDONLY );
 		if( procFD < 0 )
 			continue;
@@ -1591,18 +1617,20 @@ static int getSysFSdata( void )
 	/* Read the first 1K of data from some of the more useful sources (most
 	   of these produce far less than 1K output) */
 	for( sysfsIndex = 0; 
-		 sysfsSources[ sysfsIndex ] != NULL && \
-			sysfsIndex < FAILSAFE_ARRAYSIZE( sysfsSources, char * );
+		 sysfsIndex < FAILSAFE_ARRAYSIZE( sysfsSources, char * ) && \
+			sysfsSources[ sysfsIndex ] != NULL;
 		 sysfsIndex++ )
 		{
 		char fileName[ 128 + 8 ];
-		int count;
+		int count, result;
 
 		/* Try and open the data source.  We don't use O_NOFOLLOW because 
 		   sysfs is typically symlinked all over itself, with links from
 		   /sys/whatever going into the system-specific /sys/devices tree
 		   (as well as circular links) */
-		sprintf_s( fileName, 128, "/sys/%s", sysfsSources[ sysfsIndex ] );
+		result = sprintf_s( fileName, 128, "/sys/%s", 
+							sysfsSources[ sysfsIndex ] );
+		ENSURES( rangeCheck( result, 6, 127 ) );
 		sysfsFD = open( fileName, O_RDONLY );
 		if( sysfsFD < 0 )
 			continue;
@@ -1877,8 +1905,9 @@ static int getEGDdata( void )
 	sockFD = socket( AF_UNIX, SOCK_STREAM, 0 );
 	if( sockFD < 0 )
 		return( 0 );
-	for( egdIndex = 0; egdSources[ egdIndex ] != NULL && \
-					   egdIndex < FAILSAFE_ARRAYSIZE( egdSources, char * ); 
+	for( egdIndex = 0; 
+		 egdIndex < FAILSAFE_ARRAYSIZE( egdSources, char * ) && \
+			egdSources[ egdIndex ] != NULL;
 		 egdIndex++ )
 		{
 		struct sockaddr_un sockAddr;
@@ -1908,11 +1937,16 @@ static int getEGDdata( void )
 	buffer[ 0 ] = 1;
 	buffer[ 1 ] = DEVRANDOM_BUFSIZE;
 	status = write( sockFD, buffer, 2 );
-	if( status == 2 )
-		{
+	if( status != 2 )
+		status = -1;
+	else
 		status = read( sockFD, buffer, 1 );
+	if( status != 1 )
+		status = -1;
+	else
+		{
 		noBytes = buffer[ 0 ];
-		if( status != 1 || noBytes < 0 || noBytes > DEVRANDOM_BUFSIZE )
+		if( noBytes < 1 || noBytes > DEVRANDOM_BUFSIZE )
 			status = -1;
 		else
 			status = read( sockFD, buffer, noBytes );
@@ -2623,8 +2657,10 @@ static void childPollingProcess( const int existingEntropy )
 
 	/* Fire up each randomness source */
 	FD_ZERO( &fds );
-	for( i = 0; dataSources[ i ].path != NULL && \
-				i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ); i++ )
+	for( i = 0; 
+		 i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ) && \
+			dataSources[ i ].path != NULL; 
+		 i++ )
 		{
 		/* Check for the end-of-lightweight-sources marker */
 		if( dataSources[ i ].path[ 0 ] == '\0' )
@@ -2702,9 +2738,9 @@ static void childPollingProcess( const int existingEntropy )
 	/* Suck up all of the data that we can get from each of the sources */
 	status = setMonoTimer( &timerInfo, SLOWPOLL_TIMEOUT );
 	ENSURES_EXIT( cryptStatusOK( status ) );
-	for( moreSources = TRUE, iterationCount = 0;
-		 moreSources && bufPos < gathererBufSize && \
-			iterationCount < FAILSAFE_ITERATIONS_MAX; 
+	for( iterationCount = 0, moreSources = TRUE;
+		 iterationCount < FAILSAFE_ITERATIONS_MAX && \
+			moreSources && bufPos < gathererBufSize;
 		 iterationCount++ )
 		{
 		/* Wait for data to become available from any of the sources, with a
@@ -2722,8 +2758,9 @@ static void childPollingProcess( const int existingEntropy )
 			break;
 
 		/* One of the sources has data available, read it into the buffer */
-		for( i = 0; dataSources[ i ].path != NULL && \
-					i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ); 
+		for( i = 0; 
+			 i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ) && \
+				dataSources[ i ].path != NULL;
 			 i++ )
 			{
 			if( dataSources[ i ].pipe != NULL && \
@@ -2740,8 +2777,9 @@ static void childPollingProcess( const int existingEntropy )
 		/* Check if there's more input available on any of the sources */
 		moreSources = FALSE;
 		FD_ZERO( &fds );
-		for( i = 0; dataSources[ i ].path != NULL && \
-					i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ); 
+		for( i = 0; 
+			 i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ) && \
+				dataSources[ i ].path != NULL;
 			 i++ )
 			{
 			if( dataSources[ i ].pipe != NULL )
@@ -2757,8 +2795,9 @@ static void childPollingProcess( const int existingEntropy )
 		   sources */
 		if( checkMonoTimerExpired( &timerInfo ) )
 			{
-			for( i = 0; dataSources[ i ].path != NULL && \
-						i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ); 
+			for( i = 0; 
+				 i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ) && \
+					dataSources[ i ].path != NULL;
 				 i++ )
 				{
 				if( dataSources[ i ].pipe != NULL )
@@ -3147,7 +3186,14 @@ void slowPoll( void )
 
 	/* Make sure that we don't start more than one slow poll at a time.  The
 	   gathererProcess value may be positive (a PID) or -1 (error), so we
-	   compare it to the specific value 0 (= not-used) in the check */
+	   compare it to the specific value 0 (= not-used) in the check.
+	   
+	   Some static analysers will complain about the use of potentially 
+	   blocking calls to read() in functions called from this one, this
+	   isn't a problem because the calls, to things like /dev/urandom, will
+	   only block if something has gone catastrophically wrong, and all 
+	   it'll do is stall any other threads that come along behind us to
+	   call slowPoll() */
 	lockPollingMutex();
 	if( gathererProcess != 0 )
 		{

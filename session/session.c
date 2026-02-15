@@ -185,7 +185,7 @@ BOOLEAN checkAttributesConsistent( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			CHECK_ATTR_PRIVKEY | CHECK_ATTR_PRIVKEYSET },
 		{ CRYPT_SESSINFO_CACERTIFICATE, 
 			CHECK_ATTR_CACERT | CHECK_ATTR_FINGERPRINT },
-		{ CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1, 
+		{ CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2, 
 			CHECK_ATTR_FINGERPRINT | CHECK_ATTR_CACERT },
 		{ CRYPT_ERROR, 0 }, { CRYPT_ERROR, 0 } 
 		};
@@ -197,7 +197,7 @@ BOOLEAN checkAttributesConsistent( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES_B( attribute == CRYPT_SESSINFO_REQUEST || \
 				attribute == CRYPT_SESSINFO_PRIVATEKEY || \
 				attribute == CRYPT_SESSINFO_CACERTIFICATE || \
-				attribute == CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 );
+				attribute == CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 );
 
 	/* Find the excluded-attribute information for this attribute */
 	status = mapValue( attribute, &flags, excludedAttrTbl,
@@ -230,10 +230,10 @@ BOOLEAN checkAttributesConsistent( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( ( flags & CHECK_ATTR_FINGERPRINT ) && \
 		findSessionInfo( sessionInfoPtr,
-						 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 ) != NULL )
+						 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 ) != NULL )
 		{
 		setObjectErrorInfo( sessionInfoPtr, 
-							CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
+							CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
 							CRYPT_ERRTYPE_ATTR_PRESENT );
 		return( FALSE );
 		}

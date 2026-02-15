@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							  cryptlib Header File							*
-*						Copyright Peter Gutmann 1992-2023					*
+*						Copyright Peter Gutmann 1992-2026					*
 *																			*
 ****************************************************************************/
 
@@ -9,9 +9,9 @@
 
 #define _CRYPTLIB_DEFINED
 
-/* The current cryptlib version: 3.4.8 */
+/* The current cryptlib version: 3.4.9 */
 
-#define CRYPTLIB_VERSION	348
+#define CRYPTLIB_VERSION	349
 
 /* Fixup for Windows support.  We need to include windows.h for various types
    and prototypes needed for DLLs, but this pulls in wincrypt.h which defines 
@@ -189,6 +189,12 @@
 
 #endif /* _CRYPT_DEFINED */
 
+/* The following is a marker for header preprocessing tools.  This is used
+   by scripts that preprocess cryptlib.h to create bindings for different
+   languages and should not be removed */
+
+/* END_OF_PREAMBLE */
+
 /****************************************************************************
 *																			*
 *							Algorithm and Object Types						*
@@ -221,8 +227,8 @@ typedef enum {						/* Algorithms */
 	CRYPT_ALGO_RESERVED3,			/* Formerly KEA */
 	CRYPT_ALGO_ECDSA,				/* ECDSA */
 	CRYPT_ALGO_ECDH,				/* ECDH */
-	CRYPT_ALGO_EDDSA,				/* EDDSA */
-	CRYPT_ALGO_25519,				/* X25519/X448 */
+	CRYPT_ALGO_25519,				/* X25519 */
+	CRYPT_ALGO_ED25519,				/* Ed25519 */
 
 	/* Hash algorithms */
 	CRYPT_ALGO_RESERVED4 = 200,		/* Formerly MD2 */
@@ -262,7 +268,7 @@ typedef enum {						/* Algorithms */
 
 	CRYPT_ALGO_LAST,				/* Last possible crypt algo value */
 #ifdef _CRYPT_DEFINED
-	CRYPT_ALGO_LAST_EXTERNAL = CRYPT_ALGO_HMAC_SHAng + 1,
+	CRYPT_ALGO_LAST_EXTERNAL = CRYPT_ALGO_POLY1305 + 1,
 #endif /* _CRYPT_DEFINED */
 
 	/* In order that we can scan through a range of algorithms with
@@ -1240,7 +1246,7 @@ typedef enum {
 	/* Client/server information */
 	CRYPT_SESSINFO_SERVER_NAME,		/* Server name */
 	CRYPT_SESSINFO_SERVER_PORT,		/* Server port number */
-	CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,/* Server key fingerprint */
+	CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,/* Server key fingerprint */
 	CRYPT_SESSINFO_CLIENT_NAME,		/* Client name */
 	CRYPT_SESSINFO_CLIENT_PORT,		/* Client port number */
 	CRYPT_SESSINFO_SESSION,			/* Transport mechanism */
@@ -1345,6 +1351,7 @@ typedef enum {
 	CRYPT_IATTRIBUTE_KEY_PGP_PARTIAL,/* PGP public key w/o trigger */
 	CRYPT_IATTRIBUTE_KEY_DLPPARAM,	/* DLP domain parameters */
 	CRYPT_IATTRIBUTE_KEY_ECCPARAM,	/* ECC domain parameters */
+	CRYPT_IATTRIBUTE_KEY_IMPLICIT,	/* Implicit domain parameters */
 	CRYPT_IATTRIBUTE_PGPVALIDITY,	/* PGP key validity */
 	CRYPT_IATTRIBUTE_DEVICEOBJECT,	/* Handle for object in device */
 	CRYPT_IATTRIBUTE_DEVICESTORAGEID,/* Storage ID for data in device */
@@ -1833,8 +1840,12 @@ typedef enum {
 	CRYPT_KEYOPT_READONLY,			/* Open keyset in read-only mode */
 	CRYPT_KEYOPT_CREATE,			/* Create a new keyset */
 #ifdef _CRYPT_DEFINED
-	/* Internal keyset options */
-	CRYPT_IKEYOPT_EXCLUSIVEACCESS,	/* As _NONE but open for exclusive access */
+	/* Internal keyset options.  _EXCLUSIVEWRITE is used when creating/
+	   updating configuration and user index files, _SAFEREAD is used
+	   when reading them and performs additional checks such as making
+	   sure that the file isn't world-writeable on multiuser systems */
+	CRYPT_IKEYOPT_EXCLUSIVEWRITE,	/* As _NONE but open for exclusive access */
+	CRYPT_IKEYOPT_SAFEREAD,			/* As _READONLY but with extra checks */
 #endif /* _CRYPT_DEFINED */
 	CRYPT_KEYOPT_LAST				/* Last possible key option type */
 #ifdef _CRYPT_DEFINED
@@ -1994,6 +2005,19 @@ typedef struct {
 	unsigned char d[ CRYPT_MAX_PKCSIZE_ECC ];/* Private random integer */
 	int dLen;					/* Length of integer in bits */
 	} CRYPT_PKCINFO_ECC;
+
+typedef struct {
+	/* Status information */
+	int isPublicKey;			/* Whether this is a public or private key */
+
+	/* Public components */
+	unsigned char pub[ CRYPT_MAX_PKCSIZE ];	/* Public value */
+	int pubLen;					/* Length of public value in bits */
+
+	/* Private components */
+	unsigned char priv[ CRYPT_MAX_PKCSIZE ];/* Private value */
+	int privLen;				/* Length of private value in bits */
+	} CRYPT_PKCINFO_DJB;
 
 /* Macros to initialise and destroy the structure that stores the components
    of a public key */
@@ -2261,7 +2285,7 @@ C_RET cryptGetKey( C_IN CRYPT_KEYSET keyset,
 C_CHECK_RETVAL \
 C_RET cryptAddPublicKey( C_IN CRYPT_KEYSET keyset,
 						 C_IN CRYPT_CERTIFICATE certificate );
-C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
+C_CHECK_RETVAL \
 C_RET cryptAddPrivateKey( C_IN CRYPT_KEYSET keyset,
 						  C_IN CRYPT_HANDLE cryptKey,
 						  C_IN C_STR password );

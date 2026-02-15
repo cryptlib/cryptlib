@@ -30,8 +30,8 @@
 
 #define TESTBUFFER_SIZE		256
 
-/* Since the DH/ECDH operations aren't visible externally, we have to use 
-   the kernel API to perform the test.  To get the necessary definitions 
+/* Since the DH/ECDH/25519 operations aren't visible externally, we have to 
+   use the kernel API to perform the test.  To get the necessary definitions 
    and prototypes, we have to use crypt.h, however since we've already 
    included cryptlib.h the built-in guards preclude us from pulling it in 
    again with the internal-only values defined, so we have to explicitly 
@@ -939,8 +939,8 @@ int testLowlevel( const CRYPT_DEVICE cryptDevice,
 				break;
 #endif /* TEST_DH */
 
-			case CRYPT_ALGO_EDDSA:
-				status = loadEDDSAContexts( cryptDevice, &cryptContext, 
+			case CRYPT_ALGO_ED25519:
+				status = load25519Contexts( cryptDevice, &cryptContext, 
 											&decryptContext );
 				break;
 
@@ -985,7 +985,7 @@ int testLowlevel( const CRYPT_DEVICE cryptDevice,
 		/* DLP-based algorithms can't be called directly from user code
 		   because of the special data-formatting requirements */
 		if( cryptAlgo == CRYPT_ALGO_DSA || cryptAlgo == CRYPT_ALGO_ELGAMAL || \
-			cryptAlgo == CRYPT_ALGO_ECDSA || cryptAlgo == CRYPT_ALGO_EDDSA )
+			cryptAlgo == CRYPT_ALGO_ECDSA || cryptAlgo == CRYPT_ALGO_ED25519 )
 			{
 			destroyContexts( cryptDevice, cryptContext, decryptContext );
 			return( TRUE );

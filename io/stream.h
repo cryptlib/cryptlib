@@ -197,15 +197,31 @@ typedef enum {
 
 /* When performing file I/O we need to know how large path names can get in
    order to perform range checking and allocate buffers.  This gets a bit
-   tricky since not all systems have PATH_MAX, so we first try for PATH_MAX,
-   if that fails we try _POSIX_PATH_MAX (which is a generic 255 bytes and if
-   defined always seems to be less than whatever the real PATH_MAX should be),
-   if that also fails we grab stdio.h and try and get FILENAME_MAX, with an
-   extra check for PATH_MAX in case it's defined in stdio.h instead of
-   limits.h where it should be.  FILENAME_MAX isn't really correct since it's
-   the maximum length of a filename rather than a path, but some environments
-   treat it as if it were PATH_MAX and in any case it's the best that we can
-   do in the absence of anything better */
+   tricky since not all systems (typically embedded) have PATH_MAX, so we 
+   first try for PATH_MAX, if that fails we try _POSIX_PATH_MAX (which is a 
+   generic 255 bytes and if defined always seems to be less than whatever 
+   the real PATH_MAX should be), if that also fails we grab stdio.h and try 
+   and get FILENAME_MAX, with an extra check for PATH_MAX in case it's 
+   defined in stdio.h instead of limits.h where it should be.  
+   
+   FILENAME_MAX isn't really correct since it's the maximum length of a 
+   filename rather than a path, but some environments treat it as if it 
+   were PATH_MAX and in any case it's the best that we can do in the absence 
+   of anything better.
+   
+   The one exception to all of this is GNU Hurd, which explicitly doesn't
+   define it because "Systems only should define them if they actually have 
+   such fixed limits (see limits.h). The Hurd, following the GNU Coding 
+   Standards, tries to avoid this kind of arbitrary limits [sic], and 
+   consequently doesn't define the macros" (from 
+   https://www.gnu.org/software/hurd/community/gsoc/project_ideas/maxpath.html).
+   Translated, "we're special, and we're going to let everyone know we're 
+   special by making sure their code breaks".
+
+   The same doc then goes on to say "Fixing these issues usually boils down 
+   to replacing char foo[PATH_MAX] by char *foo, and using dynamic memory 
+   allocation, i.e. e.g. a loop that tries geometrically growing sizes", in
+   other words making sure the Hurd is bent over and ready for DoS attacks */
 
 #if defined( PATH_MAX )
   #define MAX_PATH_LENGTH		PATH_MAX

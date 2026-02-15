@@ -260,9 +260,9 @@ int convertSNISessionID( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 			handshakeInfo->sessionIDlength );
 	writeUint16( &sniStream, KEYID_SIZE );
 	status = swrite( &sniStream, handshakeInfo->hashedSNI, KEYID_SIZE );
-	ENSURES( !cryptStatusError( status ) );
+	ENSURES_SCN( !cryptStatusError( status ), sniStream );
 	sniInfoLength = stell( &sniStream );
-	REQUIRES( isShortIntegerRangeNZ( sniInfoLength ) );
+	REQUIRES_SCN( isShortIntegerRangeNZ( sniInfoLength ), sniStream );
 
 	/* Generate the final ID from the combined session ID and SNI */
 	hashData( idBuffer, idBufferLength, sniInfo, sniInfoLength );
@@ -457,6 +457,7 @@ static void checkSNI( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( cryptStatusError( status ) || \
 			nameLength < MIN_DNS_SIZE || nameLength > MAX_DNS_SIZE )
 			return;
+		REQUIRES_V( rangeCheck( nameLength, 1, MAX_DNS_SIZE ) );
 		status = sread( stream, nameBuffer, nameLength );
 		if( cryptStatusError( status ) )
 			return;
@@ -543,13 +544,13 @@ static void checkSNI( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		uint16		yLen
 		byte[]		y
 	   ECDH:
-		uint16		ecPointLen
+		uint8		ecPointLen		-- NB uint8 not uint16
 		byte[]		ecPoint
 	   PSK:
 		uint16		userIDLen
 		byte[]		userID 
 	   RSA:
-	  [ uint16		encKeyLen		-- TLS 1.x ]
+	  [ uint16		encKeyLen		-- Disabled by default ]
 		byte[]		rsaPKCS1( byte[2] { 0x03, 0x0n } || byte[46] random ) */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
@@ -568,14 +569,14 @@ static int processDHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			isReadPtr( passwordInfoPtr, sizeof( ATTRIBUTE_LIST ) ) );
 
 	/* Complete the DH keyex */
-	status = completeTLSKeyex( handshakeInfo, stream, FALSE, 
+	status = completeTLSKeyex( handshakeInfo, stream, 
 							   TEST_FLAG( sessionInfoPtr->protocolFlags, \
 										  TLS_PFLAG_TLS12LTS ) ?  TRUE : FALSE, 
-							   SESSION_ERRINFO );
+							   FALSE, SESSION_ERRINFO );
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* If this is a straight keyex, we're done */
+	/* If this is a straight keyex then we're done */
 	if( passwordInfoPtr == NULL )
 		return( CRYPT_OK );
 
@@ -800,29 +801,32 @@ static int processKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( handshakeInfo->authAlgo == CRYPT_ALGO_NONE )
 		return( processPSKKeyex( sessionInfoPtr, handshakeInfo, stream ) );
 
-	/* If we're using DH/ECDH, perform the necessary keyex operations */
-	if( isKeyexAlgo( handshakeInfo->keyexAlgo ) )
+	/* If we're using DH/ECDH, perform the necessary keyex operations.  Note
+	   that there's no handling for newer algorithms like 25519 because 
+	   they're TLS 1.3-only */
+	switch( handshakeInfo->keyexAlgo ) 
 		{
-		if( isEccAlgo( handshakeInfo->keyexAlgo ) )
-			{
-			return( completeTLSKeyex( handshakeInfo, stream, TRUE, 
-								TEST_FLAG( sessionInfoPtr->protocolFlags, \
-										   TLS_PFLAG_TLS12LTS ) ? \
-									TRUE : FALSE, SESSION_ERRINFO ) );
-			}
-		else
-			{
+		case CRYPT_ALGO_DH:
+			/* This option is special-cased because we could be using DH with
+			   PSK */
 			return( processDHKeyex( sessionInfoPtr, handshakeInfo, 
 									stream, NULL ) );
-			}
+
+		case CRYPT_ALGO_ECDH:
+			return( completeTLSKeyex( handshakeInfo, stream, 
+								TEST_FLAG( sessionInfoPtr->protocolFlags, \
+										   TLS_PFLAG_TLS12LTS ) ? \
+									TRUE : FALSE, FALSE, SESSION_ERRINFO ) );
+#ifdef USE_RSA_SUITES
+		case CRYPT_ALGO_RSA:
+			return( processRSAKeyex( sessionInfoPtr, handshakeInfo, stream ) );
+#endif /* USE_RSA_SUITES */
+
+		default:
+			retIntError();
 		}
 
-	/* It's a regular RSA keyex */
-#ifdef USE_RSA_SUITES
-	return( processRSAKeyex( sessionInfoPtr, handshakeInfo, stream ) );
-#else
 	retIntError();
-#endif /* USE_RSA_SUITES */
 	}
 
 /* Build the server key exchange packet:
@@ -880,8 +884,9 @@ static int createServerKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Perform phase 1 of the DH/ECDH key agreement process */
 	memset( &keyAgreeParams, 0, sizeof( KEYAGREE_PARAMS ) );
-	status = krnlSendMessage( handshakeInfo->dhContext, IMESSAGE_CTX_ENCRYPT, 
-							  &keyAgreeParams, sizeof( KEYAGREE_PARAMS ) );
+	status = krnlSendMessage( handshakeInfo->keyexContext, 
+							  IMESSAGE_CTX_ENCRYPT, &keyAgreeParams, 
+							  sizeof( KEYAGREE_PARAMS ) );
 	if( cryptStatusError( status ) )
 		{
 		zeroise( &keyAgreeParams, sizeof( KEYAGREE_PARAMS ) );
@@ -904,7 +909,7 @@ static int createServerKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Write the DH/ECDH key parameters and public value */
 	keyDataOffset = stell( stream );
 	ENSURES( isIntegerRangeNZ( keyDataOffset ) );
-	status = exportAttributeToStream( stream, handshakeInfo->dhContext,
+	status = exportAttributeToStream( stream, handshakeInfo->keyexContext,
 								TEST_FLAG( sessionInfoPtr->protocolFlags, 
 										   TLS_PFLAG_TLS12LTS ) ? \
 								CRYPT_IATTRIBUTE_KEY_TLS_EXT : 
@@ -1021,6 +1026,7 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* Reset the special-case status value.  This is techically a dead
 		   assignment but we do it anyway for hygiene reasons */
 		status = CRYPT_OK;
+		ANALYSER_HINT_DEADSTORE_OK( status );
 
 #ifdef USE_TLS13
 		ENSURES( ( sessionInfoPtr->version <= TLS_MINOR_VERSION_TLS12 && \
@@ -1157,15 +1163,13 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  TLS_DOWNGRADEID_TLS12 : TLS_DOWNGRADEID_TLS11, 
 					TLS_DOWNGRADEID_SIZE );
 			}
-		else
-#endif /* USE_TLS13 */
+#else
+		if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 )
 			{
-			if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 )
-				{
-				memcpy( handshakeInfo->serverNonce + TLS_DOWNGRADEID_OFFSET, 
-						TLS_DOWNGRADEID_TLS11, TLS_DOWNGRADEID_SIZE );
-				}
+			memcpy( handshakeInfo->serverNonce + TLS_DOWNGRADEID_OFFSET, 
+					TLS_DOWNGRADEID_TLS11, TLS_DOWNGRADEID_SIZE );
 			}
+#endif /* USE_TLS13 */
 		}
 	if( cryptStatusOK( status ) && isKeyexAlgo( handshakeInfo->keyexAlgo ) && \
 		sessionInfoPtr->version <= TLS_MINOR_VERSION_TLS12 )
@@ -1173,11 +1177,15 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* For TLS 1.3 the keyex setup is stuffed into the client/server 
 		   hello so the DH contexts have already been set up as a side-effect
 		   of processing the client hello */
-		status = initDHcontextTLS( &handshakeInfo->dhContext, NULL, 0,
+		REQUIRES( ( isEccAlgo( handshakeInfo->keyexAlgo ) && \
+					handshakeInfo->keyexGroupInfo != NULL ) || \
+				  !isEccAlgo( handshakeInfo->keyexAlgo ) );
+		status = initKeyexContextTLS( &handshakeInfo->keyexContext, NULL, 0,
 						( handshakeInfo->authAlgo != CRYPT_ALGO_NONE ) ? \
 							sessionInfoPtr->privateKey : CRYPT_UNUSED,
 						isEccAlgo( handshakeInfo->keyexAlgo ) ? \
-							handshakeInfo->eccCurveID : CRYPT_ECCCURVE_NONE,
+							handshakeInfo->keyexGroupInfo->eccCurveID : \
+							CRYPT_ECCCURVE_NONE,
 						TEST_FLAG( sessionInfoPtr->protocolFlags,
 								   TLS_PFLAG_TLS12LTS ) ? TRUE : FALSE );
 		}
@@ -1528,9 +1536,6 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   certificate verify */
 	if( clientCertAuthRequired( sessionInfoPtr ) )
 		{
-		const BOOLEAN isECC = isEccAlgo( handshakeInfo->keyexAlgo ) ? \
-							  TRUE : FALSE;
-
 		/* Read the next packet(s) if necessary */
 		status = refreshHSStream( sessionInfoPtr, handshakeInfo );
 		if( cryptStatusError( status ) )
@@ -1543,8 +1548,8 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			byte[]		signature */
 		status = checkHSPacketHeader( sessionInfoPtr, stream, &length,
 									  TLS_HAND_CERTVERIFY, 
-									  isECC ? MIN_PKCSIZE_ECCPOINT : \
-											  MIN_PKCSIZE );
+									  min( MIN_PKCSIZE_ECCPOINT, 
+										   MIN_PKCSIZE ) );
 		if( cryptStatusOK( status ) )
 			{
 			status = checkCertVerify( sessionInfoPtr, handshakeInfo, stream, 

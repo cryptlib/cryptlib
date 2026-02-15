@@ -45,7 +45,7 @@ DATAPTR_ATTRIBUTE findAttributeComponent( IN_PTR const CERT_INFO *certInfoPtr,
 #ifdef USE_CERTREV
 	const CERT_REV_INFO *certRevInfo;
 	DATAPTR_ATTRIBUTE attributePtr;
-	REVOCATION_INFO *currentRevocation;
+	const REVOCATION_INFO *currentRevocation;
 #endif /* USE_CERTREV */
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
@@ -77,7 +77,7 @@ DATAPTR_ATTRIBUTE findAttributeComponent( IN_PTR const CERT_INFO *certInfoPtr,
 		certInfoPtr->type == CRYPT_CERTTYPE_RTCS_RESPONSE )
 		{
 		CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
-		VALIDITY_INFO *validityInfoPtr;
+		const VALIDITY_INFO *validityInfoPtr;
 
 		validityInfoPtr = DATAPTR_GET( certValInfo->currentValidity );
 		if( validityInfoPtr == NULL )

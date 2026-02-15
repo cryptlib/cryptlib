@@ -198,9 +198,11 @@ static int getItem( INOUT_PTR STREAM *stream,
 		item->isIndefinite = TRUE;
 	else
 		{
-		/* If the length that we've just read is larger than the object 
-		   itself, it's an error */
-		if( length < 0 || length >= MAX_BUFFER_SIZE - 1 ) 
+		/* Make sure that the length is valid.  readLongGenericHoleZ() 
+		   returns lengths up to MAX_INTLENGTH but we're checking shorter
+		   objects so we limit the over (tag + length + data) length to 
+		   MAX_BUFFER_SIZE */
+		if( length < 0 || length >= MAX_BUFFER_SIZE - objectSize ) 
 			return( ASN1_STATE_ERROR );
 
 		item->length = length;
@@ -437,14 +439,14 @@ static ASN1_STATE checkPrimitive( INOUT_PTR STREAM *stream, const ASN1_ITEM *ite
 		/* There are other cases where zero lengths can occur:
 
 			OCTET STRING: When using PBKDF2 as a general-purpose KDF (for
-				CMS authEnc encryption), the salt is omitted, which means 
+				CMS authEnc encryption), the salt is omitted which means 
 				that it's encoded as a zero-length value.  It would be 
 				better to perform context checking to see whether it's in 
 				the right location but the most information that we have at 
 				this point is the nesting level, we allow a zero-length 
 				OCTET STRING at a nesting level between 16 and 30, which 
-				occurs for CMS authEnvelopedData, and 28 and 34, which
-				occurs for CMS authEnvelopedData carried in a CMP message */
+				occurs for CMS authEnvelopedData, and 28 and 34 which occurs
+				for CMS authEnvelopedData carried in a CMP message */
 		if( !( item->tag == BER_OCTETSTRING && level >= 16 && level <= 34 ) )
 			return( ASN1_STATE_ERROR );
 
@@ -488,7 +490,9 @@ static ASN1_STATE checkPrimitive( INOUT_PTR STREAM *stream, const ASN1_ITEM *ite
 				}
 
 			/* If it's short enough to be a bit flag, it's just a sequence 
-			   of bits */
+			   of bits.  Not that the 'length > 0' check is redundant since
+			   it must be at least 1 from the previous checks, but it's left
+			   here to make it explicit */
 			if( length <= 4 )
 				{
 				if( length > 0 && \
@@ -512,8 +516,8 @@ static ASN1_STATE checkPrimitive( INOUT_PTR STREAM *stream, const ASN1_ITEM *ite
 			   certain level, things get a bit more tricky because we want
 			   to try and avoid false positives as much as possible.  The
 			   following somewhat ugly heuristics enable hole-encoding 
-			   checking under conditions where they occur in data that we 
-			   can encounter */
+			   checking under conditions where they occur in the data that 
+			   we expect to encounter */
 			if( checkType == CHECK_ENCODING_SEMIENCAPS )
 				{
 				if( isBitstring )
@@ -588,6 +592,8 @@ static ASN1_STATE checkPrimitive( INOUT_PTR STREAM *stream, const ASN1_ITEM *ite
 					BYTE oidBuffer[ 48 + 8 ];
 					int status;
 
+					REQUIRES_EXT( rangeCheck( length, 3, 48 ), \
+								  ASN1_STATE_ERROR );
 					status = sread( stream, oidBuffer, length );
 					if( cryptStatusError( status ) )
 						return( ASN1_STATE_ERROR );
@@ -857,7 +863,11 @@ static ASN1_STATE checkASN1( INOUT_PTR STREAM *stream,
 		   advance) and the item has a definite length, set the length to 
 		   the item's length */
 		if( level <= 0 && !item.isIndefinite )
+			{
+			REQUIRES_EXT( !checkOverflowAdd( item.headerSize, item.length ),
+						  ASN1_STATE_ERROR );
 			localLength = item.headerSize + item.length;
+			}
 
 		/* If this is an EOC (tag == BER_RESERVED) for an indefinite item, 
 		   we're done */
@@ -904,6 +914,8 @@ static ASN1_STATE checkASN1( INOUT_PTR STREAM *stream,
 											  &objectSize );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES_EXT( !checkOverflowSub( localLength, objectSize ),
+					  ASN1_STATE_ERROR );
 		localLength -= objectSize;
 		if( !isBufsizeRange( localLength ) )
 			return( ASN1_STATE_ERROR );
@@ -1106,9 +1118,8 @@ static int findObjectLength( INOUT_PTR STREAM *stream,
 	else
 		{
 		/* We've read the length information directly from the object rather
-		   than calculating it ourselves, make sure that the it's within 
-		   bounds.  We can only do this if the object fits into the stream
-		   buffer */
+		   than calculating it ourselves, make sure that it's within bounds.  
+		   We can only do this if the object fits into the stream buffer */
 		REQUIRES( isBufsizeRange( stream->bufSize ) );
 		if( localLength > stream->bufSize - stream->bufPos )
 			return( CRYPT_ERROR_UNDERFLOW );
@@ -1118,6 +1129,7 @@ static int findObjectLength( INOUT_PTR STREAM *stream,
 											  &objectSize );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( localLength, objectSize ) );
 		localLength += objectSize;
 		}			   /* No REQUIRES() since it's checked below */
 
@@ -1158,9 +1170,10 @@ int getStreamObjectLength( INOUT_PTR STREAM *stream,
 	   a required minimum amount of data there alongside just getting the 
 	   length.
 	   
-	   If the minimum length requirement isn't met we report the problem as
-	   a CRYPT_ERROR_BADDATA rather than a CRYPT_ERROR_UNDERFLOW since we've
-	   got all the data present but it doesn't meet the format requirements */
+	   If the minimum length requirement isn't met then we report the 
+	   problem as a CRYPT_ERROR_BADDATA rather than a CRYPT_ERROR_UNDERFLOW 
+	   since we've got all the data present but it doesn't meet the format 
+	   requirements */
 	status = findObjectLength( stream, &localLength, FALSE );
 	if( cryptStatusOK( status ) )
 		{

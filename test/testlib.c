@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								cryptlib Test Code							*
-*						Copyright Peter Gutmann 1995-2023					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -159,6 +159,7 @@ static void updateConfig( void )
 	const char *driverPath = "/usr/local/lib/libsc-hsm-pkcs11.so";  /* CardContact under Unix */	
 	const char *driverPath = "cryst32.dll";			/* Chrysalis */
 	const char *driverPath = "c:/program files/luna/cryst201.dll";	/* Chrysalis */
+	const char *driverPath = "/var/cache/guest/pkcs11/5.1.0.133/libpkcs11.so";	/* Crypto4a */
 	const char *driverPath = "pkcs201n.dll";		/* Datakey */
 	const char *driverPath = "dkck201.dll";			/* Datakey (for Entrust) */
 	const char *driverPath = "dkck232.dll";			/* Datakey/iKey (NB: buggy, use 201) */
@@ -228,7 +229,7 @@ static void updateConfig( void )
    that cryptlib be restarted as part of the test to re-read the config file,
    and because it modifies the cryptlib config file */
 
-static void updateConfigCert( void )
+static void updateConfigCert( const BOOLEAN addSecondCert )
 	{
 	CRYPT_CERTIFICATE trustedCert;
 	int status;
@@ -238,10 +239,14 @@ static void updateConfigCert( void )
 	cryptSetAttribute( trustedCert, CRYPT_CERTINFO_TRUSTED_IMPLICIT, TRUE );
 	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CONFIGCHANGED, FALSE );
 	cryptDestroyCert( trustedCert );
-	cryptEnd();
+
+	/* If we're just creating an entry for fuzzing, exit */
+	if( !addSecondCert )
+		return;
 
 	/* Do the same with a second certificate.  At the conclusion of this, we 
 	   should have two trusted certificates on disk */
+	cryptEnd();
 	status = cryptInit();
 	if( cryptStatusError( status ) )
 		{
@@ -253,6 +258,25 @@ static void updateConfigCert( void )
 	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CONFIGCHANGED, FALSE );
 	cryptDestroyCert( trustedCert );
 	cryptEnd();
+	}
+
+/* Create a dummy config file as a seed for fuzzing */
+
+static void createSeedConfigFile( void )
+	{
+	static const char *dummyPath = "/tmp/driver.so";
+
+	/* Set sample string, numeric, and boolean options, then add a 
+	   certificate and commit the changes */
+	cryptSetAttributeString( CRYPT_UNUSED, CRYPT_OPTION_DEVICE_PKCS11_DVR01,
+							 dummyPath, strlen( dummyPath ) );
+	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_PKC_ALGO, 
+					   CRYPT_ALGO_ELGAMAL );
+	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CMS_DEFAULTATTRIBUTES,
+					   FALSE );
+	updateConfigCert( FALSE );
+	cryptEnd();
+	cleanupAndExit( EXIT_SUCCESS );
 	}
 
 /* Check for a discrepancy between debug and release builds of the 
@@ -573,7 +597,7 @@ static int processArgs( int argc, char **argv, int *argFlags,
 
 #if defined( CONFIG_FUZZ ) && !defined( NDEBUG )
 
-#ifdef __llvm__
+#if defined( __llvm__ ) || defined( __GNUC__ )
 
 const char* __asan_default_options( void )
 	{
@@ -586,18 +610,20 @@ const char* __asan_default_options( void )
 	   but we disable it at the ASAN level rather than the LSAN level */
 	return( "detect_leaks=0" );
 	}
-#endif /* __llvm__ */
+#endif /* clang || gcc */
 
 static int fuzzSession( const int sessionType,
 						const char *fuzzFileName )
 	{
 	CRYPT_SESSION cryptSession;
 	CRYPT_CONTEXT cryptPrivKey = CRYPT_UNUSED;
+	CRYPT_SESSION_TYPE cryptSessionType;
 	CRYPT_SUBPROTOCOL_TYPE subProtocol = CRYPT_SUBPROTOCOL_NONE;
 	BYTE buffer[ 16384 ];
 	const BOOLEAN isServer = \
 			( sessionType == CRYPT_SESSION_SSH_SERVER || \
 			  sessionType == CRYPT_SESSION_TLS_SERVER || \
+			  sessionType == CRYPT_SESSION_LAST || \
 			  sessionType == CRYPT_SESSION_OCSP_SERVER || \
 			  sessionType == CRYPT_SESSION_SCVP_SERVER || \
 			  sessionType == CRYPT_SESSION_RTCS_SERVER || \
@@ -607,27 +633,52 @@ static int fuzzSession( const int sessionType,
 			TRUE : FALSE;
 	int length, status;
 
-	if( sessionType >= 5000 )
+	/* Set the actual session type, usually the given session type but
+	   occasionally some TLS variant */
+	if( sessionType < CRYPT_SESSION_LAST )
+		cryptSessionType = sessionType;
+	else
 		{
-		subProtocol = ( sessionType == 5000 ) ? \
-						CRYPT_SUBPROTOCOL_WEBSOCKETS : \
-					  ( sessionType == 5001 ) ? \
-						CRYPT_SUBPROTOCOL_EAPTTLS : \
-						CRYPT_SUBPROTOCOL_PEAP;
+		/* TLS 1.3 or a TLS sub-protocol */
+		cryptSessionType = isServer ? CRYPT_SESSION_TLS_SERVER : \
+									  CRYPT_SESSION_TLS;
+		if( sessionType >= 6000 )
+			{
+			subProtocol = ( sessionType == 6000 ) ? \
+							CRYPT_SUBPROTOCOL_WEBSOCKETS : \
+						  ( sessionType == 6001 ) ? \
+							CRYPT_SUBPROTOCOL_EAPTTLS : \
+							CRYPT_SUBPROTOCOL_PEAP;
+			}
 		}
 
 	/* Create the session */
 	status = cryptCreateSession( &cryptSession, CRYPT_UNUSED, 
-								 ( subProtocol != CRYPT_SUBPROTOCOL_NONE ) ? \
-								   CRYPT_SESSION_TLS : sessionType );
+								 cryptSessionType );
 	if( cryptStatusError( status ) )
 		return( status );
 
 	/* Set up the various attributes needed to establish a minimal session */
 	if( isServer )
 		{
-		if( !loadRSAContexts( CRYPT_UNUSED, NULL, &cryptPrivKey ) )
-			return( CRYPT_ERROR_FAILED );
+		/* For TLS 1.3 we use an ECDSA private key rather than RSA because 
+		   this enables additional ECC-only code paths */
+		if( sessionType == CRYPT_SESSION_LAST )
+			{
+			if( !loadECDSAContexts( CRYPT_UNUSED, NULL, &cryptPrivKey ) )
+				return( CRYPT_ERROR_FAILED );
+			}
+		else
+			{
+			if( !loadRSAContexts( CRYPT_UNUSED, NULL, &cryptPrivKey ) )
+				return( CRYPT_ERROR_FAILED );
+			}
+		if( sessionType == CRYPT_SESSION_LAST )
+			{
+			/* Enable TLS 1.3 to exercise code paths matching the test 
+			   data */
+			cryptSetAttribute( cryptSession, CRYPT_SESSINFO_VERSION, 4 );
+			}
 		}
 	else
 		{
@@ -639,7 +690,7 @@ static int fuzzSession( const int sessionType,
 		if( sessionType == CRYPT_SESSION_TLS )
 			{
 			/* Set the version to match the fuzzing test data, TLS 1.2 */
-			cryptSetAttribute( cryptSession, CRYPT_SESSINFO_VERSION, 2 );
+			cryptSetAttribute( cryptSession, CRYPT_SESSINFO_VERSION, 3 );
 			}
 		}
 	if( sessionType == CRYPT_SESSION_SSH || \
@@ -688,9 +739,9 @@ static int fuzzSession( const int sessionType,
 	cryptFuzzInit( cryptSession, cryptPrivKey );
 
 	/* We're ready to go, start the forkserver and read the mutable data */
-#ifdef __llvm__
+#if defined( __llvm__ ) || defined( __GNUC__ )
 	__AFL_INIT();
-#endif /* __llvm__ */
+#endif /* clang || gcc */
 	length = readFileData( fuzzFileName, fuzzFileName, buffer, 16384, 32, 
 						   TRUE );
 	if( length < 32 )
@@ -712,9 +763,9 @@ static int fuzzFile( const char *fuzzFileName )
 	int length, status;
 
 	/* We're ready to go, start the forkserver and read the mutable data */
-#ifdef __llvm__
+#if defined( __llvm__ ) || defined( __GNUC__ )
 	__AFL_INIT();
-#endif /* __llvm__ */
+#endif /* clang || gcc */
 	length = readFileData( fuzzFileName, fuzzFileName, buffer, 4096, 64, 
 						   TRUE );
 	if( length < 64 )
@@ -741,9 +792,9 @@ static int fuzzEnvelope( const char *fuzzFileName )
 		return( status );
 
 	/* We're ready to go, start the forkserver and read the mutable data */
-#ifdef __llvm__
+#if defined( __llvm__ ) || defined( __GNUC__ )
 	__AFL_INIT();
-#endif /* __llvm__ */
+#endif /* clang || gcc */
 	length = readFileData( fuzzFileName, fuzzFileName, buffer, 4096, 64, 
 						   TRUE );
 	if( length < 64 )
@@ -762,9 +813,9 @@ static int fuzzKeyset( const char *fuzzFileName )
 	int status;
 
 	/* Start the forkserver */
-#ifdef __llvm__
+#if defined( __llvm__ ) || defined( __GNUC__ )
 	__AFL_INIT();
-#endif /* __llvm__ */
+#endif /* clang || gcc */
 
 	/* Process the input file */
 	status = cryptKeysetOpen( &cryptKeyset, CRYPT_UNUSED, CRYPT_KEYSET_FILE,
@@ -775,7 +826,7 @@ static int fuzzKeyset( const char *fuzzFileName )
 	return( CRYPT_OK );
 	}
 
-static int fuzzSpecial( const int fuzzType, const char *fuzzFileName )
+static int fuzzNetworkSpecial( const int fuzzType, const char *fuzzFileName )
 	{
 	CRYPT_CONTEXT cryptPrivKey;
 	CRYPT_SESSION cryptSession;
@@ -799,9 +850,9 @@ static int fuzzSpecial( const int fuzzType, const char *fuzzFileName )
 		}
 
 	/* We're ready to go, start the forkserver and read the mutable data */
-#ifdef __llvm__
+#if defined( __llvm__ ) || defined( __GNUC__ )
 	__AFL_INIT();
-#endif /* __llvm__ */
+#endif /* clang || gcc */
 	length = readFileData( fuzzFileName, fuzzFileName, buffer, 8192, 
 						   minLength, TRUE );
 	if( length < minLength )
@@ -847,13 +898,34 @@ static int fuzzSpecial( const int fuzzType, const char *fuzzFileName )
 
 		case 4002:	/* HTTP */
 		case 4003:
-			( void ) cryptFuzzSpecial( CRYPT_UNUSED, buffer, length, 
-									   isServer, TRUE );
+			( void ) cryptFuzzNetworkSpecial( CRYPT_UNUSED, buffer, length, 
+											  isServer, TRUE );
 			break;
 
 		case 4004:	/* EAP */
-			( void ) cryptFuzzSpecial( CRYPT_UNUSED, buffer, length, 
-									   FALSE, FALSE );
+			( void ) cryptFuzzNetworkSpecial( CRYPT_UNUSED, buffer, length, 
+											  FALSE, FALSE );
+			break;
+
+		default:
+			assert( 0 );
+		}
+
+	return( CRYPT_OK );
+	}
+
+static int fuzzSpecial( const int fuzzType, const char *fuzzFileName )
+	{
+	/* We're ready to go, start the forkserver */
+#if defined( __llvm__ ) || defined( __GNUC__ )
+	__AFL_INIT();
+#endif /* clang || gcc */
+
+	/* Process the input file */
+	switch( fuzzType )
+		{
+		case 5000:	/* config */
+			( void ) cryptFuzzSpecial( fuzzFileName, strlen( fuzzFileName ) );
 			break;
 
 		default:
@@ -876,11 +948,12 @@ static int fuzz( const char *cmd, const char *arg )
 		{ "pgppub", 3002 }, { "pgpsec", 3003 },
 		{ "bignum", 4000 }, { "url", 4001 }, 
 		{ "http-req", 4002 }, { "http-resp", 4003 },
-		{ "eap", 4004 },
+		{ "eap", 4004 }, { "config", 5000 },
 		{ "ssh-client", CRYPT_SESSION_SSH },
 		{ "ssh-server", CRYPT_SESSION_SSH_SERVER },
 		{ "tls-client", CRYPT_SESSION_TLS },
 		{ "tls-server", CRYPT_SESSION_TLS_SERVER },
+		{ "tls13-server", CRYPT_SESSION_LAST },
 		{ "ocsp-client", CRYPT_SESSION_OCSP },
 		{ "ocsp-server", CRYPT_SESSION_OCSP_SERVER },
 		{ "rtcs-client", CRYPT_SESSION_RTCS },
@@ -893,7 +966,8 @@ static int fuzz( const char *cmd, const char *arg )
 		{ "scep-server", CRYPT_SESSION_SCEP_SERVER },
 		{ "cmp-client", CRYPT_SESSION_CMP },
 		{ "cmp-server", CRYPT_SESSION_CMP_SERVER },
-		{ "websockets", 5000 },
+		{ "websockets", 6000 }, { "eapttls", 6001 },
+		{ "peap", 6002 }, 
 		{ NULL, 0 }
 		};
 	int i, fuzzType = -1, status;
@@ -910,7 +984,8 @@ static int fuzz( const char *cmd, const char *arg )
 //	cmd = "pkcs15"; arg = "test/fuzz/pkcs15.dat";
 //
 //	cmd = "tls-client"; arg = "test/fuzz/tls_svr.dat";
-	cmd = "tls-server"; arg = "test/fuzz/tls_cli.dat";
+//	cmd = "tls-server"; arg = "test/fuzz/tls_cli.dat";
+//	cmd = "tls13-server"; arg = "test/fuzz/tls13_cli.dat";
 //	cmd = "ssh-client"; arg = "test/fuzz/ssh_svr.dat";
 //	cmd = "ssh-server"; arg = "test/fuzz/ssh_cli.dat";
 //	cmd = "ocsp-client"; arg = "test/fuzz/ocsp_svr.dat";
@@ -932,8 +1007,9 @@ static int fuzz( const char *cmd, const char *arg )
 //	cmd = "url"; arg = "test/fuzz/url.dat";
 //	cmd = "http-req"; arg = "test/fuzz/http_req.dat";
 //	cmd = "http-resp"; arg = "test/fuzz/http_resp.dat";
+	cmd = "eap"; arg = "test/fuzz/eap.dat";
 //	cmd = "websockets"; arg = "test/fuzz/websockets.dat";
-//	cmd = "eap"; arg = "test/fuzz/eap.dat";
+//	cmd = "config"; arg = "test/fuzz/config.dat";
 #endif /* __WINDOWS__ test */
 
 	/* Make sure that we've got an input arg */
@@ -1012,6 +1088,9 @@ static int fuzz( const char *cmd, const char *arg )
 			status = fuzzKeyset( buffer );
 		else 
 		if( fuzzType >= 4000 && fuzzType <= 4100 )
+			status = fuzzNetworkSpecial( fuzzType, buffer );
+		else
+		if( fuzzType >= 5000 && fuzzType <= 5100 )
 			status = fuzzSpecial( fuzzType, buffer );
 		else
 			status = fuzzSession( fuzzType, buffer );
@@ -1037,11 +1116,14 @@ static int fuzz( const char *cmd, const char *arg )
 		status = fuzzKeyset( arg );
 	else
 	if( fuzzType >= 4000 && fuzzType <= 4100 )
+		status = fuzzNetworkSpecial( fuzzType, arg );
+	else
+	if( fuzzType >= 5000 && fuzzType <= 5100 )
 		status = fuzzSpecial( fuzzType, arg );
 	else
 	if( ( fuzzType > CRYPT_SESSION_NONE && \
-		  fuzzType < CRYPT_SESSION_LAST ) || \
-		( fuzzType >= 5000 && fuzzType <= 5100 ) )
+		  fuzzType <= CRYPT_SESSION_LAST ) || \
+		( fuzzType >= 6000 && fuzzType <= 6100 ) )
 		status = fuzzSession( fuzzType, arg );
 	else
 		{
@@ -1173,7 +1255,7 @@ int main( int argc, char **argv )
 			""
 #endif /* OS names */
 			);
-	puts( "Copyright Peter Gutmann 1995 - 2024." );
+	puts( "Copyright Peter Gutmann 1995 - 2026." );
 #ifdef CONFIG_FUZZ
 	puts( "" );
 	puts( "Warning: This is a custom fuzzing build that operates in a nonstandard manner." );
@@ -1451,6 +1533,12 @@ TInt E32Dll( TDllReason )
 #undef BYTE
 #undef FALSE
 #undef TRUE
+#if defined( __GNUC__ )
+  #pragma GCC diagnostic ignored "-Wmacro-redefined"
+#elif defined( __clang__ )
+  #pragma clang diagnostic ignored "-Wmacro-redefined"
+#endif /* Warnings about macro redefinitions */
+#define ALIGN_DATA_TYPE( x )	void *x
 #ifdef _MSC_VER
   #undef VC_16BIT
   #undef VC_LE_VC6

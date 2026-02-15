@@ -173,7 +173,8 @@ static int loadPKCS11driver( PKCS11_DRIVER_INFO *pkcs11Info,
 		}
 	status = C_Initialize( NULL_PTR ) & 0xFFFF;
 	if( status == CKR_ARGUMENTS_BAD && \
-		strFindStr( driverName, strlen( driverName ), "softokn3.", 9 ) >= 0 )
+		strFindStr( driverName, strnlen_s( driverName, CRYPT_MAX_TEXTSIZE ), 
+				    "softokn3.", 9 ) >= 0 )
 		{
 		typedef struct CK_C_INITIALIZE_ARGS {
 			CK_CREATEMUTEX CreateMutex;
@@ -1288,8 +1289,8 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 		if( pkcs11InfoTbl[ pkcs11Info->deviceNo ].name[ 0 ] )
 			{
 			labelLength = \
-				min( strlen( pkcs11InfoTbl[ pkcs11Info->deviceNo ].name ),
-					 CRYPT_MAX_TEXTSIZE );
+				strnlen_s( pkcs11InfoTbl[ pkcs11Info->deviceNo ].name,
+						   CRYPT_MAX_TEXTSIZE );
 
 			REQUIRES( rangeCheck( labelLength, 1, CRYPT_MAX_TEXTSIZE ) );
 			memcpy( pkcs11Info->labelBuffer, 
@@ -1302,7 +1303,7 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 			}
 		}
 	pkcs11Info->hActiveSignObject = CK_OBJECT_NONE;
-	deviceInfo->label = pkcs11Info->labelBuffer;
+	deviceInfo->label = ( char * ) pkcs11Info->labelBuffer;	/* BYTE vs.char */
 	deviceInfo->labelLen = labelLength;
 
 	/* Open a session with the device.  This gets a bit awkward because we 

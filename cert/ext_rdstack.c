@@ -340,7 +340,8 @@ int setofBegin( INOUT_PTR SETOF_STACK *setofStack,
 				IN_PTR const ATTRIBUTE_INFO *attributeInfoPtr,
 				IN_LENGTH const int dataEndPos )
 	{
-	SETOF_STATE_INFO *setofInfoPtr, *parentSetofInfoPtr;
+	const SETOF_STATE_INFO *parentSetofInfoPtr;
+	SETOF_STATE_INFO *setofInfoPtr;
 	int setofLength, status;
 
 	assert( isWritePtr( setofStack, sizeof( SETOF_STACK ) ) );

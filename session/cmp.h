@@ -392,13 +392,17 @@ typedef struct {
 	BUFFER( CRYPT_MAX_TEXTSIZE, transIDsize ) \
 	BYTE transID[ CRYPT_MAX_HASHSIZE + 8 ];	/* Transaction nonce */
 	BUFFER( CRYPT_MAX_TEXTSIZE, certIDsize ) \
-	BYTE certID[ CRYPT_MAX_HASHSIZE + 8 ];	/* Sender certificate ID */
+	BYTE certID[ CRYPT_MAX_HASHSIZE + 8 ];	/* Sender certificate ID (SHA1) */
+	BUFFER( CRYPT_MAX_TEXTSIZE, certIDv2size ) \
+	BYTE certIDv2[ CRYPT_MAX_HASHSIZE + 8 ];/* Sender certificate ID (SHA2) */
 	BUFFER( CRYPT_MAX_TEXTSIZE, senderNonceSize ) \
 	BYTE senderNonce[ CRYPT_MAX_HASHSIZE + 8 ];	/* Sender nonce */
 	BUFFER( CRYPT_MAX_TEXTSIZE, recipNonceSize ) \
 	BYTE recipNonce[ CRYPT_MAX_HASHSIZE + 8 ];	/* Recipient nonce */
-	int userIDsize, transIDsize, certIDsize, senderNonceSize, recipNonceSize;
-	BOOLEAN userIDchanged, certIDchanged;	/* Whether ID information same as prev.*/
+	int userIDsize, transIDsize, certIDsize, certIDv2size;
+	int senderNonceSize, recipNonceSize;
+	BOOLEAN userIDchanged, certIDchanged, 
+			certIDv2changed;				/* Whether ID information same as prev.*/
 	BOOLEAN noIntegrity;					/* Message has no integrity protection */
 	BOOLEAN headerRead;						/* Whether header read successfully */
 	BOOLEAN useAltAuthKey;					/* Whether to use peer-provided auth key */

@@ -38,7 +38,7 @@ int attributeCopyParams( OUT_BUFFER_OPT( destMaxLength, \
 #else
   #define isBadPassword( password ) \
 		  ( !isReadPtr( password, 1 ) || \
-		    ( strlen( password ) < 1 ) )
+		    ( strnlen_s( password, CRYPT_MAX_TEXTSIZE ) < 1 ) )
 #endif /* Unicode vs. ASCII environments */
 
 /* Check whether a given algorithm is available for use.  This is performed
@@ -159,10 +159,10 @@ int readTextLine( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr,
 #if defined( __WIN32__ ) || defined( __WINCE__ )
 typedef enum { 
 	SYSVAR_NONE,			/* No system variable */
-#if VC_LT_2005( _MSC_VER )
+#if VC_LT_2010( _MSC_VER )
 	SYSVAR_OSMAJOR,			/* OS major version number */
 	SYSVAR_OSMINOR,			/* OS minor version number */
-#endif /* VC++ < 2005 */
+#endif /* VC++ < 2010 */
 	SYSVAR_HWINTRINS,		/* Hardware crypto intrinsics */
 	SYSVAR_PAGESIZE,		/* System page size */
 	SYSVAR_LAST				/* Last valid system variable type */
@@ -262,55 +262,6 @@ int getSysVar( IN_ENUM( SYSVAR ) const SYSVAR_TYPE type );
 
 #define isValidTextChar( value ) \
 		( ( value ) >= 0x08 && ( value ) <= 0x7E && isPrint( value ) )
-
-/* Compare two strings in a case-insensitive manner for those systems that
-   don't have this function.  These are then mapped to the abstract 
-   functions strCompare() (with length) and strCompareZ() (zero-
-   terminated) */
-
-#if defined( __UNIX__ ) && !( defined( __CYGWIN__ ) )
-  #include <strings.h>
-  #define strnicmp	strncasecmp
-  #define stricmp	strcasecmp
-#elif defined( __WINCE__ )
-  #define strnicmp	_strnicmp
-  #define stricmp	_stricmp
-#elif defined( _MSC_VER ) 
-  /* VC++ 8 and up warn about these being deprecated Posix functions and
-     require the ANSI/ISO-conformant _strXcmp */
-  #if _MSC_VER >= 1300 
-	#define strnicmp _strnicmp
-	#define stricmp	_stricmp
-  #endif /* VC++ >= 8 */
-#elif defined( __ECOS__ ) || defined( __FreeRTOS__ ) || defined( __iOS__ )
-  #define strnicmp	strncasecmp
-  #define stricmp	strcasecmp
-#elif defined __PALMOS__
-  /* PalmOS has strcasecmp()/strncasecmp() but these aren't i18n-aware so we
-     have to use a system function instead */
-  #include <StringMgr.h>
-
-  #define strnicmp	StrNCaselessCompare
-  #define stricmp	StrCaselessCompare
-#elif defined( __TI_COMPILER_VERSION__ )
-  #include <strings.h>
-  #define strnicmp	strncasecmp
-  #define stricmp	strcasecmp
-#elif defined( __ARINC653__ ) || defined( __CMSIS__ ) || \
-	  defined( __embOS__ ) || defined( __BEOS__ ) || \
-	  defined( __IAR_SYSTEMS_ICC__ ) || defined( __ITRON__ ) || \
-	  defined( __MQXRTOS__ ) || defined( __OSEK__ ) || \
-	  defined( __Quadros__ ) || defined( __RTEMS__ ) || \
-	  defined( __SMX__ ) || defined( __SYMBIAN32__ ) || \
-	  defined( __Telit__ ) || defined( __TKernel__ ) || \
-	  defined( __UCOS__ ) || defined( __VxWorks___ ) || \
-	  defined( __ZEPHYR__ )
-  int strnicmp( const char *src, const char *dest, const int length );
-  int stricmp( const char *src, const char *dest );
-
-  /* Make sure that we provide our own versions of the functions */
-  #define NO_NATIVE_STRICMP
-#endif /* OS-specific case-insensitive string compares */
 
 /* Sanitise a string before passing it back to the user.  This is used to
    clear potential problem characters (for example control characters)
@@ -1133,9 +1084,14 @@ void dynDestroy( INOUT_PTR DYNBUF *dynBuf );
    calls initMemPool() to initialise the pool, and then calls getMemPool()
    and freeMemPool() to allocate and free memory blocks.  The state pointer
    is declared as a void * because to the caller it's an opaque memory block
-   while to the memPool routines it's structured storage */
+   while to the memPool routines it's structured storage.
 
-typedef BYTE MEMPOOL_STATE[ 32 ];
+   The MEMPOOL_STATE define provides an opaque memory block for this 
+   corresponding to the MEMPOOL_INFO structure defined in misc/int_mem.c.  
+   This contains 3 machine-word-sized elements (a pointer and two integers) 
+   that we overallocate by two to get a worst-case of 6 words */
+
+typedef ALIGN_DATA_TYPE( MEMPOOL_STATE[ 6 ] );
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int initMemPool( OUT_PTR void *statePtr, 
@@ -1163,9 +1119,16 @@ void freeMemPool( INOUT_PTR void *statePtr, IN_PTR void *memblock );
    to be valid is 'storage[ 0 ]' under strict C99 definitions, however 
    declaring it as an unsized array leads to warnings of use of a zero-sized 
    array from many compilers so we leave it as 'storage[ 1 ]' unless the
-   compiler supports C99, in which case we have to explicitly use '[]' to 
-   let the compiler know that it's a flexible array so that STDC_FLEXARRAY() 
-   can take effect.
+   compiler supports C99 flexible arrays, in which case we have to explicitly 
+   use '[]' to  let the compiler know that it's a flexible array.  See also
+   the comment for HAS_STDC_FLEXARRAY in misc/os_spec.h.
+
+   Note the order in which the fields are initialised by initVarStruct(), 
+   this is required because, while clang allows the standard order of
+   value-then-size, gcc requires that the size field be initialised first
+   otherwise it produces strange crashes at runtime (unusually for gcc it
+   actually produces warnings, although they tell you nothing about what
+   the problem is, and then it outputs code that crashes when run).
    
    We have to insert an additional dummy value before the storage 
    declaration to ensure the correct alignment for the storage itself, in
@@ -1176,23 +1139,38 @@ void freeMemPool( INOUT_PTR void *statePtr, IN_PTR void *memblock );
    while a pointer is still 64 bits */
 
 #ifdef HAS_STDC_FLEXARRAY
-  #define DECLARE_VARSTRUCT_VARS \
-		  int storageSize; \
-		  void *_align_value; \
-		  BUFFER_FIXED( storageSize ) \
-		  BYTE storage[] STDC_FLEXARRAY( storageSize )
+  /* Non-clang versions of IBM's xlc have erratic flexarray support, using
+	 C99 flexarrays results in "1506-995 (W) An aggregate containing a 
+	 flexible array member cannot be used as a member of a structure or as 
+	 an array element" when used in a struct (kernel/storage.c) despite the
+	 docs saying they can, see
+	 https://www.ibm.com/docs/en/zos/2.5.0?topic=types-structures-unions,
+	 however declaring the same thing in the alternate form '[0]' instead of 
+	 '[]' results in it working without any problems */
+  #ifdef __xlC__
+	#define DECLARE_VARSTRUCT_VARS \
+			int storageSize; \
+			void *_align_value; \
+			BYTE storage[ 0 ]
+  #else
+	#define DECLARE_VARSTRUCT_VARS \
+			int storageSize; \
+			void *_align_value; \
+			BUFFER_FIXED( storageSize ) \
+			BYTE storage[] FLEXARRAY_COUNT( storageSize )
+  #endif /* IBM C vs. everything else */
 #else
   #define DECLARE_VARSTRUCT_VARS \
 		  int storageSize; \
 		  void *_align_value; \
 		  BUFFER_FIXED( storageSize ) \
-		  BYTE storage[ 1 ] STDC_FLEXARRAY( storageSize )
+		  BYTE storage[ 1 ]
 #endif /* HAS_STDC_FLEXARRAY */
 
 #define initVarStruct( structure, structureType, size, valueName ) \
 		memset( structure, 0, sizeof( structureType ) ); \
-		structure->valueName = structure->storage; \
-		structure->storageSize = size
+		structure->storageSize = size; \
+		structure->valueName = structure->storage
 
 #define copyVarStruct( destStructure, srcStructure, structureType, valueName ) \
 		memcpy( destStructure, srcStructure, \
@@ -1232,11 +1210,22 @@ typedef enum {
 /* The hash functions are used quite a bit so we provide an internal API for
    them to avoid the overhead of having to set up an encryption context
    every time they're needed.  These take a block of input data and hash it,
-   leaving the result in the output buffer.
+   leaving the result in the output buffer.  The output buffer can be the
+   same as the input buffer.
    
    In addition to the hash-step operation, we provide a one-step atomic hash
-   function that processes a single data quantity and returns its hash.
-   
+   function that processes a single data quantity and returns its hash.  To
+   use the function:
+
+	HASH_FUNCTION hashFunction;
+	HASHINFO hashInfo;
+
+	getHashParameters( CRYPT_ALGO_SHA2, 32, &hashFunction, NULL );
+	hashFunction( hashInfo, NULL, 0, part1, part1len, HASH_STATE_START );
+	hashFunction( hashInfo, NULL, 0, part2, part2len, HASH_STATE_CONTINUE );
+	hashFunction( hashInfo, hashValue, CRYPT_MAX_HASHSIZE, 
+				  part3, part3len, HASH_STATE_END );
+
    The data block is defined in terms of a long[] rather than a BYTE[] in
    order to deal with alignment issues */
 
@@ -1349,6 +1338,40 @@ BOOLEAN compareDataConstTime( IN_BUFFER( length ) const void *src,
 *																			*
 ****************************************************************************/
 
+/* Signatures usually sign a hash of the data, with an optional second hash 
+   for TLS 1.0 - 1.1 signatures, but some special-snowflake designs want to 
+   sign the entire message so we need to also allow for that */
+
+typedef struct {
+	/* Message hash information.  The hash algorithm and parameter are filled
+	   in by iCryptCreateSignature() if required */
+	CRYPT_CONTEXT hashContext;		/* Hash context to sign */
+	CRYPT_ALGO_TYPE hashAlgo;		/* Hash algorithm and parameters */
+	int hashParam;
+	CRYPT_CONTEXT hashContext2;		/* Secondary hash context (TLS 1.0-1.1) */
+	
+	/* Message data information */
+	BUFFER_FIXED( length ) \
+	const void *data;				/* Data to sign */
+	int length;						/* Length of data */
+	} SIG_DATA_INFO;
+
+#define setSigDataInfoHash( sigDataInfo, hash ) \
+	{ \
+	memset( sigDataInfo, 0, sizeof( SIG_DATA_INFO ) ); \
+	( sigDataInfo )->hashContext = hash; \
+	( sigDataInfo )->hashContext2 = CRYPT_UNUSED; \
+	}
+
+#define setSigDataInfoMessage( sigDataInfo, messageData, messageLength ) \
+	{ \
+	memset( sigDataInfo, 0, sizeof( SIG_DATA_INFO ) ); \
+	( sigDataInfo )->hashContext = \
+		( sigDataInfo )->hashContext2 = CRYPT_UNUSED; \
+	( sigDataInfo )->data = ( messageData ); \
+	( sigDataInfo )->length = ( messageLength ); \
+	}
+
 /* Signatures can have all manner of additional odds and ends associated 
    with them, the following structure contains these additional optional
    values */
@@ -1364,23 +1387,18 @@ typedef struct {
 	BUFFER_OPT_FIXED( sigAttributeSize ) \
 	const void *sigAttributes;		/* Additional signature attributes */
 	int sigAttributeSize;
-
-	/* TLS additional signature information */
-	CRYPT_CONTEXT iSecondHash;		/* Second hash for dual sig.*/
-	} SIGPARAMS;
+	} SIG_PARAMS;
 
 #define initSigParams( sigParams ) \
 	{ \
-	memset( ( sigParams ), 0, sizeof( SIGPARAMS ) ); \
-	( sigParams )->iAuthAttr = ( sigParams )->iTspSession = \
-		( sigParams )->iSecondHash = CRYPT_ERROR; \
+	memset( ( sigParams ), 0, sizeof( SIG_PARAMS ) ); \
+	( sigParams )->iAuthAttr = ( sigParams )->iTspSession = CRYPT_ERROR; \
 	}
 
-#define initSigParamsPGP( sigParams, pgpSigType, pgpAttrs, pgpAttrSize ) \
+#define setSigParamsPGP( sigParams, pgpSigType, pgpAttrs, pgpAttrSize ) \
 	{ \
-	memset( ( sigParams ), 0, sizeof( SIGPARAMS ) ); \
-	( sigParams )->iAuthAttr = ( sigParams )->iTspSession = \
-	( sigParams )->iSecondHash = CRYPT_ERROR; \
+	memset( ( sigParams ), 0, sizeof( SIG_PARAMS ) ); \
+	( sigParams )->iAuthAttr = ( sigParams )->iTspSession = CRYPT_ERROR; \
 	( sigParams )->sigType = pgpSigType; \
 	( sigParams )->sigAttributes = pgpAttrs; \
 	( sigParams )->sigAttributeSize = pgpAttrSize; \
@@ -1392,7 +1410,7 @@ typedef struct {
    external equivalents perform, since the parameters have already been
    checked by cryptlib */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 8 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 6, 8 ) ) \
 int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength ) \
 							void *signature, 
 						   IN_DATALENGTH_Z const int signatureMaxLength,
@@ -1400,19 +1418,18 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 						   IN_ENUM( CRYPT_FORMAT ) \
 							const CRYPT_FORMAT_TYPE formatType,
 						   IN_HANDLE const CRYPT_CONTEXT iSignContext,
-						   IN_HANDLE const CRYPT_CONTEXT iHashContext,
-						   IN_PTR_OPT const SIGPARAMS *sigParams,
-						   INOUT_PTR ERROR_INFO *errorInfo );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 8 ) ) \
+						   IN_PTR const SIG_DATA_INFO *sigDataInfo,
+						   IN_PTR_OPT const SIG_PARAMS *sigParams,
+						   INOUT_PTR_OPT ERROR_INFO *errorInfo );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5, 7 ) ) \
 int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature, 
 						  IN_LENGTH_SHORT const int signatureLength,
 						  IN_ENUM( CRYPT_FORMAT ) \
 							const CRYPT_FORMAT_TYPE formatType,
 						  IN_HANDLE const CRYPT_HANDLE iSigCheckKey,
-						  IN_HANDLE const CRYPT_CONTEXT iHashContext,
-						  IN_HANDLE_OPT const CRYPT_CONTEXT iHash2Context,
+						  IN_PTR const SIG_DATA_INFO *sigDataInfo,
 						  OUT_OPT_HANDLE_OPT CRYPT_HANDLE *extraData,
-						  INOUT_PTR ERROR_INFO *errorInfo );
+						  INOUT_PTR_OPT ERROR_INFO *errorInfo );
 #ifdef USE_INT_CMS
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 7 ) ) \
 int iCryptImportKey( IN_BUFFER( encryptedKeyLength ) \
@@ -1524,6 +1541,7 @@ typedef enum {
 	BIGNUM_CHECK_VALUE,		/* Check for valid bignum */
 	BIGNUM_CHECK_VALUE_PKC,	/* Check for valid BN and correct-size PKC key */
 	BIGNUM_CHECK_VALUE_ECC,	/* Check for valid BN and correct-size ECC key */
+	BIGNUM_CHECK_VALUE_FIXEDLEN,/* Check for fixed-length-encoded value */
 	BIGNUM_CHECK_LAST		/* Last valid check type */
 	} BIGNUM_CHECK_TYPE;
 
@@ -1579,6 +1597,23 @@ int exportECCPoint( OUT_BUFFER_OPT( dataMaxLength, *dataLength ) void *data,
 					IN_PTR TYPECAST( const BIGNUM * ) const struct BN *bignumPtr2,
 					IN_LENGTH_PKC const int fieldSize );
 #endif /* USE_ECDH || USE_ECDSA */
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int import25519ByteString( INOUT_PTR TYPECAST( BIGNUM * ) 
+								struct BN *bignumPtr, 
+						   IN_BUFFER( length ) const void *buffer, 
+						   IN_LENGTH_SHORT_MIN( MIN_PKCSIZE_BERNSTEIN ) \
+								const int length );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
+int export25519ByteString( OUT_BUFFER( dataMaxLength, *dataLength ) 
+								void *data, 
+						   IN_LENGTH_SHORT_MIN( MIN_PKCSIZE_BERNSTEIN ) \
+								const int dataMaxLength, 
+						   OUT_LENGTH_BOUNDED_Z( dataMaxLength ) 
+								int *dataLength,
+						   IN_PTR TYPECAST( BIGNUM * ) 
+								const struct BN *bignumPtr );
+#endif /* USE_25519 || USE_ED25519 */
 
 /****************************************************************************
 *																			*

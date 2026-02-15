@@ -328,9 +328,9 @@ const CAPABILITY_INFO *getECDSACapability( void );
 CHECK_RETVAL_PTR_NONNULL \
 const CAPABILITY_INFO *getECDHCapability( void );
 CHECK_RETVAL_PTR_NONNULL \
-const CAPABILITY_INFO *getEDDSACapability( void );
+const CAPABILITY_INFO *getX25519Capability( void );
 CHECK_RETVAL_PTR_NONNULL \
-const CAPABILITY_INFO *get25519Capability( void );
+const CAPABILITY_INFO *getEd25519Capability( void );
 
 CHECK_RETVAL_PTR_NONNULL \
 const CAPABILITY_INFO *getGenericSecretCapability( void );

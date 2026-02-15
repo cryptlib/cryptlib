@@ -658,15 +658,14 @@ static int readFunction( INOUT_PTR STREAM *stream,
 			{
 			void *newBuffer;
 
-			REQUIRES( isBufsizeRangeMin( httpDataInfo->bytesAvail, \
-										 MIN_LINEBUF_SIZE ) );
-
 			/* readResponseHeader() will only allow content larger than the 
 			   buffer size if it's marked as a resizeable buffer */
 			REQUIRES( httpDataInfo->bufferResize == TRUE );
 
 			/* Adjust the read buffer size to handle the extra data and 
 			   record the details of the resized buffer */
+			REQUIRES( isBufsizeRangeMin( httpDataInfo->bytesAvail, 
+										 MIN_LINEBUF_SIZE ) );
 			newBuffer = safeBufferAlloc( httpDataInfo->bytesAvail );
 			if( newBuffer == NULL )
 				return( CRYPT_ERROR_MEMORY );

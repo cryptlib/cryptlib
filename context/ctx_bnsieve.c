@@ -419,6 +419,7 @@ BOOLEAN primeCheckQuick( const BIGNUM *candidate )
 			{
 			ENSURES_B( LOOP_INVARIANT_MAX( i, 1, QUICK_CHECK_PRIMES - 1 ) );
 
+			ANALYSER_HINT( primeTbl[ i ] != 0 );
 			if( candidateWord % primeTbl[ i ] == 0 )
 				return( FALSE );
 			}

@@ -61,10 +61,17 @@
    Device initialisation is always performed for native cryptographic 
    hardware devices since these are typically being subject to development
    self-tests and need to be reset to their ground state as part of the
-   testing process.  In other words TEST_INITIALISE_DEVICE has an implicit
-   value of '1' for this device type */
+   testing process, and for TPMs where the code will both autodetect whether 
+   it needs initialisation or not and where the initialisation isn't 
+   actually a full TPM initialisation (provisioning) but merely setting it
+   up for cryptlib use */
 
-#define TEST_INITIALISE_DEVICE	0
+#if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 ) || \
+	defined( TEST_TPM )
+  #define TEST_INITIALISE_DEVICE	1
+#else
+  #define TEST_INITIALISE_DEVICE	0
+#endif /* TEST_TPM or manual override */
 
 /* If the device is very slow (e.g. a smart card), clear the following to
    not test the keygen capabilities of the device.  You can set this once
@@ -416,6 +423,7 @@ static void deleteTestKey( const CRYPT_DEVICE cryptDevice,
 /* Create a key and certificate in a device */
 
 static BOOLEAN createKey( const CRYPT_DEVICE cryptDevice,
+						  const CRYPT_DEVICE_TYPE deviceType,
 						  const CRYPT_ALGO_TYPE cryptAlgo,
 						  const char *description, const char *dumpName,
 						  const CRYPT_CONTEXT signingKey )
@@ -454,6 +462,19 @@ static BOOLEAN createKey( const CRYPT_DEVICE cryptDevice,
 		return( FALSE );
 		}
 	puts( " succeeded." );
+	if( deviceType == CRYPT_DEVICE_TPM )
+		{
+		printf( "Sealing the key to the TPM..." );
+		status = cryptAddPrivateKey( cryptDevice, cryptContext, NULL );
+		if( cryptStatusError( status ) )
+			{
+			cryptDestroyContext( cryptContext );
+			printf( "\ncryptAddPrivateKey() failed with error code %d, line "
+					"%d.\n", status, __LINE__ );
+			return( FALSE );
+			}
+		puts( " succeeded." );
+		}
 
 	/* Create a certificate for the key */
 	printf( "Generating a certificate for the key..." );
@@ -667,17 +688,29 @@ static BOOLEAN initialiseDevice( const CRYPT_DEVICE cryptDevice,
 		puts( " succeeded." );
 		}
 
-	/* Initialise the device and set the SO PIN.   */
-	printf( "Initialising device..." );
-	status = cryptSetAttributeString( cryptDevice, CRYPT_DEVINFO_INITIALISE,
-									  defaultSSOPIN, strlen( defaultSSOPIN ) );
-	if( cryptStatusError( status ) )
+	/* Initialise the device and set the SO and user PINs.  TPMs are set up 
+	   oddly, you need to set the SO and user PIN first, then perform the 
+	   initialisation, whereas for everything else you set the PINs after
+	   the device has been initialised.  However due to the fact that API-
+	   level provisioning for TPMs doesn't work (they need extensive manual
+	   configuration and per-device customisation) the initialisation doesn't
+	   actually provision the TPM but assumes it's working with an already-
+	   provisioned one, so we could set the SO and user PINs before or
+	   after.  A zeroise tries to provision it but we don't do that here for
+	   the reason given above */
+	if( deviceType != CRYPT_DEVICE_TPM )
 		{
-		printf( "\nCouldn't initialise device, status = %d, line %d.\n",
-				status, __LINE__ );
-		return( FALSE );
+		printf( "Initialising device..." );
+		status = cryptSetAttributeString( cryptDevice, CRYPT_DEVINFO_INITIALISE,
+										  defaultSSOPIN, strlen( defaultSSOPIN ) );
+		if( cryptStatusError( status ) )
+			{
+			printf( "\nCouldn't initialise device, status = %d, line %d.\n",
+					status, __LINE__ );
+			return( FALSE );
+			}
+		puts( " succeeded." );
 		}
-	puts( " succeeded." );
 	printf( "Setting SO PIN to '%s'...", ssoPIN );
 	status = cryptSetAttributeString( cryptDevice,
 									  CRYPT_DEVINFO_SET_AUTHENT_SUPERVISOR,
@@ -689,8 +722,6 @@ static BOOLEAN initialiseDevice( const CRYPT_DEVICE cryptDevice,
 		return( FALSE );
 		}
 	puts( " succeeded." );
-
-	/* Set the user PIN and log on as the user */
 	printf( "Setting user PIN to '%s'...", userPIN );
 	status = cryptSetAttributeString( cryptDevice,
 									  CRYPT_DEVINFO_SET_AUTHENT_USER,
@@ -723,6 +754,19 @@ static BOOLEAN initialiseDevice( const CRYPT_DEVICE cryptDevice,
 		return( FALSE );
 		}
 	puts( " succeeded." );
+	if( deviceType == CRYPT_DEVICE_TPM )
+		{
+		printf( "Initialising device..." );
+		status = cryptSetAttributeString( cryptDevice, CRYPT_DEVINFO_INITIALISE,
+										  defaultSSOPIN, strlen( defaultSSOPIN ) );
+		if( cryptStatusError( status ) )
+			{
+			printf( "\nCouldn't initialise device, status = %d, line %d.\n",
+					status, __LINE__ );
+			return( FALSE );
+			}
+		puts( " succeeded." );
+		}
 
 	return( TRUE );
 	}
@@ -880,7 +924,7 @@ static BOOLEAN testPersistentObject( const CRYPT_DEVICE cryptDevice )
 	/* Perform an encrypt/decrypt test with the recreated object */
 	printf( "Performing encryption test with recovered key..." );
 	status = testCrypt( cryptContext, cryptContext, cryptAlgo, NULL, TRUE, 
-						FALSE, FALSE );
+						FALSE );
 	if( cryptStatusError( status ) )
 		return( FALSE );
 	puts( " succeeded." );
@@ -917,7 +961,7 @@ static BOOLEAN testDeviceHighlevel( const CRYPT_DEVICE cryptDevice,
 		if( deviceType != CRYPT_DEVICE_CRYPTOAPI )
 			{
 			/* Create a CA key in the device */
-			if( !createKey( cryptDevice, cryptAlgo, "CA",
+			if( !createKey( cryptDevice, deviceType, cryptAlgo, "CA",
 							( deviceType == CRYPT_DEVICE_PKCS11 ) ? \
 							"dp_cacert" : "df_cacert", CRYPT_UNUSED ) )
 				return( FALSE );
@@ -956,7 +1000,7 @@ static BOOLEAN testDeviceHighlevel( const CRYPT_DEVICE cryptDevice,
 
 		/* Create end-entity certificate(s) for keys using the previously-
 		   generated CA key */
-		status = createKey( cryptDevice, cryptAlgo, "user",
+		status = createKey( cryptDevice, deviceType, cryptAlgo, "user",
 							( deviceType == CRYPT_DEVICE_PKCS11 ) ? \
 							"dp_usrcert" : "df_usrcert", sigKeyContext );
 		cryptDestroyContext( sigKeyContext );
@@ -1118,7 +1162,7 @@ static BOOLEAN testDeviceHighlevel( const CRYPT_DEVICE cryptDevice,
 
 	/* Test persistent (non-public-key) object creation */
 #ifdef TEST_KEYGEN
-	if( !isWriteProtected )
+	if( !isWriteProtected && deviceType != CRYPT_DEVICE_TPM )
 		{
 		if( !testPersistentObject( cryptDevice ) )
 			return( FALSE );
@@ -1144,6 +1188,7 @@ static int testCryptoDevice( const CRYPT_DEVICE_TYPE deviceType,
 							 const DEVICE_CONFIG_INFO *deviceInfo )
 	{
 	CRYPT_DEVICE cryptDevice;
+	BOOLEAN doInitialiseDevice = TEST_INITIALISE_DEVICE;
 	BOOLEAN isWriteProtected = FALSE, isAutoDetect = FALSE;
 	BOOLEAN testResult = FALSE, partialSuccess = FALSE;
 	int status;
@@ -1225,6 +1270,23 @@ static int testCryptoDevice( const CRYPT_DEVICE_TYPE deviceType,
 			isWriteProtected = TRUE;
 		}
 
+	/* If it's a TPM, check whether we can create objects through it.  If it
+	   succeeds we assume it's already been initialised */
+	if( deviceType == CRYPT_DEVICE_TPM && TEST_INITIALISE_DEVICE )
+		{
+		CRYPT_CONTEXT cryptContext;
+
+		status = cryptDeviceCreateContext( cryptDevice, &cryptContext,
+										   CRYPT_ALGO_RSA );
+		if( cryptStatusOK( status ) )
+			{
+			cryptDestroyContext( cryptContext );
+			puts( "TPM allowed a key to be created in it, assuming it has "
+				  "already been\nprovisioned and initialised." );
+			doInitialiseDevice = FALSE;
+			}
+		}
+
 	/* To force the code not to try to create keys and certs in a writeable
 	   device, uncomment the following line of code.  This requires that keys/
 	   certs of the required type are already present in the device */
@@ -1237,10 +1299,11 @@ static int testCryptoDevice( const CRYPT_DEVICE_TYPE deviceType,
 		   cryptographic hardware then we always perform the initialisation
 		   because we're typically doing this as a development self-test and
 		   need to restore the hardware to the ground state before we can
-		   continue */
+		   continue, and if we're testing a TPM we have to perform the 
+		   initialisation to set up the backing store keyset */
 #ifdef TEST_KEYGEN
 		if( deviceType != CRYPT_DEVICE_CRYPTOAPI && \
-			( TEST_INITIALISE_DEVICE || deviceType == CRYPT_DEVICE_HARDWARE ) )
+			( doInitialiseDevice || deviceType == CRYPT_DEVICE_HARDWARE ) )
 			{
 			status = initialiseDevice( cryptDevice, deviceType,
 									   deviceInfo );
@@ -1294,13 +1357,13 @@ static int testCryptoDevice( const CRYPT_DEVICE_TYPE deviceType,
 	return( testLowlevel( cryptDevice, CRYPT_ALGO_DH, FALSE ) );
 #endif /* TEST_DH */
 
-	/* Report what the device can do.  This is intended mostly for simple
-	   crypto accelerators and may fail with for devices that work only
-	   with the higher-level functions centered around certificates,
-	   signatures,and key wrapping, so we skip the tests for devices that
-	   allow only high-level access.  In addition we can't perform the
-	   tests for devices like TPMs that don't support direct key loads */
+	/* Report what the device can do.  We can't perform the tests for 
+	   devices like TPMs that don't support direct key loads if we're trying 
+	   to do the crypto directly on the TPM, and if we're using the TPM as
+	   a passthrough device then we're not actually testing the device but
+	   are testing its ability to function as a passthrough */
 #ifdef TEST_ALGORITHMS
+  #ifdef USE_TPM_EXT
 	if( deviceType != CRYPT_DEVICE_TPM )
 		{
 		testResult = testDeviceCapabilities( cryptDevice, deviceName,
@@ -1312,8 +1375,13 @@ static int testCryptoDevice( const CRYPT_DEVICE_TYPE deviceType,
 			  "supported." );
 		testResult = TRUE;	/* We can't directly test the capabilities */
 		}
+  #else
+	testResult = testDeviceCapabilities( cryptDevice, deviceName,
+										 isWriteProtected );
+  #endif /* USE_TPM_EXT */
 #else
 	puts( "Skipping device algorithm tests." );
+	testResult = TRUE;	/* We've skipped testing the capabilities */
 #endif /* TEST_ALGORITHMS */
 
 	/* If it's a smart device, try various device-specific operations */
@@ -1341,6 +1409,29 @@ static int testCryptoDevice( const CRYPT_DEVICE_TYPE deviceType,
 		printf( "\n%s tests succeeded.\n\n", deviceName );
 	else
 		printf( "\nSome %s tests succeeded.\n\n", deviceName );
+
+	/* If it's anything but a TPM provisioning test, we're done */
+	if( !( deviceType == CRYPT_DEVICE_TPM && TEST_INITIALISE_DEVICE ) )
+		return( TRUE );
+
+	/* We've just provisioned a TPM, re-run some of the tests with the 
+	   device marked as read-only to test the binding of persistent keys */
+	puts( "Re-running tests on provisioned TPM..." );
+	status = cryptDeviceOpen( &cryptDevice, CRYPT_UNUSED, CRYPT_DEVICE_TPM,
+							  deviceInfo->name );
+	if( cryptStatusError( status ) )
+		{
+		printf( "cryptDeviceOpen() failed with error code %d, line %d.\n",
+				status, __LINE__ );
+		}
+	testResult = testDeviceHighlevel( cryptDevice, CRYPT_DEVICE_TPM,
+									  deviceInfo->keyLabel, 
+									  deviceInfo->password, TRUE );
+	cryptDeviceClose( cryptDevice );
+	if( !testResult )
+		return( FALSE );
+	puts( "Tests on provisioned TPM succeeded.\n\n" );
+	
 	return( TRUE );
 	}
 

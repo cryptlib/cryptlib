@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Object Attribute ACLs							*
-*						Copyright Peter Gutmann 1997-2019					*
+*						Copyright Peter Gutmann 1997-2024					*
 *																			*
 ****************************************************************************/
 
@@ -596,7 +596,13 @@ static const ATTRIBUTE_ACL optionACL[] = {
 
 static const int allowedPKCKeysizes[] = {
 	sizeof( CRYPT_PKCINFO_DLP ), sizeof( CRYPT_PKCINFO_RSA ), 
-	sizeof( CRYPT_PKCINFO_ECC ), CRYPT_ERROR, CRYPT_ERROR 
+#if defined( USE_ECDH ) || defined( USE_ECDSA )
+	sizeof( CRYPT_PKCINFO_ECC ), 
+#endif /* USE_ECDH || USE_ECDSA */
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+	sizeof( CRYPT_PKCINFO_DJB ), 
+#endif /* USE_25519 || USE_ED25519 */
+	CRYPT_ERROR, CRYPT_ERROR 
 	};
 static const int allowedKeyingAlgos[] = {
 	/* Hash algos used for PGP */
@@ -3058,6 +3064,44 @@ static const ATTRIBUTE_ACL keysetACL[] = {
 
 /* Device attributes */
 
+static const ATTRIBUTE_ACL subACL_SetAuthentUser[] = {
+	MKACL_S(	/* Set user authentication value */
+		CRYPT_DEVINFO_SET_AUTHENT_USER,
+		ST_NONE, ST_DEV_P11 | ST_DEV_HW, ST_NONE, 
+		MKPERM( xWx_xxx ),
+		ROUTE( OBJECT_TYPE_DEVICE ),
+		RANGE( 1, CRYPT_MAX_TEXTSIZE ) ),
+	MKACL_S(	/* Set user authentication value */
+		/* Most devices set the user and SO PINs after the user has 
+		   initialised the device or logged into it, however for TPMs they 
+		   have to be set before the initialisation takes place */
+		CRYPT_DEVINFO_SET_AUTHENT_USER,
+		ST_NONE, ST_DEV_TPM, ST_NONE, 
+		MKPERM( xxx_xWx ),
+		ROUTE( OBJECT_TYPE_DEVICE ),
+		RANGE( 1, CRYPT_MAX_TEXTSIZE ) ),
+	MKACL_END_SUBACL(), MKACL_END_SUBACL()
+	};
+	
+static const ATTRIBUTE_ACL subACL_SetAuthentSupervisor[] = {
+	MKACL_S(	/* Set supervisor authentication value */
+		CRYPT_DEVINFO_SET_AUTHENT_SUPERVISOR,
+		ST_NONE, ST_DEV_P11 | ST_DEV_HW, ST_NONE, 
+		MKPERM( xWx_xxx ),
+		ROUTE( OBJECT_TYPE_DEVICE ),
+		RANGE( 1, CRYPT_MAX_TEXTSIZE ) ),
+	MKACL_S(	/* Set supervisor authentication value */
+		/* Most devices set the user and SO PINs after the user has 
+		   initialised the device or logged into it, however for TPMs they 
+		   have to be set before the initialisation takes place */
+		CRYPT_DEVINFO_SET_AUTHENT_SUPERVISOR,
+		ST_NONE, ST_DEV_TPM, ST_NONE, 
+		MKPERM( xxx_xWx ),
+		ROUTE( OBJECT_TYPE_DEVICE ),
+		RANGE( 1, CRYPT_MAX_TEXTSIZE ) ),
+	MKACL_END_SUBACL(), MKACL_END_SUBACL()
+	};
+
 static const ATTRIBUTE_ACL deviceACL[] = {
 	MKACL_S_EX(	/* Initialise device for use */
 		CRYPT_DEVINFO_INITIALISE,
@@ -3080,18 +3124,18 @@ static const ATTRIBUTE_ACL deviceACL[] = {
 		MKPERM( xxx_xWx ), ATTRIBUTE_FLAG_TRIGGER,
 		ROUTE( OBJECT_TYPE_DEVICE ),
 		RANGE( 1, CRYPT_MAX_TEXTSIZE ) ),
-	MKACL_S(	/* Set user authent.value */
+	MKACL_ST(	/* Set user authentication value */
 		CRYPT_DEVINFO_SET_AUTHENT_USER,
 		ST_NONE, ST_DEV_P11 | ST_DEV_TPM | ST_DEV_HW, ST_NONE, 
-		MKPERM( xWx_xxx ),
+		MKPERM( xWx_xWx ),
 		ROUTE( OBJECT_TYPE_DEVICE ),
-		RANGE( 1, CRYPT_MAX_TEXTSIZE ) ),
-	MKACL_S(	/* Set supervisor auth.val.*/
+		subACL_SetAuthentUser ),
+	MKACL_ST(	/* Set supervisor authentication value */
 		CRYPT_DEVINFO_SET_AUTHENT_SUPERVISOR,
 		ST_NONE, ST_DEV_P11 | ST_DEV_TPM | ST_DEV_HW, ST_NONE, 
-		MKPERM( xWx_xxx ),
+		MKPERM( xWx_xWx ),
 		ROUTE( OBJECT_TYPE_DEVICE ),
-		RANGE( 1, CRYPT_MAX_TEXTSIZE ) ),
+		subACL_SetAuthentSupervisor ),
 	MKACL_S(	/* Zeroise device */
 		CRYPT_DEVINFO_ZEROISE,
 		ST_NONE, ST_DEV_P11 | ST_DEV_TPM | ST_DEV_HW, ST_NONE, 
@@ -3491,17 +3535,17 @@ static const ATTRIBUTE_ACL subACL_SessinfoFingerprint[] = {
 		   ;login, August 2011), however since we're a library we can't
 		   display UI so performing an initial dummy connect is the best way
 		   to check the fingerprint */
-		CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
+		CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
 		ST_NONE, ST_NONE, ST_SESS_TLS | ST_SESS_SSH | ST_SESS_SCEP, 
 		MKPERM_SESSIONS( Rxx_RWx ),
 		ROUTE( OBJECT_TYPE_SESSION ),
-		RANGE( 20, 20 ) ),
+		RANGE( 32, 32 ) ),
 	MKACL_S(	/* Server: Read-only */
-		CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
+		CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
 		ST_NONE, ST_NONE, ST_SESS_SSH_SVR, 
 		MKPERM_SESSIONS( Rxx_Rxx ),
 		ROUTE( OBJECT_TYPE_SESSION ),
-		RANGE( 20, 20 ) ),
+		RANGE( 32, 32 ) ),
 	MKACL_END_SUBACL(), MKACL_END_SUBACL()
 	};
 static const ATTRIBUTE_ACL subACL_SessinfoVersion[] = {
@@ -3748,7 +3792,7 @@ static const ATTRIBUTE_ACL sessionACL[] = {
 		ROUTE( OBJECT_TYPE_SESSION ),
 		RANGE( MIN_PORT_NUMBER, MAX_DEST_PORT_NUMBER ) ),
 	MKACL_ST(	/* Server key fingerprint */
-		CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
+		CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
 		ST_NONE, ST_NONE, ST_SESS_TLS | ST_SESS_SSH | ST_SESS_SCEP | \
 						  ST_SESS_SSH_SVR, 
 		MKPERM_SESSIONS( Rxx_RWx ),
@@ -4059,7 +4103,7 @@ static const ATTRIBUTE_ACL internalACL[] = {
 		MKPERM_INT( RWx_RWx ),
 		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( 8, 8 ) ),
 #if !( defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	   defined( USE_EDDSA ) || defined( USE_25519 ) )
+	   defined( USE_25519 ) || defined( USE_ED25519 ) )
 	MKACL_S_EX(	/* Ctx: SubjectPublicKeyInfo */
 		/* The attribute length values are only approximate because there's
 		   wrapper data involved, and (for the maximum length) several of
@@ -4100,6 +4144,11 @@ static const ATTRIBUTE_ACL internalACL[] = {
 		ST_CTX_PKC, ST_NONE, ST_NONE, 
 		MKPERM_INT( Rxx_RWx ),
 		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( 8 + MIN_PKCSIZE, CRYPT_MAX_PKCSIZE * 4 ) ),
+	MKACL_S(	/* Ctx: PGP public key w/o trigger */
+		CRYPT_IATTRIBUTE_KEY_PGP_PARTIAL,
+		ST_CTX_PKC, ST_NONE, ST_NONE, 
+		MKPERM_INT_PGP( xxx_xWx ),
+		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( 10 + MIN_PKCSIZE, CRYPT_MAX_PKCSIZE * 3 ) ),
 #else
 	MKACL_S_EX(	/* Ctx: SubjectPublicKeyInfo */
 		/* ECC keys are somewhat different, the lower bound is much smaller 
@@ -4134,12 +4183,12 @@ static const ATTRIBUTE_ACL internalACL[] = {
 		ST_CTX_PKC, ST_NONE, ST_NONE, 
 		MKPERM_INT( Rxx_RWx ),
 		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( 8 + MIN_PKCSIZE_ECCPOINT_THRESHOLD, CRYPT_MAX_PKCSIZE * 4 ) ),
-#endif /* !( USE_ECDSA || USE_ECDH || USE_EDDSA || USE_25519 ) */
 	MKACL_S(	/* Ctx: PGP public key w/o trigger */
 		CRYPT_IATTRIBUTE_KEY_PGP_PARTIAL,
 		ST_CTX_PKC, ST_NONE, ST_NONE, 
 		MKPERM_INT_PGP( xxx_xWx ),
-		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( 10 + MIN_PKCSIZE, CRYPT_MAX_PKCSIZE * 3 ) ),
+		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( 10 + MIN_PKCSIZE_ECCPOINT_THRESHOLD, CRYPT_MAX_PKCSIZE * 3 ) ),
+#endif /* !( USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 ) */
 #if !defined( USE_DH )
 	MKACL_N_EX(	/* DLP domain parameters */
 		CRYPT_IATTRIBUTE_KEY_DLPPARAM,
@@ -4165,6 +4214,19 @@ static const ATTRIBUTE_ACL internalACL[] = {
 		ST_CTX_PKC, ST_NONE, ST_NONE,
 		MKPERM_INT( Rxx_xWx ), ATTRIBUTE_FLAG_TRIGGER,
 		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( CRYPT_ECCCURVE_NONE + 1, CRYPT_ECCCURVE_LAST - 1 ) ),
+#endif /* !( USE_ECDH || USE_ECDSA ) */
+#if !defined( USE_25519 ) 
+	MKACL(		/* ECC implicit key */
+		CRYPT_IATTRIBUTE_KEY_IMPLICIT, ATTRIBUTE_VALUE_BOOLEAN,
+		ST_CTX_PKC, ST_NONE, ST_NONE,
+		MKPERM_INT( xxx_xxx ), ATTRIBUTE_FLAG_TRIGGER,
+		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( TRUE, TRUE ) ),
+#else
+	MKACL(		/* ECC implicit key */
+		CRYPT_IATTRIBUTE_KEY_IMPLICIT, ATTRIBUTE_VALUE_BOOLEAN,
+		ST_CTX_PKC, ST_NONE, ST_NONE,
+		MKPERM_INT( Rxx_xWx ), ATTRIBUTE_FLAG_TRIGGER,
+		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( TRUE, TRUE ) ),
 #endif /* !( USE_ECDH || USE_ECDSA ) */
 	MKACL_T(	/* Ctx: PGP key validity */
 		/* This attribute is writeable in the high state since it may be

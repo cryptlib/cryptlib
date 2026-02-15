@@ -711,10 +711,9 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	const PGP_INFO *pgpInfo = DATAPTR_GET( keysetInfoPtr->keyData );
 	PGP_INFO *pgpInfoPtr;
 	MESSAGE_DATA msgData;
-	BYTE keyID[ CRYPT_MAX_HASHSIZE + 8 ];
+	BYTE openPGPkeyID[ CRYPT_MAX_HASHSIZE + 8 ];
 	BOOLEAN encryptionOnlyKey = FALSE, privkeyPresent;
-	char label[ CRYPT_MAX_TEXTSIZE + 8 ];
-	int algorithm, keyIDsize DUMMY_INIT, status;
+	int algorithm DUMMY_INIT, openPGPkeyIDsize DUMMY_INIT, status;
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
 	assert( ( itemType == KEYMGMT_ITEM_PUBLICKEY && \
@@ -740,54 +739,67 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( flags == KEYMGMT_FLAG_NONE );
 	REQUIRES( pgpInfo != NULL );
 
-	/* Check the object and extract ID information from it */
+	/* Check the object and extract information from it */
 	status = krnlSendMessage( cryptHandle, IMESSAGE_CHECK, NULL,
 							  MESSAGE_CHECK_PKC );
 	if( cryptStatusOK( status ) )
 		{
-		setMessageData( &msgData, keyID, CRYPT_MAX_HASHSIZE );
+		status = krnlSendMessage( cryptHandle, IMESSAGE_GETATTRIBUTE,
+								  &algorithm, CRYPT_CTXINFO_ALGO );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		setMessageData( &msgData, openPGPkeyID, CRYPT_MAX_HASHSIZE );
 		status = krnlSendMessage( cryptHandle, IMESSAGE_GETATTRIBUTE_S,
-								  &msgData, CRYPT_IATTRIBUTE_KEYID );
+								  &msgData, CRYPT_IATTRIBUTE_KEYID_OPENPGP );
 		if( cryptStatusOK( status ) )
-			keyIDsize = msgData.length;
+			openPGPkeyIDsize = msgData.length;
 		}
 	if( cryptStatusError( status ) )
 		{
 		return( ( status == CRYPT_ARGERROR_OBJECT ) ? \
 				CRYPT_ARGERROR_NUM1 : status );
 		}
-	if( findEntry( pgpInfo, 1, CRYPT_IKEYID_KEYID, keyID, keyIDsize, 
-				   KEYMGMT_FLAG_NONE, NULL ) != NULL )
+
+	/* If we're half way through a multi-part update consisting of an 
+	   encryption-only Elgamal key followed by a signature key for 
+	   binding signatures then we can't add another encryption-only key */
+	if( TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_INCOMPLETE ) )
 		{
-		retExt( CRYPT_ERROR_DUPLICATE, 
-				( CRYPT_ERROR_DUPLICATE, KEYSET_ERRINFO, 
-				  "Item is already present in keyset" ) );
+		if( algorithm == CRYPT_ALGO_ELGAMAL )
+			{
+			retExt( CRYPT_ERROR_COMPLETE, 
+					( CRYPT_ERROR_COMPLETE, KEYSET_ERRINFO, 
+					  "No further keys can be added for this entry" ) );
+			}
+		}
+	else
+		{
+		if( findEntry( pgpInfo, 1, CRYPT_IKEYID_PGPKEYID, openPGPkeyID, 
+					   openPGPkeyIDsize, KEYMGMT_FLAG_NONE, NULL ) != NULL )
+			{
+			retExt( CRYPT_ERROR_DUPLICATE, 
+					( CRYPT_ERROR_DUPLICATE, KEYSET_ERRINFO, 
+					  "Item is already present in keyset" ) );
+			}
 		}
 
 	/* Find out what sort of key we're trying to store */
-	status = krnlSendMessage( cryptHandle, IMESSAGE_GETATTRIBUTE,
-							  &algorithm, CRYPT_CTXINFO_ALGO );
-	if( cryptStatusOK( status ) )
+	switch( algorithm )
 		{
-		switch( algorithm )
-			{
-			case CRYPT_ALGO_ELGAMAL:
-			case CRYPT_ALGO_ECDH:
-			case CRYPT_ALGO_25519:
-				/* If it's an encryption-only algorithm then we can only 
-				   store the key data but can't sign metadata */
-				encryptionOnlyKey = TRUE;
-				break;
+		case CRYPT_ALGO_ELGAMAL:
+			/* If it's an encryption-only algorithm then we can only store 
+			   the key data but can't sign metadata */
+			encryptionOnlyKey = TRUE;
+			break;
 
-			case CRYPT_ALGO_RSA:
-			case CRYPT_ALGO_DSA:
-			case CRYPT_ALGO_ECDSA:
-			case CRYPT_ALGO_EDDSA:
-				break;
+		case CRYPT_ALGO_RSA:
+		case CRYPT_ALGO_DSA:
+		case CRYPT_ALGO_ECDSA:
+			break;
 
-			default:
-				status = CRYPT_ARGERROR_NUM1;
-			}
+		default:
+			status = CRYPT_ARGERROR_NUM1;
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -830,7 +842,18 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		}
 
 	/* Make sure that the label of what we're adding doesn't duplicate the 
-	   label of an existing object */
+	   label of an existing object.
+	   
+	   This is currently a no-op because the userID list is only populated 
+	   on read by remembering the locations of any userIDs present inside 
+	   the encoded key data.  This doesn't work on write because the 
+	   locations can move when key data information is updated.  However 
+	   since we only allow a single key or combined key (e.g. Elgamal + DSA)
+	   to be written, there's currently no need for a duplicate userID 
+	   check */
+#if 0
+	char label[ CRYPT_MAX_TEXTSIZE + 8 ];
+
 	if( privkeyPresent )
 		{
 		int labelLength;
@@ -851,6 +874,7 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 									  labelLength ) ) );
 			}
 		}
+#endif /* 0 */
 
 	/* Storing PGP private keys is quite complicated and there's no good 
 	   reason to use this format instead of PKCS #15, so for now we don't
@@ -902,9 +926,10 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		}
 
 	/* If it's an encryption-only key then we need to save the key data away 
-	    for later use, where it'll be signed using a signature key */
+	   as a subkey for later use, where it'll be signed using a signature key */
 	if( encryptionOnlyKey )
 		{
+		PGP_KEYINFO *pgpKeyInfo = &pgpInfoPtr->subKey;
 		void *keyData;
 		int keyDataSize;
 
@@ -930,6 +955,18 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		pgpInfoPtr->keyData = keyData;
 		pgpInfoPtr->keyDataLen = keyDataSize;
 
+		/* Record metadata related to the key that's needed for future 
+		   lookups */
+		pgpKeyInfo->pkcAlgo = algorithm;
+		pgpKeyInfo->usageFlags = KEYMGMT_FLAG_USAGE_CRYPT;
+		REQUIRES( rangeCheck( openPGPkeyIDsize, 1, PGP_KEYID_SIZE ) );
+		memcpy( pgpKeyInfo->openPGPkeyID, openPGPkeyID, openPGPkeyIDsize );
+
+		/* Remember that this is only a partial update, and we need to add a
+		   signing key for the binding signature before we can commit the 
+		   data to disk */
+		SET_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_INCOMPLETE );
+
 		return( CRYPT_OK );
 		}
 
@@ -947,7 +984,23 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	/* Write the key data and associated metadata in PGP keyring format */
 	status = pgpWritePubkey( pgpInfoPtr, cryptHandle, KEYSET_ERRINFO );
 	if( cryptStatusOK( status ) )
+		{
+		PGP_KEYINFO *pgpKeyInfo = &pgpInfoPtr->key;
+
+		/* Record metadata related to the key that's needed for future 
+		   lookups */
+		pgpKeyInfo->pkcAlgo = algorithm;
+		pgpKeyInfo->usageFlags = KEYMGMT_FLAG_USAGE_CRYPT;
+		REQUIRES( rangeCheck( openPGPkeyIDsize, 1, PGP_KEYID_SIZE ) );
+		memcpy( pgpKeyInfo->openPGPkeyID, openPGPkeyID, openPGPkeyIDsize );
+
+		/* Remember that this entry now has binding signatures and so no 
+		   further keys can be added to it, and that any encryption-only
+		   keys added earlier now have the required binding signatures to
+		   allow the data to be committed to storage */
 		pgpInfoPtr->isComplete = TRUE;
+		CLEAR_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_INCOMPLETE );
+		}
 
 	return( status );
 	}
@@ -979,6 +1032,15 @@ static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 
 	pgpInfo = DATAPTR_GET( keysetInfoPtr->keyData );
 	ENSURES( pgpInfo != NULL );
+
+	/* If we're performing a shutdown (and flush to disk) with an update
+	   incomplete then we can't write what we've currently got, treat it as
+	   an update with nothing changed */
+	if( TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_INCOMPLETE ) )
+		{
+		CLEAR_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_DIRTY );
+		status = CRYPT_ERROR_INCOMPLETE;
+		}
 
 	/* If the contents have been changed, commit the changes to disk */
 	if( TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_DIRTY ) )
@@ -1053,7 +1115,7 @@ static int initPublicFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	memset( pgpInfo, 0, sizeof( PGP_INFO ) );
 	if( options != CRYPT_KEYOPT_CREATE )
 		{
-		REQUIRES( isIntegerRangeNZ( KEYRING_BUFSIZE ) );
+		REQUIRES_PTR( isIntegerRangeNZ( KEYRING_BUFSIZE ), pgpInfo );
 		if( ( pgpInfo->keyData = clAlloc( "initPublicFunction", \
 										  KEYRING_BUFSIZE ) ) == NULL )
 			{

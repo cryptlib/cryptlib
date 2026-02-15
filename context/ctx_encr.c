@@ -282,7 +282,7 @@ static int encryptDataPKC( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( isDlpAlgo( capabilityInfoPtr->cryptAlgo ) || \
 		isEccAlgo( capabilityInfoPtr->cryptAlgo ) )
 		{
-		DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) data;
+		const DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) data;
 
 		REQUIRES( dataLength == sizeof( DLP_PARAMS ) );
 

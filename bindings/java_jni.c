@@ -43,10 +43,10 @@
 #define cryptlib_crypt_ALGO_ECDSA 105L
 #undef cryptlib_crypt_ALGO_ECDH
 #define cryptlib_crypt_ALGO_ECDH 106L
-#undef cryptlib_crypt_ALGO_EDDSA
-#define cryptlib_crypt_ALGO_EDDSA 107L
 #undef cryptlib_crypt_ALGO_25519
-#define cryptlib_crypt_ALGO_25519 108L
+#define cryptlib_crypt_ALGO_25519 107L
+#undef cryptlib_crypt_ALGO_ED25519
+#define cryptlib_crypt_ALGO_ED25519 108L
 #undef cryptlib_crypt_ALGO_RESERVED4
 #define cryptlib_crypt_ALGO_RESERVED4 200L
 #undef cryptlib_crypt_ALGO_RESERVED5
@@ -1179,8 +1179,8 @@
 #define cryptlib_crypt_SESSINFO_SERVER_NAME 6009L
 #undef cryptlib_crypt_SESSINFO_SERVER_PORT
 #define cryptlib_crypt_SESSINFO_SERVER_PORT 6010L
-#undef cryptlib_crypt_SESSINFO_SERVER_FINGERPRINT_SHA1
-#define cryptlib_crypt_SESSINFO_SERVER_FINGERPRINT_SHA1 6011L
+#undef cryptlib_crypt_SESSINFO_SERVER_FINGERPRINT_SHA2
+#define cryptlib_crypt_SESSINFO_SERVER_FINGERPRINT_SHA2 6011L
 #undef cryptlib_crypt_SESSINFO_CLIENT_NAME
 #define cryptlib_crypt_SESSINFO_CLIENT_NAME 6012L
 #undef cryptlib_crypt_SESSINFO_CLIENT_PORT
@@ -1611,6 +1611,8 @@
 #define cryptlib_crypt_TLSOPTION_DISABLE_CERTVERIFY 32L
 #undef cryptlib_crypt_TLSOPTION_SERVER_SNI
 #define cryptlib_crypt_TLSOPTION_SERVER_SNI 64L
+#undef cryptlib_crypt_TLSOPTION_RESUMED
+#define cryptlib_crypt_TLSOPTION_RESUMED 128L
 #undef cryptlib_crypt_TLSOPTION_SUITEB_128
 #define cryptlib_crypt_TLSOPTION_SUITEB_128 256L
 #undef cryptlib_crypt_TLSOPTION_SUITEB_256
@@ -2547,7 +2549,8 @@ JNIEXPORT jint JNICALL Java_cryptlib_crypt_ExportKey__Ljava_nio_ByteBuffer_2IIII
 	jint encryptedKeyLength = 0;
 	jbyte* encryptedKeyPtr = 0;
 	
-	if (!processStatus(env, cryptExportKey(NULL, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext)))
+	if (encryptedKeyMaxLength == 0) 
+	    if (!processStatus(env, cryptExportKey(NULL, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext)))
 		goto finish;
 	
 	if (!checkIndicesNIO(env, encryptedKey, encryptedKeyOffset, encryptedKeyLength))
@@ -2576,7 +2579,8 @@ JNIEXPORT jint JNICALL Java_cryptlib_crypt_ExportKey___3BIIII
 	jint encryptedKeyLength = 0;
 	jbyte* encryptedKeyPtr = 0;
 	
-	if (!processStatus(env, cryptExportKey(NULL, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext)))
+	if (encryptedKeyMaxLength == 0) 
+	    if (!processStatus(env, cryptExportKey(NULL, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext)))
 		goto finish;
 	
 	if (!checkIndicesArray(env, encryptedKey, encryptedKeyOffset, encryptedKeyLength))
@@ -2605,7 +2609,8 @@ JNIEXPORT jint JNICALL Java_cryptlib_crypt_ExportKeyEx__Ljava_nio_ByteBuffer_2II
 	jint encryptedKeyLength = 0;
 	jbyte* encryptedKeyPtr = 0;
 	
-	if (!processStatus(env, cryptExportKeyEx(NULL, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext)))
+	if (encryptedKeyMaxLength == 0) 
+	    if (!processStatus(env, cryptExportKeyEx(NULL, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext)))
 		goto finish;
 	
 	if (!checkIndicesNIO(env, encryptedKey, encryptedKeyOffset, encryptedKeyLength))
@@ -2634,7 +2639,8 @@ JNIEXPORT jint JNICALL Java_cryptlib_crypt_ExportKeyEx___3BIIIII
 	jint encryptedKeyLength = 0;
 	jbyte* encryptedKeyPtr = 0;
 	
-	if (!processStatus(env, cryptExportKeyEx(NULL, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext)))
+	if (encryptedKeyMaxLength == 0) 
+	    if (!processStatus(env, cryptExportKeyEx(NULL, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext)))
 		goto finish;
 	
 	if (!checkIndicesArray(env, encryptedKey, encryptedKeyOffset, encryptedKeyLength))
@@ -2763,7 +2769,8 @@ JNIEXPORT jint JNICALL Java_cryptlib_crypt_CreateSignature__Ljava_nio_ByteBuffer
 	jint signatureLength = 0;
 	jbyte* signaturePtr = 0;
 	
-	if (!processStatus(env, cryptCreateSignature(NULL, signatureMaxLength, &signatureLength, signContext, hashContext)))
+	if (signatureMaxLength == 0) 
+	    if (!processStatus(env, cryptCreateSignature(NULL, signatureMaxLength, &signatureLength, signContext, hashContext)))
 		goto finish;
 	
 	if (!checkIndicesNIO(env, signature, signatureOffset, signatureLength))
@@ -2792,7 +2799,8 @@ JNIEXPORT jint JNICALL Java_cryptlib_crypt_CreateSignature___3BIIII
 	jint signatureLength = 0;
 	jbyte* signaturePtr = 0;
 	
-	if (!processStatus(env, cryptCreateSignature(NULL, signatureMaxLength, &signatureLength, signContext, hashContext)))
+	if (signatureMaxLength == 0) 
+	    if (!processStatus(env, cryptCreateSignature(NULL, signatureMaxLength, &signatureLength, signContext, hashContext)))
 		goto finish;
 	
 	if (!checkIndicesArray(env, signature, signatureOffset, signatureLength))
@@ -2821,7 +2829,8 @@ JNIEXPORT jint JNICALL Java_cryptlib_crypt_CreateSignatureEx__Ljava_nio_ByteBuff
 	jint signatureLength = 0;
 	jbyte* signaturePtr = 0;
 	
-	if (!processStatus(env, cryptCreateSignatureEx(NULL, signatureMaxLength, &signatureLength, formatType, signContext, hashContext, extraData)))
+	if (signatureMaxLength == 0) 
+	    if (!processStatus(env, cryptCreateSignatureEx(NULL, signatureMaxLength, &signatureLength, formatType, signContext, hashContext, extraData)))
 		goto finish;
 	
 	if (!checkIndicesNIO(env, signature, signatureOffset, signatureLength))
@@ -2850,7 +2859,8 @@ JNIEXPORT jint JNICALL Java_cryptlib_crypt_CreateSignatureEx___3BIIIIII
 	jint signatureLength = 0;
 	jbyte* signaturePtr = 0;
 	
-	if (!processStatus(env, cryptCreateSignatureEx(NULL, signatureMaxLength, &signatureLength, formatType, signContext, hashContext, extraData)))
+	if (signatureMaxLength == 0) 
+	    if (!processStatus(env, cryptCreateSignatureEx(NULL, signatureMaxLength, &signatureLength, formatType, signContext, hashContext, extraData)))
 		goto finish;
 	
 	if (!checkIndicesArray(env, signature, signatureOffset, signatureLength))

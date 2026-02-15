@@ -8,11 +8,6 @@ namespace cryptlib
 public class crypt
 {
     
-	/* Additional defines for compilers that provide extended function and 
-	   function-parameter checking */
-	
-	
-	
 	/****************************************************************************
 	*																			*
 	*							Algorithm and Object Types						*
@@ -40,8 +35,8 @@ public class crypt
 	public const int ALGO_RESERVED3          = 104; // Formerly KEA
 	public const int ALGO_ECDSA              = 105; // ECDSA
 	public const int ALGO_ECDH               = 106; // ECDH
-	public const int ALGO_EDDSA              = 107; // EDDSA
-	public const int ALGO_25519              = 108; // X25519/X448
+	public const int ALGO_25519              = 107; // X25519
+	public const int ALGO_ED25519            = 108; // Ed25519
 	public const int ALGO_RESERVED4          = 200; // Formerly MD2
 	public const int ALGO_RESERVED5          = 201; // Formerly MD4
 	public const int ALGO_MD5                = 202; // MD5 (only used internally for TLS 1.0/1.1)
@@ -660,7 +655,7 @@ public class crypt
 	public const int SESSINFO_AUTHRESPONSE                       = 6008; // Session authorisation OK
 	public const int SESSINFO_SERVER_NAME                        = 6009; // Server name
 	public const int SESSINFO_SERVER_PORT                        = 6010; // Server port number
-	public const int SESSINFO_SERVER_FINGERPRINT_SHA1            = 6011; // Server key fingerprint
+	public const int SESSINFO_SERVER_FINGERPRINT_SHA2            = 6011; // Server key fingerprint
 	public const int SESSINFO_CLIENT_NAME                        = 6012; // Client name
 	public const int SESSINFO_CLIENT_PORT                        = 6013; // Client port number
 	public const int SESSINFO_SESSION                            = 6014; // Transport mechanism
@@ -972,6 +967,7 @@ public class crypt
 	public const int TLSOPTION_DISABLE_NAMEVERIFY             = 0x010; // Disable cert hostname check
 	public const int TLSOPTION_DISABLE_CERTVERIFY             = 0x020; // Disable certificate check
 	public const int TLSOPTION_SERVER_SNI                     = 0x040; // Enable SNI-based key selection
+	public const int TLSOPTION_RESUMED                        = 0x080; // TLS session is resumed
 	public const int TLSOPTION_SUITEB_128                     = 0x100; // SuiteB security levels (will
 	public const int TLSOPTION_SUITEB_256                     = 0x200; // vanish in future releases)
 	
@@ -1195,6 +1191,20 @@ public class crypt
 	//	unsigned char d[ CRYPT_MAX_PKCSIZE_ECC ];/* Private random integer */
 	//	int dLen;					/* Length of integer in bits */
 	//	} CRYPT_PKCINFO_ECC;
+	
+	//CRYPTLIBCONVERTER - NOT SUPPORTED:
+	//typedef struct {
+	//	/* Status information */
+	//	int isPublicKey;			/* Whether this is a public or private key */
+	//
+	//	/* Public components */
+	//	unsigned char pub[ CRYPT_MAX_PKCSIZE ];	/* Public value */
+	//	int pubLen;					/* Length of public value in bits */
+	//
+	//	/* Private components */
+	//	unsigned char priv[ CRYPT_MAX_PKCSIZE ];/* Private value */
+	//	int privLen;				/* Length of private value in bits */
+	//	} CRYPT_PKCINFO_DJB;
 	
 	/* Macros to initialise and destroy the structure that stores the components
 	   of a public key */

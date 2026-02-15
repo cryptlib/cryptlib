@@ -388,7 +388,7 @@ static CONTENT_LIST *findContentListItem( IN_PTR_OPT \
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int createContentListItem( OUT_BUFFER_ALLOC_OPT( sizeof( CONTENT_LIST ) ) \
 								CONTENT_LIST **newContentListItemPtrPtr,
-						   INOUT_PTR MEMPOOL_STATE memPoolState, 
+						   INOUT_PTR void *memPoolStatePtr, 
 						   IN_ENUM( CONTENT ) const CONTENT_TYPE type,
 						   IN_ENUM( CRYPT_FORMAT ) \
 								const CRYPT_FORMAT_TYPE formatType,
@@ -399,7 +399,7 @@ int createContentListItem( OUT_BUFFER_ALLOC_OPT( sizeof( CONTENT_LIST ) ) \
 
 	assert( isWritePtr( newContentListItemPtrPtr, \
 						sizeof( CONTENT_LIST * ) ) );
-	assert( isWritePtr( memPoolState, sizeof( MEMPOOL_STATE ) ) );
+	assert( isWritePtr( memPoolStatePtr, sizeof( MEMPOOL_STATE ) ) );
 	assert( objectSize == 0 || isReadPtrDynamic( object, objectSize ) );
 
 	REQUIRES( isEnumRange( type, CONTENT ) );
@@ -411,7 +411,7 @@ int createContentListItem( OUT_BUFFER_ALLOC_OPT( sizeof( CONTENT_LIST ) ) \
 	/* Clear return value */
 	*newContentListItemPtrPtr = NULL;
 
-	if( ( newItem = getMemPool( memPoolState, \
+	if( ( newItem = getMemPool( memPoolStatePtr, \
 								sizeof( CONTENT_LIST ) ) ) == NULL )
 		return( CRYPT_ERROR_MEMORY );
 	memset( newItem, 0, sizeof( CONTENT_LIST ) );
@@ -474,10 +474,10 @@ int appendContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 /* Delete a content list */
 
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
-void deleteContentListItem( INOUT_PTR MEMPOOL_STATE memPoolState,
+void deleteContentListItem( INOUT_PTR void *memPoolStatePtr,
 							INOUT_PTR CONTENT_LIST *contentListItem )
 	{
-	assert( isWritePtr( memPoolState, sizeof( MEMPOOL_STATE ) ) );
+	assert( isWritePtr( memPoolStatePtr, sizeof( MEMPOOL_STATE ) ) );
 	assert( isWritePtr( contentListItem, sizeof( CONTENT_LIST ) ) );
 
 	REQUIRES_V( sanityCheckContentList( contentListItem ) );
@@ -490,7 +490,7 @@ void deleteContentListItem( INOUT_PTR MEMPOOL_STATE memPoolState,
 	/* Destroy any attached objects if necessary */
 	if( contentListItem->type == CONTENT_SIGNATURE )
 		{
-		CONTENT_SIG_INFO *sigInfo = &contentListItem->clSigInfo;
+		const CONTENT_SIG_INFO *sigInfo = &contentListItem->clSigInfo;
 
 		if( sigInfo->iSigCheckKey != CRYPT_ERROR )
 			krnlSendNotifier( sigInfo->iSigCheckKey, IMESSAGE_DECREFCOUNT );
@@ -517,7 +517,7 @@ void deleteContentListItem( INOUT_PTR MEMPOOL_STATE memPoolState,
 
 	/* Free the item itself */
 	zeroise( contentListItem, sizeof( CONTENT_LIST ) );
-	freeMemPool( memPoolState, contentListItem );
+	freeMemPool( memPoolStatePtr, contentListItem );
 	}
 
 STDC_NONNULL_ARG( ( 1 ) ) \
@@ -720,6 +720,7 @@ static int checkCmsSignatureInfo( INOUT_PTR CONTENT_LIST *contentListPtr,
 								  INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	CONTENT_SIG_INFO *sigInfo = &contentListPtr->clSigInfo;
+	SIG_DATA_INFO sigDataInfo;
 	ERROR_INFO localErrorInfo;
 	const void *objectPtr = DATAPTR_GET( contentListPtr->object );
 	int status;
@@ -738,12 +739,13 @@ static int checkCmsSignatureInfo( INOUT_PTR CONTENT_LIST *contentListPtr,
 	   the signature, in which case the caller will have provided the 
 	   signature check key from an external source */
 	clearErrorInfo( &localErrorInfo );
+	setSigDataInfoHash( &sigDataInfo, iHashContext );
 	status = iCryptCheckSignature( objectPtr, contentListPtr->objectSize, 
 								   CRYPT_FORMAT_CMS,
 								   ( sigInfo->iSigCheckKey == CRYPT_ERROR ) ? \
 									iSigCheckContext : sigInfo->iSigCheckKey,
-								   iHashContext, CRYPT_UNUSED,
-								   &sigInfo->iExtraData, &localErrorInfo );
+								   &sigDataInfo, &sigInfo->iExtraData, 
+								   &localErrorInfo );
 	if( cryptStatusError( status ) )
 		{
 		retExtErr( status,
@@ -1323,13 +1325,14 @@ static int addSignatureInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	else
 #endif /* USE_CMS */
 		{
+		SIG_DATA_INFO sigDataInfo;
 		ERROR_INFO localErrorInfo;
 
 		clearErrorInfo( &localErrorInfo );
+		setSigDataInfoHash( &sigDataInfo, actionListPtr->iCryptHandle );
 		status = iCryptCheckSignature( objectPtr, contentListPtr->objectSize,
 								contentListPtr->formatType, sigCheckContext,
-								actionListPtr->iCryptHandle, CRYPT_UNUSED, 
-								NULL, &localErrorInfo );
+								&sigDataInfo, NULL, &localErrorInfo );
 		if( cryptStatusError( status ) )
 			{
 			/* We can't do a standard retExtErr() to set the error 

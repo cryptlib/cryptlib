@@ -136,7 +136,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		ENSURES( keyName != NULL );
 		memset( &httpReqInfo, 0, sizeof( HTTP_REQ_INFO ) );
 		httpReqInfo.attribute = keyName;
-		httpReqInfo.attributeLen = strlen( keyName );
+		httpReqInfo.attributeLen = strnlen_s( keyName, CRYPT_MAX_TEXTSIZE );
 		httpReqInfo.value = keyID;
 		httpReqInfo.valueLen = keyIDlength;
 		status = initHttpInfoReqEx( &httpDataInfo, &httpReqInfo );

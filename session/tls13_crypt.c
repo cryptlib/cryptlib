@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib TLS 1.3 Crypto Routines						*
-*					 Copyright Peter Gutmann 2019-2022						*
+*					 Copyright Peter Gutmann 2019-2024						*
 *																			*
 ****************************************************************************/
 
@@ -373,6 +373,22 @@ int createSessionHashTLS13( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 								"Transcript hash (server cert_verify):" : \
 								"Transcript hash (client cert_verify):" ,
 						   hashValue, hashValueLength );
+
+	/* If it's a special-snowflake algorithm that wants to see the entire 
+	   message being signed then we need to record details of the message
+	   rather than just its hash */
+#ifdef USE_ED25519
+	if( isBernsteinAlgo( handshakeInfo->authAlgo ) )
+		{
+		handshakeInfo->transcriptPrefixString = prefixString;
+		handshakeInfo->transcriptPrefixStringLength = prefixStringLength;
+		REQUIRES( rangeCheck( hashValueLength, 1, CRYPT_MAX_HASHSIZE ) );
+		memcpy( handshakeInfo->transcriptHash, hashValue, hashValueLength );
+		handshakeInfo->transcriptHashLength = hashValueLength;
+		
+		return( CRYPT_OK );
+		}
+#endif /* USE_ED25519 */
 
 	/* Hash the prefix string and the transcript hash to get the hash value
 	   that's actually signed/verified */
@@ -964,9 +980,8 @@ int loadHSKeysTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Complete the keyex */
 	sMemConnect( &stream, handshakeInfo->tls13KeyexValue, 
 				 handshakeInfo->tls13KeyexValueLen );
-	status = completeTLSKeyex( handshakeInfo, &stream, 
-							   isECCGroup( handshakeInfo->tls13KeyexGroup ) ? \
-								 TRUE : FALSE, FALSE, SESSION_ERRINFO );
+	status = completeTLSKeyex( handshakeInfo, &stream, FALSE, TRUE,
+							   SESSION_ERRINFO );
 	sMemDisconnect( &stream );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1047,8 +1062,11 @@ void testTLS13Zoo( void )
 	handshakeInfo.cryptKeysize = 16;		/* AES */
 	handshakeInfo.integrityAlgoParam = 32;	/* SHA-256 */
 	handshakeInfo.md5context = handshakeInfo.sha1context = \
-		handshakeInfo.sha2context = handshakeInfo.dhContext = \
-		handshakeInfo.dhContextAlt = CRYPT_ERROR;
+		handshakeInfo.sha2context = handshakeInfo.keyexContext = \
+		handshakeInfo.keyexEcdhContext = CRYPT_ERROR;
+  #ifdef USE_25519
+	handshakeInfo.keyex25519Context = CRYPT_ERROR;
+  #endif /* USE_25519 */
 	setMessageCreateObjectInfo( &createInfo, CRYPT_ALGO_SHA2 );
 	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,
 							  IMESSAGE_DEV_CREATEOBJECT, &createInfo,

@@ -180,7 +180,7 @@ case $OSNAME in
 					$(./tools/getlibs.sh $LD $OSNAME $CROSSCOMPILE) ;
 			fi
 		else
-			$LD -shared -o "$LIBNAME" $(cat $LINKFILE) \
+			$LD $LDFLAGS -o "$LIBNAME" $(cat $LINKFILE) \
 				$(./tools/getlibs.sh $LD $OSNAME $CROSSCOMPILE) ;
 		fi
 		if [ "$(which objdump)" ] && [ "$(objdump -p $LIBNAME | grep -c TEXTREL)" -gt '0' ] ; then

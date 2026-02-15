@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # ported to python3 by Ralf Senderek, October 2018
-# modified to use the new Buffer Protocol (PyObject_GetBuffer), November 2023 
+# modified to use the new Buffer Protocol (PyObject_GetBuffer), November 2023
 
 import sys
 import os
@@ -401,7 +401,7 @@ static int getPointerReadString(PyObject* objPtr, char** charPtrPtr)
     length = view.len;
     *charPtrPtr = view.buf;
     PyBuffer_Release(&view);
-    
+
     newPtr = malloc(length+1);
     if (newPtr == NULL)
     {
@@ -873,7 +873,8 @@ s = re.search(r"#ifndef _CRYPTLIB_DEFINED\n(.*)\n#endif", s, re.DOTALL).group(1)
 
 #Ignore anything before "#define C_INOUT..."
 #--------------------------------------------
-s = s[re.search(r"#define C_INOUT.*?\n", s, re.DOTALL).end() : ]
+#s = s[re.search(r"#define C_INOUT.*?\n", s, re.DOTALL).end() : ]
+s = s[re.search(r"\/\* END_OF_PREAMBLE.*?\n", s, re.DOTALL).end() : ]
 
 #Remove all conditionals
 #------------------------
@@ -1959,7 +1960,7 @@ void releasePointerString(JNIEnv* env, jstring str, jbyte* bytesPtr)
             if outVoidArrayNames and functionName.find("PopData") == -1:
                 for n in outVoidArrayNames:
                     argumentsWithNull = arguments.replace("%sPtr + %sOffset" % (n,n), "NULL")
-		    
+
 		    # Handle four exceptions in which the cryptlib code should not be invoced twice
                     # (Aug 2023, Ralf Senderek)
                     if functionName.find("CreateSignature") != -1:

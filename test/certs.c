@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Certificate Handling Test Routines				*
-*						Copyright Peter Gutmann 1997-2023					*
+*						Copyright Peter Gutmann 1997-2024					*
 *																			*
 ****************************************************************************/
 
@@ -50,9 +50,9 @@
 
 #define ONE_YEAR_TIME	( 365 * 86400L )
 #if defined( __MWERKS__ ) || defined( SYMANTEC_C ) || defined( __MRC__ )
-  #define CERTTIME_DATETEST	( ( ( 2024 - 1970 ) * ONE_YEAR_TIME ) + 2082844800L )
+  #define CERTTIME_DATETEST	( ( ( 2026 - 1970 ) * ONE_YEAR_TIME ) + 2082844800L )
 #else
-  #define CERTTIME_DATETEST	( ( 2024 - 1970 ) * ONE_YEAR_TIME )
+  #define CERTTIME_DATETEST	( ( 2026 - 1970 ) * ONE_YEAR_TIME )
 #endif /* Macintosh-specific weird epoch */
 #if ( ULONG_MAX > 0xFFFFFFFFUL ) || defined( _M_X64 )
   #define SYSTEM_64BIT
@@ -72,6 +72,16 @@
 	#error CERTTIME_DATETEST must be > MIN_TIME_VALUE
   #endif /* CERTTIME_DATETEST <= MIN_TIME_VALUE */
 #endif /* Safety check of time test value against MIN_TIME_VALUE */
+#if CERTTIME_DATETEST > 0xFFFF0000UL
+	/* Sanity check in case something goes drastically wrong in the maths 
+	   above */
+	#error CERTTIME_DATETEST must be < 32-bit UINT_MAX
+#endif /* CERTTIME_DATETEST too large */
+#ifndef MIN_TIME_VALUE
+	/* Required for runtime checks against maths using CERTTIME_DATETEST in 
+	   the code */
+	#error MIN_TIME_VALUE isnt defined
+#endif /* MIN_TIME_VALUE */
 
 /****************************************************************************
 *																			*
@@ -156,7 +166,7 @@ static int checkExportCert( const CRYPT_CERTIFICATE cryptCert,
 							const C_STR formatDescription )
 	{
 	BYTE buffer[ 4096 ];
-	int calcSize, actualSize, status;
+	int calcSize, actualSize DUMMY_INIT, status;
 
 	status = cryptExportCert( NULL, 0, &calcSize, format, cryptCert );
 	if( cryptStatusOK( status ) )
@@ -459,7 +469,19 @@ int testCACert( void )
 	   an expression that can be resolved by the preprocessor */
 	if( CERTTIME_DATETEST <= MIN_TIME_VALUE )
 		{
-		fputs( "Error: CERTTIME_DATETEST must be > MIN_TIME_VALUE.", 
+		fputs( "Error: CERTTIME_DATETEST must be >= MIN_TIME_VALUE.\n", 
+			   outputStream );
+		return( FALSE );
+		}
+
+	/* We now have to perform the check a second time in case a preprocessor
+	   passes the above check but fails if the value is assigned to a 
+	   variable */
+	startTime = MIN_TIME_VALUE;
+	endTime = CERTTIME_DATETEST;
+	if( endTime < startTime )
+		{
+		fputs( "Error: CERTTIME_DATETEST must be >= MIN_TIME_VALUE.\n", 
 			   outputStream );
 		return( FALSE );
 		}
@@ -848,8 +870,8 @@ static const wchar_t unicodeStr3[] = {	/* ASCII as Unicode */
 #endif /* USE_UTF8 */
 
 static const CERT_DATA textStringCertData[] = {
-	/* Identification information: A latin-1 string (0xF6 = 'Ã¶', 0xD8 = 
-	   'Ã˜'), an obviously Unicode string, either a UTF-8 string or an 
+	/* Identification information: A latin-1 string (0xF6 = 'ö', 0xD8 = 
+	   'Ø'), an obviously Unicode string, either a UTF-8 string or an 
 	   explicit ASCII-in-Unicode string, a less-obviously Unicode string 
 	   (only the 0x160 value is larger than 8 bits), either another UTF-8 
 	   string or an implicit ASCII-in-Unicode string, and an ASCII string */
@@ -1179,6 +1201,11 @@ static int complexCert( const BOOLEAN selfSigned )
 	status = setComplianceLevelMax( &complianceLevel );
 	if( !status )
 		return( FALSE );
+	if( status == CRYPT_ERROR_NOTAVAIL )
+		{
+		fputs( "\n", outputStream );
+		return( TRUE );
+		}
 
 	/* Create the public/private key contexts and get the private key used 
 	   to sign the certificate.  See the comment in testCRL() for the 
@@ -2683,6 +2710,18 @@ static int createCertRequest( const char *description,
 				return( FALSE );
 			break;
 
+		case CRYPT_ALGO_ED25519:
+			status = load25519Contexts( CRYPT_UNUSED, &pubKeyContext, 
+										&privKeyContext );
+			if( status == CRYPT_ERROR_NOTAVAIL )
+				{
+				return( exitUnsupportedAlgo( CRYPT_ALGO_ED25519, 
+						"Ed25519 signing" ) );
+				}
+			if( !status )
+				return( FALSE );
+			break;
+
 		default:
 			return( FALSE );
 		}
@@ -2726,6 +2765,11 @@ int testCertRequest( void )
 		cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDSA, NULL ) ) && \
 		!createCertRequest( "ECDSA certification request", CRYPT_ALGO_ECDSA,
 							certRequestData, "certreq_alt2" ) )
+		return( FALSE );
+	if( cryptAlgo != CRYPT_ALGO_ED25519 && \
+		cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) && \
+		!createCertRequest( "Ed25519 certification request", CRYPT_ALGO_ED25519,
+							certRequestData, "certreq_alt3" ) )
 		return( FALSE );
 
 	return( TRUE );
@@ -2820,6 +2864,9 @@ int testCRMFRequest( void )
 		return( FALSE );
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDSA, NULL ) ) && \
 		!crmfRequest( CRYPT_ALGO_ECDSA ) )
+		return( FALSE );
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) && \
+		!crmfRequest( CRYPT_ALGO_ED25519 ) )
 		return( FALSE );
 	return( TRUE );
 	}
@@ -3085,6 +3132,11 @@ int testComplexCRL( void )
 	status = setComplianceLevelMax( &complianceLevel );
 	if( !status )
 		return( FALSE );
+	if( status == CRYPT_ERROR_NOTAVAIL )
+		{
+		fputs( "\n", outputStream );
+		return( TRUE );
+		}
 
 	/* Get the CA's private key */
 	status = getCAPrivateKey( &cryptCAKey, FALSE );
@@ -3179,6 +3231,16 @@ int testComplexCRL( void )
 	if( cryptStatusOK( status ) )
 		{
 		const time_t invalidityDate = CERTTIME_DATETEST - ( ONE_YEAR_TIME / 12 );
+
+		/* Make sure that we haven't gone back before the minimum allowed 
+		   time value */
+		if( invalidityDate < MIN_TIME_VALUE )
+			{
+			fputs( "Error: invalidityDate must be >= MIN_TIME_VALUE.\n", 
+				   outputStream );
+			resetComplianceLevel( complianceLevel );
+			return( FALSE );
+			}
 
 		/* The private key was invalid some time ago.  We can't go back too 
 		   far because the cryptlib kernel won't allow suspiciously old 
@@ -3334,6 +3396,15 @@ int testRevRequest( void )
 		fputs( "Certificate import failed, skipping test of revocation "
 			   "request...\n", outputStream );
 		return( TRUE );
+		}
+
+	/* Make sure that we haven't gone back before the minimum allowed time 
+	   value */
+	if( revRequestData[ 1 ].timeValue < MIN_TIME_VALUE )
+		{
+		fputs( "Error: invalidityDate must be > MIN_TIME_VALUE.\n", 
+			   outputStream );
+		return( FALSE );
 		}
 
 	/* Create the certificate object and add the certificate details and

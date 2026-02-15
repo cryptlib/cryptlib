@@ -278,7 +278,7 @@ static int readObjectAttributes( INOUT_PTR STREAM *stream,
 			return( status );
 
 		/* Read the wrapper around the attribute payload */
-		status = readSet( stream, &length );
+		status = readSetZ( stream, &length );
 		if( cryptStatusError( status ) )
 			return( status );
 
@@ -292,9 +292,11 @@ static int readObjectAttributes( INOUT_PTR STREAM *stream,
 
 			case PKCS12_ATTRIBUTE_LABEL:
 				/* Read the label, translating it from Unicode.  We assume
-				   that it's just widechar ASCII/latin-1 (which always seems
-				   to be the case), which avoids OS-specific i18n 
-				   headaches */
+				   that it's just widechar ASCII/latin-1 which avoids OS-
+				   specific i18n headaches.  This always seems to be the 
+				   case, and for Windows-generated ones it's typically a 
+				   GUID, because a meaningless hex string makes for a 
+				   perfect friendlyName */
 				status = readCharacterString( stream, stringBuffer, 
 									CRYPT_MAX_TEXTSIZE * 2, &stringLength,
 									BER_STRING_BMP );

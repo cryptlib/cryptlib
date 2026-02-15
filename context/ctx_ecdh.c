@@ -125,7 +125,7 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 
 /* Test the ECDH implementation (re-)using the test key for the ECDSA test, 
    which comes from from X9.62-2005 section L.4.2.  Because a lot of the 
-   high-level encryption routines don't exist yet, we cheat a bit and 
+   high-level encryption routines don't exist yet we cheat a bit and 
    set up a dummy encryption context with just enough information for the 
    following code to work */
 
@@ -272,7 +272,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	KEYAGREE_PARAMS *keyAgreeParams = ( KEYAGREE_PARAMS * ) buffer;
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 	const ECC_DOMAINPARAMS *domainParams = pkcInfo->domainParams;
-	EC_GROUP *ecCTX = pkcInfo->ecCTX;
+	const EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	EC_POINT *q = pkcInfo->tmpPoint;
 	BIGNUM *x = &pkcInfo->tmp1, *y = &pkcInfo->tmp2;
 	const int keySize = bitsToBytes( pkcInfo->keySizeBits );
@@ -331,10 +331,11 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Multiply Q by the private key d.  If we were reusing d then this 
 	   would be the location to add blinding, specifically we could use
-	   Coron's method, "Resistance against Diffrential Power Analysis for 
+	   Coron's method, "Resistance against Differential Power Analysis for 
 	   Elliptic Curve Cryptosystems" of randomising d by setting d' = 
 	   random * n to produce Q' = d'Q.  Since nQ = 0 this is the same as 
-	   Q' = dQ */
+	   Q' = dQ.  However since d in ECDH is ephemeral there's nothing to
+	   be gained from doing this */
 	CK( EC_POINT_mul( ecCTX, q, NULL, q, &pkcInfo->eccParam_d,
 					  &pkcInfo->bnCTX ) );
 	if( bnStatusError( bnStatus ) )
@@ -538,7 +539,7 @@ static const CAPABILITY_INFO capabilityInfo = {
 	selfTest, getDefaultInfo, NULL, NULL, initKey, generateKey, 
 	encryptFn, decryptFn, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
 	readPublicKeyEccFunction, writePublicKeyEccFunction,
-	encodeECDLValuesFunction, decodeECDLValuesFunction
+	NULL, NULL		/* Read/written as an ECC point, not a pair of values */
 	};
 
 CHECK_RETVAL_PTR_NONNULL \

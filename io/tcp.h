@@ -1094,14 +1094,19 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
    value in FD_xyz() macros that often don't perform any range checking, and
    a value outside the range 0...FD_SETSIZE can cause segfaults and other 
    problems.  In addition we exclude stdin/stdout/stderr if they're present, 
-   since a socket with these handle values is somewhat suspicious,
+   since a socket with these handle values is somewhat suspicious.
+   
+   However this can lead to a problem where functions like accept() have a 
+   tri-state return value, an error, an invalid socket, or a valid socket.
+   To deal with this we define a second macro, isInvalidSocket(), that
+   checks for the second case.
 
-   The one exception to this is Windows sockets, which don't use a Berkeley-
-   type bitflag representation and therefore don't have the range problems 
-   that the Berkeley implementation does.  In addition they define a socket
-   as an opaque unsigned type for which all values apart from INVALID_SOCKET 
-   are (theoretically) valid, so we can't perform a range check like we
-   could for non-Windows implementations.
+   The one exception to the range-checking is Windows sockets which don't 
+   use a Berkeley-type bitflag representation and therefore don't have the 
+   range problems that the Berkeley implementation does.  In addition they 
+   define a socket as an opaque unsigned type for which all values apart 
+   from INVALID_SOCKET are (theoretically) valid, so we can't perform a 
+   range check like we could for non-Windows implementations.
    
    Dealing with error reporting via the global variable errno is a pain
    because it's only set on error (so it's not cleared if there's no error), 
@@ -1116,14 +1121,20 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 #endif /* INVALID_SOCKET */
 #if defined( __FreeRTOS__ ) && defined( USE_FREERTOS_SOCKETS )
   #define isBadSocket( socket )		( ( socket ) == INVALID_SOCKET )
+  #define isInvalidSocket( socket )	FALSE
 #elif defined( __WINDOWS__ )
   #define isBadSocket( socket )		( ( socket ) == INVALID_SOCKET )
+  #define isInvalidSocket( socket )	FALSE
 #elif defined( STDERR_FILENO )
   #define isBadSocket( socket )		( ( socket ) <= STDERR_FILENO || \
+									  ( socket ) >= FD_SETSIZE )
+  #define isInvalidSocket( socket )	( ( ( socket ) >= 0 && \
+									    ( socket ) <= STDERR_FILENO ) || \
 									  ( socket ) >= FD_SETSIZE )
 #else
   #define isBadSocket( socket )		( ( socket ) <= 0 || \
 									  ( socket ) >= FD_SETSIZE )
+  #define isInvalidSocket( socket )	FALSE
 #endif /* STDERR_FILENO */
 
 #ifndef SOCKET_ERROR
@@ -1145,42 +1156,42 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
   #define clearErrorState()			errno = 0
   #if defined( BONE_VERSION )
 	/* BONE returns "Operation now in progress" */
-	#define isNonblockWarning( socket ) \
+	#define isBlockWarning( socket ) \
 									( errno == EWOULDBLOCK || \
 									  errno == 0x80007024 )
   #else
 	/* BeOS, even though it supposedly doesn't support nonblocking
 	   sockets, can return EWOULDBLOCK */
-	#define isNonblockWarning( socket ) \
+	#define isBlockWarning( socket ) \
 									( errno == EWOULDBLOCK )
   #endif /* BeOS with/without BONE */
 #elif defined( __embOS__ )
-  #define isNonblockWarning( socket ) \
+  #define isBlockWarning( socket ) \
 									( getErrno( socket ) == IP_ERR_WOULD_BLOCK )
 #elif defined( __FreeRTOS__ ) && defined( USE_FREERTOS_SOCKETS )
-  #define isNonblockWarning( socket ) \
+  #define isBlockWarning( socket ) \
 									( errno == pdFREERTOS_ERRNO_EWOULDBLOCK )
 #elif defined( __MQXRTOS__ )
   /* It's not clear if MQX supports nonblocking connects, according to the 
      docs a connect always blocks and MQX_EINPROGRESS may only exist for
 	 Posix compatibility purposes */
   #define clearErrorState()			RTCS_set_errno( MQX_OK )
-  #define isNonblockWarning( socket ) \
+  #define isBlockWarning( socket ) \
 									( RTCS_errno == MQX_EINPROGRESS )
 #elif defined( __SYMBIAN32__ )
   /* Symbian OS doesn't support nonblocking I/O */
-  #define isNonblockWarning( socket ) \
+  #define isBlockWarning( socket ) \
 									0
 #elif defined( __Telit__ )
   #define clearErrorState()			/* No way to clear errors */
-  #define isNonblockWarning( socket ) \
+  #define isBlockWarning( socket ) \
 									( m2m_socket_errno() == M2M_SOCKET_BSD_EINPROGRESS )
 #elif defined( __WINDOWS__ )
-  #define isNonblockWarning( socket ) \
+  #define isBlockWarning( socket ) \
 									( WSAGetLastError() == WSAEWOULDBLOCK )
 #else
   #define clearErrorState()			errno = 0
-  #define isNonblockWarning( socket ) \
+  #define isBlockWarning( socket ) \
 									( errno == EINPROGRESS )
 #endif /* OS-specific socket error handling */
 

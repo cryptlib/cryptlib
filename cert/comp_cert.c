@@ -24,7 +24,7 @@
 
 #if defined( USE_CERTLEVEL_PKIX_FULL ) && !defined( CONFIG_FUZZ )
   #if !( defined( _MSC_VER ) && \
-		 ( ( _MSC_VER == 1200 ) || \
+		 ( ( _MSC_VER == 1500 ) || \
 		   ( _MSC_VER == VS_LATEST_VERSION && defined( CRYPTLIB_BUILD ) ) ) )
 	#error If you see this message, please let the cryptlib developers know, then remove the error directive that caused it and recompile as normal.
   #endif /* Debug build */
@@ -768,29 +768,44 @@ static int copyCertReqToCert( INOUT_PTR CERT_INFO *certInfoPtr,
 		{
 		const time_t currentTime = getTime( GETTIME_NOFAIL );
 
-		/* If there's a valid time present in the request, copy it across */  
+		/* If there's a valid time present in the request and it meets some 
+		   basic conditions, copy it across.  Since these are trivial things 
+		   we don't abort if there's a problem but leave the value unset so 
+		   it'll be filled in when the certificate is issued, although we do
+		   issue a diagnostic in debug mode to warn the caller that something
+		   is slightly wrong */
 		if( certRequestInfoPtr->startTime > MIN_TIME_VALUE )
 			{
 			/* We don't allow start times back- or forward-dated by more 
-			   than a year.  Since these are trivial things we don't abort 
-			   if there's a problem but leave the value unset so it'll be 
-			   filled in when the certificate is issued */
+			   than a year */
 			if( certRequestInfoPtr->startTime > currentTime - ( 86400L * 365 ) && \
 				certRequestInfoPtr->startTime < currentTime + ( 86400L * 365 ) ) 
 				{
 				certInfoPtr->startTime = certRequestInfoPtr->startTime;
 				}
+			else
+				{
+				DEBUG_DIAG(( "Skipping setting start time %ld vs. current "
+							 "time %ld", 
+							 ( long ) certRequestInfoPtr->startTime, 
+							 ( long ) currentTime ));
+				}
 			}
 		if( certRequestInfoPtr->endTime > MIN_TIME_VALUE )
 			{
 			/* We don't allow end times before the current time or before 
-			   the start time.  Since these are trivial things we don't 
-			   abort if there's a problem but leave the value unset so it'll 
-			   be filled in when the certificate is issued */
+			   the start time */
 			if( certRequestInfoPtr->endTime > currentTime && \
 				certRequestInfoPtr->endTime > certInfoPtr->startTime )
 				{
 				certInfoPtr->endTime = certRequestInfoPtr->endTime;
+				}
+			else
+				{
+				DEBUG_DIAG(( "Skipping setting end time %ld vs. current "
+							 "time %ld", 
+							 ( long ) certRequestInfoPtr->endTime, 
+							 ( long ) currentTime ));
 				}
 			}
 		}

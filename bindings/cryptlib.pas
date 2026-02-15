@@ -5,7 +5,7 @@ interface
 {****************************************************************************
 *                                                                           *
 *                     Cryptlib external API interface                       *
-*                    Copyright Peter Gutmann 1997-2023                      *
+*                    Copyright Peter Gutmann 1997-2026                      *
 *                                                                           *
 *        adapted for Delphi Version 5 (32 bit) and Kylix Version 3          *
 *                              by W. Gothier                                *
@@ -16,7 +16,7 @@ interface
 
  This file has been created automatically by a perl script from the file:
 
- "cryptlib.h" dated Wed Jun 21 23:31:08 2023, filesize = 103765.
+ "cryptlib.h" dated Tue Feb 10 16:49:48 2026, filesize = 104843.
 
  Please check twice that the file matches the version of cryptlib.h
  in your cryptlib source! If this is not the right version, try to download an
@@ -50,7 +50,7 @@ const
 
 
 const
-  CRYPTLIB_VERSION = 347;
+  CRYPTLIB_VERSION = 349;
 
 {****************************************************************************
 *                                                                           *
@@ -88,8 +88,8 @@ const
   CRYPT_ALGO_RESERVED3 = 104;  { Formerly KEA }
   CRYPT_ALGO_ECDSA = 105;  { ECDSA }
   CRYPT_ALGO_ECDH = 106;  { ECDH }
-  CRYPT_ALGO_EDDSA = 107;  { EDDSA }
-  CRYPT_ALGO_25519 = 108;  { X25519/X448 }
+  CRYPT_ALGO_25519 = 107;  { X25519 }
+  CRYPT_ALGO_ED25519 = 108;  { Ed25519 }
   
   { Hash algorithms }
   CRYPT_ALGO_RESERVED4 = 200;  { Formerly MD2 }
@@ -1066,7 +1066,7 @@ const
   { Client/server information }
   CRYPT_SESSINFO_SERVER_NAME = 6009;  { Server name }
   CRYPT_SESSINFO_SERVER_PORT = 6010;  { Server port number }
-  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 = 6011;  { Server key fingerprint }
+  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 = 6011;  { Server key fingerprint }
   CRYPT_SESSINFO_CLIENT_NAME = 6012;  { Client name }
   CRYPT_SESSINFO_CLIENT_PORT = 6013;  { Client port number }
   CRYPT_SESSINFO_SESSION = 6014;  { Transport mechanism }
@@ -1446,6 +1446,7 @@ const
   CRYPT_TLSOPTION_DISABLE_NAMEVERIFY = $010;   {  Disable cert hostname check  }
   CRYPT_TLSOPTION_DISABLE_CERTVERIFY = $020;   {  Disable certificate check  }
   CRYPT_TLSOPTION_SERVER_SNI = $040;   {  Enable SNI-based key selection  }
+  CRYPT_TLSOPTION_RESUMED = $080;   {  TLS session is resumed  }
   CRYPT_TLSOPTION_SUITEB_128 = $100;   {  SuiteB security levels (will  }
   CRYPT_TLSOPTION_SUITEB_256 = $200;   {   vanish in future releases)  }
 
@@ -1682,6 +1683,21 @@ type
     {  Private components }
     d: array[0 .. CRYPT_MAX_PKCSIZE_ECC-1] of byte;{ Private random integer }
     dLen: Integer;                   { Length of integer in bits }
+    
+
+  end;
+
+  CRYPT_PKCINFO_DJB = record  
+    { Status information }
+    isPublicKey: Integer;            { Whether this is a public or private key  }
+
+    {  Public components }
+    pub: array[0 .. CRYPT_MAX_PKCSIZE-1] of byte; { Public value }
+    pubLen: Integer;                 { Length of public value in bits  }
+
+    {  Private components }
+    priv: array[0 .. CRYPT_MAX_PKCSIZE-1] of byte;{ Private value }
+    privLen: Integer;                { Length of private value in bits }
     
 
   end;

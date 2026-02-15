@@ -169,7 +169,8 @@ static int beginRADIUSMessage( INOUT_PTR STREAM *stream,
 	   Because of the strange way in which EAP-over-RADIUS works, we can
 	   have things like a RADIUS request containing an EAP response, so
 	   there are distinct flags for RADIUS and EAP requests */
-	if( radiusType == RADIUS_TYPE_REQUEST )
+	if( radiusType == RADIUS_TYPE_REQUEST || \
+		radiusType == RADIUS_TYPE_STATUSSVR )
 		{
 		eapInfo->radiusCtr = ( eapInfo->radiusCtr + 1 ) & 0xFF;
 		setMessageData( &msgData, eapInfo->radiusNonce, RADIUS_NONCE_SIZE );
@@ -517,6 +518,94 @@ int writeRADIUSMessage( INOUT_PTR STREAM *stream,
 									TRANSPORT_FLAG_FLUSH ) );
 	}
 
+/* Write an RFC 5997 RADIUS ping.  As with anonymised standard RADIUS 
+   messages how the server verifies the MAC on a message with no
+   identification information is a mystery, with the RFC specifically
+   requiring that "User authentication credentials such as User-Name
+   [...] MUST NOT appear in a Status-Server packet" */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int writeRADIUSPing( INOUT_PTR STREAM *stream,
+					 INOUT_PTR EAP_INFO *eapInfo )
+	{
+	NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
+	STM_TRANSPORTWRITE_FUNCTION transportWriteFunction;
+	STREAM radiusStream;
+	void *macValue DUMMY_INIT_PTR;
+	int messageAuthPos DUMMY_INIT, dummy, status;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( eapInfo, sizeof( EAP_INFO ) ) );
+
+	REQUIRES( netStream != NULL && sanityCheckNetStream( netStream ) );
+
+	/* Set up the function pointers.  We have to do this after the netStream
+	   check otherwise we'd potentially be dereferencing a NULL pointer */
+	transportWriteFunction = ( STM_TRANSPORTWRITE_FUNCTION ) \
+							 FNPTR_GET( netStream->transportWriteFunction );
+	REQUIRES( transportWriteFunction != NULL );
+
+	sMemOpen( &radiusStream, netStream->writeBuffer, 
+			  netStream->writeBufSize );
+
+	/* Construct the RADIUS ping message, which is empty except for a 
+	   Message Authenticator attribute */
+	status = beginRADIUSMessage( &radiusStream, eapInfo, 
+								 RADIUS_TYPE_STATUSSVR, FALSE );
+	if( cryptStatusOK( status ) )
+		{
+		/* Remember the Message Authenticator position and write an empty
+		   TLV that'll be filled later with the authenticator */
+		messageAuthPos = stell( &radiusStream ) + RADIUS_TLV_HEADER_SIZE;
+		status = writeRADIUS( &radiusStream, RADIUS_SUBTYPE_MESSAGEAUTH, 
+							  "\x00\x00\x00\x00\x00\x00\x00\x00"
+							  "\x00\x00\x00\x00\x00\x00\x00\x00", 16, 
+							  NULL, 0 );
+		}
+	if( cryptStatusOK( status ) )
+		status = completeRADIUSMessage( &radiusStream );
+	if( cryptStatusError( status ) )
+		{
+		sMemDisconnect( &radiusStream );
+		return( status );
+		}
+	netStream->writeBufEnd = stell( &radiusStream );
+	ENSURES( isBufsizeRangeNZ( netStream->writeBufEnd ) );
+
+	/* Calculate the Message Authenticator value over the entire message */
+	status = sMemGetDataBlockAbs( &radiusStream, messageAuthPos, 
+								  &macValue, 16 );
+	if( cryptStatusOK( status ) )
+		{
+		status = radiusMD5MacBuffer( macValue, 16, netStream->writeBuffer, 
+									 netStream->writeBufEnd, 
+									 eapInfo->password, 
+									 eapInfo->passwordLength );
+		}
+	sMemDisconnect( &radiusStream );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	DEBUG_PRINT_BEGIN();
+	DEBUG_PRINT(( "Wrote %s (%d) RADIUS packet, length %d, packet ID %d\n", 
+				  getRADIUSPacketName( netStream->writeBuffer[ 0 ] ), 
+				  netStream->writeBuffer[ 0 ], 
+				  netStream->writeBufEnd - RADIUS_HEADER_SIZE, 
+				  netStream->writeBuffer[ 1 ] ));
+#ifdef DEBUG_TRACE_RADIUS
+	DEBUG_DUMP_DATA( netStream->writeBuffer + RADIUS_HEADER_SIZE, 
+					 netStream->writeBufEnd - RADIUS_HEADER_SIZE );
+#endif /* DEBUG_TRACE_RADIUS */
+	DEBUG_PRINT_END();
+
+	/* Send the data over the network.  This leaves the data in the write 
+	   buffer in case it needs to be resent to deal with UDP packet loss, 
+	   see the discussion in readFunction() in eap_rd.c for details */
+	return( transportWriteFunction( netStream, netStream->writeBuffer, 
+									netStream->writeBufEnd, &dummy, 
+									TRANSPORT_FLAG_FLUSH ) );
+	}
+
 /* Resend the last RADIUS message, used to deal with packet loss due to the 
    use of unreliable UDP transport */
 
@@ -647,8 +736,8 @@ int sendEAPACK( INOUT_PTR STREAM *stream,
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int sendAccessAccept( INOUT_PTR STREAM *stream, 
-					  INOUT_PTR EAP_INFO *eapInfo )
+static int sendAccessAccept( INOUT_PTR STREAM *stream, 
+							 INOUT_PTR EAP_INFO *eapInfo )
 	{
 	EAP_PARAMS eapParams;
 
@@ -678,9 +767,7 @@ static int writeFunction( INOUT_PTR STREAM *stream,
 	NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
 	EAP_INFO *eapInfo;
 	EAP_PARAMS eapParams;
-	const BOOLEAN isServer = \
-			TEST_FLAG( netStream->nFlags, STREAM_NFLAG_ISSERVER ) ? \
-			TRUE : FALSE;
+	BOOLEAN isServer;
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -694,6 +781,8 @@ static int writeFunction( INOUT_PTR STREAM *stream,
 	*length = 0;
 
 	eapInfo = ( EAP_INFO * ) netStream->subTypeInfo;
+	isServer = TEST_FLAG( netStream->nFlags, STREAM_NFLAG_ISSERVER ) ? \
+			   TRUE : FALSE;
 
 	/* In some cases the caller may need to send a RADIUS or EAP-level 
 	   message rather than an EAP-TLS/TTLS/PEAP level message (because the 

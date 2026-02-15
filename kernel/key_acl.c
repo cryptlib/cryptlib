@@ -159,7 +159,7 @@ static const KEYMGMT_ACL keyManagementACL[] = {
 		/* R */	ST_KEYSET_FILE | ST_KEYSET_FILE_PARTIAL | ST_KEYSET_FILE_RO | \
 				ST_DEV_P11 | ST_DEV_CAPI | ST_DEV_TPM | ST_DEV_HW,
 		/* W */	ST_KEYSET_FILE | ST_KEYSET_FILE_PARTIAL | ST_DEV_P11 | \
-				ST_DEV_CAPI | ST_DEV_HW,
+				ST_DEV_CAPI | ST_DEV_TPM | ST_DEV_HW,
 		/* D */	ST_KEYSET_FILE | ST_DEV_P11 | ST_DEV_CAPI | ST_DEV_TPM | \
 				ST_DEV_HW,
 		/*FnQ*/	ST_NONE, ST_NONE,
@@ -168,6 +168,9 @@ static const KEYMGMT_ACL keyManagementACL[] = {
 		/*Flg*/	KEYMGMT_FLAG_CHECK_ONLY | KEYMGMT_FLAG_LABEL_ONLY | \
 				KEYMGMT_MASK_USAGEOPTIONS,
 		ACCESS_KEYSET_xxRxD, ACCESS_KEYSET_xxXXx ),
+				/* The password access bits aren't quite accurate here 
+				   because there's no password used when writing to a device,
+				   this is special-cased in the checking code */
 
 	/* Access secret key */
 	MK_KEYACL( KEYMGMT_ITEM_SECRETKEY,
@@ -753,6 +756,11 @@ int preDispatchCheckKeysetAccess( IN_HANDLE const int objectHandle,
 			  localMessage == MESSAGE_KEY_GETKEY ) ||
 			  localMessage == MESSAGE_KEY_GETFIRSTCERT ||
 			  localMessage == MESSAGE_KEY_GETNEXTCERT ||
+			( messageValue == KEYMGMT_ITEM_PRIVATEKEY && \
+			  localMessage == MESSAGE_KEY_SETKEY && \
+			  objectTable[ objectHandle ].type == OBJECT_TYPE_DEVICE && \
+			  mechanismInfo->auxInfo == NULL && \
+			  mechanismInfo->auxInfoLength == 0 ) ||
 			( ( keymgmtACL->pwUseFlags & accessType ) && \
 			  isReadPtrDynamic( mechanismInfo->auxInfo, \
 								mechanismInfo->auxInfoLength ) ) ||
@@ -776,6 +784,11 @@ int preDispatchCheckKeysetAccess( IN_HANDLE const int objectHandle,
 				localMessage == MESSAGE_KEY_GETKEY ) ||
 			  localMessage == MESSAGE_KEY_GETFIRSTCERT ||
 			  localMessage == MESSAGE_KEY_GETNEXTCERT ||
+			  ( messageValue == KEYMGMT_ITEM_PRIVATEKEY && \
+				localMessage == MESSAGE_KEY_SETKEY && \
+				objectTable[ objectHandle ].type == OBJECT_TYPE_DEVICE && \
+				mechanismInfo->auxInfo == NULL && \
+				mechanismInfo->auxInfoLength == 0 ) ||
 			  ( ( keymgmtACL->pwUseFlags & accessType ) && \
 				mechanismInfo->auxInfo != NULL && \
 				isShortIntegerRangeNZ( mechanismInfo->auxInfoLength ) ) ||

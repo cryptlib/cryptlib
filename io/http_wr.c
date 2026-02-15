@@ -96,7 +96,7 @@ static int encodeRFC1866( INOUT_PTR STREAM *headerStream,
 
 			/* It's a special char, escape it */
 			escapeStringLen = sprintf_s( escapeString, 8, "%%%02X", ch );
-			ENSURES( escapeStringLen > 0 && escapeStringLen < 8 );
+			ENSURES( rangeCheck( escapeStringLen, 1, 7 ) );
 			status = swrite( headerStream, escapeString, escapeStringLen );
 			if( cryptStatusError( status ) )
 				return( status );
@@ -197,7 +197,7 @@ static int writeReqMethod( INOUT_PTR STREAM *stream,
 
 			portStringLength = sprintf_s( portString, 16, ":%d", 
 										  netStream->port );
-			ENSURES( portStringLength > 0 && portStringLength < 16 );
+			ENSURES( rangeCheck( portStringLength, 1, 15 ) );
 			status = swrite( stream, portString, portStringLength );
 			}
 		if( cryptStatusError( status ) )
@@ -343,13 +343,17 @@ static int writeContentHeaders( INOUT_PTR STREAM *stream,
 	   the case of browsers, in order to get what you'd expect from no-cache
 	   you need to use both no-cache and no-store, with different ones
 	   affecting different browsers, and with the additional twist that some
-	   browsers implement no-cache like it was no-store */
+	   browsers implement no-cache like it was no-store.
+	   
+	   For fun we could also send the RFC 8674 "Prefer: safe" (request) and
+	   "Preference-Applied: safe" (response) headers but it's possible that
+	   PKIX stuff is seen as objectionable and so we'd get nothing back */
 	swrite( stream, "Content-Type: ", 14 );
 	swrite( stream, contentType, contentTypeLen );
 	swrite( stream, "\r\nContent-Length: ", 18 );
 	lengthStringLength = sprintf_s( lengthString, 16, "%d", 
 									contentLength );
-	ENSURES( lengthStringLength > 0 && lengthStringLength < 16 );
+	ENSURES( rangeCheck( lengthStringLength, 1, 15 ) );
 	swrite( stream, lengthString, lengthStringLength );
 	swrite( stream, "\r\nCache-Control: no-cache, no-store\r\n", 37 );
 	return( swrite( stream, "\r\n", 2 ) );
@@ -364,7 +368,7 @@ int writeRequestHeader( INOUT_PTR STREAM *stream,
 						IN_LENGTH_Z const int contentLength,
 						IN_BOOL const BOOLEAN forceGet )
 	{
-	NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
+	const NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
 	STREAM headerStream;
 	char headerBuffer[ HTTP_LINEBUF_SIZE + 8 ];
 	const int transportFlag = ( contentLength > 0 || forceGet ) ? \
@@ -522,7 +526,7 @@ static int writeResponseHeader( INOUT_PTR STREAM *stream,
 								IN_LENGTH_SHORT_Z const int contentTypeLen, 
 								IN_LENGTH_Z const int contentLength )
 	{
-	NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
+	const NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
 	STREAM headerStream;
 	char headerBuffer[ HTTP_LINEBUF_SIZE + 8 ];
 	const int transportFlag = ( contentLength > 0 ) ? \

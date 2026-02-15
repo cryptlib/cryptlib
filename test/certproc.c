@@ -223,16 +223,18 @@ static int certProcess( const CRYPT_ALGO_TYPE cryptAlgo,
 			( cryptAlgo == CRYPT_ALGO_ELGAMAL ) ? "pr_cert_elgamal" : \
 			( cryptAlgo == CRYPT_ALGO_ECDSA ) ? "pr_cert_ecdsa" : \
 			( cryptAlgo == CRYPT_ALGO_ECDH ) ? "pr_cert_ecdh" : \
-			( cryptAlgo == CRYPT_ALGO_EDDSA ) ? "pr_cert_eddsa" : \
 			( cryptAlgo == CRYPT_ALGO_25519 ) ? "pr_cert_25519" : \
+			( cryptAlgo == CRYPT_ALGO_ED25519 ) ? "pr_cert_ed25519" : \
 												"pr_cert_xxx";
 	int length, status;
 
 	printf( "Testing %s certificate processing%s...\n", algoName,
 			useCRMF ? " from CRMF request" : "" );
 
-	/* Some algorithms can't create self-signed certificate requests so we 
-	   have to create the certificate directly */
+	/* Create a certificate via a certification request.  Only some 
+	   algorithms can create self-signed certificate requests, if they're 
+	   one of the excluded set listed below then we have to create the 
+	   certificate directly */
 	if( cryptAlgo != CRYPT_ALGO_ELGAMAL && cryptAlgo != CRYPT_ALGO_DH && \
 		cryptAlgo != CRYPT_ALGO_ECDH && cryptAlgo != CRYPT_ALGO_25519 )
 		{
@@ -241,7 +243,8 @@ static int certProcess( const CRYPT_ALGO_TYPE cryptAlgo,
 				( useCRMF ? "pr_req_rsa_crmf" : "pr_req_rsa" ) : \
 			( cryptAlgo == CRYPT_ALGO_DSA ) ? "pr_req_dsa" : \
 			( cryptAlgo == CRYPT_ALGO_ECDSA ) ? "pr_req_ecdsa" : \
-			( cryptAlgo == CRYPT_ALGO_EDDSA ) ? "pr_req_eddsa" : "pr_req_xxx";
+			( cryptAlgo == CRYPT_ALGO_ED25519 ) ? "pr_req_ed25519" : \
+												"pr_req_xxx";
 
 		/* Create the certification request */
 		status = length = createCertRequest( certBuffer, cryptAlgo, useCRMF );
@@ -328,11 +331,11 @@ int testCertProcess( void )
 	if( !certProcess( CRYPT_ALGO_ECDH, "ECDH", cryptCAKey, FALSE ) )
 		return( FALSE );
 #endif /* 0 */
-	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_EDDSA, NULL ) ) && \
-		!certProcess( CRYPT_ALGO_ECDSA, "EDDSA", cryptCAKey, FALSE ) )
-		return( FALSE );
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_25519, NULL ) ) && \
 		!certProcess( CRYPT_ALGO_25519, "Curve25519", cryptCAKey, FALSE ) )
+		return( FALSE );
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) && \
+		!certProcess( CRYPT_ALGO_ED25519, "Ed25519", cryptCAKey, FALSE ) )
 		return( FALSE );
 
 	/* Run the test again with a CRMF instead of PKCS #10 request */
@@ -556,7 +559,8 @@ static int addCertRequest( const CRYPT_KEYSET cryptCertStore,
 		   guarantee the creation of a pre-expired certificate since if we 
 		   set the time too far back it won't be created */
 		status = cryptSetAttributeString( cryptCertRequest,
-					CRYPT_CERTINFO_VALIDTO, &theTime, sizeof( time_t ) );
+										  CRYPT_CERTINFO_VALIDTO, 
+										  &theTime, sizeof( time_t ) );
 		}
 #endif /* _WIN32_WCE */
 	if( cryptStatusError( status ) )
@@ -1104,9 +1108,9 @@ int testCertManagement( void )
 
 		if( timeToWait > 100 )
 			{
-			printf( "Certificate doesn't expire for %ld seconds (approx.%ld "
-					"hours or\n  %ld days), certificate time setting is "
-					"wrong...\n", timeToWait, 
+			printf( "Certificate doesn't expire for %ld seconds (approx. "
+					"%ld hours or\n  %ld days), certificate time has been "
+					"set wrong...\n", timeToWait, 
 					timeToWait / 360, timeToWait / ( 86400L ) );
 			return( FALSE );
 			}
@@ -1135,6 +1139,7 @@ int testCertManagement( void )
 	/* Clean up */
 	cryptDestroyContext( cryptCAKey );
 	cryptKeysetClose( cryptCertStore );
+
 	puts( "Certificate management using certificate store succeeded.\n" );
 	return( TRUE );
 	}

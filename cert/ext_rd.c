@@ -23,9 +23,9 @@
 		  DEBUG_PRINT( message ); \
 		  DEBUG_PUTS(( "" ));
   #define getDescription( attributeInfoPtr ) \
-		  ( attributeInfoPtr != NULL && \
-		    attributeInfoPtr->description != NULL ) ? \
-			attributeInfoPtr->description : "(unknown blob attribute)"
+		  ( ( attributeInfoPtr ) != NULL && \
+		    ( attributeInfoPtr )->description != NULL ) ? \
+			( attributeInfoPtr )->description : "(unknown blob attribute)"
 #else
   #define TRACE_DEBUG( message )
 #endif /* NDEBUG */

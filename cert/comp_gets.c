@@ -124,7 +124,7 @@ static int oidToText( IN_BUFFER( binaryOidLen ) const BYTE *binaryOID,
 				subLen = sprintf_s( oid + length, maxOidLen - length, 
 									" %ld", value );
 				}
-			if( subLen < 2 || subLen > maxOidLen - length )
+			if( !rangeCheck( subLen, 2, ( maxOidLen - length ) - 1 ) )
 				return( CRYPT_ERROR_BADDATA );
 			length += subLen;
 			value = 0;
@@ -665,7 +665,7 @@ static int getCrlEntry( INOUT_PTR CERT_INFO *certInfoPtr,
 						OUT_LENGTH_BOUNDED_Z( certInfoMaxLength ) \
 							int *certInfoLength )
 	{
-	CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+	const CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
 	STREAM stream;
 	WRITECERT_FUNCTION writeCertFunction;
 	int crlEntrySize DUMMY_INIT, status;
@@ -1130,7 +1130,8 @@ static int getPkiUserInfo( const CERT_INFO *certInfoPtr,
 	{
 	CERT_PKIUSER_INFO *certUserInfo = certInfoPtr->cCertUser;
 	char encUserInfo[ CRYPT_MAX_TEXTSIZE + 8 ];
-	BYTE userInfo[ 128 + 8 ], *userInfoPtr = userInfo;
+	BYTE userInfo[ 128 + 8 ];
+	const BYTE *userInfoPtr = userInfo;
 	int userInfoLength, encUserInfoLength, status;
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
@@ -1289,7 +1290,7 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 		case CRYPT_ATTRIBUTE_ERRORMESSAGE:
 			{
 #ifdef USE_ERRMSGS
-			ERROR_INFO *errorInfo = &certInfoPtr->errorInfo;
+			const ERROR_INFO *errorInfo = &certInfoPtr->errorInfo;
 
 			if( errorInfo->errorStringLength > 0 )
 				{

@@ -114,6 +114,7 @@ typedef enum {
 	TLS_TEST_PSK_WRONGKEY,		/* User auth.with incorrect shared key */
 	TLS_TEST_ECC,				/* Use ECC instead of RSA/DH */
 	TLS_TEST_ECC_P384,			/* Use ECC P384 instead of P256 */
+	TLS_TEST_ED25519,			/* Use Ed25519 instead of RSA/DH */
 	TLS_TEST_STARTTLS,			/* Local client socket speaking STARTTLS/STLS/AUTH TLS */
 	TLS_TEST_LOCALSERVER,		/* Local server socket */
 	TLS_TEST_RESUME,			/* Session resumption */
@@ -210,23 +211,44 @@ typedef enum {
 			  
 			  In late 2014 Amazon disabled SSLv3 on all of its servers, 
 			  Paypal disabled it in early 2015 and then disabled TLS 1.0 in 
-			  2019, Google disabled in mid 2016, and Red Hat disabled TLS 1.1
-			  in 2019 which is what these servers were used to test, so 
-			  eventually we'll use any number of US banks, which will 
-			  hopefully keep supporting insecure modes more or less forever, 
-			  see the entries around #45 for samples.  Use:
+			  2019, Google disabled it in mid 2016, Red Hat disabled TLS 1.1
+			  in 2019 and Google in 2024 partially (it seems to depend on
+			  which location you connect to or possibly the availability of
+			  ECDH in the client hello, which isn't actually valid in TLS 
+			  1.1 or 1.0 which also works) which is what these servers were 
+			  used to test, so eventually we'll use any number of US banks, 
+			  which will hopefully keep supporting insecure modes more or 
+			  less forever, see the entries around #45 for samples.  Use:
 			  
 				openssl s_client -connect <server>:443 -tls1
 				openssl s_client -connect <server>:443 -tls1_1
 
-			  to check for support of older protocols.  Use:
+			  to check for support of older protocols, however note that
+			  getting the error "tls_setup_handshake:no protocols available"
+			  means that it's not enabled in OpenSSL, not that the server
+			  doesn't support it.  This can be addressed by adding to 
+			  /etc/ssl/openssl.cnf:
+			  
+				openssl_conf = openssl_init
 
-				https://cryptoreport.websecurity.symantec.com/checker/
+				[openssl_init]
+				ssl_conf = ssl_configuration
+
+				[ssl_configuration]
+				system_default = tls_system_default
+
+				[tls_system_default]
+				MinProtocol = TLSv1.0
+				CipherString = DEFAULT@SECLEVEL=0
+
+			  (the last entry is required to re-enable SHA-1, without that 
+			  the MinProtocol will have no effect).
+			  
+			  Use:
+
 				https://www.ssllabs.com/ssltest/
 
-			  to check for cipher suites supported (the latter provides
-			  per-protocol-version information, the former just overall
-			  information).
+			  to check for cipher suites supported.
 			  
 			  In addition as part of the deprecation of SHA-1 in early 2016 
 			  Comodo, used by the Red Hat server, switched its CA certs to 
@@ -411,11 +433,13 @@ typedef enum {
 	Server 67: OpenSSL s_server test system.
 	Server 68: Rejects any attempt to connect with a handshake failure alert.
 	Server 69: Returns a certificate chain with an 8,192-bit key.
-	Server 70: Reported to cause problems but cryptlib connects OK */
+	Server 70: Reported to cause problems but cryptlib connects OK.
+	Server 71: As of 2025 the only known server that does Ed25519 signing.
+	Server 72: Server that still does TLS 1.1 */
 
-#define SSL_SERVER_NO	48	/* Getting very hard to find... */
-#define TLS_SERVER_NO	3
-#define TLS11_SERVER_NO	4
+#define SSL_SERVER_NO	48	/* Probably extinct, this was last known one */
+#define TLS_SERVER_NO	4	/* No longer does TLS 1.0 */
+#define TLS11_SERVER_NO	72	/* See note about Google in the 2-4 range */
 #define TLS12_SERVER_NO	23	/* Options = #23, #24, #28, #29/30/31
 							   (but see above for #24, #28, and some of 
 							   #29) */
@@ -516,19 +540,21 @@ static const struct {
 	/* 55 */ { TEXT( "35.197.133.220:11315" ), "/", "test", "test" },
 	/* 56 */ { TEXT( "192.168.1.36:1812" ), "/", "test", "test" },
 	/* 57 */ { TEXT( "excalibur.mudcovered.org.uk" ), "/" },
-	/* 58 */ { TEXT( "https://testacig.ariba.com" ), "/as2/as2" },
+	/* 58 */ { TEXT( "testacig.ariba.com" ), "/as2/as2" },
 	/* 59 */ { TEXT( "api.livevox.com" ), "/" },
-	/* 60 */ { TEXT( "https://pp-us-b2bws.royalcanin.com" ), "/ipbaspx20-cs/as2server.aspx" },
-	/* 61 */ { TEXT( "https://b2bqa.cat.com" ), "/" },
+	/* 60 */ { TEXT( "pp-us-b2bws.royalcanin.com" ), "/ipbaspx20-cs/as2server.aspx" },
+	/* 61 */ { TEXT( "b2bqa.cat.com" ), "/" },
 	/* 62 */ { TEXT( "www.ibocentral.com" ), "/" },
 	/* 63 */ { TEXT( "www.ibocity.com" ), "/" },
 	/* 64 */ { TEXT( "as2.edi-connect.com" ), "/" },
-	/* 65 */ { TEXT( "https://www.messagexchange.com" ), "/" },
+	/* 65 */ { TEXT( "www.messagexchange.com" ), "/" },
 	/* 66 */ { TEXT( "wmprod.arroweuropeconnects.com" ), "/" },
 	/* 67 */ { TEXT( "odroid.n2.lan:4433" ), "/" },
-	/* 68 */ { TEXT( "https://ca.silabs.com" ), "/Device-Root-CA-chain.pem" },
+	/* 68 */ { TEXT( "ca.silabs.com" ), "/Device-Root-CA-chain.pem" },
 	/* 69 */ { TEXT( "80.228.241.47:6619" ), "/" },
 	/* 70 */ { TEXT( "as2.aldi-nord.ondemand.services" ), "/" },
+	/* 71 */ { TEXT( "ed25519-test.germancoding.com" ), "/" },
+	/* 72 */ { TEXT( "www.trinity.ie" ), "/" },
 	{ NULL, NULL }
 	};
 
@@ -1063,23 +1089,18 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 								  testType < TLS_TEST_LAST ) ? \
 								  TRUE : FALSE;
 	const char *versionStr[] = { "SSLv3", "TLS 1.0", "TLS 1.1", "TLS 1.2", "TLS 1.3" };
+	const int tlsServerNo = ( testType == TLS_TEST_WEBSOCKETS ) ? WS_SERVER_NO : \
+							( testType == TLS_TEST_EAPTTLS ) ? EAP_SERVER_NO : \
+							( version == 0 ) ? SSL_SERVER_NO : \
+							( version == 1 ) ? TLS_SERVER_NO : \
+							( version == 2 ) ? TLS11_SERVER_NO : \
+							( version == 3 ) ? TLS12_SERVER_NO : \
+											   TLS13_SERVER_NO;
 	const C_STR serverName = ( testType == TLS_TEST_STARTTLS ) ? \
 								starttlsInfo[ STARTTLS_SERVER_NO ].name : \
 							 ( testType == TLS_TEST_WRONGSERVER ) ? \
 								"www.openssh.com:22" : \
-							 ( testType == TLS_TEST_WEBSOCKETS ) ? \
-								tlsInfo[ WS_SERVER_NO ].name : \
-							 ( testType == TLS_TEST_EAPTTLS ) ? \
-								tlsInfo[ EAP_SERVER_NO ].name : \
-							 ( version == 0 ) ? \
-								tlsInfo[ TLS_SERVER_NO ].name : \
-							 ( version == 1 ) ? \
-								tlsInfo[ TLS_SERVER_NO ].name : \
-							 ( version == 2 ) ? \
-								tlsInfo[ TLS11_SERVER_NO ].name : \
-							 ( version == 3 ) ? \
-								tlsInfo[ TLS12_SERVER_NO ].name : \
-								tlsInfo[ TLS13_SERVER_NO ].name;
+							 tlsInfo[ tlsServerNo ].name;
 	BYTE *bulkBuffer = NULL;	/* Needed for bogus uninit-value warnings */
 #ifdef USE_LOCAL_SOCKETS
 	SOCKET netSocket DUMMY_INIT;
@@ -1159,6 +1180,7 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 			 ( testType == TLS_TEST_PSK_SVRONLY ) ? " with server-only PSK" : \
 			 ( testType == TLS_TEST_ECC ) ? " with P256 ECC crypto" : \
 			 ( testType == TLS_TEST_ECC_P384 ) ? " with P384 ECC crypto" : \
+			 ( testType == TLS_TEST_ED25519 ) ? " with Ed25519 crypto" : \
 			 ( testType == TLS_TEST_WRONGSERVER ) ? " connecting to wrong server" : \
 			 ( testType == TLS_TEST_WEBSOCKETS ) ? " with WebSockets" : \
 			 ( testType == TLS_TEST_EAPTTLS ) ? " with EAP-TTLS" : \
@@ -1332,21 +1354,34 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 #ifdef UNICODE_STRINGS
 			wchar_t wcBuffer[ FILENAME_BUFFER_SIZE ];
 #endif /* UNICODE_STRINGS */
-			void *fileNamePtr = filenameBuffer;
+			const void *fileNamePtr = filenameBuffer;
 
 			/* We don't add a private key if we're doing TLS-PSK, to test 
 			   TLS-PSK's abiltiy to work without a PKC */
-			if( testType == TLS_TEST_ECC || testType == TLS_TEST_ECC_P384 )
+			switch( testType )
 				{
-				filenameFromTemplate( filenameBuffer, 
-									  SERVER_ECPRIVKEY_FILE_TEMPLATE, 
-									  ( testType == TLS_TEST_ECC_P384 ) ? \
-										384 : 256 );
-				}
-			else
-				{
-				filenameFromTemplate( filenameBuffer, 
-									  SERVER_PRIVKEY_FILE_TEMPLATE, 1 );
+				case TLS_TEST_ECC:
+					filenameFromTemplate( filenameBuffer, 
+										  SERVER_ECPRIVKEY_FILE_TEMPLATE, 
+										  256 );
+					break;
+
+				case TLS_TEST_ECC_P384:
+					filenameFromTemplate( filenameBuffer, 
+										  SERVER_ECPRIVKEY_FILE_TEMPLATE, 
+										  384 );
+					break;
+
+				case TLS_TEST_ED25519:
+					filenameFromTemplate( filenameBuffer, 
+										  SERVER_PRIVKEY_FILE_TEMPLATE, 
+										  25519 );
+					break;
+
+				default:
+					filenameFromTemplate( filenameBuffer, 
+										  SERVER_PRIVKEY_FILE_TEMPLATE, 1 );
+					break;
 				}
 #ifdef UNICODE_STRINGS
 			mbstowcs( wcBuffer, filenameBuffer, 
@@ -2128,8 +2163,9 @@ dualThreadContinue:
 									&actualVersion );
 		if( cryptStatusOK( status ) && actualVersion != version )
 			{
-			fprintf( outputStream, "Warning: Expected to connect using %s "
-					 "but only connected using %s.\n", versionStr[ version ],
+			fprintf( outputStream, "%sWarning: Expected to connect using %s "
+					 "but actually connected using %s.\n", 
+					 isServer ? "SVR: " : "", versionStr[ version ],
 					 versionStr[ actualVersion ] );
 			}
 		}
@@ -2472,18 +2508,23 @@ dualThreadContinue:
 					}
 				else
 					{
-					/* We use an HTTP 1.0 request since it's simpler, however
-					   for some sites, in particular ones behind Akamai 
-					   reverse proxies, this will produce a "The requested URL 
-					   "[no URL]", is invalid" error */
-#if 1
+					const char *hostName = tlsInfo[ tlsServerNo ].name;
+
+					/* Skip any URL decoration if necessary */					
+					if( !memcmp( hostName, "https://", 8 ) )
+						hostName += 8;
+					
+					/* We default to an HTTP 1.1 request even though the 1.0 
+					   form would be simpler because some servers will treat 
+					   the 1.0 form as an error and only return a short error
+					   string */
+#if 0
 					sprintf( fetchString, "GET %s HTTP/1.0\r\n\r\n",
-							 tlsInfo[ TLS_SERVER_NO ].path );
+							 tlsInfo[ tlsServerNo ].path );
 #else
 					sprintf( fetchString, 
 							 "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n",
-							 tlsInfo[ TLS_SERVER_NO ].path,
-							 tlsInfo[ TLS_SERVER_NO ].name );
+							 tlsInfo[ tlsServerNo ].path, hostName );
 #endif /* 1 */
 					fetchStringLen = strlen( fetchString );
 					}
@@ -2731,7 +2772,7 @@ int testSessionSSLServerCached( void )
 	int status;
 
 	/* Run the server twice to check session cacheing.  Testing this 
-	   requires manual reconnection with a browser to localhost, since it's 
+	   requires manual reconnection with a browser to localhost since it's 
 	   too complex to handle easily via a loopback test.  Note that with 
 	   MSIE this will require three lots of connects rather than two, 
 	   because it handles an unknown certificate by doing a resume, which 
@@ -2939,7 +2980,7 @@ int testSessionTLS13Server( void )
 	}
 int testSessionTLS13ServerEccKey( void )
 	{
-#ifdef USE_TLS13
+#if defined( USE_TLS13 ) && defined( USE_ECDSA )
 	int status;
 
 	createMutex();
@@ -2950,11 +2991,11 @@ int testSessionTLS13ServerEccKey( void )
 	return( status );
 #else
 	return( TRUE );
-#endif /* USE_TLS13 */
+#endif /* USE_TLS13 && USE_ECDSA */
 	}
 int testSessionTLS13ServerEccKeyP384( void )
 	{
-#ifdef USE_TLS13
+#if defined( USE_TLS13 ) && defined( USE_ECDSA )
 	int status;
 
 	createMutex();
@@ -2965,7 +3006,22 @@ int testSessionTLS13ServerEccKeyP384( void )
 	return( status );
 #else
 	return( TRUE );
-#endif /* USE_TLS13 */
+#endif /* USE_TLS13 && USE_ECDSA */
+	}
+int testSessionTLS13ServerEd25519Key( void )
+	{
+#if defined( USE_TLS13 ) && defined( USE_ED25519 )
+	int status;
+
+	createMutex();
+
+	status = connectTLS( CRYPT_SESSION_TLS_SERVER, TLS_TEST_ED25519, 4, CRYPT_UNUSED, FALSE );
+	destroyMutex();
+
+	return( status );
+#else
+	return( TRUE );
+#endif /* USE_TLS13 && USE_ED25519 */
 	}
 
 int testSessionTLSBadSSL( void )
@@ -3027,6 +3083,7 @@ int testSessionTLSBadSSL( void )
 				status == CRYPT_ERROR_FAILED )
 				continue;
 
+			fclose( outputStream );
 			outputStream = origOutputStream;
 			fprintf( outputStream, "BadSSL test '%s' failed,\ngot result "
 					 "%d, should have been %d.\n", badSslInfo[ i ].path,
@@ -3034,6 +3091,7 @@ int testSessionTLSBadSSL( void )
 			return( FALSE );
 			}
 		}
+	fclose( outputStream );
 	outputStream = origOutputStream;
 
 	fprintf( outputStream, "BadSSL tests succeeded.\n\n" );
@@ -3422,6 +3480,22 @@ int testSessionTLS13ClientServer( void )
 	{
 #ifdef USE_TLS13
 	return( tls13ClientServer( TLS_TEST_NORMAL ) );
+#else
+	return( TRUE );
+#endif /* USE_TLS13 */
+	}
+int testSessionTLS13ClientServerEccKey( void )
+	{
+#ifdef USE_TLS13
+	return( tls13ClientServer( TLS_TEST_ECC ) );
+#else
+	return( TRUE );
+#endif /* USE_TLS13 */
+	}
+int testSessionTLS13ClientServerEd25519Key( void )
+	{
+#ifdef USE_TLS13
+	return( tls13ClientServer( TLS_TEST_ED25519 ) );
 #else
 	return( TRUE );
 #endif /* USE_TLS13 */

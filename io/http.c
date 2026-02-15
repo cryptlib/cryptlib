@@ -91,15 +91,19 @@ static const HTTP_STATUS_INFO httpStatusInfo[] = {
 	{ 422, "422", "Unprocessable Entity", 20, CRYPT_ERROR_READ },
 	{ 423, "423", "Locked", 6, CRYPT_ERROR_READ },
 	{ 424, "424", "Failed Dependency", 17, CRYPT_ERROR_READ },
+	{ 425, "425", "Too Early", 9, CRYPT_ERROR_READ },
 	{ 426, "426", "Upgrade Required", 16, CRYPT_ERROR_READ },
 	{ 428, "428", "Precondition Required", 21, CRYPT_ERROR_READ },
 	{ 429, "429", "Too Many Requests", 17, CRYPT_ERROR_OVERFLOW },
 	{ 431, "431", "Request Header Fields Too Large", 31, CRYPT_ERROR_OVERFLOW },
 	{ 444, "444", "Connection Closed Without Response", 34, CRYPT_ERROR_READ },
-	{ 451, "451", "RTSP: Parameter not Understood", 30, CRYPT_ERROR_BADDATA },
-#if 0	/* Also allegedly... */
+#if 1	/* Starting at 450 are a bunch of RTSP status codes that the IETF 
+		   pretends don't exist and so either reassigns them or denotes them 
+		   as unassigned, since we shouldn't be seeing these in HTTP-as-a-
+		   substrate we go with the IETF version rather than the RTSP one */
 	{ 451, "451", "Unavailable For Legal Reasons", 29, CRYPT_ERROR_READ },
-#endif /* 0 */
+#else
+	{ 451, "451", "RTSP: Parameter not Understood", 30, CRYPT_ERROR_BADDATA },
 	{ 452, "452", "RTSP: Conference not Found", 26, CRYPT_ERROR_NOTFOUND },
 	{ 453, "453", "RTSP: Not enough Bandwidth", 26, CRYPT_ERROR_NOTAVAIL },
 	{ 454, "454", "RTSP: Session not Found", 23, CRYPT_ERROR_NOTFOUND },
@@ -111,6 +115,7 @@ static const HTTP_STATUS_INFO httpStatusInfo[] = {
 	{ 460, "460", "RTSP: Only Aggregate Operation Allowed", 38, CRYPT_ERROR_PERMISSION },
 	{ 461, "461", "RTSP: Unsupported Transport", 27, CRYPT_ERROR_NOTAVAIL },
 	{ 462, "462", "RTSP: Destination Unreachable", 29, CRYPT_ERROR_OPEN },
+#endif /* 1 */
 	{ 499, "499", "Client Closed Request", 21, CRYPT_ERROR_READ },
 	{ 500, "500", "Internal Server Error", 21, CRYPT_ERROR_READ },
 	{ 501, "501", "Not Implemented", 15, CRYPT_ERROR_NOTAVAIL },
@@ -118,7 +123,11 @@ static const HTTP_STATUS_INFO httpStatusInfo[] = {
 	{ 503, "503", "Service Unavailable", 19, CRYPT_ERROR_NOTAVAIL },
 	{ 504, "504", "Gateway Time-out", 16, CRYPT_ERROR_TIMEOUT },
 	{ 505, "505", "HTTP Version not supported", 26, CRYPT_ERROR_READ },
-	{ 510, "510", "HTTP-Ext: Not Extended", 22, CRYPT_ERROR_READ },
+	{ 506, "506", "Variant Also Negotiates", 23, CRYPT_ERROR_READ },
+	{ 507, "507", "Insufficient Storage", 20, CRYPT_ERROR_OVERFLOW },
+	{ 508, "508", "Loop Detected", 13, CRYPT_ERROR_READ },
+	{ 510, "510", "HTTP-Ext: Not Extended (obsolete)", 33, CRYPT_ERROR_READ },
+	{ 511, "511", "Network Authentication Required", 31, CRYPT_ERROR_PERMISSION },
 	{ 551, "551", "RTSP: Option not supported", 26, CRYPT_ERROR_READ },
 	{ 0, NULL, "Unrecognised HTTP status condition", 34, CRYPT_ERROR_READ },
 		{ 0, NULL, "Unrecognised HTTP status condition", 34, CRYPT_ERROR_READ }

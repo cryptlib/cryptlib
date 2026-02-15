@@ -100,7 +100,7 @@ typedef enum { AUTH_PAP, AUTH_CHAP, AUTH_MSCHAPV2, AUTH_LAST } AUTH_TYPE;
 
 #define getPadSize( length )	( ( 4 - ( ( length ) % 4 ) ) % 4 )
 #define getHeaderLen( vendorID ) \
-								( 8 + ( ( vendorID > 0 ) ? 4 : 0 ) )
+								( 8 + ( ( ( vendorID ) > 0 ) ? 4 : 0 ) )
 
 static int getVendorAVPsize( const int vendorID, const int valueLen )
 	{

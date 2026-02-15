@@ -340,12 +340,12 @@ static const ALGOID_INFO algoIDinfoTbl[] = {
   #endif /* USE_SHA2_EXT */
 #endif /* USE_ECDSA */
 
-	/* EDDSA */
-#ifdef USE_EDDSA
-	{ CRYPT_ALGO_EDDSA, CRYPT_ALGO_NONE, ALGOID_ENCODING_NONE, ALGOID_CLASS_PKC,
+	/* Ed25519 */
+#ifdef USE_ED25519
+	{ CRYPT_ALGO_ED25519, CRYPT_ALGO_NONE, ALGOID_ENCODING_NONE, ALGOID_CLASS_PKC,
 	  MKOID( "\x06\x03\x2B\x65\x70" )
 	  MKDESC( "ed25519 (1 3 101 112)" ) },
-#endif /* USE_25519 */
+#endif /* USE_ED25519 */
 
 	/* Hash algorithms */
 	{ CRYPT_ALGO_SHA2, CRYPT_ALGO_NONE, 32, ALGOID_CLASS_HASH,
@@ -482,7 +482,8 @@ int hwStorageUpdateNotify( IN_PTR_OPT void *contextHandle,
 						   IN_LENGTH_Z const int dataLength )
 	{
 	REQUIRES( ( dataLength == CRYPT_UNUSED ) || \
-			  isIntegerRange( dataLength ) );
+			  ( isIntegerRange( dataLength ) && \
+				dataLength < STORAGE_SIZE ) );
 
 	/* The contents of the storage buffer have changed, commit them to 
 	   backing store, for example by initiating a flash program cycle */

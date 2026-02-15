@@ -63,7 +63,7 @@ static int createDummyCCS( OUT_PTR STREAM *stream,
 	return( CRYPT_OK );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int readDummyCCS( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
 	STREAM stream;
@@ -706,7 +706,10 @@ static int readCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			status = CRYPT_ERROR_BADDATA;
 		}
 	if( !cryptStatusError( status ) )
+		{
+		REQUIRES( rangeCheck( length, 1, CRYPT_MAX_HASHSIZE ) );
 		status = sread( stream, handshakeInfo->tls13CertContext, length );
+		}
 	if( cryptStatusError( status ) )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
@@ -754,9 +757,8 @@ static int readCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	return( CRYPT_OK );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int writeCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
-							 INOUT_PTR STREAM *stream )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int writeCertRequest( INOUT_PTR STREAM *stream )
 	{
 	MESSAGE_DATA msgData;
 	const BOOLEAN rsaAvailable = algoAvailable( CRYPT_ALGO_RSA ) ? \
@@ -771,10 +773,6 @@ static int writeCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					( ecdsaAvailable ? UINT16_SIZE : 0 );
 	BYTE nonceBuffer[ 8 + 8 ];
 	int status;
-
-	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
-
-	REQUIRES( isBooleanValue( rsaAvailable ) );
 
 	/* Write the nonce/identifier value.  This isn't used in any 
 	   cryptographic computations but is used to identify which certificate 
@@ -866,7 +864,11 @@ static int readFinished( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			status = CRYPT_ERROR_OVERFLOW;
 			}
 		else
+			{
+			REQUIRES( rangeCheck( finishedValueLength, \
+								  1, CRYPT_MAX_HASHSIZE ) );
 			status = sread( stream, receivedValue, finishedValueLength );
+			}
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1321,6 +1323,10 @@ static int completeHandshakeServer( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( status );
 		}
 
+	/* If we're fuzzing the input then we're about to switch to encrypted-
+	   everything which we can't do anything with using static data */
+	FUZZ_EXIT();
+
 	/* Set up the TLS 1.3 encryption contexts and load the keys into them */
 	status = initSecurityContextsTLS( sessionInfoPtr );
 	if( cryptStatusOK( status ) )
@@ -1396,7 +1402,7 @@ static int completeHandshakeServer( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											 &outerOffset, &innerOffset, 
 											 TLS_HAND_SERVER_CERTREQUEST );
 		if( cryptStatusOK( status ) )
-			status = writeCertRequest( sessionInfoPtr, &stream );
+			status = writeCertRequest( &stream );
 		if( cryptStatusOK( status ) )
 			{
 			status = completeEncryptedPacketStream( sessionInfoPtr, handshakeInfo, 

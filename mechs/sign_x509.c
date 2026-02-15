@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							X.509/PKI Signature Routines					*
-*						Copyright Peter Gutmann 1993-2019					*
+*						Copyright Peter Gutmann 1993-2024					*
 *																			*
 ****************************************************************************/
 
@@ -56,11 +56,11 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 						 IN_PTR_OPT const X509SIG_FORMATINFO *formatInfo,
 						 INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	CRYPT_CONTEXT iHashContext;
-	MESSAGE_CREATEOBJECT_INFO createInfo;
+	CRYPT_CONTEXT iHashContext DUMMY_INIT;
+	SIG_DATA_INFO sigDataInfo;
 	STREAM stream;
 	BYTE dataSignature[ CRYPT_MAX_PKCSIZE + 128 + 8 ];
-	int signatureLength, totalSigLength, status;
+	int signAlgo, signatureLength, totalSigLength, status;
 
 	assert( isWritePtrDynamic( signedObject, signedObjectMaxLength ) );
 	assert( isWritePtr( signedObjectLength, sizeof( int ) ) );
@@ -75,8 +75,7 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 	REQUIRES( isBufsizeRangeNZ( objectLength ) );
 	REQUIRES( isHandleRangeValid( iSignContext ) );
 	REQUIRES( isHashAlgo( hashAlgo ) );
-	REQUIRES( hashParam >= MIN_HASHSIZE && \
-			  hashParam <= CRYPT_MAX_HASHSIZE );
+	REQUIRES( rangeCheck( hashParam, MIN_HASHSIZE, CRYPT_MAX_HASHSIZE ) );
 	REQUIRES( formatInfo == NULL || \
 			  ( ( formatInfo->tag >= 0 && \
 				  formatInfo->tag < MAX_CTAG_VALUE ) && \
@@ -87,41 +86,70 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 	memset( signedObject, 0, min( 16, signedObjectMaxLength ) );
 	*signedObjectLength = 0;
 
-	/* Hash the data to be signed */
-	setMessageCreateObjectInfo( &createInfo, hashAlgo );
-	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE, 
-							  IMESSAGE_DEV_CREATEOBJECT, &createInfo, 
-							  OBJECT_TYPE_CONTEXT );
+	/* Figure out which sort of signature we need to create */
+	status = krnlSendMessage( iSignContext, IMESSAGE_GETATTRIBUTE, 
+							  &signAlgo, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
 		return( status );
-	iHashContext = createInfo.cryptHandle;
-	if( isParameterisedHashAlgo( hashAlgo ) )
+
+	/* Hash the data to be signed unless it's a special-snowflake algorithm
+	   that direcctly signs the raw message */
+	if( !isBernsteinAlgo( signAlgo ) )
 		{
-		status = krnlSendMessage( iHashContext, IMESSAGE_SETATTRIBUTE, 
-								  ( MESSAGE_CAST ) &hashParam, 
-								  CRYPT_CTXINFO_BLOCKSIZE );
-		}
-	if( cryptStatusOK( status ) )
-		{
-		status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, 
-								  ( MESSAGE_CAST ) object, objectLength );
-		}
-	if( cryptStatusOK( status ) )
-		status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, "", 0 );
-	if( cryptStatusError( status ) )
-		{
-		krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
-		retExt( status,
-				( status, errorInfo,
-				  "Couldn't hash X.509 data to sign" ) );
+		MESSAGE_CREATEOBJECT_INFO createInfo;
+
+		setMessageCreateObjectInfo( &createInfo, hashAlgo );
+		status = krnlSendMessage( CRYPTO_OBJECT_HANDLE, 
+								  IMESSAGE_DEV_CREATEOBJECT, &createInfo, 
+								  OBJECT_TYPE_CONTEXT );
+		if( cryptStatusError( status ) )
+			return( status );
+		iHashContext = createInfo.cryptHandle;
+		if( isParameterisedHashAlgo( hashAlgo ) )
+			{
+			status = krnlSendMessage( iHashContext, IMESSAGE_SETATTRIBUTE, 
+									  ( MESSAGE_CAST ) &hashParam, 
+									  CRYPT_CTXINFO_BLOCKSIZE );
+			}
+		if( cryptStatusOK( status ) )
+			{
+			status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, 
+									  ( MESSAGE_CAST ) object, 
+									  objectLength );
+			}
+		if( cryptStatusOK( status ) )
+			{
+			status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, 
+									  "", 0 );
+			}
+		if( cryptStatusError( status ) )
+			{
+			krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
+			retExt( status,
+					( status, errorInfo,
+					  "Couldn't hash X.509 data to sign" ) );
+			}
 		}
 
 	/* Create the signature and calculate the overall length of the payload, 
 	   optional signature wrapper, and signature data */
-	status = createSignature( dataSignature, CRYPT_MAX_PKCSIZE + 128, 
-							  &signatureLength, iSignContext, iHashContext, 
-							  CRYPT_UNUSED, SIGNATURE_X509, errorInfo );
-	krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
+	if( isBernsteinAlgo( signAlgo ) )
+		{
+		setSigDataInfoMessage( &sigDataInfo, object, objectLength );
+		status = createSignature( dataSignature, CRYPT_MAX_PKCSIZE + 128, 
+								  &signatureLength, iSignContext, 
+								  &sigDataInfo, SIGNATURE_X509, errorInfo );
+		}
+	else
+		{
+		setSigDataInfoHashEx( &sigDataInfo, iHashContext, hashAlgo, 
+							  hashParam );
+		status = createSignature( dataSignature, CRYPT_MAX_PKCSIZE + 128, 
+								  &signatureLength, iSignContext, 
+								  &sigDataInfo, SIGNATURE_X509, 
+								  errorInfo );
+		krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
+		}
 	if( cryptStatusError( status ) )
 		return( status );
 	if( formatInfo == NULL )
@@ -202,6 +230,7 @@ int checkX509signature( IN_BUFFER( signedObjectLength ) const void *signedObject
 	CRYPT_ALGO_TYPE signAlgo;
 	CRYPT_CONTEXT iHashContext;
 	MESSAGE_CREATEOBJECT_INFO createInfo;
+	SIG_DATA_INFO sigDataInfo;
 	STREAM stream;
 	ALGOID_PARAMS algoIDparams;
 	void *objectPtr DUMMY_INIT_PTR, *sigPtr;
@@ -299,6 +328,23 @@ int checkX509signature( IN_BUFFER( signedObjectLength ) const void *signedObject
 				  getAlgoName( signAlgo ) ) );
 		}
 
+	/* If it's a special-snowflake algorithm then we verify the raw data 
+	   rather than a hash */
+	if( isBernsteinAlgo( signAlgo ) )
+		{
+		setSigDataInfoMessage( &sigDataInfo, objectPtr, length );
+		status = checkSignature( sigPtr, sigLength, iSigCheckContext,
+								 &sigDataInfo, SIGNATURE_X509, errorInfo );
+		if( cryptStatusError( status ) )
+			return( status );
+		CFI_CHECK_UPDATE( "checkSignature" );
+
+		ENSURES( CFI_CHECK_SEQUENCE_4( "IMESSAGE_GETATTRIBUTE", 
+									   "getLongStreamObjectLength", "readAlgoIDex", 
+									   "checkSignature" ) );
+		return( CRYPT_OK );
+		}
+
 	/* Create a hash context from the algorithm identifier of the
 	   signature */
 	setMessageCreateObjectInfo( &createInfo, algoIDparams.hashAlgo );
@@ -320,7 +366,7 @@ int checkX509signature( IN_BUFFER( signedObjectLength ) const void *signedObject
 			}
 		}
 
-	/* Hash the signed data and check the signature on the object */
+	/* Hash the signed data */
 	status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, 
 							  objectPtr, length );
 	if( cryptStatusOK( status ) )
@@ -335,17 +381,21 @@ int checkX509signature( IN_BUFFER( signedObjectLength ) const void *signedObject
 				( status, errorInfo,
 				  "Couldn't hash X.509 signed data" ) );
 		}
+	CFI_CHECK_UPDATE( "IMESSAGE_CTX_HASH" );
+
+	/* Check the signature on the object */
+	setSigDataInfoHashEx( &sigDataInfo, iHashContext, algoIDparams.hashAlgo, 
+						  algoIDparams.hashParam );
 	status = checkSignature( sigPtr, sigLength, iSigCheckContext,
-							 iHashContext, CRYPT_UNUSED,
-							 SIGNATURE_X509, errorInfo );
+							 &sigDataInfo, SIGNATURE_X509, errorInfo );
 	krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
 	if( cryptStatusError( status ) )
 		return( status );
 	CFI_CHECK_UPDATE( "checkSignature" );
 
-	ENSURES( CFI_CHECK_SEQUENCE_4( "IMESSAGE_GETATTRIBUTE", 
+	ENSURES( CFI_CHECK_SEQUENCE_5( "IMESSAGE_GETATTRIBUTE", 
 								   "getLongStreamObjectLength", "readAlgoIDex", 
-								   "checkSignature" ) );
+								   "IMESSAGE_CTX_HASH", "checkSignature" ) );
 
 	return( CRYPT_OK );
 	}
@@ -375,6 +425,10 @@ int createRawSignature( OUT_BUFFER( sigMaxLength, *signatureLength ) \
 						IN_HANDLE const CRYPT_CONTEXT iHashContext,
 						INOUT_PTR ERROR_INFO *errorInfo )
 	{
+	SIG_DATA_INFO sigDataInfo;
+	int hashAlgo, hashParam = 0;	/* int vs. enum */
+	int status;
+
 	assert( isWritePtrDynamic( signature, sigMaxLength ) );
 	assert( isWritePtr( signatureLength, sizeof( int ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
@@ -383,9 +437,21 @@ int createRawSignature( OUT_BUFFER( sigMaxLength, *signatureLength ) \
 	REQUIRES( isHandleRangeValid( iSignContext ) );
 	REQUIRES( isHandleRangeValid( iHashContext ) );
 
+	/* We're bypassing iCryptCreateSignatureEx() to create a raw signature 
+	   so we have to set up the parameters ourselves */
+	status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE, 
+							  &hashAlgo, CRYPT_CTXINFO_ALGO );
+	if( cryptStatusOK( status ) )
+		{
+		status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE, 
+								  &hashParam, CRYPT_CTXINFO_BLOCKSIZE );
+		}
+	if( cryptStatusError( status ) )
+		return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM2 : status );
+	setSigDataInfoHashEx( &sigDataInfo, iHashContext, hashAlgo, hashParam );
 	return( createSignature( signature, sigMaxLength, signatureLength, 
-							 iSignContext, iHashContext, CRYPT_UNUSED,
-							 SIGNATURE_RAW, errorInfo ) );
+							 iSignContext, &sigDataInfo, SIGNATURE_RAW, 
+							 errorInfo ) );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
@@ -395,14 +461,29 @@ int checkRawSignature( IN_BUFFER( signatureLength ) const void *signature,
 					   IN_HANDLE const CRYPT_CONTEXT iHashContext,
 					   INOUT_PTR ERROR_INFO *errorInfo )
 	{
+	SIG_DATA_INFO sigDataInfo;
+	int hashAlgo, hashParam = 0;	/* int vs. enum */
+	int status;
+
 	assert( isReadPtrDynamic( signature, signatureLength ) );
 
 	REQUIRES( isShortIntegerRangeNZ( signatureLength ) );
 	REQUIRES( isHandleRangeValid( iSigCheckContext ) );
 	REQUIRES( isHandleRangeValid( iHashContext ) );
 
+	/* We're bypassing iCryptCreateSignatureEx() to create a raw signature 
+	   so we have to set up the parameters ourselves */
+	status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE, 
+							  &hashAlgo, CRYPT_CTXINFO_ALGO );
+	if( cryptStatusOK( status ) )
+		{
+		status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE, 
+								  &hashParam, CRYPT_CTXINFO_BLOCKSIZE );
+		}
+	if( cryptStatusError( status ) )
+		return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM2 : status );
+	setSigDataInfoHashEx( &sigDataInfo, iHashContext, hashAlgo, hashParam );
 	return( checkSignature( signature, signatureLength, iSigCheckContext,
-							iHashContext, CRYPT_UNUSED, SIGNATURE_RAW,
-							errorInfo ) );
+							&sigDataInfo, SIGNATURE_RAW, errorInfo ) );
 	}
 #endif /* USE_CERTIFICATES */

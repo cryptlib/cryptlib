@@ -331,6 +331,7 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	REQUIRES( isIntegerRangeNZ( objectSize ) );
 	if( ( object = clAlloc( "addContentListItem", objectSize ) ) == NULL )
 		return( CRYPT_ERROR_MEMORY );
+	REQUIRES_PTR( rangeCheck( objectSize, 1, MAX_INTLENGTH ), object );
 	status = sread( stream, object, objectSize );
 	if( cryptStatusError( status ) )
 		{
@@ -339,7 +340,9 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		}
 
 	/* Allocate memory for the new content list item and copy information
-	   on the item across */
+	   on the item across.  This attaches 'object' to the content list item
+	   so we no longer need to explicitly free it on error beyond thns 
+	   point */
 	status = createContentListItem( &contentListItem, 
 							envelopeInfoPtr->memPoolState, 
 							( queryInfo.type == CRYPT_OBJECT_SIGNATURE ) ? \
@@ -347,8 +350,7 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							CRYPT_FORMAT_PGP, object, objectSize );
 	if( cryptStatusError( status ) )
 		{
-		if( object != NULL )
-			clFree( "addContentListItem", object );
+		clFree( "addContentListItem", object );
 		return( status );
 		}
 	if( queryInfo.type == CRYPT_OBJECT_PKCENCRYPTED_KEY )
@@ -394,8 +396,10 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			ENSURES( objectPtr != NULL );
 			REQUIRES( boundsCheck( queryInfo.iAndSStart, 
 								   queryInfo.iAndSLength, objectSize ) );
-			contentListItem->issuerAndSerialNumber = objectPtr + queryInfo.iAndSStart;
-			contentListItem->issuerAndSerialNumberSize = queryInfo.iAndSLength;
+			contentListItem->issuerAndSerialNumber = \
+									objectPtr + queryInfo.iAndSStart;
+			contentListItem->issuerAndSerialNumberSize = \
+									queryInfo.iAndSLength;
 			}
 		if( queryInfo.attributeStart > 0 )
 			{
@@ -409,7 +413,8 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			{
 			ENSURES( objectPtr != NULL );
 			REQUIRES( boundsCheck( queryInfo.unauthAttributeStart, 
-								   queryInfo.unauthAttributeLength, objectSize ) );
+								   queryInfo.unauthAttributeLength, 
+								   objectSize ) );
 			sigInfo->extraData2 = objectPtr + queryInfo.unauthAttributeStart;
 			sigInfo->extraData2Length = queryInfo.unauthAttributeLength;
 			}
@@ -464,17 +469,6 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		}
 	if( queryInfo.version > envelopeInfoPtr->version )
 		envelopeInfoPtr->version = queryInfo.version;
-
-#if 0
-	/* If we're completing the read of the data in a one-pass signature
-	   packet, we're done */
-	if( isContinuedSignature )
-		{
-		ENSURES( sanityCheckContentList( contentListItem ) );
-
-		return( CRYPT_OK );
-		}
-#endif /* 0 */
 
 	/* If it's signed data, create a hash action to process it.  Because PGP 
 	   only applies one level of signing per packet nesting level we don't 
@@ -701,14 +695,21 @@ static int adjustNestedDataInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	assert( isReadPtr( stream, sizeof( STREAM ) ) );
 
 	REQUIRES( isEnumRange( encapsPacketType, PGP_PACKET ) );
-	REQUIRES( encapsPacketType == PGP_PACKET_DATA || \
-			  encapsPacketType == PGP_PACKET_COPR || \
-			  encapsPacketType == PGP_PACKET_SIGNATURE || \
-			  encapsPacketType == PGP_PACKET_SIGNATURE_ONEPASS );
-			  /* We disallow _SKE and _PKE for now because it's unclear
-			     whether anything actually creates these */
 	REQUIRES( encapsPacketLength == CRYPT_UNUSED || \
 			  isIntegerRange( encapsPacketLength ) );
+
+	/* We disallow _SKE and _PKE for now (as well as other unexpected packet 
+	   types) because it's unclear whether anything actually creates these */
+	if( encapsPacketType != PGP_PACKET_DATA && \
+		encapsPacketType != PGP_PACKET_COPR && \
+		encapsPacketType != PGP_PACKET_SIGNATURE && \
+		encapsPacketType != PGP_PACKET_SIGNATURE_ONEPASS )
+		{
+		DEBUG_DIAG(( "Unexpected encapsulated packet type %d encountered", 
+					 encapsPacketType ));
+		assert_nofuzz( DEBUG_WARN );
+		return( CRYPT_ERROR_BADDATA );
+		}
 
 	/* If the nested data is a definite-length literal data packet, use the 
 	   overall packet size, which also skips any MDC packets that may be 
@@ -1483,7 +1484,10 @@ static int processEncryptedPacket( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							  IMESSAGE_GETATTRIBUTE, &ivSize, 
 							  CRYPT_CTXINFO_IVSIZE );
 	if( cryptStatusOK( status ) )
+		{
+		REQUIRES( boundsCheck( 2, ivSize, CRYPT_MAX_IVSIZE + 2 ) );
 		status = sread( stream, ivInfoBuffer, ivSize + 2 );
+		}
 	if( !cryptStatusError( status ) )
 		{
 		status = pgpProcessIV( actionListPtr->iCryptHandle,
@@ -1927,8 +1931,8 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 						{
 						char errorString[ 128 + 8 ];
 						const int zStreamMsgLen = \
-								min( strlen( envelopeInfoPtr->zStream.msg ),
-									 128 - 33 );
+								strnlen_s( envelopeInfoPtr->zStream.msg,
+										   128 - 33 );
 
 						REQUIRES( boundsCheck( 33, zStreamMsgLen, 128 ) ); 
 						memcpy( errorString, "Invalid zlib compressed "

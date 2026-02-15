@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib PKCS #15 Read Routines						*
-*						Copyright Peter Gutmann 1996-2007					*
+*						Copyright Peter Gutmann 1996-2021					*
 *																			*
 ****************************************************************************/
 
@@ -90,6 +90,14 @@ static void copyObjectIdInfo( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 		memcpy( pkcs15infoPtr->openPGPKeyID, pkcs15objectInfo->openPGPKeyID,
 				pkcs15objectInfo->openPGPKeyIDlength );
 		pkcs15infoPtr->openPGPKeyIDlength = pkcs15objectInfo->openPGPKeyIDlength;
+		}
+	if( pkcs15objectInfo->uriLength > 0 )
+		{
+		REQUIRES_V( rangeCheck( pkcs15objectInfo->uriLength, 1, 
+								CRYPT_MAX_TEXTSIZE ) );
+		memcpy( pkcs15infoPtr->uri, pkcs15objectInfo->uri,
+				pkcs15objectInfo->uriLength );
+		pkcs15infoPtr->uriLength = pkcs15objectInfo->uriLength;
 		}
 	}
 

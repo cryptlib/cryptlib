@@ -689,8 +689,8 @@ int krnlMemfree( INOUT_PTR_PTR void **pointer )
 
 		/* The memory block doesn't look right, don't try and go any 
 		   further */
-		DEBUG_DIAG(( "Attempt to free invalid memory segment at %lX inside "
-					 "memory block at %lX", *pointer, memHdrPtr ));
+		DEBUG_DIAG(( "Attempt to free invalid memory segment at %p inside "
+					 "memory block at %p", *pointer, memHdrPtr ));
 		retIntError();
 		}
 

@@ -8,8 +8,10 @@ static PyObject* cryptQueryInfoClass;
 static PyObject* cryptObjectInfoClass;
 static PyObject *CryptException;
 
+
 static int getPointerWrite(PyObject* objPtr, unsigned char** bytesPtrPtr, int* lengthPtr)
 {
+
     if (objPtr == Py_None)
     {
         *bytesPtrPtr = NULL;
@@ -17,17 +19,20 @@ static int getPointerWrite(PyObject* objPtr, unsigned char** bytesPtrPtr, int* l
         return 1;
     }
 
-    Py_ssize_t size = 0;
+    Py_buffer view;
+    /*Check if PyObject is a array writable bytearray */
+    if (PyObject_GetBuffer(objPtr, &view, PyBUF_WRITABLE) == -1)
+         return 0;
+    *lengthPtr = view.len;
+    *bytesPtrPtr = view.buf;
+    PyBuffer_Release(&view);
 
-    /*See if it's an array object*/
-    if (PyObject_AsWriteBuffer(objPtr, (void **)bytesPtrPtr, &size) == -1)
-        return 0;
-    *lengthPtr = size;
     return 1;
 }
 
 static int getPointerRead(PyObject* objPtr, unsigned char** bytesPtrPtr, int* lengthPtr)
 {
+
     if (objPtr == Py_None)
     {
         *bytesPtrPtr = NULL;
@@ -35,26 +40,14 @@ static int getPointerRead(PyObject* objPtr, unsigned char** bytesPtrPtr, int* le
         return 1;
     }
 
-    Py_ssize_t size = 0;
-
-    /*See if it's an array object*/
-    if (PyObject_AsWriteBuffer(objPtr, (void **)bytesPtrPtr, &size) == -1)
-    {
-        PyErr_Clear();
-        /*See if it's a string object*/
-        /*This returns the length excluding the NULL if it's a string,
-          which is what we want*/
-        if (PyObject_AsCharBuffer(objPtr, (const char **)bytesPtrPtr, &size) == -1)
-            return 0;
-    }
-    *lengthPtr = size;
+    Py_buffer view;
+    /*Check if PyObject is a simple buffer */
+    if (PyObject_GetBuffer(objPtr, &view, PyBUF_FORMAT) == -1)
+         return 0;
+    *lengthPtr = view.len;
+    *bytesPtrPtr = view.buf;
+    PyBuffer_Release(&view);
     return 1;
-}
-
-static int getPointerReadNoLength(PyObject* objPtr, unsigned char** bytesPtrPtr)
-{
-    int length;
-    return getPointerRead(objPtr, bytesPtrPtr, &length);
 }
 
 static int getPointerWriteCheckIndices(PyObject* objPtr, unsigned char** bytesPtrPtr, int* lengthPtr)
@@ -75,6 +68,7 @@ static int getPointerWriteCheckIndices(PyObject* objPtr, unsigned char** bytesPt
 
 static int getPointerReadString(PyObject* objPtr, char** charPtrPtr)
 {
+
     Py_ssize_t length = 0;
     char* newPtr = NULL;
 
@@ -84,18 +78,14 @@ static int getPointerReadString(PyObject* objPtr, char** charPtrPtr)
         return 1;
     }
 
-    /*See if it's a string or a buffer object*/
-    if (PyObject_AsCharBuffer(objPtr, charPtrPtr, &length) == -1)
-    {
-        /*See if it's an array*/
-        PyErr_Clear();
-        if (PyObject_AsWriteBuffer(objPtr, charPtrPtr, &length) == -1)
-            return 0;
-    }
-    /*This code isn't necessary for a string, but it is for arrays and buffers,
-      so we do it always anyway, since the PyObject_AsCharBuffer apparently doesn't
-      guarantee us null-terminated data, and this way releasePointerString() doesn't
-      have to differentiate */
+    Py_buffer view;
+    /*Check if PyObject is a simple readable buffer */
+    if (PyObject_GetBuffer(objPtr, &view, PyBUF_FORMAT) == -1)
+         return 0;
+    length = view.len;
+    *charPtrPtr = view.buf;
+    PyBuffer_Release(&view);
+    
     newPtr = malloc(length+1);
     if (newPtr == NULL)
     {
@@ -110,6 +100,7 @@ static int getPointerReadString(PyObject* objPtr, char** charPtrPtr)
 
 static void releasePointer(PyObject* objPtr, unsigned char* bytesPtr)
 {
+    /* nothing to release */
 }
 
 static void releasePointerString(PyObject* objPtr, char* charPtr)
@@ -549,7 +540,8 @@ static PyObject* python_cryptExportKey(PyObject* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "Oiii", &encryptedKey, &encryptedKeyMaxLength, &exportKey, &sessionKeyContext))
 	    return(NULL);
 	
-	if (!processStatusBool(cryptExportKey(NULL, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext)))
+	if (encryptedKeyMaxLength == 0) 
+	    if (!processStatusBool(cryptExportKey(NULL, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext)))
 		goto finish;
 	
 	if (!getPointerWriteCheckIndices(encryptedKey, &encryptedKeyPtr, &encryptedKeyLength))
@@ -576,7 +568,8 @@ static PyObject* python_cryptExportKeyEx(PyObject* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "Oiiii", &encryptedKey, &encryptedKeyMaxLength, &formatType, &exportKey, &sessionKeyContext))
 	    return(NULL);
 	
-	if (!processStatusBool(cryptExportKeyEx(NULL, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext)))
+	if (encryptedKeyMaxLength == 0) 
+	    if (!processStatusBool(cryptExportKeyEx(NULL, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext)))
 		goto finish;
 	
 	if (!getPointerWriteCheckIndices(encryptedKey, &encryptedKeyPtr, &encryptedKeyLength))
@@ -647,7 +640,8 @@ static PyObject* python_cryptCreateSignature(PyObject* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "Oiii", &signature, &signatureMaxLength, &signContext, &hashContext))
 	    return(NULL);
 	
-	if (!processStatusBool(cryptCreateSignature(NULL, signatureMaxLength, &signatureLength, signContext, hashContext)))
+	if (signatureMaxLength == 0) 
+	    if (!processStatusBool(cryptCreateSignature(NULL, signatureMaxLength, &signatureLength, signContext, hashContext)))
 		goto finish;
 	
 	if (!getPointerWriteCheckIndices(signature, &signaturePtr, &signatureLength))
@@ -675,7 +669,8 @@ static PyObject* python_cryptCreateSignatureEx(PyObject* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "Oiiiii", &signature, &signatureMaxLength, &formatType, &signContext, &hashContext, &extraData))
 	    return(NULL);
 	
-	if (!processStatusBool(cryptCreateSignatureEx(NULL, signatureMaxLength, &signatureLength, formatType, signContext, hashContext, extraData)))
+	if (signatureMaxLength == 0) 
+	    if (!processStatusBool(cryptCreateSignatureEx(NULL, signatureMaxLength, &signatureLength, formatType, signContext, hashContext, extraData)))
 		goto finish;
 	
 	if (!getPointerWriteCheckIndices(signature, &signaturePtr, &signatureLength))
@@ -741,7 +736,7 @@ static PyObject* python_cryptKeysetOpen(PyObject* self, PyObject* args)
 	int keysetType = 0;
 	PyObject* name = NULL;
 	int options = 0;
-	unsigned char* namePtr = 0;
+	char* namePtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iiOi", &cryptUser, &keysetType, &name, &options))
 	    return(NULL);
@@ -776,7 +771,7 @@ static PyObject* python_cryptGetPublicKey(PyObject* self, PyObject* args)
 	int keyset = 0;
 	int keyIDtype = 0;
 	PyObject* keyID = NULL;
-	unsigned char* keyIDPtr = 0;
+	char* keyIDPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iiO", &keyset, &keyIDtype, &keyID))
 	    return(NULL);
@@ -799,8 +794,8 @@ static PyObject* python_cryptGetPrivateKey(PyObject* self, PyObject* args)
 	int keyIDtype = 0;
 	PyObject* keyID = NULL;
 	PyObject* password = NULL;
-	unsigned char* keyIDPtr = 0;
-	unsigned char* passwordPtr = 0;
+	char* keyIDPtr = 0;
+	char* passwordPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iiOO", &keyset, &keyIDtype, &keyID, &password))
 	    return(NULL);
@@ -826,8 +821,8 @@ static PyObject* python_cryptGetKey(PyObject* self, PyObject* args)
 	int keyIDtype = 0;
 	PyObject* keyID = NULL;
 	PyObject* password = NULL;
-	unsigned char* keyIDPtr = 0;
-	unsigned char* passwordPtr = 0;
+	char* keyIDPtr = 0;
+	char* passwordPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iiOO", &keyset, &keyIDtype, &keyID, &password))
 	    return(NULL);
@@ -865,7 +860,7 @@ static PyObject* python_cryptAddPrivateKey(PyObject* self, PyObject* args)
 	int keyset = 0;
 	int cryptKey = 0;
 	PyObject* password = NULL;
-	unsigned char* passwordPtr = 0;
+	char* passwordPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iiO", &keyset, &cryptKey, &password))
 	    return(NULL);
@@ -886,7 +881,7 @@ static PyObject* python_cryptDeleteKey(PyObject* self, PyObject* args)
 	int keyset = 0;
 	int keyIDtype = 0;
 	PyObject* keyID = NULL;
-	unsigned char* keyIDPtr = 0;
+	char* keyIDPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iiO", &keyset, &keyIDtype, &keyID))
 	    return(NULL);
@@ -938,7 +933,7 @@ static PyObject* python_cryptGetCertExtension(PyObject* self, PyObject* args)
 	PyObject* oid = NULL;
 	PyObject* extension = NULL;
 	int extensionMaxLength = 0;
-	unsigned char* oidPtr = 0;
+	char* oidPtr = 0;
 	unsigned char* extensionPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iOOi", &certificate, &oid, &extension, &extensionMaxLength))
@@ -969,7 +964,7 @@ static PyObject* python_cryptAddCertExtension(PyObject* self, PyObject* args)
 	int criticalFlag = 0;
 	PyObject* extension = NULL;
 	int extensionLength = 0;
-	unsigned char* oidPtr = 0;
+	char* oidPtr = 0;
 	unsigned char* extensionPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iOiO", &certificate, &oid, &criticalFlag, &extension))
@@ -994,7 +989,7 @@ static PyObject* python_cryptDeleteCertExtension(PyObject* self, PyObject* args)
 	int status = 0;
 	int certificate = 0;
 	PyObject* oid = NULL;
-	unsigned char* oidPtr = 0;
+	char* oidPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iO", &certificate, &oid))
 	    return(NULL);
@@ -1107,7 +1102,7 @@ static PyObject* python_cryptCAGetItem(PyObject* self, PyObject* args)
 	int certType = 0;
 	int keyIDtype = 0;
 	PyObject* keyID = NULL;
-	unsigned char* keyIDPtr = 0;
+	char* keyIDPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iiiO", &keyset, &certType, &keyIDtype, &keyID))
 	    return(NULL);
@@ -1129,7 +1124,7 @@ static PyObject* python_cryptCADeleteItem(PyObject* self, PyObject* args)
 	int certType = 0;
 	int keyIDtype = 0;
 	PyObject* keyID = NULL;
-	unsigned char* keyIDPtr = 0;
+	char* keyIDPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iiiO", &keyset, &certType, &keyIDtype, &keyID))
 	    return(NULL);
@@ -1283,7 +1278,7 @@ static PyObject* python_cryptDeviceOpen(PyObject* self, PyObject* args)
 	int cryptUser = 0;
 	int deviceType = 0;
 	PyObject* name = NULL;
-	unsigned char* namePtr = 0;
+	char* namePtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "iiO", &cryptUser, &deviceType, &name))
 	    return(NULL);
@@ -1347,8 +1342,8 @@ static PyObject* python_cryptLogin(PyObject* self, PyObject* args)
 	int user = 0;
 	PyObject* name = NULL;
 	PyObject* password = NULL;
-	unsigned char* namePtr = 0;
-	unsigned char* passwordPtr = 0;
+	char* namePtr = 0;
+	char* passwordPtr = 0;
 	
 	if (!PyArg_ParseTuple(args, "OO", &name, &password))
 	    return(NULL);
@@ -1624,13 +1619,13 @@ class CryptHandle:\n\
     PyDict_SetItemString(moduleDict, "CRYPT_ALGO_ECDH", v);
     Py_DECREF(v); /* ECDH */
 
-    v = Py_BuildValue("i", CRYPT_ALGO_EDDSA);
-    PyDict_SetItemString(moduleDict, "CRYPT_ALGO_EDDSA", v);
-    Py_DECREF(v); /* EDDSA */
-
     v = Py_BuildValue("i", CRYPT_ALGO_25519);
     PyDict_SetItemString(moduleDict, "CRYPT_ALGO_25519", v);
-    Py_DECREF(v); /* X25519/X448 */
+    Py_DECREF(v); /* X25519 */
+
+    v = Py_BuildValue("i", CRYPT_ALGO_ED25519);
+    PyDict_SetItemString(moduleDict, "CRYPT_ALGO_ED25519", v);
+    Py_DECREF(v); /* Ed25519 */
 
     v = Py_BuildValue("i", CRYPT_ALGO_RESERVED4);
     PyDict_SetItemString(moduleDict, "CRYPT_ALGO_RESERVED4", v);
@@ -3896,8 +3891,8 @@ class CryptHandle:\n\
     PyDict_SetItemString(moduleDict, "CRYPT_SESSINFO_SERVER_PORT", v);
     Py_DECREF(v); /* Server port number */
 
-    v = Py_BuildValue("i", CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1);
-    PyDict_SetItemString(moduleDict, "CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1", v);
+    v = Py_BuildValue("i", CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2);
+    PyDict_SetItemString(moduleDict, "CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2", v);
     Py_DECREF(v); /* Server key fingerprint */
 
     v = Py_BuildValue("i", CRYPT_SESSINFO_CLIENT_NAME);
@@ -4815,6 +4810,10 @@ class CryptHandle:\n\
     v = Py_BuildValue("i", CRYPT_TLSOPTION_SERVER_SNI);
     PyDict_SetItemString(moduleDict, "CRYPT_TLSOPTION_SERVER_SNI", v);
     Py_DECREF(v); /* Enable SNI-based key selection */
+
+    v = Py_BuildValue("i", CRYPT_TLSOPTION_RESUMED);
+    PyDict_SetItemString(moduleDict, "CRYPT_TLSOPTION_RESUMED", v);
+    Py_DECREF(v); /* TLS session is resumed */
 
     v = Py_BuildValue("i", CRYPT_TLSOPTION_SUITEB_128);
     PyDict_SetItemString(moduleDict, "CRYPT_TLSOPTION_SUITEB_128", v);

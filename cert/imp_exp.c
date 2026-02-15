@@ -115,8 +115,6 @@ static int checkTextEncoding( IN_BUFFER( certObjectLength ) const void *certObje
 								&offset );
 	if( cryptStatusError( status ) )
 		{
-		int status;
-
 		/* If we get a decoding error (i.e. it's not either an unencoded 
 		   object or some form of ASCII encoded object) try again assuming
 		   that the source is EBCDIC */

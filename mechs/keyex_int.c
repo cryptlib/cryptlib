@@ -196,7 +196,7 @@ int exportConventionalKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
 				  getKeyexTypeName( keyexType ) ) );
 		}
 
-	/* If we're perfoming a dummy export for a length check, set up a dummy 
+	/* If we're performing a dummy export for a length check, set up a dummy 
 	   value to write */
 	if( encryptedKey == NULL )
 		{

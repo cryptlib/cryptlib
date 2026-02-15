@@ -131,7 +131,8 @@ static BOOLEAN sanityCheckStream( const STREAM *stream )
 #ifdef USE_TCP
 		case STREAM_TYPE_NETWORK:
 			{
-			NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
+			const NET_STREAM_INFO *netStream = \
+							DATAPTR_GET( stream->netStream );
 
 			/* Stream metadata is stored in the netStream structure, not the 
 			   main stream so there's no explicit metadata check apart from
@@ -394,14 +395,15 @@ static int expandVirtualFileStream( INOUT_PTR STREAM *stream,
 	   that wipes the original buffer.  If the malloc fails we return 
 	   CRYPT_ERROR_OVERFLOW rather than CRYPT_ERROR_MEMORY since the former 
 	   is more appropriate for the emulated-I/O environment */
-	REQUIRES( isIntegerRangeNZ( stream->bufSize + STREAM_VFILE_BUFSIZE ) );
+	REQUIRES_S( isIntegerRangeNZ( stream->bufSize + STREAM_VFILE_BUFSIZE ) );
 	if( ( newBuffer = clDynAlloc( "expandVirtualFileStream", \
 								  stream->bufSize + STREAM_VFILE_BUFSIZE ) ) == NULL )
 		return( sSetError( stream, CRYPT_ERROR_OVERFLOW ) );
-	REQUIRES( rangeCheck( stream->bufEnd, 1, 
-						  stream->bufSize + STREAM_VFILE_BUFSIZE ) );
+	REQUIRES_S_PTR( rangeCheck( stream->bufEnd, 1, 
+								stream->bufSize + STREAM_VFILE_BUFSIZE ),
+								newBuffer );
 	memcpy( newBuffer, stream->buffer, stream->bufEnd );
-	REQUIRES( isIntegerRangeNZ( stream->bufEnd ) ); 
+	REQUIRES_S_PTR( isIntegerRangeNZ( stream->bufEnd ), newBuffer ); 
 	zeroise( stream->buffer, stream->bufEnd );
 	clFree( "expandVirtualFileStream", stream->buffer );
 	stream->buffer = newBuffer;
@@ -784,7 +786,7 @@ int sputc( INOUT_PTR STREAM *stream, IN_BYTE const int ch )
 				stream->type == STREAM_TYPE_MEMORY || \
 				stream->type == STREAM_TYPE_FILE );
 	REQUIRES_S( !TEST_FLAG( stream->flags, STREAM_FLAG_READONLY ) );
-	REQUIRES( ch >= 0 && ch <= 0xFF );
+	REQUIRES_S( ch >= 0 && ch <= 0xFF );
 
 	/* If there's a problem with the stream don't try to do anything until
 	   the error is cleared */

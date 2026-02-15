@@ -155,7 +155,7 @@ static int getRandomNonzero( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	{
 	BYTE randomBuffer[ RANDOM_SAMPLE_SIZE + 8 ], *outBuffer = data;
 	LOOP_INDEX count;
-	int status = CRYPT_OK;
+	int status;
 
 	assert( isWritePtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
 	assert( isWritePtrDynamic( data, length ) );
@@ -292,7 +292,7 @@ int getDeviceAttributeS( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 		case CRYPT_ATTRIBUTE_ERRORMESSAGE:
 			{
 #ifdef USE_ERRMSGS
-			ERROR_INFO *errorInfo = DEVICE_ERRINFO;
+			const ERROR_INFO *errorInfo = DEVICE_ERRINFO;
 
 			if( errorInfo->errorStringLength > 0 )
 				{
@@ -311,7 +311,7 @@ int getDeviceAttributeS( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 										   CRYPT_DEVINFO_LABEL ) );
 				}
 			return( attributeCopy( msgData, deviceInfoPtr->label,
-								   strlen( deviceInfoPtr->label ) ) );
+								   deviceInfoPtr->labelLen ) );
 
 		case CRYPT_IATTRIBUTE_RANDOM:
 			{	

@@ -239,7 +239,7 @@ static int getDLPexpSize( IN_LENGTH_SHORT_MIN( MIN_PKCSIZE * 8 ) \
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int findGeneratorForPQ( INOUT_PTR PKC_INFO *pkcInfo )
 	{
-	BIGNUM *p = &pkcInfo->dlpParam_p, *q = &pkcInfo->dlpParam_q;
+	const BIGNUM *p = &pkcInfo->dlpParam_p, *q = &pkcInfo->dlpParam_q;
 	BIGNUM *g = &pkcInfo->dlpParam_g;
 	BIGNUM *j = &pkcInfo->tmp1;
 	BN_ULONG gCounter;
@@ -628,7 +628,8 @@ static int generateDLPPublicValue( INOUT_PTR PKC_INFO *pkcInfo )
 					  &domainParams->p : &pkcInfo->dlpParam_p;
 	const BIGNUM *g = ( domainParams != NULL ) ? \
 					  &domainParams->g : &pkcInfo->dlpParam_g;
-	BIGNUM *x = &pkcInfo->dlpParam_x, *y = &pkcInfo->dlpParam_y; 
+	const BIGNUM *x = &pkcInfo->dlpParam_x;
+	BIGNUM *y = &pkcInfo->dlpParam_y; 
 	int bnStatus = BN_STATUS;
 
 	assert( isWritePtr( pkcInfo, sizeof( PKC_INFO ) ) );
@@ -665,8 +666,9 @@ static int checkDLPDomainParameters( INOUT_PTR PKC_INFO *pkcInfo,
 									 IN_BOOL const BOOLEAN isPKCS3, 
 									 IN_BOOL const BOOLEAN isFullyInitialised )
 	{
-	BIGNUM *p = &pkcInfo->dlpParam_p, *q = &pkcInfo->dlpParam_q;
-	BIGNUM *g = &pkcInfo->dlpParam_g, *tmp = &pkcInfo->tmp1;
+	const BIGNUM *p = &pkcInfo->dlpParam_p, *q = &pkcInfo->dlpParam_q;
+	const BIGNUM *g = &pkcInfo->dlpParam_g;
+	BIGNUM *tmp = &pkcInfo->tmp1;
 	const int gBits = BN_num_bits( g );
 	BOOLEAN isPrime;
 	int length, bnStatus = BN_STATUS, status;
@@ -948,7 +950,7 @@ static int checkDLPPrivateKey( INOUT_PTR PKC_INFO *pkcInfo,
 					  &domainParams->q : &pkcInfo->dlpParam_q;
 	const BIGNUM *g = ( domainParams != NULL ) ? \
 					  &domainParams->g : &pkcInfo->dlpParam_g;
-	BIGNUM *x = &pkcInfo->dlpParam_x, *y = &pkcInfo->dlpParam_y;
+	const BIGNUM *x = &pkcInfo->dlpParam_x, *y = &pkcInfo->dlpParam_y;
 	BIGNUM *tmp = &pkcInfo->tmp1;
 	int bnStatus = BN_STATUS, length;
 
@@ -1004,7 +1006,7 @@ int generateDLPkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	BIGNUM *p = &pkcInfo->dlpParam_p;
+	const BIGNUM *p = &pkcInfo->dlpParam_p;
 	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -1092,7 +1094,7 @@ int initCheckDLPkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	const BIGNUM *p = &pkcInfo->dlpParam_p, *g = &pkcInfo->dlpParam_g;
-	BIGNUM *x = &pkcInfo->dlpParam_x, *y = &pkcInfo->dlpParam_y;
+	const BIGNUM *x = &pkcInfo->dlpParam_x, *y = &pkcInfo->dlpParam_y;
 	BIGNUM *tmp = &pkcInfo->tmp1;
 	const BOOLEAN isPrivateKey = TEST_FLAG( contextInfoPtr->flags, 
 											CONTEXT_FLAG_ISPUBLICKEY ) ? \
@@ -1174,7 +1176,10 @@ int initCheckDLPkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		{
 		BOOLEAN isPrime;
 
-		/* Verify that p is (probably) prime */
+		/* Verify that p is (probably) prime.  This isn't redudant with the 
+		   Fermat test in the checkDLPDomainParameters() call above because
+		   the values haven't been fully initialised so it's skipped in that
+		   call */
 		status = primeProbableFermat( pkcInfo, p, &pkcInfo->dlpParam_mont_p, 
 									  &isPrime );
 		if( cryptStatusError( status ) )

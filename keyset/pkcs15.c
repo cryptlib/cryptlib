@@ -763,6 +763,9 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		return( CRYPT_OK );
 		}
 
+	/* We're reading an existing keyset */
+	ENSURES( options != CRYPT_KEYOPT_CREATE );
+
 	/* Read all of the keys in the keyset */
 	status = readPkcs15Keyset( &keysetInfoPtr->keysetFile->stream, 
 							   pkcs15info, MAX_PKCS15_OBJECTS, endPos, 
@@ -772,12 +775,11 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		clFree( "initFunction", pkcs15info );
 		DATAPTR_SET( keysetInfoPtr->keyData, NULL );
 		keysetInfoPtr->keyDataSize = 0;
-		if( options != CRYPT_KEYOPT_CREATE )
-			{
-			/* Reset the stream position to account for the header 
-			   information that we've already read */
-			sseek( stream, 0 ) ;
-			}
+
+		/* Reset the stream position to account for the header information 
+		   that we've already read */
+		sseek( stream, 0 ) ;
+
 		return( status );
 		}
 

@@ -62,7 +62,8 @@ static const char *getFapiPathID( IN_STRING const char *tpmPath )
 	{
 	int localPathPos;
 
-	localPathPos = strFindStr( tpmPath, strlen( tpmPath ),
+	localPathPos = strFindStr( tpmPath, 
+							   strnlen_s( tpmPath, CRYPT_MAX_TEXTSIZE ),
 							   "cryptlib-", 9 );
 	ENSURES_N( !cryptStatusError( localPathPos ) );
 	
@@ -105,6 +106,8 @@ static void getLocalFilePath( OUT_BUFFER( maxPathLength, *pathLength ) \
 /* FAPI identifies everything through fixed paths which we have to map to 
    more normal handles via an index that takes the unique string at the end
    of the TPM path and maps it to a cryptlib context */
+
+#ifdef USE_TPM_EXT
 
 #define NO_FAPI_OBJECTS		16
 
@@ -222,6 +225,7 @@ static int deleteFapiContext( IN_STRING const char *tpmPath )
 
 	return( CRYPT_OK );
 	}
+#endif /* USE_TPM_EXT */
 
 /****************************************************************************
 *																			*
@@ -229,7 +233,98 @@ static int deleteFapiContext( IN_STRING const char *tpmPath )
 *																			*
 ****************************************************************************/
 
-/* Emulation of FAPI functions */
+/* Emulation of standard FAPI functions */
+
+static BYTE sealKey[ 16 ];
+static BOOLEAN sealKeyInited = FALSE;
+
+TSS2_RC Fapi_CreateSeal( FAPI_CONTEXT *context, char const *path, 
+						 char const *type, size_t size,
+						 char const *policyPath, 
+						 char const *authValue, uint8_t const *data )
+	{
+	memcpy( sealKey, data, 16 );
+	sealKeyInited = TRUE;
+
+	return( TSS2_RC_SUCCESS );
+	}
+
+void Fapi_Finalize( FAPI_CONTEXT **context )
+	{
+	/* Dummy function not needed in emulation */
+	}
+
+void Fapi_Free( void *ptr )
+	{
+	/* Emulated data structures are statically allocated so there's nothing 
+	   to free */
+	}
+
+TSS2_RC Fapi_GetInfo( FAPI_CONTEXT *context, char **info )
+	{
+#if 1	/* The start of the giant 50-100kB blob of JSON that one FAPI driver 
+		   returns for this call */
+	*info = "{\r\n  \"version\":\"tpm2-tss 4.0.1-15-g56d90309\",\r\n  "
+			"\"fapi_config\":{\r\n    \"profile_dir\":\"/home/ubuntu/"
+			"workspace/tpm2-tss/test/data/fapi/\",\r\n    \"user_dir\""
+			":\"/tmp/fapi_tmpdir.99ju7I/user/dir\",\r\n    \"system_dir"
+			"\":\"/tmp/fapi_tmpdir.99ju7I/system_dir\",\r\n    \"log_dir"
+			"\":\"/tmp/fapi_tmpdir.99ju7I\",\r\n    \"profile_name\":"
+			"\"P_ECC\",\r\n    \"tcti\":\"swtpm\",\r\n    \"system_pcrs"
+			"\":[\r\n    ],\r\n    \"ek_cert_file\":\"\",\r\n    "
+			"\"ek_cert_less\":\"YES\",\r\n    \"intel_cert_service\":"
+			"\"\"\r\n  },\r\n";
+#else
+	*info = "Fake TPM driver";
+#endif /* 0 */
+	return( TSS2_RC_SUCCESS );
+	}
+
+TSS2_RC Fapi_GetRandom( FAPI_CONTEXT *context, size_t numBytes, 
+						uint8_t **data )
+	{
+	return( TSS2_RC_SUCCESS );
+	}
+
+TSS2_RC Fapi_Initialize( FAPI_CONTEXT **context, char const *uri )
+	{
+#ifdef USE_TPM_EXT
+	initFapiContexts();
+#endif /* USE_TPM_EXT */
+	*context = ( FAPI_CONTEXT * ) "FAPI context memory";
+	return( TSS2_RC_SUCCESS );
+	}
+
+TSS2_RC Fapi_Provision( FAPI_CONTEXT *context, const char *authValueEh,
+						const char *authValueSh, 
+						const char *authValueLockout )
+	{
+	return( TSS2_RC_SUCCESS );
+	}
+
+TSS2_RC Fapi_Unseal( FAPI_CONTEXT *context, char const *path, 
+					 uint8_t **data, size_t *size )
+	{
+	/* If we haven't been provisioned yet we can't unseal */
+	if( !sealKeyInited )
+		return( TSS2_FAPI_RC_BAD_PATH );
+
+	/* We've been provisioned, return the seal key */
+	*data = sealKey;
+	*size = 16;
+
+	return( TSS2_RC_SUCCESS );
+	}
+
+/****************************************************************************
+*																			*
+*						 	TPM Extended Emulation Layer					*
+*																			*
+****************************************************************************/
+
+/* Emulation of extended FAPI functions */
+
+#ifdef USE_TPM_EXT
 
 TSS2_RC Fapi_CreateKey( FAPI_CONTEXT *context, char const *path, 
 						char const *type, 
@@ -240,14 +335,16 @@ TSS2_RC Fapi_CreateKey( FAPI_CONTEXT *context, char const *path,
 	MESSAGE_DATA msgData;
 	FILE *filePtr;
 	char filePath[ CRYPT_MAX_TEXTSIZE + 8 ];
+#if defined( _MSC_VER ) && VC_GE_2008( _MSC_VER )
+	errno_t result;
+#endif /* TR 24731 I/O functions */
 	const int keySize = bitsToBytes( TEST_KEYSIZE_BITS );
 	int filePathLength, status;
 
 	/* Write a dummy entry for the key corresponding to the TPM object.  This
 	   merely serves as a placeholder so that Fapi_Delete() works properly */
 	getLocalFilePath( filePath, CRYPT_MAX_TEXTSIZE, &filePathLength, path );
-#if defined( _MSC_VER ) && VC_GE_2015( _MSC_VER )
-	errno_t result;
+#if defined( _MSC_VER ) && VC_GE_2008( _MSC_VER )
 
 	result = fopen_s( &filePtr, filePath, "wb" );
 	if( result != 0 )
@@ -258,7 +355,7 @@ TSS2_RC Fapi_CreateKey( FAPI_CONTEXT *context, char const *path,
 	if( filePtr == NULL )
 		return( TSS2_BASE_RC_PATH_NOT_FOUND );
 #endif /* TR 24731 I/O functions */
-	fwrite( path, strlen( path ), 1, filePtr );
+	fwrite( path, strnlen_s( path, 512 ), 1, filePtr );
 	fclose( filePtr );
 
 	/* Create an RSA context to use to emulate the required RSA operations */
@@ -356,17 +453,6 @@ TSS2_RC Fapi_Delete( FAPI_CONTEXT *context, char const *path )
 	return( TSS2_RC_SUCCESS );
 	}
 
-void Fapi_Finalize( FAPI_CONTEXT **context )
-	{
-	/* Dummy function not needed in emulation */
-	}
-
-void Fapi_Free( void *ptr )
-	{
-	/* Emulated data structures are statically allocated so there's nothing 
-	   to free */
-	}
-
 TSS2_RC Fapi_GetAppData( FAPI_CONTEXT *context, char const *path,
 						 uint8_t **appData, size_t *appDataSize )
 	{
@@ -374,7 +460,7 @@ TSS2_RC Fapi_GetAppData( FAPI_CONTEXT *context, char const *path,
 	long dataSize;
 	int count;
 
-#if defined( _MSC_VER ) && VC_GE_2015( _MSC_VER )
+#if defined( _MSC_VER ) && VC_GE_2008( _MSC_VER )
 	errno_t result;
 
 	result = fopen_s( &filePtr, APPDATA_PATH, "rb" );
@@ -398,32 +484,6 @@ TSS2_RC Fapi_GetAppData( FAPI_CONTEXT *context, char const *path,
 	fclose( filePtr );
 	*appData = appDataBuffer;
 	*appDataSize = ( size_t ) dataSize;
-	return( TSS2_RC_SUCCESS );
-	}
-
-TSS2_RC Fapi_GetInfo( FAPI_CONTEXT *context, char **info )
-	{
-#if 1	/* The start of the giant 50-100kB blob of JSON that one FAPI driver 
-		   returns for this call */
-	*info = "{\r\n  \"version\":\"tpm2-tss 4.0.1-15-g56d90309\",\r\n  "
-			"\"fapi_config\":{\r\n    \"profile_dir\":\"/home/ubuntu/"
-			"workspace/tpm2-tss/test/data/fapi/\",\r\n    \"user_dir\""
-			":\"/tmp/fapi_tmpdir.99ju7I/user/dir\",\r\n    \"system_dir"
-			"\":\"/tmp/fapi_tmpdir.99ju7I/system_dir\",\r\n    \"log_dir"
-			"\":\"/tmp/fapi_tmpdir.99ju7I\",\r\n    \"profile_name\":"
-			"\"P_ECC\",\r\n    \"tcti\":\"swtpm\",\r\n    \"system_pcrs"
-			"\":[\r\n    ],\r\n    \"ek_cert_file\":\"\",\r\n    "
-			"\"ek_cert_less\":\"YES\",\r\n    \"intel_cert_service\":"
-			"\"\"\r\n  },\r\n";
-#else
-	*info = "Fake TPM driver";
-#endif /* 0 */
-	return( TSS2_RC_SUCCESS );
-	}
-
-TSS2_RC Fapi_GetRandom( FAPI_CONTEXT *context, size_t numBytes, 
-						uint8_t **data )
-	{
 	return( TSS2_RC_SUCCESS );
 	}
 
@@ -455,26 +515,12 @@ TSS2_RC Fapi_GetTpmBlobs( FAPI_CONTEXT *context, char const *path,
 	return( TSS2_RC_SUCCESS );
 	}
 
-TSS2_RC Fapi_Initialize( FAPI_CONTEXT **context, char const *uri )
-	{
-	initFapiContexts();
-	*context = ( FAPI_CONTEXT * ) "FAPI context memory";
-	return( TSS2_RC_SUCCESS );
-	}
-
-TSS2_RC Fapi_Provision( FAPI_CONTEXT *context, const char *authValueEh,
-						const char *authValueSh, 
-						const char *authValueLockout )
-	{
-	return( TSS2_RC_SUCCESS );
-	}
-
 TSS2_RC Fapi_SetAppData( FAPI_CONTEXT *context, char const *path,
 						 uint8_t const *appData, size_t appDataSize )
 	{
 	FILE *filePtr;
 
-#if defined( _MSC_VER ) && VC_GE_2015( _MSC_VER )
+#if defined( _MSC_VER ) && VC_GE_2008( _MSC_VER )
 	errno_t result;
 
 	result = fopen_s( &filePtr, APPDATA_PATH, "wb" );
@@ -603,5 +649,7 @@ TSS2_RC Tss2_MU_TPM2B_PUBLIC_Unmarshal( uint8_t const buffer[],
 
 	return( TSS2_RC_SUCCESS );
 	}
+#endif /* USE_TPM_EXT */
+
 #endif /* USE_TPM_EMULATION */
 #endif /* USE_TPM */

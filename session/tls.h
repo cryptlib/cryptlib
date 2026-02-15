@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							TLS Definitions Header File						*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -87,7 +87,7 @@
    safer DH.  To use ECDH key agreement in preference to DH, uncomment the 
    following */
 
-/* #define PREFER_ECC //*/
+/* #define PREFER_ECC */
 #if ( defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ ) ) && \
 	defined( PREFER_ECC ) 
   #pragma message( "  Building with ECC preferred for TLS." )
@@ -622,6 +622,8 @@ enum {
    RSA-PSS */
 
 enum {
+	TLS_SIGHASHALGO_NONE,
+	
 	/* TLS classic IDs */
 	TLS_SIGHASHALGO_RSAPKCS1_SHA2 = 0x0401, TLS_SIGHASHALGO_DSA_SHA2, 
 	TLS_SIGHASHALGO_ECDSA_SHA2,
@@ -728,29 +730,27 @@ typedef enum {
 
 	CIPHERSUITE_BERNSTEIN: Suite uses the Bernstein algorithm suite.
 
+	CIPHERSUITE_GCM: Encryption uses GCM instead of the usual CBC.
+
 	CIPHERSUITE_PSK: Suite is a TLS-PSK suite and is used only if we're
 		using TLS-PSK.
-
-	CIPHERSUITE_DH:	Suite is a DH suite.
-
-	CIPHERSUITE_ECC: Suite is an ECC suite and is used only if ECC is
-		enabled.
-
-	CIPHERSUITE_GCM: Encryption uses GCM instead of the usual CBC.
 
 	CIPHERSUITE_TLS12: Suite is a TLS 1.2 suite and is only sent if
 		TLS 1.2 is enabled.
 
 	CIPHERSUITE_TLS13: Suite is a TLS 1.3 suite and is only sent if
-		TLS 1.3 is enabled */
+		TLS 1.3 is enabled.
+	
+	CIPHERSUITE_TRIGGER: Suite will trigger a bogus warning from a security
+		scanner if the server appears to support it */
 
 #define CIPHERSUITE_FLAG_NONE	0x00	/* No suite */
 #define CIPHERSUITE_FLAG_PSK	0x01	/* TLS-PSK suite */
-#define CIPHERSUITE_FLAG_DH		0x02	/* DH suite */
-#define CIPHERSUITE_FLAG_TLS12	0x04	/* TLS 1.2 suite */
-#define CIPHERSUITE_FLAG_TLS13	0x08	/* TLS 1.3 suite */
-#define CIPHERSUITE_FLAG_GCM	0x10	/* GCM instead of CBC */
-#define CIPHERSUITE_FLAG_BERNSTEIN 0x20	/* Bernstein suite */
+#define CIPHERSUITE_FLAG_TLS12	0x02	/* TLS 1.2 suite */
+#define CIPHERSUITE_FLAG_TLS13	0x04	/* TLS 1.3 suite */
+#define CIPHERSUITE_FLAG_GCM	0x08	/* GCM instead of CBC */
+#define CIPHERSUITE_FLAG_BERNSTEIN 0x10	/* Special-snowflake suite */
+#define CIPHERSUITE_FLAG_TRIGGER 0x20	/* Scanner-triggering suite */
 #define CIPHERSUITE_FLAG_MAX	0x3F	/* Maximum possible flag value */
 
 typedef struct {
@@ -788,21 +788,26 @@ typedef struct {
 
 	HANDSHAKE_NEEDTLS12LTSRESPONSE: Server needs to respond to TLS-LTS.
 
+	HANDSHAKE_ISSCANNER: Client is a security scanner which will complain of 
+						 bogus vulnerabilities, limit the response data to 
+						 non-triggering values.
+
 	HANDSHAKE_RETRIEDCLIENTHELLO: Whether client hello retry done */
 
-#define HANDSHAKE_FLAG_NONE				0x00	/* No flag value */
-#define HANDSHAKE_FLAG_HASEXTENSIONS	0x01	/* Hello has extensions */
-#define HANDSHAKE_FLAG_NEEDSNIRESPONSE	0x02	/* Response to SNI needed */
-#define HANDSHAKE_FLAG_NEEDRENEGRESPONSE 0x04	/* Response to reneg.needed */
-#define HANDSHAKE_FLAG_NEEDETMRESPONSE	0x08	/* Response to EtM needed */
-#define HANDSHAKE_FLAG_NEEDEMSRESPONSE	0x10	/* Response to EMS needed */
-#define HANDSHAKE_FLAG_NEEDTLS12LTSRESPONSE 0x20/* Response to TLS-LTS needed */
+#define HANDSHAKE_FLAG_NONE				0x000	/* No flag value */
+#define HANDSHAKE_FLAG_HASEXTENSIONS	0x001	/* Hello has extensions */
+#define HANDSHAKE_FLAG_NEEDSNIRESPONSE	0x002	/* Response to SNI needed */
+#define HANDSHAKE_FLAG_NEEDRENEGRESPONSE 0x004	/* Response to reneg.needed */
+#define HANDSHAKE_FLAG_NEEDETMRESPONSE	0x008	/* Response to EtM needed */
+#define HANDSHAKE_FLAG_NEEDEMSRESPONSE	0x010	/* Response to EMS needed */
+#define HANDSHAKE_FLAG_NEEDTLS12LTSRESPONSE 0x020/* Response to TLS-LTS needed */
+#define HANDSHAKE_FLAG_ISSCANNER		0x040	/* Client is a security scanner */
 #ifdef USE_TLS13
-#define HANDSHAKE_FLAG_RETRIEDCLIENTHELLO 0x40	/* Client Hello Retry needed */
-#define HANDSHAKE_FLAG_ISGOOGLE			0x80	/* Peer is Google Chrome */
-#define HANDSHAKE_FLAG_MAX				0xFF	/* Maximum possible flag value */
+#define HANDSHAKE_FLAG_RETRIEDCLIENTHELLO 0x080	/* Client Hello Retry needed */
+#define HANDSHAKE_FLAG_ISGOOGLE			0x100	/* Peer is Google Chrome */
+#define HANDSHAKE_FLAG_MAX				0x1FF	/* Maximum possible flag value */
 #else
-#define HANDSHAKE_FLAG_MAX				0x3F	/* Maximum possible flag value */
+#define HANDSHAKE_FLAG_MAX				0x07F	/* Maximum possible flag value */
 #endif /* USE_TLS13 */
 
 /* The maximum size of the list of cipher suites, used to allocate storage 
@@ -910,6 +915,20 @@ typedef struct {
 *																			*
 ****************************************************************************/
 
+/* Information on the smorgasbord of keyex groups used in TLS */
+
+typedef struct {
+	TLS_GROUP_TYPE tlsGroupID;		/* TLS group */
+	CRYPT_ALGO_TYPE algorithm;		/* Algorithm for the group */
+	CRYPT_ECCCURVE_TYPE eccCurveID;	/* ECC curve ID if required */
+#if defined( USE_ERRMSGS ) || !defined( NDEBUG )
+	const char *description;		/* Text description */
+#endif /* USE_ERRMSGS || debug mode */
+	int keySize;					/* Key size */
+	int minTlsVersion;				/* Min.TLS version to use with */
+	BOOLEAN clientAdvertise;		/* Advertise in client hello */
+	} TLS_GROUP_INFO;
+
 /* TLS handshake state information.  This is passed around various 
    subfunctions that handle individual parts of the handshake */
 
@@ -992,13 +1011,15 @@ typedef struct TH {
 	   later when it's actually used.  Since this can get rather large, we 
 	   overload the use of the premaster secret storage, which isn't used at
 	   this point */
-	int tls13KeyexGroup;		/* TLS_GROUP_xxx value for keyex data */
 	#define tls13KeyexValue			premasterSecret
 	#define tls13KeyexValueLen		premasterSecretSize
 
 	/* TLS 1.3 also creates a huge explosion of secret data that needs to be
 	   passed around different functions, for which we again reuse the
-	   premaster secret storage */
+	   premaster secret storage.  Note that the values must be defined 
+	   without the usual surrounding brackets because they're used as
+	   tlsInfo->tls13ClientSecret which would expand to 
+	   tlsInfo->( premasterSecret + CRYPT_MAX_HASHSIZE ) */
 	#define tls13MasterSecret		premasterSecret
 	#define tls13MasterSecretLen	CRYPT_MAX_HASHSIZE
 	#define tls13ClientSecret		premasterSecret + CRYPT_MAX_HASHSIZE
@@ -1016,7 +1037,20 @@ typedef struct TH {
 	/* Since we don't know at the time that we're reading the cipher suites
 	   whether we'll be doing TLS 1.3 or not, we have to bookmark the 
 	   required TLS 1.3 suite in case we later need to use it */
-	const void *tls13SuiteInfoPtr;/* TLS 1.3 suite information */
+	const CIPHERSUITE_INFO *tls13SuiteInfoPtr;/* TLS 1.3 suite information */
+	
+	/* Complicating things even further, we can also see TLS 1.3 keyex data
+	   and other paraphernalia before we get an indication that TLS 1.3 is 
+	   OK via the supported-versions extension.  To deal with this, we 
+	   remember whether we've seen any TLS 1.3 suites in the cipher suites 
+	   list and only look at the TLS 1.3-related extensions like keyex if
+	   there are cipher suites available to go with them.
+	   
+	   We can't simply use the presence or absence of data in the 
+	   tls13SuiteInfoPtr for this because if the only suite that we've seen 
+	   is a TLS 1.3 one then it'll be saved as the primary cipher suite and
+	   tls13SuiteInfoPtr won't be set */
+	BOOLEAN tls13OK;				/* Whether TLS 1.3 suite seen */
 
 	/* When a TLS 1.3 client guess incorrectly at what the server wants, it 
 	   needs to re-send the Client Hello with a different guess.  To deal 
@@ -1025,24 +1059,49 @@ typedef struct TH {
 	   get the hello hash.  To do this we need to record the sizes of the 
 	   first Client and Server Hello */
 	int originalClientHelloLength, originalServerHelloLength;
+
+	/* The special-snowflake algorithms want to sign the entire message 
+	   rather than just a hash of the message, fortunately what TLS 1.3
+	   signs is a hash of the transcript hash and a prefix string so all
+	   we need to store is the prefix string and transcript hash rather
+	   than a copy of every handshake message as we would with TLS classic */
+  #ifdef USE_ED25519
+	const void *transcriptPrefixString;
+	int transcriptPrefixStringLength;
+	BUFFER( 16, CRYPT_MAX_HASHSIZE ) \
+	BYTE transcriptHash[ CRYPT_MAX_HASHSIZE + 8 ];
+	int transcriptHashLength;
+  #endif /* USE_ED25519 */
 #endif /* USE_TLS13 */
 
 	/* Encryption/security information.  Since for TLS 1.3 we have to guess 
-	   which keyex mechanism the other side is using we need two (EC)DH
-	   contexts on the client, one for each guessed algorithm.  The 
-	   encryption algorithm (cryptAlgo) and integrity algorithm 
+	   which keyex mechanism the other side is using we need two or even
+	   three DH/ECDH/25519 contexts on the client, one for each guessed 
+	   algorithm.  
+	   
+	   The encryption algorithm (cryptAlgo) and integrity algorithm 
 	   (integrityAlgo) are stored with the session information, although the 
-	   optional integrity-algorithm parameters are stored here */
-	CRYPT_CONTEXT dhContext;	/* (EC)DH context for (EC)DHE */
+	   optional integrity-algorithm parameters are stored here.  In 
+	   particular for TLS classic the cipher suite selects the keyexAlgo
+	   (e.g. DH) and authAlgo (e.g. RSA) while for TLS 1.3 it's stuffed 
+	   into extensions, it also selects the sessionInfoPtr->cryptAlgo (e.g. 
+	   AES) and sessionInfoPtr->integrityAlgo (e.g. HMAC-SHA2) */
+	CRYPT_CONTEXT keyexContext;	/* Keyex context for DH/ECDH/25519 */
 #ifdef USE_TLS13
-	CRYPT_CONTEXT dhContextAlt;	/* Alternative ECDH context for TLS 1.3 */
+	CRYPT_CONTEXT keyexEcdhContext;	/* Alt.ECDH context for TLS 1.3 */
+  #ifdef USE_25519
+	CRYPT_CONTEXT keyex25519Context;/* Alt.25519 context for TLS 1.3 */
+  #endif /* USE_25519 */
 #endif /* USE_TLS13 */
 	int cipherSuite;			/* Selected cipher suite */
-	CRYPT_ALGO_TYPE keyexAlgo, authAlgo;/* Selected cipher suite algos */
-	int integrityAlgoParam;		/* Optional param.for integrity algo */
-	CRYPT_ALGO_TYPE keyexSigHashAlgo;/* Algo.for keyex authentication */
+	int cipherSuiteFlags;		/* Flags for selected cipher suite */
+	CRYPT_ALGO_TYPE keyexAlgo;	/* Cipher suite keyex algo, e.g. DH */
+	CRYPT_ALGO_TYPE authAlgo;	/* Cipher suite auth algo, e.g. RSA */
+	int integrityAlgoParam;		/* Optional param.for integrity algo in
+								   sessionInfo */
+	CRYPT_ALGO_TYPE keyexSigHashAlgo;/* Hash algo.for keyex sig. e.g. SHA2 */
 	int keyexSigHashAlgoParam;	/* Optional params.for keyex hash */
-	int cryptKeysize;			/* Size of session key */
+	int cryptKeysize;			/* Size of key in sessionInfo */
 
 	/* Other information */
 	int clientOfferedVersion;	/* Prot.vers.originally offered by client */
@@ -1057,19 +1116,35 @@ typedef struct TH {
 	   order to locate any additional information required to handle them.  
 	   In the worst case these can retroactively modify the already-
 	   negotiated cipher suites, disabling the use of ECC algorithms after 
-	   they were agreed on via cipher suites.  To handle this we remember
-	   both the preferred mainstream suite and a pointer to the preferred
-	   ECC suite in 'eccSuiteInfoPtr', if it later turns out that the use
-	   of ECC is OK we reset the crypto parameters using the save ECC suite
+	   they were agreed on via cipher suites.  
+	   
+	   To handle this we remember both the preferred mainstream suite, a 
+	   pointer to the preferred ECC suite in 'eccSuiteInfoPtr', and pointers 
+	   to the ECC suite parameters in 'keyexGroupInfo' and further 
+	   parameters for TLS 1.3 in 'keyexTls13GroupInfo' if it later turns out 
+	   that we're doing TLS 1.3 and not TLS 1.2 as the handshake version 
+	   claims.  If it later turns out (via supported groups) that the use of 
+	   ECC is OK we reset the crypto parameters using the saved ECC suite 
 	   pointer.
 	   
-	   If the use of ECC isn't retroactively disabled then the eccCurveID 
-	   and sendECCPointExtn values indicate which curve to use and whether 
-	   the server needs to respond with a point-extension indicator */
+	   We also have to check which of the modifiers to basic ECC via
+	   supported groups takes precedence, since if we're using TLS 1.3 we
+	   don't want to automatically choose the 1.3 suite if the client has
+	   indicated a preference for a TLS classic suite, but we don't know
+	   at the time we see it which of TLS 1.3 or TLS classic we'll be 
+	   applying.
+	   
+	   If the use of ECC isn't retroactively disabled then the 
+	   sendECCPointExtn flag indicates whether the server needs to respond 
+	   with a point-extension indicator */
 	BOOLEAN disableECC;			/* Extn.disabled use of ECC suites */
-	CRYPT_ECCCURVE_TYPE eccCurveID;	/* cryptlib ID of ECC curve to use */
-	BOOLEAN sendECCPointExtn;	/* Whether svr.has to respond with ECC point ext.*/
 	const void *eccSuiteInfoPtr;/* ECC suite information */
+	const TLS_GROUP_INFO *keyexGroupInfo;	/* Further ECC info from supp.groups */
+#ifdef USE_TLS13
+	const TLS_GROUP_INFO *keyexTls13GroupInfo;
+	BOOLEAN keyexTls13Preferred;/* Whether to prefer TLS 1.3 keyex or general keyex */
+#endif /* USE_TLS13 */
+	BOOLEAN sendECCPointExtn;	/* Whether svr.has to respond with ECC point ext.*/
 
 	/* Another side-effect of the post-modification of suites via 
 	   information in extensions is that depending on what the client 
@@ -1253,6 +1328,15 @@ int writeServerExtensions( INOUT_PTR STREAM *stream,
 						   INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo );
 
+/* Prototypes for functions in tls_ext_rw.c */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int getTLSGroupInfo( OUT_PTR_PTR const TLS_GROUP_INFO **groupInfoPtrPtr,
+					 OUT_INT_Z int *noGroupInfoEntries );
+CHECK_RETVAL_PTR \
+const TLS_GROUP_INFO *getTLSGroupInfoEntry( IN_ENUM( TLS_GROUP ) \
+												const TLS_GROUP_TYPE groupType );
+
 /* Prototypes for functions in tls_hello.c */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
@@ -1286,21 +1370,22 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int cloneHashContext( IN_HANDLE const CRYPT_CONTEXT hashContext,
 					  OUT_HANDLE_OPT CRYPT_CONTEXT *clonedHashContext );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int createDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
-						IN_ALGO const CRYPT_ALGO_TYPE dhAlgo );
+int createKeyexContextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
+						   IN_ALGO const CRYPT_ALGO_TYPE dhAlgo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int initDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
-					  IN_BUFFER_OPT( keyDataLength ) const void *keyData, 
-					  IN_LENGTH_SHORT_Z const int keyDataLength,
-					  IN_HANDLE_OPT const CRYPT_CONTEXT iServerKeyTemplate,
-					  IN_ENUM_OPT( CRYPT_ECCCURVE ) \
+int initKeyexContextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
+						 IN_BUFFER_OPT( keyDataLength ) const void *keyData, 
+						 IN_LENGTH_SHORT_Z const int keyDataLength,
+						 IN_HANDLE_OPT \
+							const CRYPT_CONTEXT iServerKeyTemplate,
+						 IN_ENUM_OPT( CRYPT_ECCCURVE ) \
 							const CRYPT_ECCCURVE_TYPE eccCurve,
-					  IN_BOOL const BOOLEAN isTLSLTS );
+						 IN_BOOL const BOOLEAN isTLSLTS );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
 int completeTLSKeyex( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 					  INOUT_PTR STREAM *stream, 
-					  IN_BOOL const BOOLEAN isECC,
 					  IN_BOOL const BOOLEAN isTLSLTS,
+					  IN_BOOL const BOOLEAN isTLS13,
 					  INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
 int createSharedPremasterSecret( OUT_BUFFER( premasterSecretMaxLength, \
@@ -1436,7 +1521,7 @@ int checkKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifndef CONFIG_SUITEB
 
 CHECK_RETVAL \
-int getCipherSuiteInfo( OUT_PTR \
+int getCipherSuiteInfo( OUT_PTR_PTR \
 							const CIPHERSUITE_INFO ***cipherSuiteInfoPtrPtrPtr,
 						OUT_INT_Z int *noSuiteEntries );
 #else
@@ -1445,7 +1530,7 @@ int getCipherSuiteInfo( OUT_PTR \
 		getSuiteBCipherSuiteInfo( infoPtr, noEntries, isServer, suiteBinfo )
 
 CHECK_RETVAL \
-int getSuiteBCipherSuiteInfo( OUT_PTR \
+int getSuiteBCipherSuiteInfo( OUT_PTR_PTR \
 								const CIPHERSUITE_INFO ***cipherSuiteInfoPtrPtrPtr,
 							  OUT_INT_Z int *noSuiteEntries,
 							  IN_BOOL const BOOLEAN isServer,

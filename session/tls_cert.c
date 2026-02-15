@@ -221,7 +221,6 @@ int checkHostNameTLS( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
 
 	REQUIRES( isHandleRangeValid( iCryptCert ) );
 	REQUIRES( serverNameLength > 0 && serverNameLength <= MAX_DNS_SIZE );
-	REQUIRES( isBooleanValue( multipleNamesPresent ) );
 
 	/* Clear return value */
 	clearErrorInfo( errorInfo );
@@ -400,7 +399,7 @@ int checkTLSCertificateInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		   a commercial CA.  The recommended solutions to this problem are 
 		   covered in the cryptlib manual.
 		   
-		   Another lesser problem that this deals with s that it defeats 
+		   Another lesser problem that this deals with is that it defeats 
 		   root store fingerprinting.  To do this, you MITM the target and 
 		   use a self-signed root certificate that matches an existing 
 		   (probable) CA in the root store, except that the key will be 

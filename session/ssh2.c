@@ -88,6 +88,94 @@ int hashHandshakeStrings( INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo,
 	return( status );
 	}
 
+/* Check either the other side's encoded keyex value or the decoded (EC)DH 
+   public value to make sure that the size is valid */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
+int checkKeyexValueLength( const SSH_HANDSHAKE_INFO *handshakeInfo,
+						   IN_PTR_OPT const KEYAGREE_PARAMS *keyAgreeParams,
+						   IN_ENUM( KEYEX_CHECK ) \
+								const KEYEX_CHECK_TYPE checkType,
+						   INOUT_PTR ERROR_INFO *errorInfo )
+	{
+	const char *errorInfoString; 
+	int lengthToCheck, extraLength, keyexSize;
+	
+	assert( isReadPtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
+	assert( keyAgreeParams == NULL || \
+			isReadPtr( keyAgreeParams, sizeof( KEYAGREE_PARAMS ) ) );
+	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
+
+	REQUIRES( sanityCheckSSHHandshakeInfo( handshakeInfo ) );
+	REQUIRES( isEnumRange( checkType, KEYEX_CHECK ) );
+	REQUIRES( ( ( checkType == KEYEX_CHECK_PHASE1 || \
+				  checkType == KEYEX_CHECK_PHASE2 ) && \
+				  keyAgreeParams == NULL ) || \
+			  ( checkType == KEYEX_CHECK_MPI && \
+				keyAgreeParams != NULL ) ); 
+
+	/* Select the appropriate parameters to check */
+	switch( checkType )
+		{
+		case KEYEX_CHECK_MPI:
+			lengthToCheck = keyAgreeParams->publicValueLen;
+			extraLength = 0;
+			errorInfoString = "phase 1 MPI";
+			break;
+		
+		case KEYEX_CHECK_PHASE1:
+			lengthToCheck = handshakeInfo->clientKeyexValueLength;
+			extraLength = LENGTH_SIZE;
+			errorInfoString = "phase 1 keyex";
+			break;
+
+		case KEYEX_CHECK_PHASE2:
+			lengthToCheck = handshakeInfo->serverKeyexValueLength;
+			extraLength = LENGTH_SIZE;
+			errorInfoString = "phase 2 keyex";
+			break;
+		
+		default:
+			retIntError();
+		}
+
+	/* Perform the appropriate algorithm-specific check */
+	if( handshakeInfo->isECDH )
+		{
+		if( isBernsteinAlgo( handshakeInfo->keyexAlgo ) )
+			{
+			if( isValidBernsteinDHsize( lengthToCheck, 
+										handshakeInfo->serverKeySize, 
+										extraLength ) )
+				return( CRYPT_OK );
+			keyexSize = extractBernsteinDHsize( lengthToCheck, extraLength );
+			}
+		else
+			{
+			if( isValidECDHsize( lengthToCheck, 
+								 handshakeInfo->serverKeySize, 
+								 extraLength ) )
+				return( CRYPT_OK );
+			keyexSize = extractECDHsize( lengthToCheck, extraLength );
+			}
+		}
+	else
+		{
+		if( isValidDHsize( lengthToCheck, handshakeInfo->serverKeySize, 
+						   extraLength ) )
+			return( CRYPT_OK );
+		keyexSize = extractDHsize( lengthToCheck, extraLength );
+		}
+
+	retExt( CRYPT_ERROR_BADDATA,
+			( CRYPT_ERROR_BADDATA, errorInfo, 
+			  "Invalid %s %s size, expected %d (%d), "
+			  "got %d (%d)", handshakeInfo->isECDH ? "ECDH" : "DH",
+			  errorInfoString, handshakeInfo->serverKeySize, 
+			  handshakeInfo->serverKeySize * 8, 
+			  keyexSize, keyexSize * 8 ) );
+	}
+
 /****************************************************************************
 *																			*
 *							Extension Functions								*
@@ -784,7 +872,7 @@ static int processBodyFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL_LENGTH STDC_NONNULL_ARG( ( 1 ) ) \
 static int preparePacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	const SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
 	STREAM stream;
 	const int dataLength = sessionInfoPtr->sendBufPos - \
 						   ( SSH2_HEADER_SIZE + SSH2_PAYLOAD_HEADER_SIZE );

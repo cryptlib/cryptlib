@@ -37,7 +37,8 @@ int remove( const char *pathname )
 	{
 	wchar_t wcBuffer[ _MAX_PATH + 1 ];
 
-	mbstowcs( wcBuffer, pathname, strlen( pathname ) + 1 );
+	mbstowcs( wcBuffer, pathname, 
+			  strnlen_s( pathname, MAX_PATH_LENGTH ) + 1 );
 	DeleteFile( wcBuffer );
 
 	return( 0 );
@@ -121,20 +122,26 @@ int debugPrintfAtomic( IN_STRING const char *file,
 
 	va_start( argPtr, format );
 #if VC_GE_2005( _MSC_VER )
-	length = sprintf_s( buffer, 1536, "%s:%s:%d: ", file, function, 
-						line ); 
+	length = sprintf_s( buffer, 1536, "%s:%s:%d: ", file, function, line ); 
+	ENSURES( rangeCheck( length, 8, 1536 - 1 ) );
 	totalLength = length;
 	length = vsnprintf_s( buffer + length, 1536 - length, _TRUNCATE, 
 						  format, argPtr );
+	ENSURES( rangeCheck( length, 8, 1536 - 1 ) );
 	totalLength += length;
-	totalLength += sprintf_s( buffer + totalLength, 1536 - totalLength, 
-							  ".\n" );
+	length = sprintf_s( buffer + totalLength, 1536 - totalLength, ".\n" );
+	ENSURES( rangeCheck( length, 2, 1536 - 1 ) );
+	totalLength += length;
 #else
 	length = sprintf( buffer, "%s:%s:%d: ", file, function, line ); 
+	ENSURES( rangeCheck( length, 8, 1536 - 1 ) );
 	totalLength = length;
 	length = vsprintf( buffer + length, format, argPtr );
+	ENSURES( rangeCheck( length, 8, 1536 - 1 ) );
 	totalLength += length;
-	totalLength += sprintf( buffer + totalLength, ".\n" );
+	length = sprintf( buffer + totalLength, ".\n" );
+	ENSURES( rangeCheck( length, 2, 1536 - 1 ) );
+	totalLength += length;
 #endif /* VC++ 2005 or newer */
 	va_end( argPtr );
 #if defined( __WIN32__ ) 
@@ -143,7 +150,7 @@ int debugPrintfAtomic( IN_STRING const char *file,
 	NKDbgPrintfW( L"%s", buffer )
 #endif /* __WIN32__ */
 
-	return( length );
+	return( totalLength );
 	}
 
 #elif defined( __UNIX__ )
@@ -251,7 +258,7 @@ void debugPrintEnd( void )
 CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1 ) ) \
 const char *debugGetBasePath( IN_STRING const char *fileName )
 	{
-	const int fileNameLen = strlen( fileName );
+	const int fileNameLen = strnlen_s( fileName, MAX_PATH_LENGTH );
 	int index, slashCount = 0;
 	LOOP_INDEX i;
 
@@ -296,7 +303,7 @@ const char *debugGetBasePath( IN_STRING const char *fileName )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void debugSanitiseFilename( INOUT_STRING char *fileName )
 	{
-	int length = strlen( fileName );
+	int length = strnlen_s( fileName, MAX_PATH_LENGTH );
 	LOOP_INDEX i;
 
 	assert( isReadPtr( fileName, 4 ) );
@@ -363,7 +370,8 @@ static void buildFilePath( IN_STRING const char *fileName,
 		strlcpy_s( filenameBuffer, 1024, fileName );
 
 	/* If it hasn't already got a suffix, append ".der" to the filename */
-	if( filenameBuffer[ strlen( filenameBuffer ) - 4 ] != '.' )
+	if( filenameBuffer[ strnlen_s( filenameBuffer, 
+								   MAX_PATH_LENGTH ) - 4 ] != '.' )
 		strlcat_s( filenameBuffer, 1024, ".der" );
 	}
 
@@ -599,9 +607,11 @@ void debugDumpHex( IN_STRING const char *prefixString,
 	offset = sprintf_s( dumpBuffer, 128, "%3s %4d %04X ", 
 						prefixString, dataLength, 
 						checksumData( data, dataLength ) & 0xFFFF );
+	ENSURES_V( rangeCheck( offset, 12, 128 - 1 ) );
 	LOOP_MAX( i = 0, i < dataLength, i += 16 )
 		{
 		const int innerLen = min( dataLength - i, 16 );
+		int length;
 		LOOP_INDEX_ALT j;
 
 		ENSURES_V( LOOP_INVARIANT_MAX_XXX( i, 0, dataLength - 1 ) );
@@ -611,14 +621,21 @@ void debugDumpHex( IN_STRING const char *prefixString,
 			{
 			offset = sprintf_s( dumpBuffer, 128, "%3s           ",
 								prefixString );
+			ENSURES_V( rangeCheck( offset, 12, 128 - 1 ) );
 			}
 		for( j = 0; j < innerLen; j++ )
 			{
-			offset += sprintf_s( dumpBuffer + offset, 128 - offset, "%02X ",
-								 byteToInt( ( ( BYTE * ) data )[ i + j ] ) );
+			length = sprintf_s( dumpBuffer + offset, 128 - offset, "%02X ",
+								byteToInt( ( ( BYTE * ) data )[ i + j ] ) );
+			ENSURES_V( rangeCheck( length, 2, 128 - 1 ) );
+			offset += length;
 			}
 		LOOP_MAX_CHECKINC_ALT( j < 16, j++ )
-			offset += sprintf_s( dumpBuffer + offset, 128 - offset, "   " );
+			{
+			length = sprintf_s( dumpBuffer + offset, 128 - offset, "   " );
+			ENSURES_V( rangeCheck( length, 2, 128 - 1 ) );
+			offset += length;
+			}
 		ENSURES_V( LOOP_BOUND_OK_ALT );
 		LOOP_MAX_ALT( j = 0, j < innerLen, j++ )
 			{
@@ -627,8 +644,10 @@ void debugDumpHex( IN_STRING const char *prefixString,
 			ENSURES_V( LOOP_INVARIANT_MAX_ALT( j, 0, innerLen - 1 ) );
 
 			ch = byteToInt( ( ( BYTE * ) data )[ i + j ] );
-			offset += sprintf_s( dumpBuffer + offset, 128 - offset, "%c",
-								 isPrint( ch ) ? ch : '.' );
+			length = sprintf_s( dumpBuffer + offset, 128 - offset, "%c",
+								isPrint( ch ) ? ch : '.' );
+			ENSURES_V( rangeCheck( length, 1, 128 - 1 ) );
+			offset += length;
 			}
 		ENSURES_V( LOOP_BOUND_OK_ALT );
 		DEBUG_PUTS(( dumpBuffer ));
@@ -656,7 +675,7 @@ static void dumpData( IN_STRING_OPT const char *label,
 	{
 	char dumpBuffer[ 128 + 1 + 8 ];
 	LOOP_INDEX i;
-	int offset;
+	int offset, length;
 
 	assert( label == NULL || isReadPtr( label, sizeof( 4 ) ) );
 	assert( isReadPtr( data, dataLength ) );
@@ -686,14 +705,21 @@ static void dumpData( IN_STRING_OPT const char *label,
 				   /* i is incremented by 16 */
 
 		offset = sprintf_s( dumpBuffer, 128, "%04d: ", i );
+		ENSURES_V( rangeCheck( offset, 6, 128 - 1 ) );
 		LOOP_MAX_ALT( j = 0, j < innerLen, j++ )
 			{
-			offset += sprintf_s( dumpBuffer + offset, 128 - offset, "%02X ",
-								 byteToInt( ( ( BYTE * ) data )[ i + j ] ) );
+			length = sprintf_s( dumpBuffer + offset, 128 - offset, "%02X ",
+								byteToInt( ( ( BYTE * ) data )[ i + j ] ) );
+			ENSURES_V( rangeCheck( length, 2, 128 - 1 ) );
+			offset += length;
 			}
 		ENSURES_V( LOOP_BOUND_OK_ALT );
 		LOOP_MAX_CHECKINC_ALT( j < 16, j++ )
-			offset += sprintf_s( dumpBuffer + offset, 128 - offset, "   " );
+			{
+			length = sprintf_s( dumpBuffer + offset, 128 - offset, "   " );
+			ENSURES_V( rangeCheck( length, 2, 128 - 1 ) );
+			offset += length;
+			}
 		ENSURES_V( LOOP_BOUND_OK_ALT );
 		LOOP_MAX_ALT( j = 0, j < innerLen, j++ )
 			{
@@ -702,8 +728,10 @@ static void dumpData( IN_STRING_OPT const char *label,
 			ENSURES_V( LOOP_INVARIANT_MAX_ALT( j, 0, innerLen - 1 ) );
 
 			ch = byteToInt( ( ( BYTE * ) data )[ i + j ] );
-			offset += sprintf_s( dumpBuffer + offset, 128 - offset, "%c",
-								 isPrint( ch ) ? ch : '.' );
+			length = sprintf_s( dumpBuffer + offset, 128 - offset, "%c",
+								isPrint( ch ) ? ch : '.' );
+			ENSURES_V( rangeCheck( length, 1, 128 - 1 ) );
+			offset += length;
 			}
 		ENSURES_V( LOOP_BOUND_OK_ALT );
 		DEBUG_PUTS(( dumpBuffer ));
@@ -801,7 +829,8 @@ void displayBacktrace( void )
 	HANDLE process;
 	SYMBOL_INFO *symbolInfo;
 	IMAGEHLP_LINE lineInfo;
-	BYTE buffer[ sizeof( SYMBOL_INFO ) + ( MAX_SYM_NAME * sizeof( TCHAR ) ) ];
+	ALIGN_STACK_DATA BYTE buffer[ sizeof( SYMBOL_INFO ) + \
+								  ( MAX_SYM_NAME * sizeof( TCHAR ) ) ];
 	void *stack[ 64 ];
 	const int framesToSkip = IsDebuggerPresent() ? 6 : 4;
 	int noFrames;
@@ -952,8 +981,12 @@ void displayBacktrace( void )
 	}
 #endif /* Win32 vs. Win64 */
 
-#elif defined( __UNIX__ ) && \
+#elif defined( __UNIX__ ) && defined( __GLIBC__ ) && \
 	  ( defined( __APPLE__ ) || defined( __linux__ ) || defined( __sun ) )
+
+/* execinfo.h is a glibc thing which isn't included in some Linux distros 
+   like Alpine so we have to make it conditional on glibc being available as
+   well as just being Linux */
 
 #include <execinfo.h>
 
@@ -1084,7 +1117,7 @@ int getSubstituteKey( OUT_HANDLE_OPT CRYPT_CONTEXT *iPrivateKey )
 	setMessageCreateObjectInfo( &createInfo, CRYPT_KEYSET_FILE );
 	createInfo.arg2 = CRYPT_KEYOPT_READONLY;
 	createInfo.strArg1 = "test/keys/server2.p15";
-	createInfo.strArgLen1 = strlen( createInfo.strArg1 );
+	createInfo.strArgLen1 = strnlen_s( createInfo.strArg1, MAX_PATH_LENGTH );
 	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE,
 							  IMESSAGE_DEV_CREATEOBJECT, &createInfo,
 							  OBJECT_TYPE_KEYSET );

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Poly1305 MAC Routines						*
-*						Copyright Peter Gutmann 2016-2018					*
+*						Copyright Peter Gutmann 2016-2021					*
 *																			*
 ****************************************************************************/
 
@@ -225,8 +225,8 @@ static int testAEAD( const CAPABILITY_INFO *capabilityInfo,
 	   For Bernstein cargo-cult purposes, the lengths are encoded as little-
 	   endian integers rather than the standard big-endian form used in all
 	   other IETF security protocols */
-	aadPadLength = ( 16 - ( aadLength % 16 ) ) % 16;
-	dataPadLength = ( 16 - ( dataLength % 16 ) ) % 16;
+	aadPadLength = 16 - ( aadLength % 16 );
+	dataPadLength = 16 - ( dataLength % 16 );
 	memset( lengthBuffer, 0, 16 );
 	lengthBuffer[ 0 ] = intToByte( aadLength );
 	lengthBuffer[ 8 ] = intToByte( dataLength );
@@ -250,13 +250,14 @@ static int testAEAD( const CAPABILITY_INFO *capabilityInfo,
 		}
 	if( cryptStatusOK( status ) )
 		{
-		capabilityInfo->encryptFunction( &contextInfo, ( void * ) zeroes, 
-										 aadPadLength );
-		capabilityInfo->encryptFunction( &contextInfo, ( void * ) aeadData, 
-										 dataLength );
-		capabilityInfo->encryptFunction( &contextInfo, ( void * ) zeroes, 
-										 dataPadLength );
-		capabilityInfo->encryptFunction( &contextInfo, lengthBuffer, 16 );
+		( void ) capabilityInfo->encryptFunction( &contextInfo, 
+										( void * ) zeroes, aadPadLength );
+		( void ) capabilityInfo->encryptFunction( &contextInfo, 
+										( void * ) aeadData, dataLength );
+		( void ) capabilityInfo->encryptFunction( &contextInfo, 
+										( void * ) zeroes, dataPadLength );
+		( void ) capabilityInfo->encryptFunction( &contextInfo, 
+										lengthBuffer, 16 );
 		status = capabilityInfo->encryptFunction( &contextInfo, 
 												  MKDATA( "" ), 0 );
 		}

@@ -34,7 +34,7 @@
 *																			*
 ****************************************************************************/
 
-/* Write full certificate ID information.  This is written as an attribute 
+/* Write full certificate ID information.  This is written as attributes 
    in the generalInfo field of the message header to allow unambiguous
    identification of the signing certificate, which the standard CMP format 
    can't do.  Although CMP uses a gratuitously incompatible definition of 
@@ -44,21 +44,28 @@
    obsolete ASN.1 is a help, since it's so imprecise that we can shovel in 
    anything and it's still valid):
 
-	SigningCertificate ::=  SEQUENCE {
-		certs			SEQUENCE OF ESSCertID	-- Size (1)
-		}
+	SigningCertificate ::=  SEQUENCE { SEQUENCE OF ESSCertID }	-- Size (1)
 
 	ESSCertID ::= SEQUENCE {
-		certID			OCTET STRING
+		certID			OCTET STRING	-- SHA-1 hash
 		}
+		
+	SigningCertificateV2 :: = SEQUENCE { SEQUENCE OF ESSCertIDv2 }-- Size (1)
+
+	ESSCertIDv2 ::= SEQUENCE {
+		certID		OCTET STRING		-- SHA-2 hash
+		} 
 
    All that we really need to identify certificates is the certificate ID, 
    so instead of writing a full ESSCertID (which also contains an optional 
    incompatible reinvention of the CMS IssuerAndSerialNumber) we write the 
    sole mandatory field, the certificate hash, which also keeps the overall 
-   size down.
+   size down.  We write both the ESSCertID, with the standard cryptlib 
+   certificate identifier of a SHA-1 hash, and the ESSCertIDv2, with the 
+   newer SHA-2 hash.  The latter is needed to go with the server 
+   fingerprint, which is given as a SHA-2 hash.
    
-   This is further complicated though by the fact that certificate attributes
+   The encoding is further complicated by the fact that certificate attributes
    are defined as SET OF while CMS attributes are defined as SEQUENCE (and of 
    course CMP has to gratuitously invent its own type which is neither of the 
    two).  This means that the read code would need to know whether a given 
@@ -68,48 +75,89 @@
    and encode them as a uniform SET OF */
 
 CHECK_RETVAL \
-static int sizeofCertID( IN_HANDLE const CRYPT_CONTEXT iCryptCert )
+static int sizeofCertIDs( IN_HANDLE const CRYPT_CONTEXT iCryptCert )
 	{
 	const int essCertIDSize = objSize( objSize( objSize( objSize( 20 ) ) ) );
-					/* Infinitely-nested SHA-1 hash */
+	const int essCertIDv2Size = objSize( objSize( objSize( objSize( 32 ) ) ) );
+					/* Infinitely-nested SHA-1/SHA-2 hash */
 
 	REQUIRES( isHandleRangeValid( iCryptCert ) );
 
 	return( objSize( sizeofOID( OID_ESS_CERTID ) + \
-					 sizeofShortObject( essCertIDSize ) ) );
+					 sizeofShortObject( essCertIDSize ) ) + \
+			objSize( sizeofOID( OID_ESS_CERTIDv2 ) + \
+					 sizeofShortObject( essCertIDv2Size ) ) );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 static int writeCertID( INOUT_PTR STREAM *stream, 
-						IN_HANDLE const CRYPT_CONTEXT iCryptCert )
+						IN_BUFFER( oidLength ) const BYTE *oid, 
+						IN_LENGTH_OID const int oidLength,
+						IN_BUFFER( certIDlength ) const BYTE *certID,
+						IN_LENGTH_SHORT_MIN( 20 ) const int certIDlength )
+	{
+	int certIDSize, payloadSize;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isReadPtrDynamic( oid, oidLength ) && \
+			oidLength == sizeofOID( oid ) );
+	assert( isReadPtrDynamic( certID, certIDlength ) );
+
+	REQUIRES( oidLength >= MIN_OID_SIZE && oidLength <= MAX_OID_SIZE );
+	REQUIRES( certIDlength == 20 || certIDlength == 32 );
+
+	certIDSize = sizeofShortObject( certIDlength );
+	payloadSize = objSize( objSize( objSize( certIDSize ) ) );
+
+	writeSequence( stream, oidLength + sizeofShortObject( payloadSize ) );
+	writeOID( stream, oid );
+	writeSet( stream, payloadSize );
+	writeSequence( stream, objSize( objSize( certIDSize ) ) );
+	writeSequence( stream, objSize( certIDSize ) );
+	writeSequence( stream, certIDSize );
+	return( writeOctetString( stream, certID, certIDlength, DEFAULT_TAG ) );
+	}
+					   
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int writeCertIDs( INOUT_PTR STREAM *stream, 
+						 IN_HANDLE const CRYPT_CONTEXT iCryptCert )
 	{
 	MESSAGE_DATA msgData;
 	BYTE certHash[ CRYPT_MAX_HASHSIZE + 8 ];
-	int essCertIDSize, payloadSize, status;
+	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
 	REQUIRES( isHandleRangeValid( iCryptCert ) );
 
-	/* Find out how big the payload will be */
+	/* Write the ESSCertID */
 	setMessageData( &msgData, certHash, CRYPT_MAX_HASHSIZE );
 	status = krnlSendMessage( iCryptCert, IMESSAGE_GETATTRIBUTE_S,
 							  &msgData, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+	if( cryptStatusOK( status ) )
+		{
+		DEBUG_PRINT(( "XXX: Wrote ESSCertID.\n" ));
+		DEBUG_DUMP_HEX( "XXX", certHash, msgData.length );
+		status = writeCertID( stream, OID_ESS_CERTID, 
+							  sizeofOID( OID_ESS_CERTID ), certHash,
+							  msgData.length );
+		}
 	if( cryptStatusError( status ) )
 		return( status );
-	essCertIDSize = sizeofShortObject( msgData.length );
-	payloadSize = objSize( objSize( objSize( essCertIDSize ) ) );
 
-	/* Write the signing certificate ID information */
-	writeSequence( stream, sizeofOID( OID_ESS_CERTID ) + \
-						   sizeofShortObject( payloadSize ) );
-	writeOID( stream, OID_ESS_CERTID );
-	writeSet( stream, payloadSize );
-	writeSequence( stream, objSize( objSize( essCertIDSize ) ) );
-	writeSequence( stream, objSize( essCertIDSize ) );
-	writeSequence( stream, essCertIDSize );
-	return( writeOctetString( stream, certHash, msgData.length, 
-							  DEFAULT_TAG ) );
+	/* Write the ESSCertIDv2 */
+	setMessageData( &msgData, certHash, CRYPT_MAX_HASHSIZE );
+	status = krnlSendMessage( iCryptCert, IMESSAGE_GETATTRIBUTE_S,
+							  &msgData, CRYPT_CERTINFO_FINGERPRINT_SHA2 );
+	if( cryptStatusOK( status ) )
+		{
+		DEBUG_PRINT(( "XXX: Wrote ESSCertIDv2.\n" ));
+		DEBUG_DUMP_HEX( "XXX", certHash, msgData.length );
+		status = writeCertID( stream, OID_ESS_CERTIDv2, 
+							  sizeofOID( OID_ESS_CERTIDv2 ), certHash,
+							  msgData.length );
+		}
+	return( status );
 	}
 
 /* Write a certificate chain as extraCerts:
@@ -426,7 +474,7 @@ static int writePkiHeader( INOUT_PTR STREAM *stream,
 		}
 	if( sendCertID )
 		{
-		const int certIDsize = sizeofCertID( protocolInfo->authContext );
+		const int certIDsize = sizeofCertIDs( protocolInfo->authContext );
 
 		ENSURES( isShortIntegerRangeNZ( certIDsize ) );
 
@@ -598,7 +646,7 @@ static int writePkiHeader( INOUT_PTR STREAM *stream,
 		if( sendCertID )
 			{
 			SET_FLAG( sessionInfoPtr->protocolFlags, CMP_PFLAG_CERTIDSENT );
-			status = writeCertID( stream, protocolInfo->authContext );
+			status = writeCertIDs( stream, protocolInfo->authContext );
 			}
 		}
 	return( status );
@@ -652,7 +700,7 @@ int writePkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Write the message data */
 	writeMessageFunction = getMessageWriteFunction( bodyType, 
 								isServer( sessionInfoPtr ) ? TRUE : FALSE );
-	ENSURES( writeMessageFunction != NULL );
+	ENSURES_SC( writeMessageFunction != NULL );
 	status = writeMessageFunction( &stream, sessionInfoPtr, protocolInfo );
 	if( cryptStatusError( status ) )
 		{

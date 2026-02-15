@@ -1076,6 +1076,7 @@ static int readPgpKeytrans( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Get the PGP key ID and algorithm */
+	REQUIRES( rangeCheck( PGP_KEYID_SIZE, 1, PGP_KEYID_SIZE ) );
 	status = sread( stream, queryInfo->keyID, PGP_KEYID_SIZE );
 	if( cryptStatusError( status ) )
 		return( status );

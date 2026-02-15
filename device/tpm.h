@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TPM API Interface							*
-*						Copyright Peter Gutmann 2020-2022					*
+*						Copyright Peter Gutmann 2020-2025					*
 *																			*
 ****************************************************************************/
 
@@ -41,6 +41,11 @@ typedef TSS2_RC ( *FAPI_CREATENV )( FAPI_CONTEXT *context, char const *path,
 									char const *type, size_t size, 
 									char const *policyPath, 
 									char const *authValue );
+typedef TSS2_RC ( *FAPI_CREATESEAL )( FAPI_CONTEXT *context, char const *path, 
+									 char const *type, size_t size,
+									 char const *policyPath, 
+									 char const *authValue,
+									 uint8_t const *data );
 typedef TSS2_RC ( *FAPI_DECRYPT )( FAPI_CONTEXT *context, char const *keyPath, 
 								   uint8_t const *cipherText, 
 								   size_t cipherTextSize, uint8_t **plainText, 
@@ -77,6 +82,8 @@ typedef TSS2_RC ( *FAPI_SIGN )( FAPI_CONTEXT *context, char const *keyPath,
 								size_t digestSize, uint8_t **signature, 
 								size_t *signatureSize, char **publicKey, 
 								char **certificate );
+typedef TSS2_RC ( *FAPI_UNSEAL )( FAPI_CONTEXT *context, char const *path, 
+								  uint8_t **data, size_t *size );
 
 /* Prototypes for additional TPM functions needed to augment the FAPI ones */
 
@@ -92,7 +99,9 @@ typedef TSS2_RC ( *TSS2_MU_TPM2B_PUBLIC_UNMARSHAL )( uint8_t const buffer[],
 
 #ifdef USE_TPM_EMULATION
 
+#define pFapi_CreateKey			Fapi_CreateKey
 #define pFapi_CreateNv			Fapi_CreateNv
+#define pFapi_CreateSeal		Fapi_CreateSeal
 #define pFapi_Delete			Fapi_Delete
 #define pFapi_Finalize			Fapi_Finalize
 #define pFapi_Free				Fapi_Free
@@ -102,6 +111,7 @@ typedef TSS2_RC ( *TSS2_MU_TPM2B_PUBLIC_UNMARSHAL )( uint8_t const buffer[],
 #define pFapi_Initialize		Fapi_Initialize
 #define pFapi_Provision			Fapi_Provision 
 #define pFapi_SetAppData		Fapi_SetAppData
+#define pFapi_Unseal			Fapi_Unseal
 #define pTss2_MU_TPM2B_PUBLIC_Unmarshal \
 								Tss2_MU_TPM2B_PUBLIC_Unmarshal
 #else
@@ -116,6 +126,7 @@ extern TSS2_MU_TPM2B_PUBLIC_UNMARSHAL pTss2_MU_TPM2B_PUBLIC_Unmarshal;
 
 #define Fapi_CreateKey		( *pFapi_CreateKey )
 #define Fapi_CreateNv		( *pFapi_CreateNv )
+#define Fapi_CreateSeal		( *pFapi_CreateSeal )
 #define Fapi_Decrypt		( *pFapi_Decrypt )
 #define Fapi_Delete			( *pFapi_Delete )
 #define Fapi_Finalize		( *pFapi_Finalize )
@@ -128,6 +139,7 @@ extern TSS2_MU_TPM2B_PUBLIC_UNMARSHAL pTss2_MU_TPM2B_PUBLIC_Unmarshal;
 #define Fapi_Provision		( *pFapi_Provision )
 #define Fapi_SetAppData		( *pFapi_SetAppData )
 #define Fapi_Sign			( *pFapi_Sign )
+#define Fapi_Unseal			( *pFapi_Unseal )
 #define Tss2_MU_TPM2B_PUBLIC_Unmarshal \
 							( *pTss2_MU_TPM2B_PUBLIC_Unmarshal )
 

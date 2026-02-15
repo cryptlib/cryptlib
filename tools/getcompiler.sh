@@ -26,12 +26,12 @@ case "$CC" in
 esac
 
 # Some systems (Aches, PHUX, Slowaris) have the development tools as
-# optional components, or the tools suck so much that everyone used
+# optional components, or the tools sucked so much that everyone used
 # something else instead, typically gcc.
 #
 # We used to override the native tools with gcc if possible but don't any
 # more for two reasons, firstly some of the native tools now suck a bit
-# less, and secondly with the general move by everything that could move to
+# less and secondly with the general move by everything that could move to
 # x86 most users still on Aches/PHUX/Slowaris are there because they've
 # invested heavily in the whole ecosystem, so will be using the native tools
 # rather than adding gcc.  In some cases this is actually essential, for

@@ -35,7 +35,8 @@ use File::Basename;
 my $FileName = shift @ARGV || 'cryptlib.h';		# default filename is "cryptlib.h"
 my %DEFINED = ( 1, 1,                         # ifdef 1 is to be included
                 "USE_VENDOR_ALGOS", 0 );			# set to 1 to include #IFDEF USE_VENDOR_ALGOS
-my $Startline = qr{^#endif\s+\/\*\s+_CRYPTLIB_DEFINED\s+\*\/};	# ignore all lines before this one
+#my $Startline = qr{^#endif\s+\/\*\s+_CRYPTLIB_DEFINED\s+\*\/};	# ignore all lines before this one
+my $Startline = qr{^\/\* END_OF_PREAMBLE \*\/};    # ignore all lines before this one
 
 my ($FileBase, $Path, $Ext) = fileparse($FileName, qr{\.[^.]*$});
 die("\"usage: $0 cryptlib.h\"\nParameter must be a C header file\nStop") unless ($Ext =~ m/^\.h$/i) && -r $FileName;

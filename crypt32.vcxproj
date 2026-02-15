@@ -56,61 +56,63 @@
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>NotSet</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <EnableASAN>true</EnableASAN>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>NotSet</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <EnableASAN>false</EnableASAN>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Fuzz|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>NotSet</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
+    <EnableASAN>true</EnableASAN>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Fuzz|ARM'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>NotSet</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>NotSet</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <EnableASAN>true</EnableASAN>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Fuzz|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>NotSet</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
+    <EnableASAN>true</EnableASAN>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>NotSet</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>NotSet</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>NotSet</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -156,7 +158,7 @@
     <IntDir>.\debug64_arm\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Fuzz|Win32'">
-    <LinkIncremental>true</LinkIncremental>
+    <LinkIncremental>false</LinkIncremental>
     <OutDir>.\binaries32_fuzz\</OutDir>
     <IntDir>.\debug32_fuzz\</IntDir>
     <TargetName>cl32_fuzz</TargetName>
@@ -173,7 +175,7 @@
     <CodeAnalysisRuleSet>NativeRecommendedRules.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Fuzz|x64'">
-    <LinkIncremental>true</LinkIncremental>
+    <LinkIncremental>false</LinkIncremental>
     <OutDir>.\binaries64_fuzz\</OutDir>
     <IntDir>.\debug64_fuzz\</IntDir>
     <TargetName>cl64_fuzz</TargetName>
@@ -254,6 +256,7 @@
       <SmallerTypeCheck>false</SmallerTypeCheck>
       <AdditionalIncludeDirectories>.\</AdditionalIncludeDirectories>
       <ControlFlowGuard>false</ControlFlowGuard>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -521,6 +524,7 @@
     <ClCompile Include="context\ctx_dsa.c" />
     <ClCompile Include="context\ctx_ecdh.c" />
     <ClCompile Include="context\ctx_ecdsa.c" />
+    <ClCompile Include="context\ctx_ed25519.c" />
     <ClCompile Include="context\ctx_elg.c" />
     <ClCompile Include="context\ctx_encr.c" />
     <ClCompile Include="context\ctx_generic.c" />
@@ -535,12 +539,14 @@
     <ClCompile Include="context\ctx_rsa.c" />
     <ClCompile Include="context\ctx_sha.c" />
     <ClCompile Include="context\ctx_sha2.c" />
+    <ClCompile Include="context\ctx_x25519.c" />
     <ClCompile Include="context\keyload.c" />
     <ClCompile Include="context\key_id.c" />
     <ClCompile Include="context\key_rdpriv.c" />
     <ClCompile Include="context\key_rdpub.c" />
     <ClCompile Include="context\key_wrpriv.c" />
     <ClCompile Include="context\key_wrpub.c" />
+    <ClCompile Include="context\kg_25519.c" />
     <ClCompile Include="context\kg_dlp.c" />
     <ClCompile Include="context\kg_ecc.c" />
     <ClCompile Include="context\kg_prime.c" />
@@ -581,6 +587,7 @@
     <ClCompile Include="crypt\castenc.c" />
     <ClCompile Include="crypt\castskey.c" />
     <ClCompile Include="crypt\chacha20.c" />
+    <ClCompile Include="crypt\curve25519.c" />
     <ClCompile Include="crypt\descbc.c">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">true</ExcludedFromBuild>
@@ -615,6 +622,7 @@
     <ClCompile Include="crypt\sha1dgst.c" />
     <ClCompile Include="crypt\sha2.c" />
     <ClCompile Include="device\dev_attr.c" />
+    <ClCompile Include="device\dev_getset.c" />
     <ClCompile Include="device\dev_storage.c" />
     <ClCompile Include="device\hardware.c" />
     <ClCompile Include="device\hw_misc.c" />
@@ -684,9 +692,9 @@
     <ClCompile Include="kernel\obj_access.c" />
     <ClCompile Include="kernel\sec_mem.c" />
     <ClCompile Include="kernel\selftest.c" />
-    <ClCompile Include="kernel\semaphore.c" />
     <ClCompile Include="kernel\sendmsg.c" />
     <ClCompile Include="kernel\storage.c" />
+    <ClCompile Include="kernel\sync.c" />
     <ClCompile Include="keyset\ca_add.c" />
     <ClCompile Include="keyset\ca_clean.c" />
     <ClCompile Include="keyset\ca_issue.c" />

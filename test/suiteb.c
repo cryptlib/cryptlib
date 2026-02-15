@@ -325,7 +325,7 @@ static int suitebServer( const int testNo, const char *hostName,
 	wchar_t wcBuffer[ FILENAME_BUFFER_SIZE ];
 #endif /* UNICODE_STRINGS */
 	SPECIAL_HANDLING_TYPE handlingTypeAlt = SPECIAL_NONE;
-	void *fileNamePtr = filenameBuffer;
+	const void *fileNamePtr = filenameBuffer;
 	int status;
 
 	/* Make sure that we've been given a valid test number to run */
@@ -953,7 +953,7 @@ static int generateKey( const int keyBits, const char *certRequestFileName )
 	FILE *filePtr;
 	BYTE certBuffer[ BUFFER_SIZE ];
 	char filenameBuffer[ FILENAME_BUFFER_SIZE ];
-	void *fileNamePtr = filenameBuffer;
+	const void *fileNamePtr = filenameBuffer;
 	int length, count = 0, status;
 
 	/* Generate a key to certify.  We can't just reuse the built-in test key

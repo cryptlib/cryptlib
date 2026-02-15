@@ -596,7 +596,7 @@ static int readIdentityHint( INOUT_PTR STREAM *stream )
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
 static int readServerKeyexDH( INOUT_PTR STREAM *stream, 
 							  OUT_PTR KEYAGREE_PARAMS *keyAgreeParams,
-							  OUT_HANDLE_OPT CRYPT_CONTEXT *dhContextPtr,
+							  OUT_HANDLE_OPT CRYPT_CONTEXT *keyexContextPtr,
 							  OUT_LENGTH_SHORT_Z int *publicValueStart,
 							  IN_BOOL const BOOLEAN isTLSLTS )
 	{
@@ -606,7 +606,7 @@ static int readServerKeyexDH( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( keyAgreeParams, sizeof( KEYAGREE_PARAMS ) ) );
-	assert( isWritePtr( dhContextPtr, sizeof( CRYPT_CONTEXT ) ) );
+	assert( isWritePtr( keyexContextPtr, sizeof( CRYPT_CONTEXT ) ) );
 	assert( isWritePtr( publicValueStart, sizeof( int ) ) );
 
 	REQUIRES( isBooleanValue( isTLSLTS ) );
@@ -614,7 +614,7 @@ static int readServerKeyexDH( INOUT_PTR STREAM *stream,
 
 	/* Clear return values */
 	memset( keyAgreeParams, 0, sizeof( KEYAGREE_PARAMS ) );
-	*dhContextPtr = CRYPT_ERROR;
+	*keyexContextPtr = CRYPT_ERROR;
 	*publicValueStart = CRYPT_ERROR;
 
 	/* Read the server DH public key data */
@@ -643,9 +643,9 @@ static int readServerKeyexDH( INOUT_PTR STREAM *stream,
 								  keyDataLength );
 	if( cryptStatusOK( status ) )
 		{
-		status = initDHcontextTLS( dhContextPtr, keyData, keyDataLength, 
-								   CRYPT_UNUSED, CRYPT_ECCCURVE_NONE, 
-								   isTLSLTS );
+		status = initKeyexContextTLS( keyexContextPtr, keyData, 
+									  keyDataLength, CRYPT_UNUSED, 
+									  CRYPT_ECCCURVE_NONE, isTLSLTS );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -660,7 +660,8 @@ static int readServerKeyexDH( INOUT_PTR STREAM *stream,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
 static int readServerKeyexECDH( INOUT_PTR STREAM *stream, 
 								OUT_PTR KEYAGREE_PARAMS *keyAgreeParams,
-								OUT_HANDLE_OPT CRYPT_CONTEXT *dhContextPtr,
+								OUT_HANDLE_OPT \
+									CRYPT_CONTEXT *keyexContextPtr,
 								OUT_LENGTH_SHORT_Z int *publicValueStart )
 	{
 	void *keyData;
@@ -669,14 +670,14 @@ static int readServerKeyexECDH( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( keyAgreeParams, sizeof( KEYAGREE_PARAMS ) ) );
-	assert( isWritePtr( dhContextPtr, sizeof( CRYPT_CONTEXT ) ) );
+	assert( isWritePtr( keyexContextPtr, sizeof( CRYPT_CONTEXT ) ) );
 	assert( isWritePtr( publicValueStart, sizeof( int ) ) );
 
 	REQUIRES( isIntegerRangeNZ( keyDataOffset ) );
 
 	/* Clear return values */
 	memset( keyAgreeParams, 0, sizeof( KEYAGREE_PARAMS ) );
-	*dhContextPtr = CRYPT_ERROR;
+	*keyexContextPtr = CRYPT_ERROR;
 	*publicValueStart = CRYPT_ERROR;
 
 	/* Read the server ECDH public key data */
@@ -696,9 +697,9 @@ static int readServerKeyexECDH( INOUT_PTR STREAM *stream,
 								  keyDataLength );
 	if( cryptStatusOK( status ) )
 		{
-		status = initDHcontextTLS( dhContextPtr, keyData, keyDataLength, 
-								   CRYPT_UNUSED, CRYPT_ECCCURVE_P256, 
-								   FALSE );
+		status = initKeyexContextTLS( keyexContextPtr, keyData, 
+									  keyDataLength, CRYPT_UNUSED, 
+									  CRYPT_ECCCURVE_P256, FALSE );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -824,13 +825,13 @@ static int processServerKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( isECC )
 		{
 		status = readServerKeyexECDH( stream, &keyAgreeParams, 
-									  &handshakeInfo->dhContext,
+									  &handshakeInfo->keyexContext,
 									  &publicValueOffset );
 		}
 	else
 		{
 		status = readServerKeyexDH( stream, &keyAgreeParams,
-									&handshakeInfo->dhContext, 
+									&handshakeInfo->keyexContext, 
 									&publicValueOffset, isTLSLTS );
 		}
 	if( cryptStatusOK( status ) )
@@ -897,7 +898,7 @@ static int processServerKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   2 before we need the phase 1 value, so we have to cache the phase 1 
 	   result for when we need it later on */
 	memset( &tempKeyAgreeParams, 0, sizeof( KEYAGREE_PARAMS ) );
-	status = krnlSendMessage( handshakeInfo->dhContext,
+	status = krnlSendMessage( handshakeInfo->keyexContext,
 							  IMESSAGE_CTX_ENCRYPT, &tempKeyAgreeParams,
 							  sizeof( KEYAGREE_PARAMS ) );
 	if( cryptStatusError( status ) )
@@ -915,7 +916,7 @@ static int processServerKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	ENSURES( !cryptStatusError( status ) );
 	status = sseek( stream, publicValueOffset );
 	ENSURES( cryptStatusOK( status ) );
-	status = completeTLSKeyex( handshakeInfo, stream, isECC, isTLSLTS, 
+	status = completeTLSKeyex( handshakeInfo, stream, isTLSLTS, FALSE,
 							   SESSION_ERRINFO );
 	if( cryptStatusOK( status ) )
 		status = sseek( stream, offset );
@@ -931,24 +932,24 @@ static int processServerKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 /* Build the client key exchange packet:
 
-	  [	byte		ID = TLS_HAND_CLIENT_KEYEXCHANGE ]
-	  [	uint24		len				-- Written by caller ]
-	   DH:
+	 [	byte		ID = TLS_HAND_CLIENT_KEYEXCHANGE ]
+	 [	uint24		len				-- Written by caller ]
+	DH:
 		uint16		yLen
 		byte[]		y
-	   DH-PSK:
+	DH-PSK:
 		uint16		userIDLen
 		byte[]		userID
 		uint16		yLen
 		byte[]		y
-	   ECDH:
+	ECDH:
 		uint8		ecPointLen		-- NB uint8 not uint16
 		byte[]		ecPoint
-	   PSK:
+	PSK:
 		uint16		userIDLen
 		byte[]		userID
-	   RSA:
-	  [ uint16		encKeyLen		-- TLS only ]
+	RSA:
+	  [ uint16		encKeyLen		-- Disabled by default ]
 		byte[]		rsaPKCS1( byte[2] { 0x03, 0x0n } || byte[46] random ) */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
@@ -1180,35 +1181,39 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* If we're using TLS 1.3 with its guessed keyex, create the (EC)DH 
-	   contexts that we'll need in order to populate the client hello */
+	/* If we're using TLS 1.3 with its guessed keyex, create the 
+	   DH/ECDH/25519 contexts that we'll need in order to populate the 
+	   client hello */
 #ifdef USE_TLS13
 	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
 		{
-		status = createDHcontextTLS( &handshakeInfo->dhContext, 
-									 CRYPT_ALGO_DH );
+  #if 0	/* See comment in session/tls_ext_rw.c:writeSupportedGroups() */
+		status = createKeyexContextTLS( &handshakeInfo->keyexContext, 
+										CRYPT_ALGO_DH );
 		if( cryptStatusOK( status ) )
 			{
 			/* Indicate that we're using the nonstandard DH keys required
 			   by TLS 1.3 */
 			static const int dhKeySize = bitsToBytes( 2048 ) | 1;
 
-			status = krnlSendMessage( handshakeInfo->dhContext, 
+			status = krnlSendMessage( handshakeInfo->keyexContext, 
 									  IMESSAGE_SETATTRIBUTE, 
 									  ( MESSAGE_CAST ) &dhKeySize, 
 									  CRYPT_IATTRIBUTE_KEY_DLPPARAM );
 			}
 		if( cryptStatusError( status ) )
 			return( status );
+  #endif /* 0 */
+  #ifndef CONFIG_FUZZ
 		if( algoAvailable( CRYPT_ALGO_ECDH ) )
 			{
-			status = createDHcontextTLS( &handshakeInfo->dhContextAlt, 
-										 CRYPT_ALGO_ECDH );
+			status = createKeyexContextTLS( &handshakeInfo->keyexEcdhContext, 
+											CRYPT_ALGO_ECDH );
 			if( cryptStatusOK( status ) )
 				{
 				static const int ecdhKeyType = CRYPT_ECCCURVE_P256;
 
-				status = krnlSendMessage( handshakeInfo->dhContextAlt, 
+				status = krnlSendMessage( handshakeInfo->keyexEcdhContext, 
 										  IMESSAGE_SETATTRIBUTE, 
 										  ( MESSAGE_CAST ) &ecdhKeyType, 
 										  CRYPT_IATTRIBUTE_KEY_ECCPARAM );
@@ -1216,6 +1221,23 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			if( cryptStatusError( status ) )
 				return( status );
 			}
+  #ifdef USE_25519
+		if( algoAvailable( CRYPT_ALGO_25519 ) )
+			{
+			status = createKeyexContextTLS( &handshakeInfo->keyex25519Context, 
+											CRYPT_ALGO_25519 );
+			if( cryptStatusOK( status ) )
+				{
+				status = krnlSendMessage( handshakeInfo->keyex25519Context, 
+										  IMESSAGE_SETATTRIBUTE, 
+										  MESSAGE_VALUE_TRUE, 
+										  CRYPT_IATTRIBUTE_KEY_IMPLICIT );
+				}
+			if( cryptStatusError( status ) )
+				return( status );
+			}
+  #endif /* USE_25519 */
+  #endif /* CONFIG_FUZZ */
 		}
 #endif /* USE_TLS13 */
 
@@ -1280,7 +1302,8 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusOK( status ) && \
 		( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS11 || \
-		  algoAvailable( CRYPT_ALGO_ECDH ) ) )
+		  algoAvailable( CRYPT_ALGO_ECDH ) || \
+		  algoAvailable( CRYPT_ALGO_25519 ) ) )
 		{
 		/* Extensions are only written when newer versions of TLS are 
 		   enabled, unless they're required for ECC use, see the comment 
@@ -1347,6 +1370,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   request and it matches what the server returned then this is a 
 		   resumed session */
 		if( sessionIDsent && \
+			handshakeInfo->sessionIDlength > 0 && \
 			handshakeInfo->sessionIDlength == sentSessionIDlength && \
 			!memcmp( handshakeInfo->sessionID, sentSessionID,
 					 sentSessionIDlength ) )

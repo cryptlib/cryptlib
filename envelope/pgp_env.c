@@ -792,8 +792,9 @@ static int preEnvelopeSign( ENVELOPE_INFO *envelopeInfoPtr )
 	{
 	ACTION_LIST *postActionListPtr = \
 					DATAPTR_GET( envelopeInfoPtr->postActionList );
-	ACTION_LIST *associatedActionPtr;
-	SIGPARAMS sigParams;
+	const ACTION_LIST *associatedActionPtr;
+	SIG_DATA_INFO sigDataInfo;
+	SIG_PARAMS sigParams;
 	ERROR_INFO localErrorInfo;
 	int status;
 
@@ -812,12 +813,13 @@ static int preEnvelopeSign( ENVELOPE_INFO *envelopeInfoPtr )
 	
 	/* Evaluate the size of the signature action */
 	clearErrorInfo( &localErrorInfo );
-	initSigParamsPGP( &sigParams, PGP_SIG_DATA, NULL, 0 );
+	setSigDataInfoHash( &sigDataInfo, associatedActionPtr->iCryptHandle );
+	setSigParamsPGP( &sigParams, PGP_SIG_DATA, NULL, 0 );
 	status = iCryptCreateSignature( NULL, 0, &postActionListPtr->encodedSize, 
 									CRYPT_FORMAT_PGP, 
 									postActionListPtr->iCryptHandle, 
-									associatedActionPtr->iCryptHandle, 
-									&sigParams, &localErrorInfo );
+									&sigDataInfo,  &sigParams, 
+									&localErrorInfo );
 	if( cryptStatusError( status ) )
 		{
 		retExtErr( status,
@@ -923,7 +925,7 @@ static int emitMDC( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 				( ENV_COPYTOENVELOPE_FUNCTION ) \
 				FNPTR_GET( envelopeInfoPtr->copyToEnvelopeFunction );
 	CRYPT_CONTEXT iMdcContext;
-	ACTION_LIST *actionListPtr;
+	const ACTION_LIST *actionListPtr;
 	MESSAGE_DATA msgData;
 	BYTE mdcBuffer[ 2 + CRYPT_MAX_HASHSIZE + 8 ];
 	int status;
@@ -977,7 +979,7 @@ static int emitPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	const ENV_COPYTOENVELOPE_FUNCTION copyToEnvelopeFunction = \
 				( ENV_COPYTOENVELOPE_FUNCTION ) \
 				FNPTR_GET( envelopeInfoPtr->copyToEnvelopeFunction );
-	int status = CRYPT_OK;
+	int status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 
@@ -1147,7 +1149,8 @@ static int emitPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 					DATAPTR_GET( envelopeInfoPtr->postActionList );
 	const ACTION_LIST *actionListPtr = \
 					DATAPTR_GET( envelopeInfoPtr->actionList );
-	SIGPARAMS sigParams;
+	SIG_DATA_INFO sigDataInfo;
+	SIG_PARAMS sigParams;
 	ERROR_INFO localErrorInfo;
 	int sigBufSize, sigSize, status;
 
@@ -1218,12 +1221,13 @@ static int emitPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 	/* Sign the data */
 	clearErrorInfo( &localErrorInfo );
-	initSigParamsPGP( &sigParams, PGP_SIG_DATA, NULL, 0 );
+	setSigDataInfoHash( &sigDataInfo, actionListPtr->iCryptHandle );
+	setSigParamsPGP( &sigParams, PGP_SIG_DATA, NULL, 0 );
 	status = iCryptCreateSignature( envelopeInfoPtr->buffer + \
 										envelopeInfoPtr->bufPos, sigBufSize, 
 									&sigSize, CRYPT_FORMAT_PGP, 
 									postActionListPtr->iCryptHandle, 
-									actionListPtr->iCryptHandle, &sigParams, 
+									&sigDataInfo, &sigParams, 
 									&localErrorInfo );
 	if( cryptStatusError( status ) )
 		{

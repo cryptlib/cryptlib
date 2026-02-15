@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								Signature Routines							*
-*						Copyright Peter Gutmann 1993-2007					*
+*						Copyright Peter Gutmann 1993-2025					*
 *																			*
 ****************************************************************************/
 
@@ -23,11 +23,85 @@
 
 #ifdef USE_INT_CMS
 
+/* The external signature/sig.check functions pass control down to the 
+   internal ones but don't have a means of doing anything with the 
+   ERROR_INFO that it returns.  To deal with this we pass in a dummy 
+   pointer, which also signals that the call is coming from an external 
+   source */
+
+static const int dummyErrorInfo = 0;
+
+#define isDummyErrorInfo( errorInfo ) \
+		( ( errorInfo ) == ( ERROR_INFO * ) &dummyErrorInfo )
+
 /****************************************************************************
 *																			*
 *							Utility Functions 								*
 *																			*
 ****************************************************************************/
+
+/* Sanity-check a SIG_DATA_INFO structure.  Usually we're signing a hash,
+   but some special-snowflake algorithms require that they be passed the 
+   entire message to sign so we have to check both options */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN sanityCheckSigDataInfo( IN_PTR \
+									const SIG_DATA_INFO *sigDataInfo,
+								IN_ENUM( SIGNATURE ) \
+									const SIGNATURE_TYPE signatureType,
+							    IN_BOOL const BOOLEAN isInternal )
+	{
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
+
+	REQUIRES( isEnumRange( signatureType, SIGNATURE ) );
+	REQUIRES( isBooleanValue( isInternal ) );
+
+	/* If it's a special-snowflake algorithm then in most cases we need to 
+	   be passed the entire message */
+	if( sigDataInfo->data != NULL )
+		{
+		assert( isReadPtr( sigDataInfo->data, sigDataInfo->length ) );
+
+		if( !isShortIntegerRangeNZ( sigDataInfo->length ) )
+			return( FALSE );
+
+		/* Make sure that there's no hash-related information set */
+		if( sigDataInfo->hashContext != CRYPT_UNUSED || \
+			sigDataInfo->hashContext2 != CRYPT_UNUSED || \
+			sigDataInfo->hashAlgo != CRYPT_ALGO_NONE || \
+			sigDataInfo->hashParam != 0 )
+			return( FALSE );
+			
+		return( TRUE );
+		}
+
+	/* Make sure that the hash information is valid */
+	if( !isHandleRangeValid( sigDataInfo->hashContext ) )
+		return( FALSE );
+	if( signatureType == SIGNATURE_TLS )
+		{
+		if( !isHandleRangeValid( sigDataInfo->hashContext2 ) ) 
+			return( FALSE );
+		}
+	else
+		{
+		if( sigDataInfo->hashContext2 != CRYPT_UNUSED )
+			return( FALSE );
+		}
+	if( isInternal )
+		{
+		if( !isHashAlgo( sigDataInfo->hashAlgo ) || \
+			!rangeCheck( sigDataInfo->hashParam, \
+						 MIN_HASHSIZE, CRYPT_MAX_HASHSIZE ) )
+			return( FALSE );
+		}
+
+	/* Make sure that there's no message-related information set */
+	if( sigDataInfo->data != NULL || sigDataInfo->length != 0 )
+		return( FALSE );
+
+	return( TRUE );
+	}
 
 /* Try and determine the format of the signed data */
 
@@ -122,10 +196,10 @@ C_RET cryptCreateSignatureEx( C_OUT_OPT void C_PTR signature,
 							  C_IN CRYPT_CONTEXT hashContext,
 							  C_IN CRYPT_HANDLE extraData )
 	{
-	SIGPARAMS sigParams;
-	ERROR_INFO localErrorInfo;
+	SIG_DATA_INFO sigDataInfo;
+	SIG_PARAMS sigParams;
 	BOOLEAN hasSigParams = FALSE;
-	int value, status;
+	int signAlgo, status;
 
 	/* Perform basic error checking.  We have to use an internal message to
 	   check for signing capability because the DLP algorithms have
@@ -159,7 +233,7 @@ C_RET cryptCreateSignatureEx( C_OUT_OPT void C_PTR signature,
 	if( !isEnumRangeExternal( formatType, CRYPT_FORMAT ) )
 		return( CRYPT_ERROR_PARAM4 );
 	status = krnlSendMessage( signContext, MESSAGE_GETATTRIBUTE,
-							  &value, CRYPT_CTXINFO_ALGO );
+							  &signAlgo, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
 		return( cryptArgError( status ) ? CRYPT_ERROR_PARAM5 : status );
 	status = krnlSendMessage( signContext, IMESSAGE_CHECK, NULL,
@@ -170,6 +244,12 @@ C_RET cryptCreateSignatureEx( C_OUT_OPT void C_PTR signature,
 							  MESSAGE_CHECK_HASH );
 	if( cryptStatusError( status ) )
 		return( cryptArgError( status ) ? CRYPT_ERROR_PARAM6 : status );
+	if( isBernsteinAlgo( signAlgo ) )
+		{
+		/* Creation of special-snowflake signatures isn't possible using 
+		   this API */
+		return( CRYPT_ERROR_NOTAVAIL );
+		}
 
 	/* Perform any required format-specific checking */
 	switch( formatType )
@@ -210,7 +290,10 @@ C_RET cryptCreateSignatureEx( C_OUT_OPT void C_PTR signature,
 
 #ifdef USE_PGP
 		case CRYPT_FORMAT_PGP:
-			/* There's nothing specific to check for PGP signatures */
+			/* PGP only supports a subset of the PKC algorithms */
+			if( signAlgo != CRYPT_ALGO_RSA && signAlgo != CRYPT_ALGO_DSA && \
+				signAlgo != CRYPT_ALGO_ECDSA )
+				return( CRYPT_ERROR_PARAM5 );
 			break;
 #endif /* USE_PGP */
 
@@ -230,18 +313,20 @@ C_RET cryptCreateSignatureEx( C_OUT_OPT void C_PTR signature,
 		}
 	if( formatType == CRYPT_FORMAT_PGP )
 		{
-		initSigParamsPGP( &sigParams, PGP_SIG_DATA, NULL, 0 );
+		setSigParamsPGP( &sigParams, PGP_SIG_DATA, NULL, 0 );
 		hasSigParams = TRUE;
 		}
 
 	/* Call the low-level signature create function to create the
 	   signature.  Since there's nothing to return the error information 
-	   through we don't do anything with it */
-	clearErrorInfo( &localErrorInfo );
+	   through we pass in a dummy pointer, this also signals that the call 
+	   to iCryptCreateSignature() is coming from an external source */
+	setSigDataInfoHash( &sigDataInfo, hashContext );
 	status = iCryptCreateSignature( signature, 
 					min( signatureMaxLength, MAX_INTLENGTH_SHORT - 1 ),
-					signatureLength, formatType, signContext, hashContext, 
-					hasSigParams ? &sigParams : NULL, &localErrorInfo );
+					signatureLength, formatType, signContext, &sigDataInfo, 
+					hasSigParams ? &sigParams : NULL, 
+					( ERROR_INFO * ) &dummyErrorInfo );
 	if( cryptArgError( status ) )
 		{
 		/* Remap the error code to refer to the correct parameter */
@@ -293,8 +378,8 @@ C_RET cryptCheckSignatureEx( C_IN void C_PTR signature,
 	CRYPT_FORMAT_TYPE formatType;
 	CRYPT_CERTIFICATE iExtraData DUMMY_INIT;
 	CRYPT_CONTEXT sigCheckContext;
-	ERROR_INFO localErrorInfo;
-	int status;
+	SIG_DATA_INFO sigDataInfo;
+	int signAlgo DUMMY_INIT, status;
 
 	/* Perform basic error checking */
 	if( !isShortIntegerRangeMin( signatureLength, MIN_CRYPT_OBJECTSIZE ) )
@@ -316,6 +401,11 @@ C_RET cryptCheckSignatureEx( C_IN void C_PTR signature,
 		{
 		status = krnlSendMessage( sigCheckContext, IMESSAGE_CHECK,
 								  NULL, MESSAGE_CHECK_PKC_SIGCHECK );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		status = krnlSendMessage( sigCheckContext, MESSAGE_GETATTRIBUTE,
+								  &signAlgo, CRYPT_CTXINFO_ALGO );
 		}
 	if( cryptStatusOK( status ) )
 		{
@@ -343,6 +433,12 @@ C_RET cryptCheckSignatureEx( C_IN void C_PTR signature,
 			( certType != CRYPT_CERTTYPE_CERTIFICATE && \
 			  certType != CRYPT_CERTTYPE_CERTCHAIN ) )
 			return( CRYPT_ERROR_PARAM3 );
+		}
+	if( isBernsteinAlgo( signAlgo ) )
+		{
+		/* Checking of special-snowflake signatures isn't possible using 
+		   this API */
+		return( CRYPT_ERROR_NOTAVAIL );
 		}
 
 	/* Perform any required format-specific checking */
@@ -378,13 +474,14 @@ C_RET cryptCheckSignatureEx( C_IN void C_PTR signature,
 		}
 
 	/* Call the low-level signature create function to check the signature.  
-	   Since there's nothing to return the error information through we 
-	   don't do anything with it */
-	clearErrorInfo( &localErrorInfo );
+	   Since there's nothing to return the error information through we pass 
+	   in a dummy pointer, this also signals that the call to 
+	   iCryptCreateSignature() is coming from an external source */
+	setSigDataInfoHash( &sigDataInfo, hashContext );
 	status = iCryptCheckSignature( signature, signatureLength, formatType, 
-						sigCheckKey, hashContext, CRYPT_UNUSED,
+						sigCheckKey, &sigDataInfo,
 						( extraData != NULL ) ? &iExtraData : NULL,
-						&localErrorInfo );
+						( ERROR_INFO * ) &dummyErrorInfo );
 	if( cryptArgError( status ) )
 		{
 		/* Remap the error code to refer to the correct parameter */
@@ -439,7 +536,7 @@ C_RET cryptCheckSignature( C_IN void C_PTR signature,
    handle to a valid PKC context?") since they're only called by cryptlib 
    internal functions rather than being passed untrusted user data */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 8 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 6, 8 ) ) \
 int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength ) \
 							void *signature, 
 						   IN_DATALENGTH_Z const int signatureMaxLength,
@@ -447,17 +544,26 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 						   IN_ENUM( CRYPT_FORMAT ) \
 							const CRYPT_FORMAT_TYPE formatType,
 						   IN_HANDLE const CRYPT_CONTEXT iSignContext,
-						   IN_HANDLE const CRYPT_CONTEXT iHashContext,
-						   IN_PTR_OPT const SIGPARAMS *sigParams,
+						   IN_PTR const SIG_DATA_INFO *sigDataInfo,
+						   IN_PTR_OPT const SIG_PARAMS *sigParams,
 						   INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	int certType, status;	/* int vs.enum */
+	SIG_DATA_INFO localSigDataInfo = *sigDataInfo;
+	ERROR_INFO localErrorInfo;
+	ERROR_INFO *errorInfoPtr = isDummyErrorInfo( errorInfo ) ? \
+							   &localErrorInfo : errorInfo;
+	const BOOLEAN isExternalCall = \
+						isDummyErrorInfo( errorInfo ) ? TRUE : FALSE; 
+	int certType, status;			/* int vs.enum */
 
 	assert( signature == NULL || \
 			isWritePtrDynamic( signature, signatureMaxLength ) );
 	assert( isWritePtr( signatureLength, sizeof( int ) ) );
-	assert( sigParams == NULL || isReadPtr( sigParams, sizeof( SIGPARAMS ) ) );
-	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
+	assert( sigParams == NULL || \
+			isReadPtr( sigParams, sizeof( SIG_PARAMS ) ) );
+	assert( isDummyErrorInfo( errorInfo ) || \
+			isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( ( signature == NULL && signatureMaxLength == 0 ) || \
 			  ( signature != NULL && \
@@ -465,16 +571,18 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 								   MIN_CRYPT_OBJECTSIZE ) ) );
 	REQUIRES( isEnumRange( formatType, CRYPT_FORMAT ) );
 	REQUIRES( isHandleRangeValid( iSignContext ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, 
+				( formatType == CRYPT_IFORMAT_TLS ) ? \
+				  SIGNATURE_TLS : SIGNATURE_CRYPTLIB, FALSE ) );
 	REQUIRES( ( ( formatType == CRYPT_FORMAT_CRYPTLIB || \
 				  formatType == CRYPT_IFORMAT_SSH || \
+				  formatType == CRYPT_IFORMAT_TLS || \
 				  formatType == CRYPT_IFORMAT_TLS12 || \
 				  formatType == CRYPT_IFORMAT_TLS13 ) && \
 				sigParams == NULL ) || 
 			  ( ( formatType == CRYPT_FORMAT_CMS || \
 				  formatType == CRYPT_FORMAT_SMIME || \
-				  formatType == CRYPT_FORMAT_PGP || \
-				  formatType == CRYPT_IFORMAT_TLS ) && \
+				  formatType == CRYPT_FORMAT_PGP ) && \
 				sigParams != NULL ) );
 			  /* The sigParams structure is too complex to check fully here
 			     so we check it in the switch statement below */
@@ -483,6 +591,26 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 
 	/* Clear return value */
 	*signatureLength = 0;
+
+	/* Get any additional information that we may need */
+	if( sigDataInfo->hashContext != CRYPT_UNUSED )
+		{
+		int hashAlgo;	/* int vs. enum */
+
+		status = krnlSendMessage( sigDataInfo->hashContext, 
+								  IMESSAGE_GETATTRIBUTE, &hashAlgo, 
+								  CRYPT_CTXINFO_ALGO );
+		if( cryptStatusOK( status ) )
+			{
+			localSigDataInfo.hashAlgo = hashAlgo;
+			status = krnlSendMessage( sigDataInfo->hashContext, 
+									  IMESSAGE_GETATTRIBUTE, 
+									  &localSigDataInfo.hashParam, 
+									  CRYPT_CTXINFO_BLOCKSIZE );
+			}
+		if( cryptStatusError( status ) )
+			return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM2 : status );
+		}
 
 	/* If the signing context has a certificate chain attached then the 
 	   currently-selected certificate may not be the leaf certificate.  To 
@@ -525,14 +653,15 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 		}
 
 	/* Call the low-level signature create function to create the signature */
+	clearErrorInfo( errorInfoPtr );
 	switch( formatType )
 		{
 #ifdef USE_INT_CMS
 		case CRYPT_FORMAT_CRYPTLIB:
 			status = createSignature( signature, signatureMaxLength, 
 									  signatureLength, iSignContext,
-									  iHashContext, CRYPT_UNUSED,
-									  SIGNATURE_CRYPTLIB, errorInfo );
+									  &localSigDataInfo, SIGNATURE_CRYPTLIB, 
+									  errorInfoPtr );
 			break;
 
 		case CRYPT_FORMAT_CMS:
@@ -540,6 +669,8 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 			{
 			SIGNATURE_TYPE sigType = SIGNATURE_CMS;
 			int sigFormat;
+
+			REQUIRES( sigParams != NULL );
 
 			/* Get the signature format type to use */
 			status = krnlSendMessage( DEFAULTUSER_OBJECT_HANDLE, 
@@ -573,7 +704,7 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 
 			status = createSignatureCMS( signature, signatureMaxLength, 
 										 signatureLength, iSignContext,
-										 iHashContext, 
+										 &localSigDataInfo, 
 										 sigParams->useDefaultAuthAttr, 
 										 ( sigParams->iAuthAttr == CRYPT_ERROR ) ? \
 											CRYPT_UNUSED : sigParams->iAuthAttr,
@@ -581,40 +712,37 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 											CRYPT_UNUSED : sigParams->iTspSession, 
 										 sigType,
 										 ( formatType == CRYPT_FORMAT_SMIME ) ? \
-											TRUE : FALSE, errorInfo );
+											TRUE : FALSE, errorInfoPtr );
 			break;
 			}
 #endif /* USE_INT_CMS */
 
 #ifdef USE_PGP
 		case CRYPT_FORMAT_PGP:
+			REQUIRES( sigParams != NULL );
 			REQUIRES( sigParams->useDefaultAuthAttr == FALSE && \
 					  sigParams->iAuthAttr == CRYPT_ERROR && \
 					  sigParams->iTspSession == CRYPT_ERROR && \
 					  ( sigParams->sigType >= PGP_SIG_NONE && \
-					    sigParams->sigType < PGP_SIG_LAST ) && \
-					  sigParams->iSecondHash == CRYPT_ERROR );
+					    sigParams->sigType < PGP_SIG_LAST ) );
 
 			status = createSignaturePGP( signature, signatureMaxLength, 
 										 signatureLength, iSignContext,
-										 iHashContext, sigParams->sigAttributes,
+										 &localSigDataInfo, 
+										 sigParams->sigAttributes,
 										 sigParams->sigAttributeSize,
-										 sigParams->sigType, errorInfo );
+										 sigParams->sigType, errorInfoPtr );
 			break;
 #endif /* USE_PGP */
 
 #ifdef USE_TLS
 		case CRYPT_IFORMAT_TLS:
-			REQUIRES( sigParams->useDefaultAuthAttr == FALSE && \
-					  sigParams->iAuthAttr == CRYPT_ERROR && \
-					  sigParams->iTspSession == CRYPT_ERROR && \
-					  sigParams->sigType == PGP_SIG_NONE && \
-					  isHandleRangeValid( sigParams->iSecondHash ) );
+			REQUIRES( sigParams == NULL );
 
 			status = createSignature( signature, signatureMaxLength, 
 									  signatureLength, iSignContext,
-									  iHashContext, sigParams->iSecondHash,
-									  SIGNATURE_TLS, errorInfo );
+									  &localSigDataInfo, SIGNATURE_TLS, 
+									  errorInfoPtr );
 			break;
 
 		case CRYPT_IFORMAT_TLS12:
@@ -623,10 +751,10 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 
 			status = createSignature( signature, signatureMaxLength, 
 									  signatureLength, iSignContext,
-									  iHashContext, CRYPT_UNUSED,
+									  &localSigDataInfo,
 									  ( formatType == CRYPT_IFORMAT_TLS12 ) ? \
 										SIGNATURE_TLS12 : SIGNATURE_TLS13, 
-									  errorInfo );
+									  errorInfoPtr );
 			break;
 #endif /* USE_TLS */
 
@@ -634,15 +762,15 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 		case CRYPT_IFORMAT_SSH:
 			status = createSignature( signature, signatureMaxLength, 
 									  signatureLength, iSignContext,
-									  iHashContext, CRYPT_UNUSED,
-									  SIGNATURE_SSH, errorInfo );
+									  &localSigDataInfo, SIGNATURE_SSH, 
+									  errorInfoPtr );
 			break;
 #endif /* USE_SSH */
 
 		default:
 			retIntError();
 		}
-	if( cryptArgError( status ) )
+	if( cryptArgError( status ) && !isExternalCall )
 		{
 		/* Catch any parameter errors that slip through */
 		DEBUG_DIAG(( "Signature creation returned argError status" ));
@@ -663,38 +791,51 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 	return( status );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 8 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5, 7 ) ) \
 int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature, 
 						  IN_LENGTH_SHORT const int signatureLength,
 						  IN_ENUM( CRYPT_FORMAT ) \
 							const CRYPT_FORMAT_TYPE formatType,
 						  IN_HANDLE const CRYPT_HANDLE iSigCheckKey,
-						  IN_HANDLE const CRYPT_CONTEXT iHashContext,
-						  IN_HANDLE_OPT const CRYPT_CONTEXT iHash2Context,
+						  IN_PTR const SIG_DATA_INFO *sigDataInfo,
 						  OUT_OPT_HANDLE_OPT CRYPT_HANDLE *extraData,
 						  INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	CRYPT_CONTEXT sigCheckContext;
+	SIG_DATA_INFO localSigDataInfo = *sigDataInfo;
+	ERROR_INFO localErrorInfo;
+	ERROR_INFO *errorInfoPtr = isDummyErrorInfo( errorInfo ) ? \
+							   &localErrorInfo : errorInfo;
+	const BOOLEAN isExternalCall = \
+						isDummyErrorInfo( errorInfo ) ? TRUE : FALSE; 
 	int status;
 
 	assert( isReadPtrDynamic( signature, signatureLength ) );
-	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
+	assert( extraData == NULL || \
+			isWritePtr( extraData, sizeof( CRYPT_HANDLE * ) ) );
+	assert( isDummyErrorInfo( errorInfo ) || \
+			isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( isShortIntegerRangeMin( signatureLength, 40 ) );
 	REQUIRES( isEnumRange( formatType, CRYPT_FORMAT ) );
 	REQUIRES( isHandleRangeValid( iSigCheckKey ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, 
+				( formatType == CRYPT_IFORMAT_TLS ) ? \
+				  SIGNATURE_TLS : SIGNATURE_CRYPTLIB, FALSE ) );
 	REQUIRES( ( formatType == CRYPT_IFORMAT_TLS && \
-				isHandleRangeValid( iHash2Context ) && extraData == NULL ) || \
+				isHandleRangeValid( sigDataInfo->hashContext2 ) && \
+				extraData == NULL ) || \
 			  ( ( formatType == CRYPT_FORMAT_CMS || \
 				  formatType == CRYPT_FORMAT_SMIME || \
 				  formatType == CRYPT_IFORMAT_TLS12 ) && \
-				iHash2Context == CRYPT_UNUSED ) || \
+				sigDataInfo->hashContext2 == CRYPT_UNUSED ) || \
 			  ( ( formatType == CRYPT_FORMAT_CRYPTLIB || \
 				  formatType == CRYPT_FORMAT_PGP || \
 				  formatType == CRYPT_IFORMAT_TLS12 || \
 				  formatType == CRYPT_IFORMAT_SSH ) && \
-				iHash2Context == CRYPT_UNUSED && extraData == NULL ) );
+				sigDataInfo->hashContext2 == CRYPT_UNUSED && \
+				extraData == NULL ) );
 
 	/* Clear return value */
 	if( extraData != NULL )
@@ -706,7 +847,28 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 	if( cryptStatusError( status ) )
 		return( status );
 
+	/* Get any additional information that we may need */
+	if( sigDataInfo->hashContext != CRYPT_UNUSED )
+		{
+		int hashAlgo;	/* int vs. enum */
+
+		status = krnlSendMessage( sigDataInfo->hashContext, 
+								  IMESSAGE_GETATTRIBUTE, &hashAlgo, 
+								  CRYPT_CTXINFO_ALGO );
+		if( cryptStatusOK( status ) )
+			{
+			localSigDataInfo.hashAlgo = hashAlgo;
+			status = krnlSendMessage( sigDataInfo->hashContext, 
+									  IMESSAGE_GETATTRIBUTE, 
+									  &localSigDataInfo.hashParam, 
+									  CRYPT_CTXINFO_BLOCKSIZE );
+			}
+		if( cryptStatusError( status ) )
+			return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM2 : status );
+		}
+
 	/* Call the low-level signature check function to check the signature */
+	clearErrorInfo( errorInfoPtr );
 	switch( formatType )
 		{
 #ifdef USE_INT_CMS
@@ -717,9 +879,8 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 			   the subjectKeyIdentifier to identify the key, and that's only 
 			   available via the certificate */
 			status = checkSignature( signature, signatureLength,
-									 iSigCheckKey, iHashContext,
-									 CRYPT_UNUSED, SIGNATURE_CRYPTLIB,
-									 errorInfo );
+									 iSigCheckKey, &localSigDataInfo, 
+									 SIGNATURE_CRYPTLIB, errorInfoPtr );
 			break;
 
 		case CRYPT_FORMAT_CMS:
@@ -727,49 +888,46 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 			if( extraData != NULL )
 				*extraData = CRYPT_ERROR;
 			status = checkSignatureCMS( signature, signatureLength, 
-										sigCheckContext, iHashContext, 
+										sigCheckContext, &localSigDataInfo, 
 										extraData, iSigCheckKey,
-										errorInfo );
+										errorInfoPtr );
 			break;
 #endif /* USE_INT_CMS */
 
 #ifdef USE_PGP
 		case CRYPT_FORMAT_PGP:
 			status = checkSignaturePGP( signature, signatureLength,
-										sigCheckContext, iHashContext,
-										errorInfo );
+										sigCheckContext, &localSigDataInfo,
+										errorInfoPtr );
 			break;
 #endif /* USE_PGP */
 
 #ifdef USE_TLS
 		case CRYPT_IFORMAT_TLS:
 			status = checkSignature( signature, signatureLength,
-									 sigCheckContext, iHashContext,
-									 iHash2Context, SIGNATURE_TLS,
-									 errorInfo );
+									 sigCheckContext, &localSigDataInfo, 
+									 SIGNATURE_TLS, errorInfoPtr );
 			break;
 
 		case CRYPT_IFORMAT_TLS12:
 			status = checkSignature( signature, signatureLength,
-									 sigCheckContext, iHashContext,
-									 CRYPT_UNUSED, SIGNATURE_TLS12,
-									 errorInfo );
+									 sigCheckContext, &localSigDataInfo, 
+									 SIGNATURE_TLS12, errorInfoPtr );
 			break;
 #endif /* USE_TLS */
 
 #ifdef USE_SSH
 		case CRYPT_IFORMAT_SSH:
 			status = checkSignature( signature, signatureLength,
-									 sigCheckContext, iHashContext,
-									 CRYPT_UNUSED, SIGNATURE_SSH,
-									 errorInfo );
+									 sigCheckContext, &localSigDataInfo, 
+									 SIGNATURE_SSH, errorInfoPtr );
 			break;
 #endif /* USE_SSH */
 
 		default:
 			retIntError();
 		}
-	if( cryptArgError( status ) )
+	if( cryptArgError( status ) && !isExternalCall )
 		{
 		/* Catch any parameter errors that slip through */
 		DEBUG_DIAG(( "Signature creation returned argError status" ));

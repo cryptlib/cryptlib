@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib PKCS #11 Item Read Routines					*
-*						Copyright Peter Gutmann 1998-2018					*
+*						Copyright Peter Gutmann 1998-2023					*
 *																			*
 ****************************************************************************/
 
@@ -13,9 +13,9 @@
   #include "pkcs11_api.h"
   #include "asn1.h"
   #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	  defined( USE_EDDSA ) || defined( USE_25519 )
+	  defined( USE_25519 ) || defined( USE_ED25519 )
 	#include "asn1_ext.h"
-  #endif /* USE_ECDSA || USE_ECDH || USE_EDDSA || USE_25519 */
+  #endif /* USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 */
 #else
   #include "crypt.h"
   #include "context/context.h"
@@ -25,7 +25,7 @@
   #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
 	  defined( USE_ECDSA ) || defined( USE_25519 )
 	#include "enc_dec/asn1_ext.h"
-  #endif /* USE_ECDSA || USE_ECDH || USE_EDDSA || USE_25519 */
+  #endif /* USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 */
 #endif /* Compiler-specific includes */
 
 /* In some rare situations only incomplete PKCS #11 support is available in 
@@ -917,6 +917,10 @@ static int findCertFromTemplate( INOUT_PTR PKCS11_INFO *pkcs11Info,
 	REQUIRES( templateCount >= 1 && templateCount <= 64 );
 	REQUIRES( ( iCryptCert != NULL && hCertificate == NULL ) || \
 			  ( iCryptCert == NULL && hCertificate != NULL ) );
+	REQUIRES( ( findAction == FINDCERT_P11OBJECT && \
+				hCertificate != NULL ) || \
+			  ( findAction != FINDCERT_P11OBJECT && \
+			    iCryptCert != NULL ) );
 	REQUIRES( isEnumRange( findAction, FINDCERT ) );
 
 	/* Clear return values */

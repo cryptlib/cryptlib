@@ -64,9 +64,9 @@ static int startPacketStream( INOUT_PTR STREAM *stream,
 	{
 	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
 	const int ivLength = \
-		TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE ) && \
-		( sessionInfoPtr->version == TLS_MINOR_VERSION_TLS11 || \
-		  sessionInfoPtr->version == TLS_MINOR_VERSION_TLS12 ) ? \
+		( TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE ) && \
+		  ( sessionInfoPtr->version == TLS_MINOR_VERSION_TLS11 || \
+			sessionInfoPtr->version == TLS_MINOR_VERSION_TLS12 ) ) ? \
 		tlsInfo->ivSize : 0;
 	int status;
 
@@ -126,6 +126,11 @@ int openPacketStreamTLS( OUT_PTR STREAM *stream,
 			  /* When wrapping up data packets we only write the implicit-
 				 length header so the buffer size is zero */
 	REQUIRES( packetType >= TLS_MSG_FIRST && packetType <= TLS_MSG_LAST );
+	REQUIRES( ( bufferSize == CRYPT_USE_DEFAULT ) ? \
+				!checkOverflowSub( sessionInfoPtr->sendBufSize, \
+								   EXTRA_PACKET_SIZE ) : \
+				!checkOverflowAdd( bufferSize, \
+								   sessionInfoPtr->sendBufStartOfs ) );
 	REQUIRES( streamSize >= sessionInfoPtr->sendBufStartOfs && \
 			  streamSize <= sessionInfoPtr->sendBufSize - EXTRA_PACKET_SIZE );
 
@@ -173,12 +178,17 @@ int completePacketStreamTLS( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
+	REQUIRES( !checkOverflowSub( packetEndOffset, \
+								 ID_SIZE + VERSIONINFO_SIZE ) );
 	REQUIRES( ( offset == 0 ) || \
 			  ( offset >= TLS_HEADER_SIZE && \
 				offset <= packetEndOffset - ( ID_SIZE + VERSIONINFO_SIZE ) ) );
 	REQUIRES( isShortIntegerRangeMin( packetEndOffset, TLS_HEADER_SIZE ) );
 
 	/* Update the length field at the start of the packet */
+	REQUIRES( !checkOverflowAdd( offset, ID_SIZE + VERSIONINFO_SIZE ) );
+	REQUIRES( !checkOverflowSub3( packetEndOffset, offset, \
+								  TLS_HEADER_SIZE ) );
 	sseek( stream, offset + ID_SIZE + VERSIONINFO_SIZE );
 	status = writeUint16( stream, ( packetEndOffset - offset ) - \
 								  TLS_HEADER_SIZE );
@@ -232,6 +242,7 @@ int completeHSPacketStream( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
+	REQUIRES( !checkOverflowSub( packetEndOffset, ID_SIZE + LENGTH_SIZE ) );
 	REQUIRES( offset >= TLS_HEADER_SIZE && \
 			  offset <= packetEndOffset - ( ID_SIZE + LENGTH_SIZE ) );
 			  /* HELLO_DONE has size zero so 
@@ -239,12 +250,14 @@ int completeHSPacketStream( INOUT_PTR STREAM *stream,
 	REQUIRES( isShortIntegerRangeMin( packetEndOffset, TLS_HEADER_SIZE ) );
 
 	/* Update the length field at the start of the packet */
+	REQUIRES( !checkOverflowSub( packetEndOffset, \
+								 offset + ID_SIZE + LENGTH_SIZE ) );
 	sseek( stream, offset + ID_SIZE );
 	status = writeUint24( stream, packetEndOffset - \
 								  ( offset + ID_SIZE + LENGTH_SIZE ) );
 	sseek( stream, packetEndOffset );
 	DEBUG_PRINT_BEGIN();
-	DEBUG_PRINT(( "Wrote %s (%d) handshake packet, length %ld.\n", \
+	DEBUG_PRINT(( "Wrote %s (%d) handshake packet, length %d.\n", \
 				  getTLSHSPacketName( DEBUG_GET_STREAMBYTE( stream, offset ) ), 
 				  DEBUG_GET_STREAMBYTE( stream, offset ),
 				  ( packetEndOffset - offset ) - ( ID_SIZE + LENGTH_SIZE ) ));
@@ -316,7 +329,7 @@ static int wrapPacketTLSStd( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								int *length,
 							 IN_LENGTH_SHORT const int dataLength )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	const TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
 	int effectiveBufMaxLen = bufMaxLen, payloadLength, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -346,13 +359,15 @@ static int wrapPacketTLSStd( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		REQUIRES( sessionInfoPtr->sendBufStartOfs >= TLS_HEADER_SIZE + \
 													 tlsInfo->ivSize && \
 				  sessionInfoPtr->sendBufStartOfs <= sessionInfoPtr->sendBufSize );
+		REQUIRES( !checkOverflowAdd( payloadLength, tlsInfo->ivSize ) );
+		REQUIRES( !checkOverflowAdd( bufMaxLen, tlsInfo->ivSize ) );
 		dataPtr -= tlsInfo->ivSize;
 		payloadLength += tlsInfo->ivSize;
 		effectiveBufMaxLen = bufMaxLen + tlsInfo->ivSize;
 		ENSURES( payloadLength > 0 && payloadLength <= effectiveBufMaxLen )
 		}
 	DEBUG_PRINT_BEGIN();
-	DEBUG_PRINT(( "Wrote %s (%d) packet, length %ld.\n", 
+	DEBUG_PRINT(( "Wrote %s (%d) packet, length %d.\n", 
 				  getTLSPacketName( packetType ), packetType, 
 				  payloadLength - \
 					( tlsInfo->ivSize + sessionInfoPtr->authBlocksize ) ));
@@ -436,6 +451,8 @@ static int wrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			REQUIRES( sessionInfoPtr->sendBufStartOfs >= TLS_HEADER_SIZE + \
 														 tlsInfo->ivSize && \
 					  sessionInfoPtr->sendBufStartOfs <= sessionInfoPtr->sendBufSize );
+			REQUIRES( !checkOverflowAdd( payloadLength, tlsInfo->ivSize ) );
+			REQUIRES( !checkOverflowAdd( bufMaxLen, tlsInfo->ivSize ) );
 
 			dataPtr -= tlsInfo->ivSize;
 			payloadLength += tlsInfo->ivSize;
@@ -444,7 +461,7 @@ static int wrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 		}
 	DEBUG_PRINT_BEGIN();
-	DEBUG_PRINT(( "Wrote %s (%d) packet, length %ld.\n", 
+	DEBUG_PRINT(( "Wrote %s (%d) packet, length %d.\n", 
 				  getTLSPacketName( packetType ), packetType, 
 				  payloadLength - ( hasExplicitIV ? tlsInfo->ivSize : 0 ) ));
 	DEBUG_DUMP_DATA( dataPtr + ( hasExplicitIV ? tlsInfo->ivSize : 0 ), 
@@ -611,7 +628,7 @@ static int wrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 	tlsInfo->writeSeqNo++;
 	DEBUG_PRINT_BEGIN();
-	DEBUG_PRINT(( "Wrote %s (%d) packet, length %ld.\n", 
+	DEBUG_PRINT(( "Wrote %s (%d) packet, length %d.\n", 
 				  getTLSPacketName( packetType ), packetType, 
 				  payloadLength ));
 	DEBUG_DUMP_DATA( dataPtr, payloadLength );
@@ -626,6 +643,7 @@ static int wrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Adjust the length to account for the IV data at the start (for non-
 	   GCM modes this is handled implicitly by making the IV part of the 
 	   data to encrypt) */
+	REQUIRES( !checkOverflowAdd( payloadLength, tlsInfo->ivSize ) );
 	payloadLength += tlsInfo->ivSize;
 
 	/* Tell the caller what the final packet size is */
@@ -668,11 +686,13 @@ int wrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isBufsizeRange( offset ) );
 
 	/* Calculate the payload length information */
+	REQUIRES( !checkOverflowAdd( offset, sessionInfoPtr->sendBufStartOfs ) );
 	status = calculateStreamObjectLength( stream, 
 								offset + sessionInfoPtr->sendBufStartOfs,
 								&payloadLength );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( payloadLength, sMemDataLeft( stream ) ) );
 	bufMaxLen = payloadLength + sMemDataLeft( stream );
 
 	/* Continue the previous checks on the calculated length values */
@@ -690,6 +710,8 @@ int wrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isIntegerRangeNZ( bufMaxLen ) );
 
 	/* Get pointers into the data stream for the crypto processing */
+	REQUIRES( !checkOverflowAdd3( TLS_HEADER_SIZE, tlsInfo->ivSize, 
+								  bufMaxLen ) );
 	status = sMemGetDataBlockAbs( stream, offset, ( void ** ) &headerPtr, 
 								  TLS_HEADER_SIZE + tlsInfo->ivSize + \
 													bufMaxLen );
@@ -739,6 +761,8 @@ int wrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			UINT16_SIZE );
 
 	/* Sync the stream information to match the new payload size */
+	REQUIRES( !checkOverflowAdd( tlsInfo->ivSize, payloadLength ) && \
+			  !checkOverflowSub( length, tlsInfo->ivSize + payloadLength ) );
 	return( sSkip( stream, length - ( tlsInfo->ivSize + payloadLength ),
 				   SSKIP_MAX ) );
 	}
@@ -930,11 +954,37 @@ static void sendAlert( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) || alertReceived )
 		return;
 
-	/* Read back the other side's close alert acknowledgement.  Again, since 
-	   we're closing down the session anyway there's not much that we can do 
-	   in response to an error */
+	/* Read back the other side's close alert acknowledgement, again with 
+	   TLS 1.3 special-snowflake handling where the alert is wrapped up
+	   as application data.  As before, since we're closing down the 
+	   session anyway there's not much that we can do in response to an 
+	   error so we don't go any further than just reading the packet */
+#ifdef USE_TLS13
+	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
+		{
+		( void ) readHSPacketTLS( sessionInfoPtr, NULL, &length, 
+								  TLS_MSG_APPLICATION_DATA );
+  #if 0	/* For debugging, recover alert packet data */
+		{
+		int actualPacketType;
+		( void ) unwrapPacketTLS13( sessionInfoPtr, 
+									sessionInfoPtr->receiveBuffer + \
+										sessionInfoPtr->receiveBufPos, 
+									length, &length, &actualPacketType,
+									TLS_MSG_APPLICATION_DATA );
+		}
+  #endif /* 0 */
+		}
+	else
+#endif /* USE_TLS13 */
 	( void ) readHSPacketTLS( sessionInfoPtr, NULL, &length, 
 							  TLS_MSG_ALERT );
+#if 0	/* For debugging, recover alert packet data */
+	( void ) unwrapPacketTLS( sessionInfoPtr, 
+							  sessionInfoPtr->receiveBuffer + \
+								sessionInfoPtr->receiveBufPos, 
+							  length, &length, TLS_MSG_APPLICATION_DATA );
+#endif /* 0 */
 	}
 
 STDC_NONNULL_ARG( ( 1 ) ) \

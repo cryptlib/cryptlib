@@ -552,7 +552,8 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				   "Header length calculation" );
 	if( cryptStatusError( status ) || \
 		!isBufsizeRangeMin( length, ID_SIZE + PADLENGTH_SIZE + \
-										SSH2_MIN_PADLENGTH_SIZE ) || \
+									SSH2_MIN_PADLENGTH_SIZE ) || \
+		checkOverflowAdd( length, extraLength ) || \
 		length + extraLength < SSH_HEADER_REMAINDER_SIZE || \
 		length + extraLength >= sessionInfoPtr->receiveBufSize )
 		{
@@ -583,8 +584,10 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( isSecureRead )
 		{
-		const int encryptedLength = useETM ? length : LENGTH_SIZE + length;
+		int encryptedLength;
 
+		REQUIRES( !checkOverflowAdd( LENGTH_SIZE, length ) );
+		encryptedLength = useETM ? length : LENGTH_SIZE + length;
 		if( encryptedLength % sessionInfoPtr->cryptBlocksize != 0 )
 			{
 			sMemDisconnect( &stream );
@@ -742,8 +745,8 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									   sshInfo, readInfo, protocolState );
 		if( cryptStatusError( status ) )
 			return( status );
-		ENSURES( !checkOverflowAdd( length, extraLength ) );
-		ENSURES( length + extraLength >= payloadLengthRead && \
+		ENSURES( !checkOverflowAdd( length, extraLength ) && \
+				 length + extraLength >= payloadLengthRead && \
 				 length + extraLength < sessionInfoPtr->receiveBufSize );
 				 /* Guaranteed by readPacketHeaderSSH2() */
 
@@ -761,10 +764,12 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			/* Because this code is called conditionally we can't make the
 			   read part of the fixed-header read but have to do independent
 			   handling of shortfalls due to read timeouts */
+			REQUIRES( boundsCheck( payloadLengthRead, remainingLength, 
+								   sessionInfoPtr->receiveBufSize ) );
 			status = readLength = \
 				sread( &sessionInfoPtr->stream,
 					   sessionInfoPtr->receiveBuffer + \
-						payloadLengthRead, remainingLength );
+							payloadLengthRead, remainingLength );
 			if( cryptStatusError( status ) )
 				{
 				sNetGetErrorInfo( &sessionInfoPtr->stream,
@@ -785,7 +790,10 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* Decrypt and MAC the packet if required */
 		if( isSecureRead )
 			{
-			const int encryptedPayloadLength = length - payloadLengthRead;
+			int encryptedPayloadLength;
+			
+			REQUIRES( !checkOverflowSub( length, payloadLengthRead ) );
+			encryptedPayloadLength = length - payloadLengthRead;
 
 			/* Errors in this section are fatal crypto errors */
 			*readInfo = READINFO_FATAL_CRYPTO;

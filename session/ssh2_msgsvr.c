@@ -316,7 +316,8 @@ int processChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_SSH_EXTENDED
 	BYTE arg1String[ CRYPT_MAX_TEXTSIZE + 8 ];
 #endif /* USE_SSH_EXTENDED */
-	BYTE buffer[ UINT32_SIZE + 8 ], *arg1Ptr = NULL;
+	const BYTE *arg1Ptr = NULL;
+	BYTE buffer[ UINT32_SIZE + 8 ];
 	long channelNo;
 	LOOP_INDEX i;
 	int typeLen, arg1Len = 0, maxPacketSize, status;

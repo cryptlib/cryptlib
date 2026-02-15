@@ -25,42 +25,42 @@
 *																			*
 ****************************************************************************/
 
-/* Determine the tag to use when encoding a given key type.  There isn't any
-   tag for Elgamal but the keys are the same as X9.42 DH keys and cryptlib
-   uses the OID rather than the tag to determine the key type so the
-   following sleight-of-hand works */
+/* Determine the tags to use when encoding a given key type.  There isn't 
+   any tag for Elgamal but the keys are the same as X9.42 DH keys and 
+   cryptlib uses the OID rather than the tag to determine the key type so 
+   the following sleight-of-hand works */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 4 ) ) \
 int getKeyTypeTag( IN_HANDLE_OPT const CRYPT_CONTEXT cryptContext,
 				   IN_ALGO_OPT const CRYPT_ALGO_TYPE cryptAlgo,
-				   IN_BOOL const BOOLEAN isExtFormat,
+				   IN_ENUM( KEYTYPE_TAG ) const KEYTYPE_TAG_TYPE tagType,
 				   OUT_TAG_Z int *tag )
 	{
-	static const MAP_TABLE tagMapTbl[] = {
+	static const MAP_TABLE pubTagMapTbl[] = {
 		{ CRYPT_ALGO_RSA, 100 },
 		{ CRYPT_ALGO_DH, CTAG_PK_DH },
 		{ CRYPT_ALGO_ELGAMAL, CTAG_PK_DH },
 		{ CRYPT_ALGO_DSA, CTAG_PK_DSA },
 		{ CRYPT_ALGO_ECDSA, CTAG_PK_ECC },
-		{ CRYPT_ALGO_EDDSA, CTAG_PK_ECC },
+		{ CRYPT_ALGO_ED25519, CTAG_PK_BERNSTEIN },
 		{ CRYPT_ERROR, CRYPT_ERROR }, { CRYPT_ERROR, CRYPT_ERROR }
 		};
-	static const MAP_TABLE tagExtMapTbl[] = {
-		{ CRYPT_ALGO_RSA, CTAG_PK_RSA_EXT },
-		{ CRYPT_ALGO_DH, CTAG_PK_DLP_EXT },
-		{ CRYPT_ALGO_ELGAMAL, CTAG_PK_DLP_EXT },
-		{ CRYPT_ALGO_DSA, CTAG_PK_DLP_EXT },
-		{ CRYPT_ALGO_ECDSA, CTAG_PK_ECC_EXT },
-		{ CRYPT_ALGO_EDDSA, CTAG_PK_ECC_EXT },
+	static const MAP_TABLE privTagExtMapTbl[] = {
+		{ CRYPT_ALGO_RSA, CTAG_PR_RSA_EXT },
+		{ CRYPT_ALGO_DH, CTAG_PR_DLP_EXT },
+		{ CRYPT_ALGO_ELGAMAL, CTAG_PR_DLP_EXT },
+		{ CRYPT_ALGO_DSA, CTAG_PR_DLP_EXT },
+		{ CRYPT_ALGO_ECDSA, CTAG_PR_ECC_EXT },
+		{ CRYPT_ALGO_ED25519, CTAG_PR_BERNSTEIN_EXT },
 		{ CRYPT_ERROR, CRYPT_ERROR }, { CRYPT_ERROR, CRYPT_ERROR }
 		};
-	int keyCryptAlgo, value, status;
+	int keyCryptAlgo, status;
 
 	REQUIRES( ( isHandleRangeValid( cryptContext ) && \
 				cryptAlgo == CRYPT_ALGO_NONE ) || \
 			  ( cryptContext == CRYPT_UNUSED && \
 				isPkcAlgo( cryptAlgo ) ) );
-	REQUIRES( isBooleanValue( isExtFormat ) );
+	REQUIRES( isEnumRange( tagType, KEYTYPE_TAG ) );
 
 	/* Clear return value */
 	*tag = 0;
@@ -77,24 +77,45 @@ int getKeyTypeTag( IN_HANDLE_OPT const CRYPT_CONTEXT cryptContext,
 			return( status );
 		}
 
+	/* There's no original-format storage mechanism defined for the 
+	   Bernstein algorithms, which postdate the introduction of the extended
+	   format */
+	REQUIRES( !( tagType == KEYTYPE_TAG_PRIVKEY && \
+				 keyCryptAlgo == CRYPT_ALGO_ED25519 ) );
+
 	/* Map the algorithm to the corresponding tag */
-	if( isExtFormat )
+	switch( tagType )
 		{
-		status = mapValue( keyCryptAlgo, tag, tagExtMapTbl, 
-						   FAILSAFE_ARRAYSIZE( tagExtMapTbl, MAP_TABLE ) );
-		ENSURES( cryptStatusOK( status ) );
+		case KEYTYPE_TAG_PUBKEY:
+		case KEYTYPE_TAG_PRIVKEY:
+			{
+			int value;
+			
+			/* We have to be a bit careful with the tags because the out-of-
+			   band special-case value DEFAULT_TAG looks like an error 
+			   value, so we supply a dummy value of '100' for this tag and 
+			   map it back to DEFAULT_TAG when we return it to the caller.
+		   
+			   In addition we use the public-key tag table for the non-
+			   extended private-key tags because they have the same values */
+			status = mapValue( keyCryptAlgo, &value, pubTagMapTbl, 
+							   FAILSAFE_ARRAYSIZE( pubTagMapTbl, \
+												   MAP_TABLE ) );
+			if( cryptStatusOK( status ) )
+				*tag = ( value == 100 ) ? DEFAULT_TAG : value;
+			break;
+			}
+
+		case KEYTYPE_TAG_PRIVKEY_EXT:
+			status = mapValue( keyCryptAlgo, tag, privTagExtMapTbl, 
+							   FAILSAFE_ARRAYSIZE( privTagExtMapTbl, \
+												   MAP_TABLE ) );
+			break;
+		
+		default:
+			retIntError();
 		}
-	else
-		{
-		/* We have to be a bit careful with the tags because the out-of-band 
-		   special-case value DEFAULT_TAG looks like an error value, so we 
-		   supply a dummy value of '100' for this tag and map it back to 
-		   DEFAULT_TAG when we return it to the caller */
-		status = mapValue( keyCryptAlgo, &value, tagMapTbl, 
-						   FAILSAFE_ARRAYSIZE( tagMapTbl, MAP_TABLE ) );
-		ENSURES( cryptStatusOK( status ) );
-		*tag = ( value == 100 ) ? DEFAULT_TAG : value;
-		}
+	ENSURES( cryptStatusOK( status ) );
 
 	return( CRYPT_OK );
 	}

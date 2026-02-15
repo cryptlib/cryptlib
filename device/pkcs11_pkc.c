@@ -644,17 +644,20 @@ static int dhGenerateKey( CONTEXT_INFO *contextInfoPtr, const int keysizeBits )
 	readUniversal( &stream );								/* OID */
 	readSequence( &stream, NULL );							/* SEQUENCE */
 	readGenericHole( &stream, &length, 16, BER_INTEGER  );		/* p */
+	REQUIRES( rangeCheck( length, 1, CRYPT_MAX_PKCSIZE ) );
 	cryptStatus = sread( &stream, dhKey.p, length );
 	if( cryptStatusOK( cryptStatus ) )
 		{
 		dhKey.pLen = bytesToBits( length );
 		readGenericHole( &stream, &length, 16, BER_INTEGER  );	/* q */
+		REQUIRES( rangeCheck( length, 1, CRYPT_MAX_PKCSIZE ) );
 		cryptStatus = sread( &stream, dhKey.q, length );
 		}
 	if( cryptStatusOK( cryptStatus ) )
 		{
 		dhKey.qLen = bytesToBits( length );
 		readGenericHole( &stream, &length, 16, BER_INTEGER  );	/* g */
+		REQUIRES( rangeCheck( length, 1, CRYPT_MAX_PKCSIZE ) );
 		cryptStatus = sread( &stream, dhKey.g, length );
 		}
 	if( cryptStatusOK( cryptStatus ) )
@@ -2574,6 +2577,9 @@ static const PKCS11_MECHANISM_INFO mechanismInfoPKC[] = {
 	  encodeDLValuesFunction, decodeDLValuesFunction },
 #endif /* USE_DSA */
 #ifdef USE_ECDSA
+	/* Note that PKCS #11 v3.0 replaced CKF_EC_NAMEDCURVE with CKF_EC_OID,
+	   or at least moved CKF_EC_NAMEDCURVE to a different value and replaced
+	   the original with CKF_EC_OID */
 	{ CKM_ECDSA, CKM_EC_KEY_PAIR_GEN, CKM_NONE, CKF_EC_F_P | CKF_EC_NAMEDCURVE | CKF_EC_UNCOMPRESS, 
 	  CRYPT_ALGO_ECDSA, CRYPT_MODE_NONE, CKK_ECDSA,
 	  NULL, ecdsaInitKey, ecdsaGenerateKey, 

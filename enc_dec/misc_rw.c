@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				Miscellaneous (Non-ASN.1) Read/Write Routines				*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2022					*
 *																			*
 ****************************************************************************/
 
@@ -49,8 +49,11 @@ static int readInteger( INOUT_PTR STREAM *stream,
 	assert( integer == NULL || isWritePtrDynamic( integer, maxLength ) );
 	assert( isWritePtr( integerLength, sizeof( int ) ) );
 
-	REQUIRES_S( minLength > 0 && minLength < maxLength && \
-				maxLength <= CRYPT_MAX_PKCSIZE );
+	REQUIRES_S( ( checkType == BIGNUM_CHECK_VALUE_FIXEDLEN && \
+				  minLength >= MIN_PKCSIZE_BERNSTEIN && \
+				  minLength == maxLength ) || \
+				( minLength > 0 && minLength < maxLength && \
+				  maxLength <= CRYPT_MAX_PKCSIZE ) );
 	REQUIRES_S( isEnumRange( lengthType, LENGTH ) );
 	REQUIRES_S( isEnumRangeOpt( checkType, BIGNUM_CHECK ) );
 
@@ -96,11 +99,26 @@ static int readInteger( INOUT_PTR STREAM *stream,
 				return( CRYPT_ERROR_NOSECURE );
 			break;
 
+		case BIGNUM_CHECK_VALUE_FIXEDLEN:
+			if( length != minLength )
+				return( CRYPT_ERROR_NOSECURE );
+			break;
+		
 		default:
 			retIntError();
 		}
 	if( length < minLength || length > maxLength + 2 )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+
+	/* If it's a fixed-length encoding then there's nothing further to do */
+	if( checkType == BIGNUM_CHECK_VALUE_FIXEDLEN )
+		{
+		*integerLength = length;
+		if( integer == NULL )
+			return( sSkip( stream, length, MAX_INTLENGTH_SHORT ) );
+		REQUIRES_S( rangeCheck( length, 1, maxLength ) );
+		return( sread( stream, integer, length ) );
+		}
 
 	/* If we're reading a signed integer then the sign bit can't be set 
 	   since this would produce a negative value.  This differs from the 
@@ -156,6 +174,7 @@ static int readInteger( INOUT_PTR STREAM *stream,
 	*integerLength = length;
 	if( integer == NULL )
 		return( sSkip( stream, length, MAX_INTLENGTH_SHORT ) );
+	REQUIRES_S( rangeCheck( length, 1, maxLength ) );
 	status = sread( stream, integer, length );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -164,7 +183,7 @@ static int readInteger( INOUT_PTR STREAM *stream,
 	if( checkType != BIGNUM_CHECK_NONE )
 		{
 		/* Perform a debug-mode check for suspicious bignum data */
-		assert_nofuzz( checkEntropyInteger( integer, length ) );
+		assert_notest( checkEntropyInteger( integer, length ) );
 		}
 	
 	return( CRYPT_OK );
@@ -182,20 +201,16 @@ RETVAL_RANGE( 0, 0xFFFF ) STDC_NONNULL_ARG( ( 1 ) ) \
 int readUint16( INOUT_PTR STREAM *stream )
 	{
 	BYTE buffer[ UINT16_SIZE + 8 ];
-	long value;
-	int status;
+	int value, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
 	status = sread( stream, buffer, UINT16_SIZE );
 	if( cryptStatusError( status ) )
 		return( status );
-	value = ( ( long ) buffer[ 0 ] << 8 ) | buffer[ 1 ];
-	if( !isIntegerRange( value ) || value > min( 0xFFFFL, INT_MAX ) )
-		{
-		/* On 16-bit systems, INT_MAX may be less than 0xFFFFL */
+	value = ( byteToInt( buffer[ 0 ] ) << 8 ) | byteToInt( buffer[ 1 ] );
+	if( !isIntegerRange( value ) || value > 0xFFFFL )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
-		}
 	return( value );
 	}
 
@@ -203,8 +218,7 @@ RETVAL_RANGE( 0, INT_MAX ) STDC_NONNULL_ARG( ( 1 ) ) \
 int readUint32( INOUT_PTR STREAM *stream )
 	{
 	BYTE buffer[ UINT32_SIZE + 8 ];
-	long value;
-	int status;
+	int value, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -213,10 +227,10 @@ int readUint32( INOUT_PTR STREAM *stream )
 		return( status );
 	if( buffer[ 0 ] & 0x80 )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
-	value = ( ( long ) buffer[ 0 ] << 24 ) | \
-			( ( long ) buffer[ 1 ] << 16 ) | \
-			( ( long ) buffer[ 2 ] << 8 ) | \
-					   buffer[ 3 ];
+	value = ( byteToInt( buffer[ 0 ] ) << 24 ) | \
+			( byteToInt( buffer[ 1 ] ) << 16 ) | \
+			( byteToInt( buffer[ 2 ] ) << 8 ) | \
+			  byteToInt( buffer[ 3 ] );
 	if( !isIntegerRange( value ) )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	return( value );
@@ -238,15 +252,29 @@ int readUint32Time( INOUT_PTR STREAM *stream,
 	/* Clear return value */
 	*timeVal = 0;
 
+	/* Read the time, with a check for overflow on systems with 32-bit 
+	   time_t's.  This is a bit of a problem because if we simply reject 
+	   the value we'll Y2038 ourselves (although the value would be
+	   rejected later anyway when it fails a time range check), so we
+	   clamp it to MAX_TIME_VALUE and let the user know in debug mode.
+	   Fortunately many 32-bit systems switched to a 64-bit time_t so
+	   it'll likely only affect a small remnant, mostly RTOSes, and in
+	   any case the only place where it's currently used is when reading 
+	   creation times of PGP keys which are unlikely to be used on 
+	   VxWorks */
 	status = sread( stream, buffer, UINT32_SIZE );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( buffer[ 0 ] & 0x80 )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
-	value = ( ( time_t ) buffer[ 0 ] << 24 ) | \
-			( ( time_t ) buffer[ 1 ] << 16 ) | \
-			( ( time_t ) buffer[ 2 ] << 8 ) | \
-						 buffer[ 3 ];
+	if( sizeof( time_t ) <= 4 && ( buffer[ 0 ] & 0x80 ) )
+		{
+		assert( DEBUG_WARN );
+		*timeVal = MAX_TIME_VALUE;
+		return( CRYPT_OK );
+		}
+	value = ( ( ( time_t ) buffer[ 0 ] ) << 24 ) | \
+			( ( ( time_t ) buffer[ 1 ] ) << 16 ) | \
+			( ( ( time_t ) buffer[ 2 ] ) << 8 ) | \
+				( time_t ) buffer[ 3 ];
 	if( value < MIN_STORED_TIME_VALUE || value >= MAX_TIME_VALUE )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	*timeVal = value;
@@ -337,6 +365,7 @@ static int readData32( INOUT_PTR STREAM *stream,
 		dataPtr[ 3 ] = intToByte( length );
 		}
 	*dataLength = headerSize + length;
+	REQUIRES_S( boundsCheckZ( headerSize, length, dataMaxLength ) );
 	return( sread( stream, dataPtr + headerSize, length ) );
 	}
 
@@ -533,8 +562,11 @@ static int readBignumInteger( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( bignum, sizeof( BIGNUM ) ) );
 	assert( maxRange == NULL || isReadPtr( maxRange, sizeof( BIGNUM ) ) );
 
-	REQUIRES_S( minLength > 0 && minLength < maxLength && \
-				maxLength <= CRYPT_MAX_PKCSIZE );
+	REQUIRES_S( ( checkType == BIGNUM_CHECK_VALUE_FIXEDLEN && \
+				  minLength >= MIN_PKCSIZE_BERNSTEIN && \
+				  minLength == maxLength ) || \
+				( minLength > 0 && minLength < maxLength && \
+				  maxLength <= CRYPT_MAX_PKCSIZE ) );
 	REQUIRES_S( isEnumRange( lengthType, LENGTH ) );
 	REQUIRES_S( isEnumRangeOpt( checkType, BIGNUM_CHECK ) );
 
@@ -544,12 +576,19 @@ static int readBignumInteger( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* Convert the value to a bignum.  Note that we use the KEYSIZE_CHECK
+	/* Convert the value to a bignum.  Note that we use the checkType
 	   parameter for both readInteger() and importBignum(), since the 
 	   former merely checks the byte count while the latter actually parses 
 	   and processes the bignum */
-	status = importBignum( bignum, buffer, length, minLength, maxLength, 
-						   maxRange, checkType );
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+	if( checkType == BIGNUM_CHECK_VALUE_FIXEDLEN )
+		status = import25519ByteString( bignum, buffer, length );
+	else
+#endif /* USE_25519 || USE_ED25519 */
+		{
+		status = importBignum( bignum, buffer, length, minLength, maxLength, 
+							   maxRange, checkType );
+		}
 	if( cryptStatusError( status ) )
 		status = sSetError( stream, status );
 	zeroise( buffer, CRYPT_MAX_PKCSIZE );
@@ -616,8 +655,8 @@ int writeUint16( INOUT_PTR STREAM *stream,
 
 	REQUIRES_S( isIntegerRange( value ) && value <= 0xFFFFL );
 
-	sputc( stream, ( value >> 8 ) & 0xFF );
-	return( sputc( stream, value & 0xFF ) );
+	sputc( stream, intToByte( value >> 8 ) );
+	return( sputc( stream, intToByte( value ) ) );
 	}
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -643,6 +682,8 @@ int writeUint64( INOUT_PTR STREAM *stream, IN_INT_Z const long value )
 
 	REQUIRES_S( isIntegerRange( value ) );
 
+	/* Unlike readUint64() this is used in TLS to write sequence numbers so
+	   we always make it available */
 	swrite( stream, "\x00\x00\x00\x00", UINT64_SIZE / 2 );
 	return( writeUint32( stream, value ) );
 	}
@@ -693,6 +734,7 @@ static int writeInteger( INOUT_PTR STREAM *stream,
 	{
 	const BYTE *intPtr = integer;
 	int length = integerLength, LOOP_ITERATOR;
+	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtrDynamic( integer, integerLength ) );
@@ -721,26 +763,28 @@ static int writeInteger( INOUT_PTR STREAM *stream,
 	switch( lengthType )
 		{
 		case LENGTH_16U:
-			writeUint16( stream, length );
+			status = writeUint16( stream, length );
 			break;
 
 		case LENGTH_16U_BITS:
-			writeUint16( stream, bytesToBits( length ) );
+			status = writeUint16( stream, bytesToBits( length ) );
 			break;
 
 		case LENGTH_32:
 			{
 			const int leadingOneBit = ( *intPtr & 0x80 ) ? 1 : 0;
 
-			writeUint32( stream, length + leadingOneBit );
-			if( leadingOneBit )
-				sputc( stream, 0 );	/* MPIs are signed values */
+			status = writeUint32( stream, length + leadingOneBit );
+			if( cryptStatusOK( status ) && leadingOneBit )
+				status = sputc( stream, 0 );	/* MPIs are signed values */
 			break;
 			}
 
 		default:
 			retIntError_Stream( stream );
 		}
+	if( cryptStatusError( status ) )
+		return( status );
 	return( swrite( stream, intPtr, length ) );
 	}
 

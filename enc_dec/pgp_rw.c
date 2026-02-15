@@ -279,8 +279,8 @@ static int readPacketHeader( INOUT_PTR STREAM *stream,
 			return( status );
 
 		/* It's an indefinite-length encoding, this is only valid for
-		   payload data packets so we make sure that we've got one of these
-		   packet types present */
+		   payload data packets (RFC 4880 section 4.2.2.4) so we make 
+		   sure that we've got one of these packet types present */
 		ENSURES_S( indefOK );
 		type = pgpGetPacketType( localCTB );
 		if( type != PGP_PACKET_DATA && type != PGP_PACKET_COPR && \

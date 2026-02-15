@@ -58,7 +58,7 @@ static BOOLEAN sanityCheckSessionTLSWS( IN_PTR \
 		}
 
 	/* Check miscellaneous metadata */
-	if( wsInfo->maskPos < 0 || wsInfo->maskPos > WS_MASK_SIZE - 1 || \
+	if( wsInfo->maskPos < 0 || wsInfo->maskPos > TLS_WS_MASKSIZE - 1 || \
 		!isBufsizeRange( wsInfo->totalLength ) || \
 		( wsInfo->sendPong != TRUE && wsInfo->sendPong != FALSE ) || \
 		( wsInfo->sendClose != TRUE && wsInfo->sendClose != FALSE ) )
@@ -177,13 +177,16 @@ void debugDumpWS( const SESSION_INFO *sessionInfoPtr,
 	{
 	static int messageCount = 1;
 	char fileName[ 1024 + 8 ];
+	int result;
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtrDynamic( buffer,  bufSize ) );
 
 	if( messageCount > 20 )
 		return;	/* Don't dump too many messages */
-	sprintf_s( fileName, 1024, "websockets_%02d.dat", messageCount++ );
+	result = sprintf_s( fileName, 1024, "websockets_%02d.dat", 
+						messageCount++ );
+	assert( rangeCheck( result, 1, 1023 ) );
 	debugSanitiseFilename( fileName );
 	DEBUG_DUMP_FILE( fileName, buffer, bufSize );
 	}
@@ -351,7 +354,8 @@ static int activateWebSocketsClient( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	MESSAGE_DATA msgData;
 	STREAM stream;
 	BYTE ALIGN_STACK_DATA buffer[ SAFEBUFFER_SIZE( HTTP_BUFSIZE ) ];
-	BYTE nonce[ WS_KEY_SIZE + 8 ], encodedNonce[ CRYPT_MAX_TEXTSIZE + 8 ]; 
+	BYTE nonce[ WS_KEY_SIZE + 8 ];
+	char encodedNonce[ CRYPT_MAX_TEXTSIZE + 8 ]; 
 	char authValue[ CRYPT_MAX_TEXTSIZE + 8 ];
 	int encodedNonceLen DUMMY_INIT, authValueLength, length, status;
 
@@ -637,7 +641,7 @@ static int closeWebSockets( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			{
 			ENSURES( LOOP_INVARIANT_SMALL( i, 0, WS_CLOSE_DATA_SIZE - 1 ) );
 
-			buffer[ WS_CLOSE_SIZE + i ] ^= wsInfo->mask[ i % WS_MASK_SIZE ];
+			buffer[ WS_CLOSE_SIZE + i ] ^= wsInfo->mask[ i % TLS_WS_MASKSIZE ];
 			}
 		ENSURES( LOOP_BOUND_OK );
 		}
@@ -801,10 +805,10 @@ static int unmaskData( INOUT_BUFFER_FIXED( bufSize ) BYTE *buffer,
 		{
 		ENSURES( LOOP_INVARIANT_MAX( i, 0, bufSize - 1 ) );
 
-		buffer[ i ] ^= wsInfo->mask[ maskIndex % WS_MASK_SIZE ];
+		buffer[ i ] ^= wsInfo->mask[ maskIndex % TLS_WS_MASKSIZE ];
 		}
 	ENSURES( LOOP_BOUND_OK );
-	wsInfo->maskPos = maskIndex % WS_MASK_SIZE;
+	wsInfo->maskPos = maskIndex % TLS_WS_MASKSIZE;
 
 	return( CRYPT_OK );
 	}
@@ -954,7 +958,7 @@ int processInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 		}
 
-	DEBUG_PRINT(( "Read %s (%X) WebSockets packet, length %ld.\n", 
+	DEBUG_PRINT(( "Read %s (%X) WebSockets packet, length %d.\n", 
 				  getPacketName( wsInfo->type ), wsInfo->type, 
 				  wsInfo->totalLength ));
 
@@ -973,7 +977,8 @@ int processInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 
 		/* Get the mask value */
-		status = sread( &stream, wsInfo->mask, WS_MASK_SIZE );
+		REQUIRES( rangeCheck( TLS_WS_MASKSIZE, 1, TLS_WS_MASKSIZE ) );
+		status = sread( &stream, wsInfo->mask, TLS_WS_MASKSIZE );
 		if( cryptStatusError( status ) )
 			{
 			sMemDisconnect( &stream );
@@ -1067,7 +1072,7 @@ static int sendExtraPacketData( INOUT_BUFFER_FIXED( bufSize ) BYTE *buffer,
 											   WS_CLOSE_DATA_SIZE - 1 ) );
 
 				buffer[ length + WS_CLOSE_SIZE + i ] ^= \
-								wsInfo->mask[ i % WS_MASK_SIZE ];
+								wsInfo->mask[ i % TLS_WS_MASKSIZE ];
 				}
 			ENSURES( LOOP_BOUND_OK );
 			}
@@ -1109,7 +1114,7 @@ int writeInnerHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		sputc( &stream, WS_MASK_FLAG | WS_LENGTH_16BIT );
 	status = writeUint16( &stream, 0 );		/* Placeholder */
 	if( !isServer( sessionInfoPtr ) )
-		status = swrite( &stream, WS_MASK_VALUE, WS_MASK_SIZE );
+		status = swrite( &stream, WS_MASK_VALUE, TLS_WS_MASKSIZE );
 	ENSURES( cryptStatusOK( status ) );
 	length = stell( &stream );
 	sMemDisconnect( &stream );
@@ -1154,7 +1159,7 @@ int prepareInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	else
 		{
 		const int bytesToMove = isServer? payloadSize : \
-										  WS_MASK_SIZE + payloadSize;
+										  TLS_WS_MASKSIZE + payloadSize;
 
 		/* There are WS_LENGTH_THRESHOLD bytes or less in the buffer so the
 		   length can be encoded as part of the header, move the payload 
@@ -1184,7 +1189,7 @@ int prepareInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			{
 			ENSURES( LOOP_INVARIANT_MAX( i, 0, payloadSize - 1 ) );
 
-			payloadPtr[ i ] ^= maskPtr[ i % WS_MASK_SIZE ];
+			payloadPtr[ i ] ^= maskPtr[ i % TLS_WS_MASKSIZE ];
 			}
 		ENSURES( LOOP_BOUND_OK );
 		}

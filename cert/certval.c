@@ -176,7 +176,7 @@ int addValidityEntry( INOUT_PTR_DATAPTR DATAPTR *listHeadPtr,
 			clAlloc( "addValidityEntry", sizeof( VALIDITY_INFO ) ) ) == NULL )
 		return( CRYPT_ERROR_MEMORY );
 	memset( newElement, 0, sizeof( VALIDITY_INFO ) );
-	REQUIRES( rangeCheck( valueLength, 1, KEYID_SIZE ) );
+	REQUIRES_PTR( rangeCheck( valueLength, 1, KEYID_SIZE ), newElement );
 	memcpy( newElement->data, value, valueLength );
 	newElement->dCheck = checksumData( value, valueLength );
 	DATAPTR_SET( newElement->attributes, NULL );
@@ -189,7 +189,7 @@ int addValidityEntry( INOUT_PTR_DATAPTR DATAPTR *listHeadPtr,
 	newElement->isValid = FALSE;
 	newElement->extStatus = CRYPT_CERTSTATUS_UNKNOWN;
 
-	ENSURES( sanityCheckValInfo( newElement ) );
+	ENSURES_PTR( sanityCheckValInfo( newElement ), newElement );
 
 	/* Insert the new element into the list */
 	insertDoubleListElement( listHeadPtr, listHeadElement, newElement, 

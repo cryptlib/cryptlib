@@ -139,7 +139,7 @@ static int writeX509Signature( INOUT_PTR STREAM *stream,
 							   IN_HANDLE const CRYPT_CONTEXT iSignContext,
 							   IN_ALGO const CRYPT_ALGO_TYPE hashAlgo,
 							   IN_LENGTH_HASH_Z const int hashParam,
-							   STDC_UNUSED const CRYPT_ALGO_TYPE signAlgo,
+							   IN_ALGO const CRYPT_ALGO_TYPE signAlgo,
 							   IN_BUFFER( signatureLength ) const BYTE *signature,
 							   IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength )
 	{
@@ -150,15 +150,24 @@ static int writeX509Signature( INOUT_PTR STREAM *stream,
 			/* Other parameters aren't used for this format */
 
 	REQUIRES( isHandleRangeValid( iSignContext ) );
-	REQUIRES( isHashAlgo( hashAlgo ) );
-	REQUIRES( hashParam >= MIN_HASHSIZE && \
-			  hashParam <= CRYPT_MAX_HASHSIZE );
+	REQUIRES( ( isBernsteinAlgo( signAlgo ) && \
+				hashAlgo == CRYPT_ALGO_NONE && \
+				hashParam == 0 ) || \
+			  ( !isBernsteinAlgo( signAlgo ) && \
+				isHashAlgo( hashAlgo ) && \
+				rangeCheck( hashParam, MIN_HASHSIZE, 
+							CRYPT_MAX_HASHSIZE ) ) );
 	REQUIRES( isShortIntegerRangeMin( signatureLength, 40 ) );
 
-	/* Write the hash+signature algorithm identifier followed by the BIT
+	/* Write the signature+hash algorithm identifier followed by the BIT
 	   STRING wrapper and signature */
-	initAlgoIDparamsHash( &algoIDparams, hashAlgo, hashParam );
-	writeContextAlgoIDex( stream, iSignContext, &algoIDparams );
+	if( isBernsteinAlgo( signAlgo ) )
+		writeContextAlgoID( stream, iSignContext );
+	else
+		{
+		initAlgoIDparamsHash( &algoIDparams, hashAlgo, hashParam );
+		writeContextAlgoIDex( stream, iSignContext, &algoIDparams );
+		}
 	writeBitStringHole( stream, signatureLength, DEFAULT_TAG );
 	return( writeRawObject( stream, signature, signatureLength ) );
 	}
@@ -256,9 +265,14 @@ static int readCmsSignature( INOUT_PTR STREAM *stream,
 	   this wrong and write an algorithm+hash algoID, to get around this the
 	   decoding table contains an alternative interpretation of the
 	   ALGOID_CLASS_PKCSIG information pretending to be an 
-	   ALGOID_CLASS_PKC.  This broken behaviour was codified in RFC 5652
-	   (section 10.1.2, "SignatureAlgorithmIdentifier") so it's now part
-	   of the standard */
+	   ALGOID_CLASS_PKC.
+	   
+	   This broken behaviour was permitted in RFC 5652 section 10.1.2, 
+	   "SignatureAlgorithmIdentifier", which changed the RFC 3369 text "The 
+	   SignatureAlgorithmIdentifier type identifies a signature algorithm" 
+	   to "The SignatureAlgorithmIdentifier type identifies a signature 
+	   algorithm, and it can also identify a message digest algorithm", so 
+	   it's now part of the standard */
 	status = readAlgoIDex( stream, &queryInfo->cryptAlgo, &algoIDparams,
 						   ALGOID_CLASS_PKC );
 	if( cryptStatusOK( status ) )
@@ -317,12 +331,11 @@ static int readCmsSignature( INOUT_PTR STREAM *stream,
 	return( CRYPT_OK );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 6 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
 static int writeSignature( INOUT_PTR STREAM *stream,
 						   IN_HANDLE const CRYPT_CONTEXT iSignContext,
 						   IN_ALGO const CRYPT_ALGO_TYPE hashAlgo,
 						   IN_LENGTH_HASH const int hashParam,
-						   STDC_UNUSED const CRYPT_ALGO_TYPE signAlgo,
 						   IN_BUFFER( signatureLength ) const BYTE *signature,
 						   IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength,
 						   IN_BOOL const BOOLEAN usePSS )
@@ -333,7 +346,7 @@ static int writeSignature( INOUT_PTR STREAM *stream,
 
 	REQUIRES( isHandleRangeValid( iSignContext ) );
 	REQUIRES( isHashAlgo( hashAlgo ) );
-	REQUIRES( hashParam >= MIN_HASHSIZE && hashParam <= CRYPT_MAX_HASHSIZE );
+	REQUIRES( rangeCheck( hashParam, MIN_HASHSIZE, CRYPT_MAX_HASHSIZE ) );
 	REQUIRES( isShortIntegerRangeMin( signatureLength, 40 ) );
 	REQUIRES( isBooleanValue( usePSS ) );
 
@@ -362,12 +375,12 @@ static int writeCmsSignature( INOUT_PTR STREAM *stream,
 							  IN_HANDLE const CRYPT_CONTEXT iSignContext,
 							  IN_ALGO const CRYPT_ALGO_TYPE hashAlgo,
 							  IN_LENGTH_HASH const int hashParam,
-							  IN_ALGO const CRYPT_ALGO_TYPE signAlgo,
+							  STDC_UNUSED const CRYPT_ALGO_TYPE signAlgo,
 							  IN_BUFFER( signatureLength ) const BYTE *signature,
 							  IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength )
 	{
 	return( writeSignature( stream, iSignContext, hashAlgo, hashParam, 
-							signAlgo, signature, signatureLength, FALSE ) );
+							signature, signatureLength, FALSE ) );
 	}
 
 #ifdef USE_PSS 
@@ -377,12 +390,12 @@ static int writeCmsSignaturePSS( INOUT_PTR STREAM *stream,
 								 IN_HANDLE const CRYPT_CONTEXT iSignContext,
 								 IN_ALGO const CRYPT_ALGO_TYPE hashAlgo,
 								 IN_LENGTH_HASH const int hashParam,
-								 IN_ALGO const CRYPT_ALGO_TYPE signAlgo,
+								 STDC_UNUSED const CRYPT_ALGO_TYPE signAlgo,
 								 IN_BUFFER( signatureLength ) const BYTE *signature,
 								 IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength )
 	{
 	return( writeSignature( stream, iSignContext, hashAlgo, hashParam, 
-							signAlgo, signature, signatureLength, TRUE ) );
+							signature, signatureLength, TRUE ) );
 	}
 #endif /* USE_PSS */
 
@@ -554,6 +567,7 @@ static int readTypeAndValue( INOUT_PTR STREAM *stream,
 		}
 
 	/* Read the name and check whether it's one that we recognise */
+	REQUIRES( rangeCheck( NAME_STRING_LENGTH, 1, 32 ) );
 	status = sread( stream, nameBuffer, NAME_STRING_LENGTH );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -692,7 +706,10 @@ static int readSignatureSubpackets( INOUT_PTR STREAM *stream,
 				   with detached signatures), set it now */
 				if( queryInfo->keyIDlength <= 0 )
 					{
-					status = sread( stream, queryInfo->keyID, PGP_KEYID_SIZE );
+					REQUIRES( rangeCheck( PGP_KEYID_SIZE, \
+										  1, PGP_KEYID_SIZE ) );
+					status = sread( stream, queryInfo->keyID, 
+									PGP_KEYID_SIZE );
 					queryInfo->keyIDlength = PGP_KEYID_SIZE;
 					}
 				else
@@ -704,6 +721,8 @@ static int readSignatureSubpackets( INOUT_PTR STREAM *stream,
 					   because the information in the one-pass signature 
 					   packet isn't authenticated while the second copy here 
 					   is */
+					REQUIRES( rangeCheck( PGP_KEYID_SIZE, \
+										  1, PGP_KEYID_SIZE ) );
 					status = sread( stream, keyID, PGP_KEYID_SIZE );
 					if( cryptStatusOK( status ) && \
 						( queryInfo->keyIDlength != PGP_KEYID_SIZE || \
@@ -813,6 +832,7 @@ int readPgpOnepassSigPacket( INOUT_PTR STREAM *stream,
 	queryInfo->type = CRYPT_OBJECT_SIGNATURE;
 
 	/* Get the PGP key ID and make sure that this isn't a nested signature */
+	REQUIRES( rangeCheck( PGP_KEYID_SIZE, 1, CRYPT_MAX_HASHSIZE ) );
 	status = sread( stream, queryInfo->keyID, PGP_KEYID_SIZE );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -865,6 +885,7 @@ static int readPgp2SigInfo( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Read the signer keyID and signature and hash algorithms */
+	REQUIRES( rangeCheck( PGP_KEYID_SIZE, 1, CRYPT_MAX_HASHSIZE ) );
 	status = sread( stream, queryInfo->keyID, PGP_KEYID_SIZE );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -997,61 +1018,104 @@ static int readPgpSignature( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* Read the signature, recording the position and length of the raw RSA 
-	   signature data.  We have to be careful how we handle this because 
-	   readInteger16Ubits() returns the canonicalised form of the values 
-	   (with leading zeroes truncated) so an stell() before the read doesn't 
-	   necessarily represent the start of the payload:
-
-		startPos	dataStart		 stell()
-			|			|				|
-			v			v <-- length -->v
-		+---+-----------+---------------+
-		|	|			|///////////////| Stream
-		+---+-----------+---------------+ */
-	if( queryInfo->cryptAlgo == CRYPT_ALGO_RSA )
+	switch( queryInfo->cryptAlgo )
 		{
-		int objectSize DUMMY_INIT;
-
-		status = readInteger16Ubits( stream, NULL, &queryInfo->dataLength,
-									 MIN_PKCSIZE, CRYPT_MAX_PKCSIZE,
-									 BIGNUM_CHECK_VALUE_PKC );
-		if( cryptStatusOK( status ) )
+		case CRYPT_ALGO_RSA:
 			{
-			status = calculateStreamObjectLength( stream, startPos,
-												  &objectSize );
-			}
-		if( cryptStatusError( status ) )
-			return( status );
-		queryInfo->dataStart = objectSize - queryInfo->dataLength;
-		}
-	else
-		{
-		const int dataStartPos = stell( stream );
-		int dummy;
+			int objectSize DUMMY_INIT;
 
-		REQUIRES( isBufsizeRangeNZ( dataStartPos ) );
-		REQUIRES( queryInfo->cryptAlgo == CRYPT_ALGO_DSA );
+			/* Read the signature, recording the position and length of the 
+			   raw RSA signature data.  We have to be careful how we handle 
+			   this because readInteger16Ubits() returns the canonicalised 
+			   form of the values (with leading zeroes truncated) so an 
+			   stell() before the read doesn't necessarily represent the 
+			   start of the payload:
 
-		/* Read the DSA signature, recording the position and combined 
-		   lengths of the MPI pair.  Again, we can't use the length returned 
-		   by readInteger16Ubits() to determine the overall size but have to 
-		   calculate it from the position in the stream */
-		status = readInteger16Ubits( stream, NULL, &dummy, 16, 20, 
-									 BIGNUM_CHECK_VALUE );
-		if( cryptStatusOK( status ) )
-			{
-			status = readInteger16Ubits( stream, NULL, &dummy, 16, 20,
-										 BIGNUM_CHECK_VALUE );
+				startPos	dataStart		 stell()
+					|			|				|
+					v			v <-- length -->v
+				+---+-----------+---------------+
+				|	|			|///////////////| Stream
+				+---+-----------+---------------+ */
+			status = readInteger16Ubits( stream, NULL, &queryInfo->dataLength,
+										 MIN_PKCSIZE, CRYPT_MAX_PKCSIZE,
+										 BIGNUM_CHECK_VALUE_PKC );
+			if( cryptStatusOK( status ) )
+				{
+				status = calculateStreamObjectLength( stream, startPos,
+													  &objectSize );
+				}
+			if( cryptStatusError( status ) )
+				return( status );
+			queryInfo->dataStart = objectSize - queryInfo->dataLength;
+			break;
 			}
-		if( cryptStatusOK( status ) )
+
+#if defined( USE_DSA ) || defined( USE_ECDSA )
+		case CRYPT_ALGO_DSA:
+		case CRYPT_ALGO_ECDSA:
 			{
-			status = calculateStreamObjectLength( stream, dataStartPos,
-												  &queryInfo->dataLength );
+			const int minLength = \
+						( queryInfo->cryptAlgo == CRYPT_ALGO_DSA ) ? \
+						bitsToBytes( 160 - 32 ) : bitsToBytes( 256 - 32 );
+			const int maxLength = \
+						( queryInfo->cryptAlgo == CRYPT_ALGO_DSA ) ? \
+						bitsToBytes( 160 ) : bitsToBytes( 521 );
+			const int dataStartPos = stell( stream );
+			int dummy;
+
+			REQUIRES( isBufsizeRangeNZ( dataStartPos ) );
+
+			/* Read the (EC)DSA signature, recording the position and 
+			   combined lengths of the MPI pair.  Again, we can't use the 
+			   length returned by readInteger16Ubits() to determine the 
+			   overall size but have to calculate it from the position in 
+			   the stream */
+			status = readInteger16Ubits( stream, NULL, &dummy, minLength, 
+										 maxLength, BIGNUM_CHECK_VALUE );
+			if( cryptStatusOK( status ) )
+				{
+				status = readInteger16Ubits( stream, NULL, &dummy, minLength, 
+											 maxLength, BIGNUM_CHECK_VALUE );
+				}
+			if( cryptStatusOK( status ) )
+				{
+				status = calculateStreamObjectLength( stream, dataStartPos,
+													  &queryInfo->dataLength );
+				}
+			if( cryptStatusError( status ) )
+				return( status );
+			queryInfo->dataStart = dataStartPos - startPos;
+			break;
 			}
-		if( cryptStatusError( status ) )
-			return( status );
-		queryInfo->dataStart = dataStartPos - startPos;
+#endif /* USE_DSA || USE_ECDSA */
+
+#ifdef USE_ED25519
+		case CRYPT_ALGO_ED25519:
+			{
+			const int dataStartPos = stell( stream );
+			int dummy;
+
+			REQUIRES( isBufsizeRangeNZ( dataStartPos ) );
+
+			/* The Ed25519 signature is a fixed-length value encoded as an 
+			   MPI */
+			status = readInteger16Ubits( stream, NULL, &dummy, 32, 32, 
+										 BIGNUM_CHECK_VALUE_FIXEDLEN );
+			if( cryptStatusOK( status ) )
+				{
+				status = calculateStreamObjectLength( stream, dataStartPos,
+													  &queryInfo->dataLength );
+				}
+			if( cryptStatusError( status ) )
+				return( status );
+			queryInfo->dataStart = dataStartPos - startPos;
+			break;
+			}
+#endif /* USE_ED25519 */
+		
+		default:
+			retIntError();
 		}
 
 	/* Make sure that we've read the entire object.  This check is necessary 
@@ -1129,32 +1193,40 @@ static int readSshSignature( INOUT_PTR STREAM *stream,
 	status = readString32( stream, buffer, CRYPT_MAX_TEXTSIZE, &length );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( length == 7 )
+	switch( length )
 		{
-		/* If it's a string of length 7 then it's a conventional signature 
-		   algorithm */
-		if( !memcmp( buffer, "ssh-rsa", 7 ) )
-			queryInfo->cryptAlgo = CRYPT_ALGO_RSA;
-		else
-			{
-			if( !memcmp( buffer, "ssh-dss", 7 ) )
-				queryInfo->cryptAlgo = CRYPT_ALGO_DSA;
+		case 7:		/* "ssh-xxx" */
+			/* If it's a string of length 7 then it's a conventional 
+			   signature algorithm */
+			if( !memcmp( buffer, "ssh-rsa", 7 ) )
+				queryInfo->cryptAlgo = CRYPT_ALGO_RSA;
 			else
+				{
+				if( !memcmp( buffer, "ssh-dss", 7 ) )
+					queryInfo->cryptAlgo = CRYPT_ALGO_DSA;
+				else
+					return( CRYPT_ERROR_BADDATA );
+				}
+			queryInfo->hashAlgo = CRYPT_ALGO_SHA1;
+			break;
+
+#ifdef USE_ED25519
+		case 11:	/* "ssh-ed25519" */
+			if( memcmp( buffer, "ssh-ed25519", 11 ) )
 				return( CRYPT_ERROR_BADDATA );
-			}
-		queryInfo->hashAlgo = CRYPT_ALGO_SHA1;
-		}
-	else
-		{
-		if( length == 12 )
-			{
+			queryInfo->cryptAlgo = CRYPT_ALGO_ED25519;
+			break;
+#endif /* USE_ED25519 */
+
+		case 12:	/* "rsa-sha2-256" */
 			if( memcmp( buffer, "rsa-sha2-256", 12 ) )
 				return( CRYPT_ERROR_BADDATA );
 			queryInfo->cryptAlgo = CRYPT_ALGO_RSA;
 			queryInfo->hashAlgo = CRYPT_ALGO_SHA2;
-			}
-		else
-			{
+			break;
+		
+		default:
+#ifdef USE_ECDSA
 			/* It's probably an ECC signature algorithm.  We don't bother 
 			   checking the exact type since this is implicitly specified by 
 			   the signature-check key */
@@ -1164,7 +1236,10 @@ static int readSshSignature( INOUT_PTR STREAM *stream,
 				return( CRYPT_ERROR_BADDATA );
 			queryInfo->cryptAlgo = CRYPT_ALGO_ECDSA;
 			queryInfo->hashAlgo = CRYPT_ALGO_SHA2;
-			}
+#else
+			return( CRYPT_ERROR_BADDATA );
+#endif /* USE_ECDSA */
+			break;
 		}
 
 	/* Read the start of the signature */
@@ -1178,16 +1253,28 @@ static int readSshSignature( INOUT_PTR STREAM *stream,
 				return( CRYPT_ERROR_BADDATA );
 			break;
 
+#ifdef USE_DSA
 		case CRYPT_ALGO_DSA:
 			if( length != ( 20 + 20 ) )
 				return( CRYPT_ERROR_BADDATA );
 			break;
-		
+#endif /* USE_DSA */
+
+#ifdef USE_ECDSA
 		case CRYPT_ALGO_ECDSA:
 			if( length < MIN_PKCSIZE_ECCPOINT || \
 				length > MAX_PKCSIZE_ECCPOINT )
 				return( CRYPT_ERROR_BADDATA );
 			break;
+#endif /* USE_ECDSA */
+
+#ifdef USE_ED25519
+		case CRYPT_ALGO_ED25519:
+			if( length < ( MIN_PKCSIZE_BERNSTEIN * 2 ) || \
+				length > ( MAX_PKCSIZE_BERNSTEIN * 2 ) )
+				return( CRYPT_ERROR_BADDATA );
+			break;
+#endif /* USE_ED25519 */
 
 		default:
 			retIntError();
@@ -1219,74 +1306,101 @@ static int writeSshSignature( INOUT_PTR STREAM *stream,
 	assert( isReadPtrDynamic( signature, signatureLength ) );
 			/* Other parameters aren't used for this format */
 
-	REQUIRES( hashAlgo == CRYPT_ALGO_SHA1 || hashAlgo == CRYPT_ALGO_SHA2 );
+	REQUIRES( hashAlgo == CRYPT_ALGO_SHA1 || hashAlgo == CRYPT_ALGO_SHA2 || \
+			  hashAlgo == CRYPT_ALGO_NONE );
 	REQUIRES( signAlgo == CRYPT_ALGO_RSA || signAlgo == CRYPT_ALGO_DSA || \
-			  signAlgo == CRYPT_ALGO_ECDSA );
+			  signAlgo == CRYPT_ALGO_ECDSA || signAlgo == CRYPT_ALGO_ED25519 );
 	REQUIRES( isShortIntegerRangeMin( signatureLength, ( 20 + 20 ) ) );
 
-#ifdef USE_ECDSA
-	/* ECC signatures require all sorts of calisthenics that aren't 
-	   necessary for standard signatures, specifically we have to encode the
-	   curve type in the algorithm name.  See the long comment in 
-	   session/ssh.c on the possible problems that the following can run 
-	   into */
-	if( signAlgo == CRYPT_ALGO_ECDSA )
+	switch( signAlgo )
 		{
-		const char *algoName;
-		int keySize, algoNameLen, status;
+		case CRYPT_ALGO_RSA:
+			if( hashAlgo == CRYPT_ALGO_SHA1 )
+				{
+				writeUint32( stream, sizeofString32( 7 ) + \
+									 sizeofString32( signatureLength ) );
+				writeString32( stream, "ssh-rsa", 7 );
+				}
+			else
+				{
+				REQUIRES( signAlgo == CRYPT_ALGO_RSA && \
+						  hashAlgo == CRYPT_ALGO_SHA2 );
+	
+				writeUint32( stream, sizeofString32( 12 ) + \
+									 sizeofString32( signatureLength ) );
+				writeString32( stream, "rsa-sha2-256", 12 );
+				}
+			return( writeString32( stream, signature, signatureLength ) );
 
-		status = krnlSendMessage( iSignContext, IMESSAGE_GETATTRIBUTE, 
-								  &keySize, CRYPT_CTXINFO_KEYSIZE );
-		if( cryptStatusError( status ) )
-			return( status );
-		switch( keySize )
+#ifdef USE_DSA
+		case CRYPT_ALGO_DSA:
+			REQUIRES( hashAlgo == CRYPT_ALGO_SHA1 );
+			writeUint32( stream, sizeofString32( 7 ) + \
+								 sizeofString32( signatureLength ) );
+			writeString32( stream, "ssh-dss", 7 );
+			return( writeString32( stream, signature, signatureLength ) );
+#endif /* USE_DSA */
+
+#ifdef USE_ECDSA
+		/* ECC signatures require all sorts of calisthenics that aren't 
+		   necessary for standard signatures, specifically we have to encode 
+		   the curve type in the algorithm name.  See the long comment in 
+		   session/ssh.c on the possible problems that the following can run 
+		   into */
+		case CRYPT_ALGO_ECDSA:
 			{
-			case bitsToBytes( 256 ):
-				algoName = "ecdsa-sha2-nistp256";
-				algoNameLen = 19;
-				break;
+			const char *algoName;
+			int keySize, algoNameLen, status;
+
+			REQUIRES( hashAlgo == CRYPT_ALGO_SHA2 );
+			status = krnlSendMessage( iSignContext, IMESSAGE_GETATTRIBUTE, 
+									  &keySize, CRYPT_CTXINFO_KEYSIZE );
+			if( cryptStatusError( status ) )
+				return( status );
+			switch( keySize )
+				{
+				case bitsToBytes( 256 ):
+					algoName = "ecdsa-sha2-nistp256";
+					algoNameLen = 19;
+					break;
 
 #ifdef USE_SHA2_EXT
-			case bitsToBytes( 384 ):
-				algoName = "ecdsa-sha2-nistp384";
-				algoNameLen = 19;
-				break;
+				case bitsToBytes( 384 ):
+					algoName = "ecdsa-sha2-nistp384";
+					algoNameLen = 19;
+					break;
 
-			case bitsToBytes( 521 ):
-				algoName = "ecdsa-sha2-nistp521";
-				algoNameLen = 19;
-				break;
+				case bitsToBytes( 521 ):
+					algoName = "ecdsa-sha2-nistp521";
+					algoNameLen = 19;
+					break;
 #endif /* USE_SHA2_EXT */
 
-			default:
-				retIntError();
-			}
+				default:
+					retIntError();
+				}
 
-		writeUint32( stream, sizeofString32( algoNameLen ) + \
-							 sizeofString32( signatureLength ) );
-		writeString32( stream, algoName, algoNameLen );
-		return( writeString32( stream, signature, signatureLength ) );
-		}
+			writeUint32( stream, sizeofString32( algoNameLen ) + \
+								 sizeofString32( signatureLength ) );
+			writeString32( stream, algoName, algoNameLen );
+			return( writeString32( stream, signature, signatureLength ) );
+			}
 #endif /* USE_ECDSA */
 
-	/* Write a non-ECC signature */
-	if( hashAlgo == CRYPT_ALGO_SHA1 )
-		{
-		writeUint32( stream, sizeofString32( 7 ) + \
-							 sizeofString32( signatureLength ) );
-		writeString32( stream, ( signAlgo == CRYPT_ALGO_RSA ) ? \
-							   "ssh-rsa" : "ssh-dss", 7 );
-		}
-	else
-		{
-		REQUIRES( signAlgo == CRYPT_ALGO_RSA && \
-				  hashAlgo == CRYPT_ALGO_SHA2 );
+#ifdef USE_ED25519
+		case CRYPT_ALGO_ED25519:
+			REQUIRES( hashAlgo == CRYPT_ALGO_NONE );
+			writeUint32( stream, sizeofString32( 11 ) + \
+								 sizeofString32( signatureLength ) );
+			writeString32( stream, "ssh-ed25519", 11 );
+			return( writeString32( stream, signature, signatureLength ) );
+#endif /* USE_ED25519 */
 
-		writeUint32( stream, sizeofString32( 12 ) + \
-							 sizeofString32( signatureLength ) );
-		writeString32( stream, "rsa-sha2-256", 12 );
+		default:
+			retIntError();
 		}
-	return( writeString32( stream, signature, signatureLength ) );
+
+	retIntError();
 	}
 #endif /* USE_SSH */
 
@@ -1414,6 +1528,12 @@ static const TLS_SIGHASH_INFO sigHashInfo[] = {
   #endif /* USE_SHA2_EXT */
 #endif /* USE_ECDSA */
 
+	/* ED25519 */
+#ifdef USE_ED25519
+	{ /* Ed25519 */ 0x0807, CRYPT_ALGO_ED25519,
+	  CRYPT_ALGO_NONE, 0 },
+#endif /* USE_ED25519 */
+
 	{ CRYPT_ERROR, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE }, 
 		{ CRYPT_ERROR, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE }
 	};
@@ -1498,10 +1618,14 @@ static int writeTls1XSignature( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtrDynamic( signature, signatureLength ) );
 
-	REQUIRES( hashAlgo == CRYPT_ALGO_SHA1 || hashAlgo == CRYPT_ALGO_SHA2 );
-	REQUIRES( hashParam == 0 || \
-			  ( hashParam >= MIN_HASHSIZE && \
-				hashParam <= CRYPT_MAX_HASHSIZE ) );
+	REQUIRES( ( signAlgo == CRYPT_ALGO_ED25519 && \
+				hashAlgo == CRYPT_ALGO_NONE ) || \
+			  ( signAlgo != CRYPT_ALGO_ED25519 && \
+				( hashAlgo == CRYPT_ALGO_SHA1 || \
+				  hashAlgo == CRYPT_ALGO_SHA2 ) ) );
+	REQUIRES( ( signAlgo == CRYPT_ALGO_ED25519 && hashParam == 0 ) || \
+			  ( signAlgo != CRYPT_ALGO_ED25519 && \
+			    rangeCheck( hashParam, MIN_HASHSIZE, CRYPT_MAX_HASHSIZE ) ) );
 	REQUIRES( isShortIntegerRangeMin( signatureLength, 
 									  MIN_SIGNATURE_SIZE ) );
 	REQUIRES( isBooleanValue( useRSAPSS ) );

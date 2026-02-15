@@ -919,10 +919,10 @@ static int completeConnect( INOUT_PTR STREAM *stream,
 	if( protocol == STREAM_PROTOCOL_EAP )
 		netStreamAllocSize += sizeof( EAP_INFO ) + sizeof( SOCKADDR_STORAGE );
 #endif /* USE_EAP */
-	REQUIRES( netStreamAllocSize == 0 || \
-			  rangeCheck( netStreamAllocSize, 1, MAX_BUFFER_SIZE ) );
-	REQUIRES( isIntegerRangeNZ( sizeof( NET_STREAM_INFO ) + \
-								netStreamAllocSize ) );
+	REQUIRES_S( netStreamAllocSize == 0 || \
+				rangeCheck( netStreamAllocSize, 1, MAX_BUFFER_SIZE ) );
+	REQUIRES_S( isIntegerRangeNZ( sizeof( NET_STREAM_INFO ) + \
+								  netStreamAllocSize ) );
 	netStreamInfo = clAlloc( "completeConnect", sizeof( NET_STREAM_INFO ) + \
 												netStreamAllocSize );
 	if( netStreamInfo == NULL )
@@ -941,7 +941,7 @@ static int completeConnect( INOUT_PTR STREAM *stream,
 								protocol, urlInfo );
 	if( cryptStatusError( status ) )
 		{
-		REQUIRES( isIntegerRangeNZ( netStreamAllocSize ) ); 
+		REQUIRES_S( isIntegerRangeNZ( netStreamAllocSize ) ); 
 		zeroise( netStreamInfo, 
 				 sizeof( NET_STREAM_INFO ) + netStreamAllocSize );
 		clFree( "completeConnect", netStreamInfo );

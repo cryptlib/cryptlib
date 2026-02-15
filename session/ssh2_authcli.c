@@ -86,111 +86,35 @@ static const ALGO_STRING_INFO algoStringUserauthentPubkeyTbl[] = {
 
 /* Create a public-key authentication packet */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int rewriteRSASignature( const SESSION_INFO *sessionInfoPtr,
-								INOUT_PTR STREAM *stream,
-								IN_LENGTH_SHORT const int sigLength,
-								IN_LENGTH_SHORT const int sigDataMaxLength )
-	{
-	BYTE sigDataBuffer[ CRYPT_MAX_PKCSIZE + 8 ];
-	const int sigOffset = stell( stream );
-	int sigSize, keySize, delta, status;
-
-	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
-	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-
-	REQUIRES( isShortIntegerRangeNZ( sigLength ) );
-	REQUIRES( isShortIntegerRangeNZ( sigDataMaxLength ) );
-	REQUIRES( isBufsizeRangeNZ( sigOffset ) );
-
-	status = krnlSendMessage( sessionInfoPtr->privateKey, 
-							  IMESSAGE_GETATTRIBUTE, &keySize, 
-							  CRYPT_CTXINFO_KEYSIZE );
-	if( cryptStatusError( status ) )
-		return( status );
-
-	/* Read the signature length and check whether it needs padding.  Note 
-	   that we read the signature data with readString32() rather than 
-	   readInteger32() to ensure that we get the raw signature data exactly 
-	   as written rather than the cleaned-up integer value */
-	readUint32( stream );
-	readUniversal32( stream );
-	status = readString32( stream, sigDataBuffer, CRYPT_MAX_PKCSIZE,
-						   &sigSize );
-	ENSURES( cryptStatusOK( status ) );
-	if( sigSize >= keySize )
-		{
-		/* The signature size is the same as the modulus size, there's 
-		   nothing to do.  The reads above have reset the stream-position 
-		   indicator to the end of the signature data so there's no need to 
-		   perform an explicit seek before exiting */
-		return( CRYPT_OK );
-		}
-
-	/* We've got a signature that's shorter than the RSA modulus, we need to 
-	   rewrite it to pad it out to the modulus size:
-
-		  sigOfs				  sigDataBuffer
-			|							|
-			v uint32	string32		v
-			+-------+---------------+---+-------------------+
-			| length|	algo-name	|pad|	sigData			|
-			+-------+---------------+---+-------------------+
-			|						|<+>|<---- sigSize ---->|
-			|						delta					|
-			|						|<------ keySize ------>|
-			|<----------------- sigLength ----------------->|
-			|<------------- sigDataMaxLength --------[...]-------->| */
-	delta = keySize - sigSize;
-	ENSURES( delta > 0 && delta < 16 );
-	if( sigLength + delta > sigDataMaxLength )
-		return( CRYPT_ERROR_OVERFLOW );
-	sseek( stream, sigOffset );
-	writeUint32( stream, sizeofString32( 7 ) + \
-						 sizeofString32( keySize ) );
-	writeString32( stream, "ssh-rsa", 7 );
-	writeUint32( stream, keySize );
-	return( writeFixedsizeValue( stream, sigDataBuffer, sigSize, keySize ) );
-	}
-
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
 static int createPubkeyAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 const SSH_HANDSHAKE_INFO *handshakeInfo,
 							 INOUT_PTR STREAM *stream,
 							 const ATTRIBUTE_LIST *userNamePtr )
 	{
-	MESSAGE_CREATEOBJECT_INFO createInfo;
-	ERROR_INFO localErrorInfo;
-	void *sigDataPtr, *packetDataPtr DUMMY_INIT_PTR;
-	int sigDataMaxLength, packetDataLength;
-	int sigLength DUMMY_INIT, pkcAlgo, status;
+	void *packetDataPtr DUMMY_INIT_PTR;
+	int packetDataLength, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( userNamePtr, sizeof( ATTRIBUTE_LIST ) ) );
 
-	status = krnlSendMessage( sessionInfoPtr->privateKey, 
-							  IMESSAGE_GETATTRIBUTE, &pkcAlgo, 
-							  CRYPT_CTXINFO_ALGO );
-	if( cryptStatusError( status ) )
-		return( status );
-
 	/*	byte	type = SSH_MSG_USERAUTH_REQUEST
 		string	user_name
 		string	service_name = "ssh-connection"
 		string	method-name = "publickey"
 		boolean	TRUE
-		string		"ssh-rsa"		"rsa-sha2-256"		"ssh-dss"
+		string		"ssh-rsa"	"rsa-sha2-256"	"ssh-dss"	"ed25519"
 		string		[ client key/certificate ]
-			string	"ssh-rsa"		"ssh-rsa"			"ssh-dss"
-			mpint	e				e					p
-			mpint	n				n					q
-			mpint										g
-			mpint										y
+			string	"ssh-rsa"	"ssh-rsa"		"ssh-dss"	"ed25519"
+			mpint	e			e				p			string pubKey
+			mpint	n			n				q
+			mpint								g
+			mpint								y
 		string		[ client signature ]
-			string	"ssh-rsa"		"rsa-sha2-256"		"ssh-dss"
-			string	signature		signature			signature
+			string	"ssh-rsa"	"rsa-sha2-256"	"ssh-dss"	"ed25519"
+			string	signature	signature		signature	signature
 
 	   Note the multiple copies of the algorithm name, the spec first 
 	   requires that the public-key authentication packet send the algorithm 
@@ -204,8 +128,9 @@ static int createPubkeyAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	writeString32( stream, "ssh-connection", 14 );
 	writeString32( stream, "publickey", 9 );
 	sputc( stream, 1 );
-	status = writeAlgoStringEx( stream, pkcAlgo, handshakeInfo->hashAlgo, 
-								CRYPT_UNUSED, SSH_ALGOSTRINGINFO_NONE );
+	status = writeAlgoStringEx( stream, sessionInfoPtr->privateKeyAlgo, 
+								handshakeInfo->hashAlgo, CRYPT_UNUSED, 
+								SSH_ALGOSTRINGINFO_NONE );
 	if( cryptStatusOK( status ) )
 		{
 		status = exportAttributeToStream( stream, sessionInfoPtr->privateKey,
@@ -224,89 +149,21 @@ static int createPubkeyAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "Couldn't write SSH_MSG_USERAUTH_REQUEST packet" ) );
 		}
 
-	/* Hash the authentication request data, composed of:
-
-		string		exchange hash
-		[ SSH_MSG_USERAUTH_REQUEST packet payload up to signature start ] */
-	setMessageCreateObjectInfo( &createInfo, handshakeInfo->hashAlgo );
-	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,
-							  IMESSAGE_DEV_CREATEOBJECT, &createInfo,
-							  OBJECT_TYPE_CONTEXT );
-	if( cryptStatusError( status ) )
-		return( status );
-	if( TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_NOHASHLENGTH ) )
+	/* Create the signature on the authentication data, with the usual 
+	   special-snowflake handling for the Bernstein algorithms */
+#ifdef USE_ED25519
+	if( isBernsteinAlgo( sessionInfoPtr->privateKeyAlgo ) )
 		{
-		/* Some implementations erroneously omit the length when hashing the 
-		   exchange hash */
-		status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH,
-								  ( MESSAGE_CAST ) handshakeInfo->sessionID,
-								  handshakeInfo->sessionIDlength );
+		return( processAuthDataSigBernstein( sessionInfoPtr, handshakeInfo, 
+											 stream, packetDataPtr, 
+											 packetDataLength, 
+											 sessionInfoPtr->privateKeyAlgo, 
+											 TRUE ) );
 		}
-	else
-		{
-		status = hashAsString( createInfo.cryptHandle, 
-							   handshakeInfo->sessionID,
-							   handshakeInfo->sessionIDlength );
-		}
-	if( cryptStatusOK( status ) )
-		{
-		status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH,
-								  packetDataPtr, packetDataLength );
-		}
-	if( cryptStatusOK( status ) )
-		{
-		status = krnlSendMessage( createInfo.cryptHandle, 
-								  IMESSAGE_CTX_HASH, "", 0 );
-		}
-	if( cryptStatusError( status ) )
-		{
-		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
-		retExt( status,
-				( status, SESSION_ERRINFO,
-				  "Couldn't hash authentication request data" ) );
-		}
-
-	/* Sign the hash.  The reason for the min() part of the expression is 
-	   that iCryptCreateSignature() gets suspicious of very large buffer 
-	   sizes, for example when the user has specified the use of a huge send 
-	   buffer */
-	clearErrorInfo( &localErrorInfo );
-	status = sMemGetDataBlockRemaining( stream, &sigDataPtr, 
-										&sigDataMaxLength );
-	if( cryptStatusOK( status ) )
-		{
-		status = iCryptCreateSignature( sigDataPtr, 
-						min( sigDataMaxLength, MAX_INTLENGTH_SHORT - 1 ), 
-						&sigLength, CRYPT_IFORMAT_SSH, 
-						sessionInfoPtr->privateKey, createInfo.cryptHandle, 
-						NULL, &localErrorInfo );
-		}
-	if( cryptStatusError( status ) )
-		{
-		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
-		retExtErr( status,
-				   ( status, SESSION_ERRINFO, &localErrorInfo,
-				     "Couldn't sign SSH_MSG_USERAUTH_REQUEST packet" ) );
-		}
-
-	/* Some buggy implementations require that RSA signatures be padded with 
-	   zeroes to the full modulus size, mysteriously failing the 
-	   authentication in a small number of randomly-distributed cases when 
-	   the signature format happens to be less than the modulus size.  To 
-	   handle this we have to rewrite the signature to include the extra 
-	   padding bytes */
-	if( TEST_FLAG( sessionInfoPtr->protocolFlags, 
-				   SSH_PFLAG_RSASIGPAD ) && pkcAlgo == CRYPT_ALGO_RSA )
-		{
-		status = rewriteRSASignature( sessionInfoPtr, stream, sigLength, 
-									  min( sigDataMaxLength, \
-										   MAX_INTLENGTH_SHORT - 1 ) );
-		}
-	else
-		status = sSkip( stream, sigLength, MAX_INTLENGTH_SHORT );
-	krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
-
-	return( status );
+#endif /* USE_ED25519 */
+	return( processAuthDataSig( sessionInfoPtr, handshakeInfo, stream, 
+								packetDataPtr, packetDataLength, 
+								sessionInfoPtr->privateKeyAlgo, TRUE ) );
 	}
 
 /****************************************************************************

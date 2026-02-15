@@ -2,7 +2,7 @@
 # *****************************************************************************
 # *                                                                           *
 # *                        cryptlib External API Interface                    *
-# *                       Copyright Peter Gutmann 1997-2023                   *
+# *                       Copyright Peter Gutmann 1997-2026                   *
 # *                                                                           *
 # *                 adapted for Perl Version 5.x  by Alvaro Livraghi          *
 # *****************************************************************************
@@ -12,25 +12,20 @@
 #
 # This file has been created automatically by a perl script from the file:
 #
-# "cryptlib.h" dated Wed Jun 21 23:31:08 2023, filesize = 103765.
+# "cryptlib.h" dated Tue Feb 10 16:49:48 2026, filesize = 104843.
 #
 # Please check twice that the file matches the version of cryptlib.h
 # in your cryptlib source! If this is not the right version, try to download an
 # update from CPAN web site. If the filesize or file creation date do not match,
 # then please do not complain about problems.
 #
-# Published by Alvaro Livraghi, 
+# Published by Alvaro Livraghi,
 # mailto: perlcryptlib@gmail.com if you find errors in this file.
 #
 # -----------------------------------------------------------------------------
 #
 
-	sub CRYPTLIB_VERSION { 347 }
-
-#  Additional defines for compilers that provide extended function and 
-#  function-parameter checking 
-
-
+	sub CRYPTLIB_VERSION { 349 }
 
 #****************************************************************************
 #*                                                                           *
@@ -82,10 +77,10 @@
 	sub CRYPT_ALGO_ECDSA { 105 }
 	# ECDH
 	sub CRYPT_ALGO_ECDH { 106 }
-	# EDDSA
-	sub CRYPT_ALGO_EDDSA { 107 }
-	# X25519/X448
-	sub CRYPT_ALGO_25519 { 108 }
+	# X25519
+	sub CRYPT_ALGO_25519 { 107 }
+	# Ed25519
+	sub CRYPT_ALGO_ED25519 { 108 }
 
 	# Hash algorithms
 	# Formerly MD2
@@ -1629,7 +1624,7 @@
 	# Server port number
 	sub CRYPT_SESSINFO_SERVER_PORT { 6010 }
 	# Server key fingerprint
-	sub CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 { 6011 }
+	sub CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 { 6011 }
 	# Client name
 	sub CRYPT_SESSINFO_CLIENT_NAME { 6012 }
 	# Client port number
@@ -2146,6 +2141,8 @@
 # Disable certificate check 
 	sub CRYPT_TLSOPTION_SERVER_SNI { 0x040 }
 # Enable SNI-based key selection 
+	sub CRYPT_TLSOPTION_RESUMED { 0x080 }
+# TLS session is resumed 
 	sub CRYPT_TLSOPTION_SUITEB_128 { 0x100 }
 # SuiteB security levels (will 
 	sub CRYPT_TLSOPTION_SUITEB_256 { 0x200 }
@@ -2397,6 +2394,21 @@ sub CRYPT_PKCINFO_ECC
 	#  Private components 
     ,d => ' ' x CRYPT_MAX_PKCSIZE_ECC	#  Private random integer 
     ,dLen => 0	#  Length of integer in bits 
+    
+	}
+}
+
+sub CRYPT_PKCINFO_DJB
+{
+	{
+	#  Status information 
+     isPublicKey => 0	#  Whether this is a public or private key 
+	#  Public components 
+    ,pub => ' ' x CRYPT_MAX_PKCSIZE	#  Public value 
+    ,pubLen => 0	#  Length of public value in bits 
+	#  Private components 
+    ,priv => ' ' x CRYPT_MAX_PKCSIZE	#  Private value 
+    ,privLen => 0	#  Length of private value in bits 
     
 	}
 }
@@ -2705,7 +2717,7 @@ sub CRYPT_PKCINFO_ECC
 # C_CHECK_RETVAL 
 ###C_RET cryptAddPublicKey( C_IN CRYPT_KEYSET keyset,
 ##                         C_IN CRYPT_CERTIFICATE certificate );
-### C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) 
+### C_CHECK_RETVAL 
 ###C_RET cryptAddPrivateKey( C_IN CRYPT_KEYSET keyset,
 ##                          C_IN CRYPT_HANDLE cryptKey,
 ##                          C_IN C_STR password );

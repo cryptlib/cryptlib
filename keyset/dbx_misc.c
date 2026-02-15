@@ -525,9 +525,11 @@ int extractCertData( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
 
 	/* Make sure that there's no collision in format type values (although 
 	   the switch() statement will also catch this by producing a compile 
-	   error */
+	   error).  Since we're comparing two different enum types we cast one
+	   to the other to avoid warnings from compilers that don't like this */
 	static_assert( CRYPT_CERTFORMAT_CERTIFICATE != CRYPT_ICERTFORMAT_DATA && \
-				   CRYPT_CERTFORMAT_CERTIFICATE != CRYPT_IATTRIBUTE_CRLENTRY, \
+				   CRYPT_CERTFORMAT_CERTIFICATE != \
+						(CRYPT_CERTFORMAT_TYPE ) CRYPT_IATTRIBUTE_CRLENTRY, \
 				   "Format type collision" );
 
 	/* Clear return values */

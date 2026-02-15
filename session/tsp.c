@@ -102,7 +102,7 @@ static BOOLEAN sanityCheckSessionTSP( IN_PTR \
 	}
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
-static BOOLEAN sanityCheckTSPProtocolInfo( IN_PTR \
+static BOOLEAN sanityCheckTSPProtocolInfo( STDC_UNUSED \
 									const TSP_PROTOCOL_INFO *protocolInfo )
 	{
 	return( TRUE );
@@ -465,7 +465,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int sendClientRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  INOUT_PTR TSP_PROTOCOL_INFO *protocolInfo )
 	{
-	TSP_INFO *tspInfo = sessionInfoPtr->sessionTSP;
+	const TSP_INFO *tspInfo = sessionInfoPtr->sessionTSP;
 	STREAM stream;
 	void *msgImprintPtr;
 	int status;
@@ -554,8 +554,15 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Read the response data from the server.  TSP error responses can be
 	   shorter than the minimum object size so we allow for smaller-than-
-	   usual data reads */
-	status = readPkiDatagram( sessionInfoPtr, min( 48, MIN_CRYPT_OBJECTSIZE ),
+	   usual data reads:
+
+		TSAResponse ::= SEQUENCE {
+			pkiStatus		SEQUENCE {
+				status		INTEGER,
+				failureInfo	BIT STRING
+				}
+			} */
+	status = readPkiDatagram( sessionInfoPtr, min( 11, MIN_CRYPT_OBJECTSIZE ),
 							  MK_ERRTEXT( "Couldnt read TSP response from "
 										  "server" ) );
 	if( cryptStatusError( status ) )

@@ -198,6 +198,8 @@ BOOLEAN isValidASN1TextString( IN_BUFFER( stringLen ) const char *string,
    code checks for this so it's mostly a slightly misleading static-analysis 
    annotation */
 
+#ifdef USE_WIDECHARS
+
 CHECK_RETVAL_RANGE_NOERROR( 0, 0xFFFFL ) STDC_NONNULL_ARG( ( 1 ) ) \
 static wchar_t getWidechar( IN_BUFFER_C( WCHAR_SIZE ) const BYTE *string )
 	{
@@ -235,6 +237,7 @@ static wchar_t getWidechar( IN_BUFFER_C( WCHAR_SIZE ) const BYTE *string )
 
 	return( ch );
 	}
+#endif /* USE_WIDECHARS */
 
 /****************************************************************************
 *																			*
@@ -252,6 +255,8 @@ static int checkUtf8String( IN_BUFFER( stringLen ) const void *string,
 									ASN1_STRING_TYPE *asn1StringType );
 
 /* Try and guess whether a native string is a widechar string */
+
+#ifdef USE_WIDECHARS
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN isNativeWidecharString( IN_BUFFER( stringLen ) const BYTE *string, 
@@ -364,6 +369,7 @@ static BOOLEAN isNativeWidecharString( IN_BUFFER( stringLen ) const BYTE *string
 	return( TRUE );				/* Probably 16-bit characters */
 #endif /* 32- vs 16-bit wchar_t */ 
 	}
+#endif /* USE_WIDECHARS */
 
 /* Try and figure out the true string type for an ASN.1 or native string.  
    This detects (or at least tries to detect) not only the basic string type 
@@ -550,6 +556,8 @@ static int getAsn1StringType( IN_BUFFER( stringLen ) const BYTE *string,
 	return( CRYPT_OK );
 	}
 
+#ifdef USE_WIDECHARS
+
 CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int getNativeStringType( IN_BUFFER( stringLen ) const BYTE *string, 
 								IN_LENGTH_SHORT const int stringLen,
@@ -636,6 +644,23 @@ static int getNativeStringType( IN_BUFFER( stringLen ) const BYTE *string,
 							  ASN1_STRING_UNICODE_PRINTABLE;
 	return( CRYPT_OK );
 	}
+#else
+
+CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+static int getNativeStringType( IN_BUFFER( stringLen ) const BYTE *string, 
+								IN_LENGTH_SHORT const int stringLen,
+								OUT_ENUM_OPT( ASN1_STRING ) \
+										ASN1_STRING_TYPE *asn1StringType )
+	{
+	assert( isReadPtrDynamic( string, stringLen ) );
+	assert( isWritePtr( asn1StringType, sizeof( ASN1_STRING_TYPE ) ) );
+
+	REQUIRES( isShortIntegerRangeNZ( stringLen ) );
+
+	return( get8bitStringType( string, stringLen, BER_STRING_UTF8, 
+							   asn1StringType ) );
+	}
+#endif /* USE_WIDECHARS */
 
 /****************************************************************************
 *																			*
@@ -1583,7 +1608,7 @@ int copyToAsn1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest,
 										NATIVE_CHAR_MBS : \
 										NATIVE_CHAR_WIDECHAR ) );
 	}
-#else
+#elif defined( USE_WIDECHARS )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
 int copyToAsn1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest, 
@@ -1697,5 +1722,40 @@ int copyToAsn1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest,
 
 	return( status );
 	}
-#endif /* USE_UTF8 */
+
+#else
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
+int copyToAsn1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest, 
+					  IN_LENGTH_SHORT const int destMaxLen, 
+					  OUT_LENGTH_BOUNDED_Z( destMaxLen ) int *destLen, 
+					  IN_BUFFER( sourceLen ) const void *source, 
+					  IN_LENGTH_SHORT const int sourceLen,
+					  IN_RANGE( 1, 20 ) const int stringType )
+	{
+	assert( isWritePtrDynamic( dest, destMaxLen ) );
+	assert( isWritePtr( destLen, sizeof( int ) ) );
+	assert( isReadPtrDynamic( source, sourceLen ) );
+
+	REQUIRES( isShortIntegerRangeNZ( destMaxLen ) );
+	REQUIRES( isShortIntegerRangeNZ( sourceLen ) );
+	REQUIRES( isEnumRange( stringType, ASN1_STRING ) && \
+			  !isErrorStringType( stringType ) );
+
+	/* Clear return value */
+	REQUIRES( isShortIntegerRangeNZ( destMaxLen ) ); 
+	memset( dest, 0, min( 16, destMaxLen ) );
+	*destLen = 0;
+
+	/* We don't have any widechar or UTF-8 support, the best that we can do 
+	   is copy it across as is and hope the caller can do something with it */
+	if( sourceLen > destMaxLen )
+		return( CRYPT_ERROR_OVERFLOW );
+	REQUIRES( rangeCheck( sourceLen, 1, destMaxLen ) );
+	memcpy( dest, source, sourceLen );
+	*destLen = sourceLen;
+
+	return( CRYPT_OK );
+	}
+#endif /* USE_UTF8 / USE_WIDECHARS / None of the above */
 #endif /* USE_CERTIFICATES */

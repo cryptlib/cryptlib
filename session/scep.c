@@ -314,7 +314,7 @@ int processKeyFingerprint( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
 	const ATTRIBUTE_LIST *fingerprintPtr = \
 				findSessionInfo( sessionInfoPtr,
-								 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 );
+								 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 );
 	MESSAGE_DATA msgData;
 #ifdef USE_ERRMSGS
 	char certName[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -334,7 +334,7 @@ int processKeyFingerprint( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 						fingerprintPtr->valueLength );
 		status = krnlSendMessage( sessionInfoPtr->iAuthInContext, 
 								  IMESSAGE_COMPARE, &msgData, 
-								  MESSAGE_COMPARE_FINGERPRINT_SHA1 );
+								  MESSAGE_COMPARE_FINGERPRINT_SHA2 );
 		if( cryptStatusError( status ) )
 			{
 			retExt( CRYPT_ERROR_WRONGKEY,
@@ -355,11 +355,11 @@ int processKeyFingerprint( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		setMessageData( &msgData, certFingerprint, CRYPT_MAX_HASHSIZE );
 		status = krnlSendMessage( sessionInfoPtr->iAuthInContext, 
 								  IMESSAGE_GETATTRIBUTE_S, &msgData, 
-								  CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+								  CRYPT_CERTINFO_FINGERPRINT_SHA2 );
 		if( cryptStatusOK( status ) )
 			{
 			( void ) addSessionInfoS( sessionInfoPtr,
-									  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
+									  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
 									  certFingerprint, msgData.length );
 			}
 		}
@@ -429,7 +429,7 @@ int createScepAttributes( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusOK( status ) )
 		{
 		setMessageData( &msgData, ( MESSAGE_CAST ) messageType, 
-						strlen( messageType ) );
+						strnlen_s( messageType, CRYPT_MAX_TEXTSIZE ) );
 		status = krnlSendMessage( iCmsAttributes, IMESSAGE_SETATTRIBUTE_S,
 								  &msgData, CRYPT_CERTINFO_SCEP_MESSAGETYPE );
 		}
@@ -551,7 +551,7 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 INOUT_PTR void *data, 
 								 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
-	SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	const SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
 	CRYPT_CERTIFICATE *scepResponsePtr = ( CRYPT_CERTIFICATE * ) data;
 	CRYPT_CERTIFICATE iCryptCert;
 
@@ -785,7 +785,7 @@ static int checkAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   IN_PTR const void *data,
 								   IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
-	SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	const SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );

@@ -262,7 +262,11 @@ static int dispatchManagementAction( IN_ARRAY( mgmtFunctionCount ) \
    in the modules that require the drivers call krnlWaitSemaphore() on the 
    driver binding semaphore, which blocks until the drivers are bound if an 
    async bind is in progress, or returns immediately if no bind is in 
-   progress */
+   progress.
+   
+   Note that this will produce a warning from some leak-checkers if 
+   krnlWaitSemaphore() is never called, for example because no code path 
+   that requires use of a driver is ever invoked */
 
 #ifdef USE_THREAD_FUNCTIONS
 
@@ -344,31 +348,31 @@ static void displayBuildParams( void )
 	/* Dump system data information */
 	DEBUG_PRINT(( "System storage: Kernel data = 0x%lX, %d bytes, "
 				  "object table = 0x%lX, %d bytes for %d objects.\n", 
-				  getSystemStorage( SYSTEM_STORAGE_KRNLDATA ), 
+				  ( uintptr_t ) getSystemStorage( SYSTEM_STORAGE_KRNLDATA ), 
 				  getSystemStorageSize( SYSTEM_STORAGE_KRNLDATA ), 
-				  getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE ), 
+				  ( uintptr_t ) getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE ), 
 				  getSystemStorageSize( SYSTEM_STORAGE_OBJECT_TABLE ),
 				  MAX_NO_OBJECTS )); 
 	DEBUG_PRINT(( "Built-in storage: Random info = 0x%lX, %d bytes",
-				  getBuiltinStorage( BUILTIN_STORAGE_RANDOM_INFO ), 
+				  ( uintptr_t ) getBuiltinStorage( BUILTIN_STORAGE_RANDOM_INFO ), 
 				  getBuiltinStorageSize( BUILTIN_STORAGE_RANDOM_INFO ) ));
 #ifdef USE_CERTIFICATES
 	DEBUG_PRINT(( ", trust info = 0x%lX, %d bytes", 
-				  getBuiltinStorage( BUILTIN_STORAGE_TRUSTMGR ),
+				  ( uintptr_t ) getBuiltinStorage( BUILTIN_STORAGE_TRUSTMGR ),
 				  getBuiltinStorageSize( BUILTIN_STORAGE_TRUSTMGR ) ));
 #endif /* USE_CERTIFICATES */
 #ifdef USE_TCP
 	DEBUG_PRINT(( ", socket pool = 0x%lX, %d bytes", 
-				  getBuiltinStorage( BUILTIN_STORAGE_SOCKET_POOL ), 
+				  ( uintptr_t ) getBuiltinStorage( BUILTIN_STORAGE_SOCKET_POOL ), 
 				  getBuiltinStorageSize( BUILTIN_STORAGE_SOCKET_POOL ) ));
 #endif /* USE_TCP */
 #ifdef USE_TLS
 	DEBUG_PRINT(( ", session scoreboard = 0x%lX, %d bytes", 
-				  getBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ), 
+				  ( uintptr_t ) getBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ), 
 				  getBuiltinStorageSize( BUILTIN_STORAGE_SCOREBOARD ) ));
 #endif /* USE_TLS */
 	DEBUG_PRINT(( ", option info = 0x%lX, %d bytes.\n", 
-				  getBuiltinStorage( BUILTIN_STORAGE_OPTION_INFO ), 
+				  ( uintptr_t ) getBuiltinStorage( BUILTIN_STORAGE_OPTION_INFO ), 
 				  getBuiltinStorageSize( BUILTIN_STORAGE_OPTION_INFO ) ));
 
 	/* Dump object storage information.  Allocations and deallocations dump
@@ -504,9 +508,9 @@ static void displayBuildParams( void )
 #ifdef USE_ECDSA
 	DEBUG_PRINT(( " USE_ECDSA" ));
 #endif /* USE_ECDSA */
-#ifdef USE_EDDSA
-	DEBUG_PRINT(( " USE_EDDSA" ));
-#endif /* USE_EDDSA */
+#ifdef USE_ED25519
+	DEBUG_PRINT(( " USE_ED25519" ));
+#endif /* USE_ED25519 */
 #ifdef USE_ELGAMAL
 	DEBUG_PRINT(( " USE_ELGAMAL" ));
 #endif /* USE_ELGAMAL */
@@ -772,10 +776,20 @@ static BOOLEAN sanityCheckBuild( void )
 		{
 		DEBUG_PRINT(( "Error in build: Static data segment is located at "
 					  "%lX which isn't recognised by isValidPointer().\n",
-					  getSystemStorage( SYSTEM_STORAGE_KRNLDATA ) ));
+					  ( uintptr_t ) getSystemStorage( SYSTEM_STORAGE_KRNLDATA ) ));
 		return( FALSE );
 		}
-#endif /* NDEBUG */
+#endif /* !NDEBUG */
+
+	/* Warn if unsafe build options are enabled in a release build.  For 
+	   debug builds this is done through displayBuildParams().  Since this 
+	   is going to stderr from an unexpected source we identify what's
+	   generating it in the text message */
+#if defined( NDEBUG ) && defined( USE_UNSAFE_BUILD_OPTIONS )
+	fprintf( stderr, "Warning: cryptlib has unsafe build options enabled "
+			 "for a release build, this\n         should only be used for "
+			 "testing and never in production.\n" );
+#endif /* NDEBUG && USE_UNSAFE_BUILD_OPTIONS */
 
 	/* If we're working with a maximum time value beyond Y2038, make sure 
 	   that the system time functions can actually handle this.
@@ -790,7 +804,7 @@ static BOOLEAN sanityCheckBuild( void )
 		struct tm tmStruct, *tmStructPtr;
 		time_t theTime;
 
-        tmStructPtr = gmtime( &time1 );
+        tmStructPtr = gmTime_s( &time1, tmStructPtr );
 		if( tmStructPtr == NULL || \
 			tmStructPtr->tm_year != 138 || \
 			tmStructPtr->tm_mon != 0 || \
@@ -801,7 +815,7 @@ static BOOLEAN sanityCheckBuild( void )
 						 "range.\n" ));
 			return( FALSE );
 			}
-        tmStructPtr = gmtime( &time2 );
+        tmStructPtr = gmTime_s( &time2, tmStructPtr );
 		if( tmStructPtr == NULL || \
 			tmStructPtr->tm_year != 138 || \
 			tmStructPtr->tm_mon != 0 || \
@@ -812,7 +826,7 @@ static BOOLEAN sanityCheckBuild( void )
 						 "range.\n" ));
 			return( FALSE );
 			}
-        tmStructPtr = gmtime( &time3 );
+        tmStructPtr = gmTime_s( &time3, tmStructPtr );
 		if( tmStructPtr == NULL || \
 			tmStructPtr->tm_year != 197 || \
 			tmStructPtr->tm_mon != 7 || \
@@ -985,9 +999,7 @@ int initCryptlib( void )
 								  CRYPT_OPTION_MISC_ASYNCINIT );
 		if( cryptStatusOK( status ) && asyncInit == TRUE )
 			{
-			/* We use the kernel's thread storage for this thread, so we 
-			   specify the thread data storage as NULL */
-			status = krnlDispatchThread( threadedBind, NULL, NULL, 0,
+			status = krnlDispatchThread( threadedBind, 
 										 SEMAPHORE_DRIVERBIND );
 			if( cryptStatusError( status ) )
 				{

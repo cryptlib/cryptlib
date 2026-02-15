@@ -29,9 +29,12 @@
 
 /* Self-test code for the correctness/safety mechanisms.  Note that we have 
    to use a buffer of at least 256 bytes since that's the smallest that 
-   safeBufferInit() will allow us to specify */
+   safeBufferInit() will allow us to specify.  We also need to allow room
+   for the start and end cookies, which can be up to 16 bytes on 128-bit-
+   pointer systems */
 
-#define SAFE_BUFFER_SIZE	256
+#define SAFE_BUFFER_SIZE			256
+#define SAFE_BUFFER_COOKIE_SIZE		16
 
 static BOOLEAN testCFITrue( const ACCESS_TOKEN accessToken )
 	{
@@ -48,10 +51,12 @@ static BOOLEAN testSafetyMechanisms( void )
 	DATAPTR testPtr;
 	SAFE_FLAGS flags;
 	SAFE_BOOLEAN testBool;
-	BYTE buffer[ SAFE_BUFFER_SIZE + 16 + 8 ], *bufPtr, savedValue;
+	BYTE buffer[ SAFE_BUFFER_COOKIE_SIZE + SAFE_BUFFER_SIZE + \
+				 SAFE_BUFFER_COOKIE_SIZE + 8 ], *bufPtr, savedValue;
 	TMR_DECLARE( int, tmrInt );
 	LOOP_INDEX i;
 	const int maxInt = MAX_INTLENGTH, maxIntSub10 = MAX_INTLENGTH - 10;
+	const int maxIntDiv2 = MAX_INTLENGTH / 2;
 	const int maxIntDiv10 = MAX_INTLENGTH / 10;
 	int LOOP_ITERATOR_ALT;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
@@ -130,7 +135,7 @@ static BOOLEAN testSafetyMechanisms( void )
 		return( FALSE );
 	CFI_CHECK_UPDATE( "TMR" ); 
 
-	/* Test the overflow-checking mechanisms.  These checks will probably 
+	/* Test the overflow-checking mechanisms.  These checks will possibly
 	   fall prey to optimiser inlining but it'll still statically check that
 	   they work as expected.
 
@@ -159,6 +164,11 @@ static BOOLEAN testSafetyMechanisms( void )
 		return( FALSE );
 	if( checkOverflowDiv( maxInt, maxIntDiv10 ) || \
 		!checkOverflowDiv( maxInt, 0 ) )
+		return( FALSE );
+	if( checkOverflowAdd3( maxIntDiv2, maxIntDiv2, 0 ) || \
+		!checkOverflowAdd3( maxIntDiv2, maxIntDiv2, 1 ) || \
+		checkOverflowAdd3( maxIntSub10, 8, 1 ) || \
+		!checkOverflowAdd3( maxIntSub10, 9, 1 ) )
 		return( FALSE );
 	CFI_CHECK_UPDATE( "Overflow" ); 
 
@@ -267,11 +277,15 @@ static BOOLEAN testSafetyMechanisms( void )
 	CFI_CHECK_UPDATE( "loops" ); 
 
 	/* Test the buffer overrun protection */
-	memset( buffer, 0, SAFE_BUFFER_SIZE + 16 );
+	memset( buffer, 0, SAFE_BUFFER_COOKIE_SIZE + SAFE_BUFFER_SIZE + \
+					   SAFE_BUFFER_COOKIE_SIZE );
 	bufPtr = SAFEBUFFER_PTR( buffer );
 	safeBufferInit( bufPtr, SAFE_BUFFER_SIZE );
 	if( !safeBufferCheck( bufPtr, SAFE_BUFFER_SIZE ) )
 		return( FALSE );	/* Basic check */
+	memset( bufPtr, '*',  SAFE_BUFFER_SIZE );
+	if( !safeBufferCheck( bufPtr, SAFE_BUFFER_SIZE ) )
+		return( FALSE );	/* Full buffer use OK */
 	savedValue = bufPtr[ -1 ];
 	bufPtr[ -1 ]++;
 	if( safeBufferCheck( bufPtr, SAFE_BUFFER_SIZE ) )

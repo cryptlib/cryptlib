@@ -137,7 +137,7 @@ static int appendFilename( INOUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 						   IN_ENUM( BUILDPATH ) \
 								const BUILDPATH_OPTION_TYPE option )
 	{
-	const int partialPathLen = strlen( path );
+	const int partialPathLen = strnlen_s( path, MAX_PATH_LENGTH );
 
 	assert( isWritePtrDynamic( path, pathMaxLen ) );
 	assert( isWritePtr( pathLen, sizeof( int ) ) );
@@ -167,6 +167,7 @@ static int appendFilename( INOUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 		return( CRYPT_OK );
 		}
+	ANALYSER_HINT( fileName != NULL );
 
 	/* User-defined filenames are a bit more complex because we have to
 	   safely append a variable-length quantity to the path (the +1 is for
@@ -178,6 +179,31 @@ static int appendFilename( INOUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	memcpy( path + partialPathLen, fileName, fileNameLen );
 	memcpy( path + partialPathLen + fileNameLen, ".p15", 4 + 1 );
 	*pathLen = partialPathLen + fileNameLen + 4 + 1;
+
+	/* During testing we can end up with zero-length files if we interrupt
+	   the run partway through.  To deal with this the following code will
+	   identify a zero-length file and clear it before continuing.  We use
+	   stdio functions rather than built-in ones because theres no 
+	   fileTell() available */
+#if !defined( NDEBUG ) && !defined( CONFIG_NO_STDIO )
+	if( option == BUILDPATH_GETPATH && !fileReadonly( path ) )
+		{
+		FILE *filePtr;
+		
+		filePtr = fopen( path, "r" );
+		if( filePtr != NULL )
+			{
+			if( fseek( filePtr, 0, SEEK_END ) == 0 && \
+				ftell( filePtr ) == 0 )
+				{
+				DEBUG_DIAG(( "Clearing leftover zero-length file %s", 
+							 path ));
+				remove( path );
+				}
+			fclose( filePtr );
+			}
+		}
+#endif /* !NDEBUG && !CONFIG_NO_STDIO */
 
 	return( CRYPT_OK );
 	}
@@ -195,7 +221,7 @@ static int appendFilenameEBCDIC( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 								 IN_ENUM( BUILDPATH_OPTION ) \
 								 const BUILDPATH_OPTION_TYPE option )
 	{
-	const int partialPathLen = strlen( path );
+	const int partialPathLen = strnlen_s( path, MAX_PATH_LENGTH );
 
 	assert( isWritePtrDynamic( path, pathMaxLen ) );
 	assert( isWritePtr( pathLen, sizeof( int ) ) );
@@ -325,7 +351,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -543,10 +569,11 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
 #endif /* CONFIG_FILE_PATH */
 
@@ -559,7 +586,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			return( CRYPT_ERROR_OPEN );
 		}
 #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -593,7 +620,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -832,10 +859,11 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
 #endif /* CONFIG_FILE_PATH */
 
@@ -850,7 +878,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			return( CRYPT_ERROR_OPEN );
 		}
 #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -887,7 +915,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -1118,10 +1146,11 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
 #endif /* CONFIG_FILE_PATH */
 
@@ -1140,7 +1169,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			return( CRYPT_ERROR_OPEN );
 		}
 #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -1151,13 +1180,13 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 /****************************************************************************
 *																			*
-*									uITRON									*
+*								uITRON/NORTi								*
 *																			*
 ****************************************************************************/
 
-/* See the comment in str_file.h for uITRON file handling */
+/* See the comment in str_file.h for uITRON/NORTi file handling */
 
-#elif defined( __ITRON__ )
+#elif defined( __ITRON__ ) || defined( __NORTi__ )
 
 /* Open/close a file stream */
 
@@ -1171,7 +1200,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -1274,27 +1303,16 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
-	long position, length;
-
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
 	REQUIRES_V( stream->type == STREAM_TYPE_FILE );
-
-	/* Wipe everything past the current position in the file */
-	position = ftell( stream->filePtr );
-	fseek( stream->filePtr, 0, SEEK_END );
-	length = ftell( stream->filePtr ) - position;
-	fseek( stream->filePtr, position, SEEK_SET );
-	eraseFile( stream, position, length );
-	chsize( fileno( stream->filePtr ), position );
 	}
 
 STDC_NONNULL_ARG( ( 1 ) ) \
 void fileErase( IN_STRING const char *fileName )
 	{
 	STREAM stream;
-	struct ftime fileTime;
-	int length, status;
+	int status;
 
 	assert( isReadPtr( fileName, 2 ) );
 
@@ -1311,21 +1329,7 @@ void fileErase( IN_STRING const char *fileName )
 			remove( fileName );
 		return;
 		}
-
-	/* Determine the size of the file and erase it */
-	fseek( stream.filePtr, 0, SEEK_END );
-	length = ( int ) ftell( stream.filePtr );
-	fseek( stream.filePtr, 0, SEEK_SET );
-	eraseFile( stream, 0, length );
-
-	/* Truncate the file and reset the timestamps */
-	chsize( fileno( stream.filePtr ), 0 );
-	memset( &fileTime, 0, sizeof( struct ftime ) );
-	setftime( fileno( stream.filePtr ), &fileTime );
-
-	/* Finally, delete the file */
 	sFileClose( &stream );
-	remove( fileName );
 	}
 
 /* Build the path to a file in the cryptlib directory */
@@ -1356,9 +1360,9 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -1379,7 +1383,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 static void CStringToPString( const char *cstring, StringPtr pstring )
 	{
-	short len = min( strlen( cstring ), 255 );
+	short len = strnlen_s( cstring, 255 );
 
 	memmove( pstring + 1, cstring, len );
 	*pstring = len;
@@ -1400,7 +1404,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -1649,12 +1653,13 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -1720,7 +1725,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure as a virtual file stream */
 	memset( stream, 0, sizeof( STREAM ) );
@@ -1735,7 +1740,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 	   if there's a problem is a file open error, since this is buried so
 	   many levels down that a parameter error won't be meaningful to the
 	   caller */
-	if( strlen( fileName ) > 8 )
+	if( strnlen_s( fileName, MAX_PATH_LENGTH ) > 8 )
 		return( CRYPT_ERROR_OPEN );
 	strlcpy_s( stream->name, 8, fileName );
 
@@ -1957,7 +1962,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 	{
 #if defined( __MVS__ ) || defined( __VMCMS__ ) || defined( __TESTIO__ )
 	FILE *filePtr;
-	int count;
+	int count, result;
 #endif /* __MVS__ || __VMCMS__ || __TESTIO__ */
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -1978,8 +1983,9 @@ int fileFlush( INOUT_PTR STREAM *stream )
 	/* No need to go to this level, a RECFM=* binary file will do just as
 	   well */
 	char formatBuffer[ 64 + 8 ];
-	sprintf_s( formatBuffer, 64, "wb,recfm=F,lrecl=%d,noseek", 
-			   stream->bufPos );
+	result = sprintf_s( formatBuffer, 64, "wb,recfm=F,lrecl=%d,noseek", 
+						stream->bufPos );
+	ENSURES( rangeCheck( result, 24, 63 ) );
 	filePtr = fopen( stream->name, formatBuffer );
   #endif /* 0 */
 	filePtr = fopen( stream->name, MODE_WRITE );
@@ -2162,6 +2168,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #if defined( __IBM4758__ )
@@ -2228,7 +2235,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -2451,10 +2458,11 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
 #endif /* CONFIG_FILE_PATH */
 
@@ -2479,7 +2487,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			NU_Done( &statInfo );
 		}
 #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -2531,7 +2539,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -2775,6 +2783,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Make sure that VFS services are available */
 	if( !checkVFSMgr() )
@@ -2782,7 +2791,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
 #endif /* CONFIG_FILE_PATH */
 
@@ -2806,7 +2815,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			}
 		}
 #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -2839,7 +2848,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -3060,10 +3069,11 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
 #endif /* CONFIG_FILE_PATH */
 
@@ -3082,7 +3092,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			return( CRYPT_ERROR_OPEN );
 		}
 #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -3116,7 +3126,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -3357,10 +3367,11 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
 #endif /* CONFIG_FILE_PATH */
 
@@ -3377,7 +3388,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			return( CRYPT_ERROR_OPEN );
 		}
 #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -3434,7 +3445,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -3687,10 +3698,11 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
 #endif /* CONFIG_FILE_PATH */
 
@@ -3704,7 +3716,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			return( CRYPT_ERROR_OPEN );
 		}
 #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -3799,6 +3811,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int openFile( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 					 const int flags, const int openMode )
 	{
+	struct stat fstatInfo;
 	LOOP_INDEX count;
 	int fd DUMMY_INIT;
 
@@ -3859,6 +3872,19 @@ static int openFile( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 		/* We still couldn't get a kosher file handle after trying to move 
 		   past the standard I/O range, something's wrong */
 		assert( DEBUG_WARN );
+		DEBUG_DIAG(( "Couldn't get legitimate file handle to file '%s'",
+					 fileName ));
+		return( CRYPT_ERROR_OPEN );
+		}
+
+	/* Make sure that the file appears kosher.  Note that this check also 
+	   excludes symlinks alongside obviously dubious stuff like FIFOs and
+	   directories */ 
+	if( fstat( fd, &fstatInfo ) < 0 || !S_ISREG( fstatInfo.st_mode ) )
+		{
+		close( fd );
+		DEBUG_DIAG(( "File '%s' doesn't appear to be a regular file",
+					 fileName ));
 		return( CRYPT_ERROR_OPEN );
 		}
 
@@ -3879,7 +3905,7 @@ static int safeFileCreate( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( fileName, 2 ) );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* lstat() the file.  If it doesn't exist, create it with O_EXCL.  If it 
 	   does exist, open it for read/write and perform the fstat() check */
@@ -3911,7 +3937,11 @@ static int safeFileCreate( INOUT_PTR STREAM *stream,
 		/* If it's not a normal file or there are links to it, don't even 
 		   try and do anything with it */
 		if( !S_ISREG( lstatInfo.st_mode ) || lstatInfo.st_nlink != 1 )
+			{
+			DEBUG_DIAG(( "File '%s' doesn't appear to be a regular file",
+						 fileName ));
 			return( CRYPT_ERROR_OPEN );
+			}
 
 		/* Open an existing file */
 		status = openFile( stream, fileName, O_RDWR | extraOpenFlags, 0 );
@@ -3927,6 +3957,8 @@ static int safeFileCreate( INOUT_PTR STREAM *stream,
 			lstatInfo.st_nlink != fstatInfo.st_nlink )
 			{
 			close( stream->fd );
+			DEBUG_DIAG(( "lstat() and fstat() data for '%s' doesn't match",
+						 fileName ));
 			return( CRYPT_ERROR_OPEN );
 			}
 
@@ -3945,6 +3977,8 @@ static int safeFileCreate( INOUT_PTR STREAM *stream,
 		if( !S_ISREG( fstatInfo.st_mode ) || fstatInfo.st_nlink != 1 )
 			{
 			close( stream->fd );
+			DEBUG_DIAG(( "File '%s' doesn't appear to be a regular file",
+						 fileName ));
 			return( CRYPT_ERROR_OPEN );
 			}
 
@@ -4035,7 +4069,7 @@ int sFileOpen( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -4093,6 +4127,22 @@ int sFileOpen( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 			return( status );
 		}
 
+	/* If the private-file flag is set, make sure that the file isn't world-
+	   writeable */
+	if( mode & FILE_FLAG_PRIVATE )
+		{
+		struct stat fstatInfo;
+
+		if( fstat( stream->fd, &fstatInfo ) < 0 || \
+			( fstatInfo.st_mode & S_IWOTH ) )
+			{
+			close( stream->fd );
+			DEBUG_DIAG(( "Configuration file '%s' is world-writeable, "
+						 "skipping", fileName ));
+			return( CRYPT_ERROR_NOSECURE );
+			}
+		}
+
 	/* Lock the file if possible to make sure that no-one else tries to do
 	   things to it.  Locking under Unix basically doesn't work, so most of
 	   the following is just feel-good stuff, we try and do the right thing
@@ -4129,13 +4179,43 @@ int sFileOpen( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 	   2. Closing *any* descriptor for an fcntl()-locked file releases *all*
 		  locks on the file (!!) (one manpage appropriately describes this
 		  behaviour as "the completely stupid semantics of System V and IEEE
-		  Std 1003.1-1988 (= POSIX.1)").  In other words if two threads or
-		  processes open an fcntl()-locked file for shared read access then
-		  the first close of the file releases all locks on it.  Since
-		  fcntl() requires a file handle to work, the only way to determine
-		  whether a file is locked requires opening it, but as soon as we
-		  close it again (for example to abort the access if there's a lock
-		  on it) all locks are released.
+		  Std 1003.1-1988 (= POSIX.1)", and another analysis of locking 
+		  techniques points out that "[this] behaviour is certifiably 
+		  insane, and there's no possible justification for why it should 
+		  work that way").  In other words if two threads or processes open 
+		  an fcntl()-locked file for shared read access then the first close 
+		  of the file releases all locks on it.  Since fcntl() requires a 
+		  file handle to work, the only way to determine whether a file is 
+		  locked requires opening it, but as soon as we close it again (for 
+		  example to abort the access if there's a lock on it) all locks are 
+		  released.  The cherry on top of the cake is that the structure you
+		  use for fcntl locking is a struct flock even though it has nothing 
+		  to do with flock.
+		  
+		  The explanation for why it ended up like this, from one of the 
+		  Samba team, 
+		  https://www.samba.org/samba/news/articles/low_point/tale_two_stds_os2.html,
+		  is:
+		  
+			I finally tracked down why this insane behavior was standardized 
+			by the POSIX committee by talking to long-time BSD hacker and 
+			POSIX standards committee member Kirk McKusick.  As he recalls, 
+			AT&T brought the current behavior to the standards committee as 
+			a proposal for byte-range locking, as this was how their current 
+			code implementation worked.  The committee asked other ISVs if 
+			this was how locking should be done.  The ISVs who cared about 
+			byte range locking were the large database vendors such as 
+			Oracle, Sybase and Informix (at the time).  All of these 
+			companies did their own byte range locking within their own 
+			applications, none of them depended on or needed the underlying 
+			operating system to provide locking services for them.  So their 
+			unanimous answer was "we don't care".  In the absence of any 
+			strong negative feedback on a proposal, the committee added it 
+			"as-is" and took as the desired behavior the specifics of the 
+			first implementation, the brain-dead one from AT&T.  The "first 
+			implementation past the post" style of standardization has 
+			saddled POSIX systems with one of the most broken locking 
+			implementations in computing history.
 
 	   flock() sticks with the much more sensible 4.2BSD-based last-close
 	   semantics, however it doesn't usually work with NFS unless special
@@ -4149,6 +4229,13 @@ int sFileOpen( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 	   copy.  Even under local Linux filesystems, mandatory locking is only 
 	   enabled if the filesystem is mounted with the "-o mand" option is 
 	   used, which is rarely the case (it's off by default).
+
+	   Linux finally fixed fcntl() locking around 2015 by adding a new set 
+	   of locking mechanisms via F_OFD_SETLK, but this only works with newer
+	   versions of Linux and, given the many bugs in locking 
+	   implementations, may come with its own set of new bugs that aren't
+	   as well-known and discussed as all of the existing fcntl()/flock() 
+	   bugs and design flaws.
 
 	   Locking is almost always advisory only, but even mandatory locking
 	   can be bypassed by tricks such as copying the original, unlinking it,
@@ -4179,12 +4266,13 @@ int sFileOpen( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 		errno == EWOULDBLOCK )
 		{
 		close( stream->fd );
+		DEBUG_DIAG(( "Couldn't lock '%s' for exclusive access", fileName ));
 		return( CRYPT_ERROR_PERMISSION );
 		}
   #else
 	memset( &flockInfo, 0, sizeof( struct flock ) );
 	flockInfo.l_type = ( mode & FILE_FLAG_EXCLUSIVE_ACCESS ) ? \
-					   F_WRLCK : F_RDLCK;
+						 F_WRLCK : F_RDLCK;
 	flockInfo.l_whence = SEEK_SET;
 	flockInfo.l_start = flockInfo.l_len = 0;
 	clearErrno();
@@ -4201,6 +4289,7 @@ int sFileOpen( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 		   far more frequently than the latter), so we close the handle and
 		   hope that the update by the other process completes quickly */
 		close( stream->fd );
+		DEBUG_DIAG(( "Couldn't lock '%s' for exclusive access", fileName ));
 		return( CRYPT_ERROR_PERMISSION );
 		}
   #endif /* flock() vs. fcntl() locking */
@@ -4250,6 +4339,8 @@ int sFileClose( INOUT_PTR STREAM *stream )
 	   file rather than leaving an incomplete file on disk */
 	if( close( stream->fd ) < 0 )
 		{
+		DEBUG_DIAG(( "Error %d closing file handle %d",
+					 errno, stream->fd ));
 		assert( DEBUG_WARN );
 		closeOK = FALSE;
 		}
@@ -4400,14 +4491,15 @@ void fileClearToEOF( STREAM *stream )
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
 	eraseFile( stream, position, length );
-#ifdef __GNUC__
-	/* Work around a persistent bogus warning in gcc.  Unfortunately this 
-	   generates a second warning about 'x' being unused, but it's less
-	   problematic than the return-value-unused one */
+#if defined( __GNUC__ ) && !defined( __llvm__ ) && !defined( __INTEL_COMPILER )
+	/* Work around a persistent bogus warning in gcc (but not other compilers
+	   pretending to be gcc).  Unfortunately this generates a second warning 
+	   about 'x' being unused, but it's less problematic than the return-
+	   value-unused one */
 	{ int dummy = ftruncate( stream->fd, position ); }
 #else
 	( void ) ftruncate( stream->fd, position );
-#endif /* gcc with clang bug */
+#endif /* gcc bug */
 	}
 
 STDC_NONNULL_ARG( ( 1 ) ) \
@@ -4451,10 +4543,11 @@ void fileErase( IN_STRING const char *fileName )
 	/* Determine the size of the file and erase it */
 	if( fstat( stream.fd, &fstatInfo ) == 0 )
 		eraseFile( &stream, 0, fstatInfo.st_size );
-#ifdef __GNUC__
-	/* Work around a persistent bogus warning in gcc.  Unfortunately this 
-	   generates a second warning about 'x' being unused, but it's less
-	   problematic than the return-value-unused one */
+#if defined( __GNUC__ ) && !defined( __llvm__ ) && !defined( __INTEL_COMPILER )
+	/* Work around a persistent bogus warning in gcc (but not other compilers
+	   pretending to be gcc).  Unfortunately this generates a second warning 
+	   about 'x' being unused, but it's less problematic than the return-
+	   value-unused one */
 	{ int dummy = ftruncate( stream.fd, 0 ); }
 #else
 	( void ) ftruncate( stream.fd, 0 );
@@ -4542,12 +4635,13 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -4598,6 +4692,17 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
+
+	/* If we're fuzzing the configuration file, it's a fixed path supplied 
+	   by the caller */
+#ifdef CONFIG_FUZZ
+	REQUIRES( rangeCheck( fileNameLen, 1, pathMaxLen ) );
+	memcpy( path, fileName, fileNameLen );
+	*pathLen = fileNameLen;
+
+	return( CRYPT_OK );
+#endif /* CONFIG_FUZZ */
 
 	/* Build the path to the configuration file if necessary.  In theory we 
 	   could perform further checking here to ensure that all directories in 
@@ -4648,7 +4753,8 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 #endif /* __iOS__ */
 		return( CRYPT_ERROR_OPEN );	/* Huh?  User not in passwd file */
 		}
-	if( ( length = strlen( passwd->pw_dir ) ) > MAX_PATH_LENGTH - 64 )
+	if( ( length = strnlen_s( passwd->pw_dir, 
+							  MAX_PATH_LENGTH ) ) > MAX_PATH_LENGTH - 64 )
 		return( CRYPT_ERROR_OPEN );	/* You're kidding, right? */
 
 	/* Set up the path to the cryptlib directory */
@@ -4728,16 +4834,23 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			int statResult;
 
 			/* The directory exists, make sure that it looks OK: A directory, 
-			   no links, and restrictive permissions */
+			   no links, and restrictive permissions.  The link count check 
+			   looks odd because directories don't work like normal files, 
+			   they start with a link count of 2, one for the directory itself
+			   and one for the pseudo-entries '.'/'..'.  The link count then
+			   increments for every subdirectory, so it's 2+n rather than 1+n
+			   as for a normal file */
 			clearErrno();
 			if( ( statResult = stat( path, &statInfo ) ) < 0 || \
-				!S_ISDIR( statInfo.st_mode ) || statInfo.st_nlink != 1 )
+				!S_ISDIR( statInfo.st_mode ) || statInfo.st_nlink > 2 )
 				{
 				/* See comment above.  We have to guard the errno check 
 				   because it'll only be set for the case where stat()
 				   failed */
 				if( statResult < 0 && errno == EACCES )
 					return( CRYPT_ERROR_PERMISSION );
+				DEBUG_DIAG(( "Keyset directory looks suspicious (type, link "
+							 "count etc)" ));
 				return( CRYPT_ERROR_OPEN );
 				}
 			if( ( statInfo.st_mode & ( S_IRGRP | S_IWGRP | S_IXGRP ) ) || \
@@ -4868,7 +4981,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -5043,7 +5156,11 @@ void fileClearToEOF( STREAM *stream )
 	   as 'int arg' so we have to cast it to an integer, producing a 
 	   compiler warning on build */
 	position = ioctl( stream->fd, FIOWHERE, 0 );
+#ifdef _WRS_KERNEL
 	if( ioctl( stream->fd, FIOFSTATGET, ( int ) &statStruct ) != ERROR )
+#else
+	if( ioctl( stream->fd, FIOFSTATGET, &statStruct ) != ERROR )
+#endif /* _WRS_KERNEL */
 		length = statStruct.st_size  - position;
 	else
 		{
@@ -5086,7 +5203,11 @@ void fileErase( IN_STRING const char *fileName )
 	   Note the nonportable cast of the last argument, VxWorks defines this
 	   as 'int arg' so we have to cast it to an integer, producing a 
 	   compiler warning on build */
+#ifdef _WRS_KERNEL
 	if( ioctl( stream.fd, FIOFSTATGET, ( int ) &statStruct ) != ERROR )
+#else
+	if( ioctl( stream.fd, FIOFSTATGET, &statStruct ) != ERROR )
+#endif /* _WRS_KERNEL */
 		length = statStruct.st_size;
 	else
 		{
@@ -5133,12 +5254,13 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -5228,6 +5350,16 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
   #define SECURITY_LOCAL_SERVICE_RID	19
   #define SECURITY_NETWORK_SERVICE_RID	20
 #endif /* !SECURITY_LOCAL_SERVICE_RID */
+
+/* Object types needed for GetSecurityInfo().  These are defined in aclapi.h
+   but trying to include that generates errors in other Windows header files,
+   probably because we're building with minimal Windows headers which 
+   excludes something that other headers require */
+
+typedef enum { SE_UNKNOWN_OBJECT_TYPE, SE_FILE_OBJECT, SE_SERVICE, 
+			   SE_PRINTER, SE_REGISTRY_KEY, SE_LMSHARE, SE_KERNEL_OBJECT, 
+			   SE_WINDOW_OBJECT, SE_DS_OBJECT, SE_DS_OBJECT_ALL, 
+			   SE_PROVIDER_DEFINED_OBJECT } SE_OBJECT_TYPE;
 
 /* Check whether a user's SID is known to a server providing a network
    share, so that we can set file ACLs based on it */
@@ -5326,8 +5458,8 @@ static BOOLEAN checkUserKnown( IN_BUFFER( fileNameLength ) const char *fileName,
 							   const int fileNameLength )
 	{
 	HANDLE hToken;
-	BYTE uniBuffer[ UNI_BUFFER_SIZE + 8 ];
-	BYTE tokenBuffer[ TOKEN_BUFFER_SIZE + 8 ];
+	ALIGN_STACK_DATA BYTE uniBuffer[ UNI_BUFFER_SIZE + 8 ];
+	ALIGN_STACK_DATA BYTE tokenBuffer[ TOKEN_BUFFER_SIZE + 8 ];
 	char pathBuffer[ PATH_BUFFER_SIZE + 8 ];
 	char nameBuffer[ PATH_BUFFER_SIZE + 8 ];
 	char domainBuffer[ PATH_BUFFER_SIZE + 8 ];
@@ -5517,7 +5649,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -5527,7 +5659,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 	/* Convert the filename to the native character set if necessary */
 #ifdef __WINCE__
 	status = asciiToUnicode( fileNameBuffer, _MAX_PATH, fileName,
-							 strlen( fileName ) + 1 );
+							 strnlen_s( fileName, _MAX_PATH ) + 1 );
 	if( cryptStatusError( status ) )
 		return( CRYPT_ERROR_OPEN );
 #endif /* __WINCE__ */
@@ -5554,7 +5686,8 @@ int sFileOpen( OUT_PTR STREAM *stream,
 	   level */
 	if( !memcmp( fileNamePtr, "\\\\", 2 ) )
 		{
-		const int length = strlen( ( char * ) fileNamePtr );
+		const int length = strnlen_s( ( char * ) fileNamePtr, 
+									  MAX_PATH_LENGTH );
 
 		if( length >= 4 && !memcmp( fileNamePtr, "\\\\?\\", 4 ) )
 			return( CRYPT_ERROR_OPEN );
@@ -5580,7 +5713,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 	if( ( wchar_t * ) fileNamePtr[ wcslen( ( wchar_t * ) fileNamePtr ) ] == L'.' )
 		return( CRYPT_ERROR_OPEN );
 #else
-	if( fileNamePtr[ strlen( fileNamePtr ) ] == '.' )
+	if( fileNamePtr[ strnlen_s( fileNamePtr, MAX_PATH_LENGTH ) ] == '.' )
 		return( CRYPT_ERROR_OPEN );
 #endif /* __WINCE__ */
 
@@ -5610,7 +5743,8 @@ int sFileOpen( OUT_PTR STREAM *stream,
 	   these accounts */
 #ifndef __WINCE__
 	if( ( mode & FILE_FLAG_WRITE ) && ( mode & FILE_FLAG_PRIVATE ) && \
-		checkUserKnown( fileNamePtr, strlen( fileNamePtr ) ) )
+		checkUserKnown( fileNamePtr, 
+						strnlen_s( fileNamePtr, MAX_PATH_LENGTH ) ) )
 		{
 		/* It's a filesystem that supports ACLs and it's safe for us to 
 		   apply them, make sure only the current user can access the file.
@@ -5771,6 +5905,57 @@ int sFileOpen( OUT_PTR STREAM *stream,
 			default:
 				status = CRYPT_ERROR_OPEN;
 			}
+		if( aclInfo != NULL )
+			freeACLInfo( aclInfo );
+		return( status );
+		}
+
+	/* If the private-file flag is set, make sure that the file that we're
+	   working with isn't world-writeable.  This is a bit difficult to do
+	   for Windows because we'd have to recreate a lot of the ACL/SID-
+	   processing code that Windows uses and would inevitably get various
+	   corner cases wrong, so we use as a proxy a check that there's some 
+	   sort of ACL set for the file.  In theory it's a strict ACL that we
+	   set since we created the file, it could also be a more permissive
+	   one that's been manually set, but at least it's not a world-writeable
+	   file that someone copied in from somewhere */
+	if( mode & FILE_FLAG_PRIVATE )
+		{
+		typedef DWORD ( WINAPI *GETSECURITYINFO )( HANDLE handle, 
+							SE_OBJECT_TYPE ObjectType, 
+							SECURITY_INFORMATION SecurityInfo, 
+							PSID *ppsidOwner, PSID *ppsidGroup, 
+							PACL *ppDacl, PACL *ppSacl,
+							PSECURITY_DESCRIPTOR *ppSecurityDescriptor );
+		GETSECURITYINFO pGetSecurityInfo;
+		HANDLE hAdvAPI32;
+		PSECURITY_DESCRIPTOR pSecurityDescriptor;
+		PACL pDACL;
+
+		/* Try and get the security information for the file.  These are all
+		   should-never-fail calls so if they do fail we treat it as the same
+		   error condition as a failed check of the security information */
+		if( ( hAdvAPI32 = GetModuleHandle( "AdvAPI32.dll" ) ) == NULL || \
+			( pGetSecurityInfo = ( GETSECURITYINFO ) \
+				GetProcAddress( hAdvAPI32, "GetSecurityInfo" ) ) == NULL || \
+			pGetSecurityInfo( stream->hFile, SE_FILE_OBJECT, 
+							  DACL_SECURITY_INFORMATION, NULL, NULL, 
+							  &pDACL, NULL, 
+							  &pSecurityDescriptor ) != ERROR_SUCCESS ) 
+			{
+			CloseHandle( stream->hFile );
+			DEBUG_DIAG(( "Couldn't get security information for file '%s'", 
+						 fileNamePtr ));
+			return( CRYPT_ERROR_NOSECURE );
+			}
+		LocalFree( pSecurityDescriptor );
+		if( pDACL == NULL )
+			{
+			CloseHandle( stream->hFile );
+			DEBUG_DIAG(( "Configuration file '%s' is world-writeable, "
+						 "skipping", fileNamePtr ));
+			return( CRYPT_ERROR_NOSECURE );
+			}
 		}
 
 	/* In theory we could also use something like SHChangeNotify( 
@@ -5783,7 +5968,8 @@ int sFileOpen( OUT_PTR STREAM *stream,
 	/* Clean up */
 	if( aclInfo != NULL )
 		freeACLInfo( aclInfo );
-	return( status );
+
+	return( CRYPT_OK );
 	}
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -5794,7 +5980,11 @@ int sFileClose( INOUT_PTR STREAM *stream )
 	REQUIRES( stream->type == STREAM_TYPE_FILE );
 
 	/* Close the file and clear the stream structure */
-	CloseHandle( stream->hFile );
+	if( !CloseHandle( stream->hFile ) )
+		{
+		DEBUG_DIAG(( "Error %lX closing file handle %d",
+					 GetLastError(), stream->hFile ));
+		}
 	zeroise( stream, sizeof( STREAM ) );
 
 	return( CRYPT_OK );
@@ -5896,7 +6086,7 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 	/* Convert the filename to the native character set if necessary */
 #ifdef __WINCE__
 	status = asciiToUnicode( fileNameBuffer, _MAX_PATH, fileName,
-							 strlen( fileName ) + 1 );
+							 strnlen_s( fileName, _MAX_PATH ) + 1 );
 	if( cryptStatusError( status ) )
 		return( TRUE );
 #endif /* __WINCE__ */
@@ -5964,7 +6154,7 @@ void fileErase( IN_STRING const char *fileName )
 	/* Convert the filename to the native character set if necessary */
 #ifdef __WINCE__
 	status = asciiToUnicode( fileNameBuffer, _MAX_PATH, fileName, 
-							 strlen( fileName ) + 1 );
+							 strnlen_s( fileName, _MAX_PATH ) + 1 );
 	if( cryptStatusError( status ) )
 		return;		/* Error converting filename string, exit */
 #endif /* __WINCE__ */
@@ -6009,7 +6199,7 @@ void fileErase( IN_STRING const char *fileName )
 
 #if defined( __WIN32__ )
 
-#if VC_GE_2005( _MSC_VER )
+#if VC_GE_2010( _MSC_VER )
   #pragma warning( push )
   #pragma warning( disable : 4255 )	/* Errors in VersionHelpers.h */
   #include <VersionHelpers.h>
@@ -6167,7 +6357,7 @@ static int getFolderPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 		}
 	if( gotPath )
 		{
-		*pathLen = strlen( path );
+		*pathLen = strnlen_s( path, MAX_PATH_LENGTH );
 		if( *pathLen < 3 )
 			{
 			/* Under WinNT and Win2K the LocalSystem account doesn't have 
@@ -6179,7 +6369,7 @@ static int getFolderPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			   there */
 			if( !GetWindowsDirectory( path, pathMaxLen - 8 ) )
 				*path = '\0';
-			*pathLen = strlen( path );
+			*pathLen = strnlen_s( path, MAX_PATH_LENGTH );
 			}
 		return( CRYPT_OK );
 		}
@@ -6194,7 +6384,7 @@ static int getFolderPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	   just in case the user manually copied the config there as a last 
 	   resort */
 	if( GetWindowsDirectory( path, pathMaxLen - 8 ) )
-		*pathLen = strlen( path );
+		*pathLen = strnlen_s( path, MAX_PATH_LENGTH );
 	else
 		{
 		*path = '\0';
@@ -6240,6 +6430,17 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
+
+	/* If we're fuzzing the configuration file, it's a fixed path supplied 
+	   by the caller */
+#ifdef CONFIG_FUZZ
+	REQUIRES( rangeCheck( fileNameLen, 1, pathMaxLen ) );
+	memcpy( path, fileName, fileNameLen );
+	*pathLen = fileNameLen;
+
+	return( CRYPT_OK );
+#endif /* CONFIG_FUZZ */
 
 #if defined( __WIN32__ )
 	/* Get the path to the user data folder/directory */
@@ -6324,7 +6525,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -6506,10 +6707,11 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
 #endif /* CONFIG_FILE_PATH */
 
@@ -6522,7 +6724,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			return( CRYPT_ERROR_OPEN );
 		}
 #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -6553,7 +6755,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -6792,10 +6994,11 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
 #endif /* CONFIG_FILE_PATH */
 
@@ -6814,7 +7017,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			return( CRYPT_ERROR_OPEN );
 		}
 #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
 #endif /* CONFIG_FILE_PATH */
 
@@ -6924,7 +7127,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 
 	ANALYSER_HINT_STRING( fileName );
 
-	REQUIRES( mode != 0 );
+	REQUIRES( isFlagRange( mode, FILE ) );
 
 	/* Initialise the stream structure */
 	initFileStream( stream, 
@@ -7281,6 +7484,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 	/* Make sure that the open fails if we can't build the path */
 	*path = '\0';
+	*pathLen = 0;
 
 	/* Build the path to the configuration file if necessary */
 #if defined( __MSDOS__ )
@@ -7315,7 +7519,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 							fileNameLen, option ) );
 #elif defined( __SMX__ )
   #ifdef CONFIG_FILE_PATH
-	REQUIRES( strlen( CONFIG_FILE_PATH ) >= 1 );
+	REQUIRES( strnlen_s( CONFIG_FILE_PATH, MAX_PATH_LENGTH ) >= 1 );
 	strlcpy_s( path, pathMaxLen, CONFIG_FILE_PATH );
   #endif /* CONFIG_FILE_PATH */
 
@@ -7331,7 +7535,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			return( CRYPT_ERROR_OPEN );
 		}
   #ifdef CONFIG_FILE_PATH
-	if( path[ strlen( path ) - 1 ] != '/' )
+	if( path[ strnlen_s( path, MAX_PATH_LENGTH ) - 1 ] != '/' )
 		strlcat_s( path, pathMaxLen, "/" );
   #endif /* CONFIG_FILE_PATH */
 

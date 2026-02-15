@@ -354,9 +354,21 @@ int generateX917( INOUT_PTR RANDOM_INFO *randomInfo,
 				{
 				ENSURES( LOOP_INVARIANT_REV_ALT( i, 0, X917_POOLSIZE - 1 ) );
 
-				randomInfo->x917DT[ i ]++;
-				if( randomInfo->x917DT[ i ] != 0 )
+				/* The following would be better written as:
+
+					randomInfo->x917DT[ i ]++;
+					if( randomInfo->x917DT[ i ] != 0 )
+						break;
+
+				   but this takes advantage of 8-bit integer wraparound which
+				   triggers exceptions in code-check tools */
+				if( randomInfo->x917DT[ i ] >= 0xFF )
+					randomInfo->x917DT[ i ] = 0;
+				else
+					{
+					randomInfo->x917DT[ i ]++;
 					break;
+					}
 				}
 			ENSURES( LOOP_BOUND_EXT_REV_OK_ALT( X917_POOLSIZE ) );
 

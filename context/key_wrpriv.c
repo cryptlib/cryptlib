@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Private Key Write Routines						*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2024					*
 *																			*
 ****************************************************************************/
 
@@ -390,10 +390,10 @@ static int writePrivateKeyEccFunction( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_EDDSA ) || defined( USE_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
-static int writePrivateKeyEddsaFunction( INOUT_PTR STREAM *stream, 
+static int writePrivateKey25519Function( INOUT_PTR STREAM *stream, 
 											const CONTEXT_INFO *contextInfoPtr,
 										 IN_ENUM( KEYFORMAT ) \
 											const KEYFORMAT_TYPE formatType,
@@ -405,6 +405,8 @@ static int writePrivateKeyEddsaFunction( INOUT_PTR STREAM *stream,
 	const PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	BYTE buffer[ CRYPT_MAX_PKCSIZE + 8 ];
+	int encodedPointSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -413,8 +415,8 @@ static int writePrivateKeyEddsaFunction( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( capabilityInfoPtr != NULL );
 	REQUIRES( contextInfoPtr->type == CONTEXT_PKC && \
-			  ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_EDDSA || \
-				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 ) );
+			  ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 || \
+				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ED25519 ) );
 	REQUIRES( sanityCheckPKCInfo( eccKey ) );
 	REQUIRES( isEnumRange( formatType, KEYFORMAT ) );
 	REQUIRES( accessKeyLen == 11 );
@@ -425,9 +427,38 @@ static int writePrivateKeyEddsaFunction( INOUT_PTR STREAM *stream,
 		  formatType != KEYFORMAT_PRIVATE_EXT ) )
 		retIntError();
 
-	retIntError();
+	/* If we're using the extended format, write the public-key binding 
+	   value as an ESSCertIDv2 before we write the private-key data */
+	if( formatType == KEYFORMAT_PRIVATE_EXT )
+		{
+		BYTE spkiHash[ CRYPT_MAX_HASHSIZE + 8 ];
+
+		status = getSPKIHash( contextInfoPtr, spkiHash, 32 );
+		if( cryptStatusError( status ) )
+			return( status );
+		writeSequence( stream, sizeofObject( sizeofObject( 32 ) ) + \
+							   sizeofObject( 32 ) );
+		writeSequence( stream, sizeofObject( 32 ) );
+		status = writeOctetString( stream, spkiHash, 32, DEFAULT_TAG );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
+
+	/* Get the private value in Bernstein special-snowflake form and write 
+	   it */
+	status = export25519ByteString( buffer, CRYPT_MAX_PKCSIZE, 
+									&encodedPointSize, 
+									&eccKey->curve25519Param_priv );
+	if( cryptStatusError( status ) )
+		return( status );
+	ENSURES( encodedPointSize == 32 );
+	status = writeOctetString( stream, buffer, encodedPointSize, 
+							   DEFAULT_TAG );
+	zeroise( buffer, CRYPT_MAX_PKCSIZE );
+	
+	return( status );
 	}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 #endif /* USE_INT_ASN1 */
 
 /****************************************************************************
@@ -484,20 +515,20 @@ void initPrivKeyWrite( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 		return;
 		}
 #if defined( USE_ECDH ) || defined( USE_ECDSA ) || \
-	defined( USE_EDDSA ) || defined( USE_25519 )
+	defined( USE_25519 ) || defined( USE_ED25519 )
 	if( isEccAlgo( cryptAlgo ) )
 		{
-#if defined( USE_EDDSA ) || defined( USE_25519 )
-		if( cryptAlgo == CRYPT_ALGO_EDDSA || cryptAlgo == CRYPT_ALGO_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+		if( isBernsteinAlgo( cryptAlgo ) )
 			{
 #ifdef USE_INT_ASN1
-			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyEddsaFunction );
+			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKey25519Function );
 #else
 			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyNullFunction );
 #endif /* USE_INT_ASN1 */
 			return;
 			}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 
 #ifdef USE_INT_ASN1
 		FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyEccFunction );
@@ -507,7 +538,7 @@ void initPrivKeyWrite( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 
 		return;
 		}
-#endif /* USE_ECDH || USE_ECDSA || USE_EDDSA || USE_25519 */
+#endif /* USE_ECDH || USE_ECDSA || USE_25519 || USE_ED25519 */
 #ifdef USE_INT_ASN1
 	FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyRsaFunction );
 #else

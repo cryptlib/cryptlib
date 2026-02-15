@@ -316,7 +316,8 @@ int retExtObjFn( IN_ERROR const int status,
 	/* If we're being used as a direct pass-through, for example when a 
 	   device acts as a keyset, then we just copy the error string up from
 	   the lower-level object and exit  */
-	if( strlen( format ) == 4 && !memcmp( format, "NULL", 4 ) )
+	if( strnlen_s( format, MAX_ERRMSG_SIZE ) == 4 && \
+		!memcmp( format, "NULL", 4 ) )
 		{
 		extErrorStatus = readErrorInfo( &extErrorInfo, extErrorObject );
 		if( cryptStatusOK( extErrorStatus ) )
@@ -577,8 +578,8 @@ const char *getAlgoName( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 		{ CRYPT_ALGO_ELGAMAL, "ElGamal" },
 		{ CRYPT_ALGO_ECDSA,	"ECDSA" },
 		{ CRYPT_ALGO_ECDH, "ECDH" },
-		{ CRYPT_ALGO_EDDSA,	"EDDSA" },
 		{ CRYPT_ALGO_25519,	"Curve25519" },
+		{ CRYPT_ALGO_ED25519, "Ed25519" },
 		/* Hash algorithms */
 		{ CRYPT_ALGO_MD5, "MD5" },
 		{ CRYPT_ALGO_SHA1, "SHA1" },

@@ -17,6 +17,9 @@
 /* OS-specific includes */
 
 #include <lm.h>				/* For NetStatisticsGet() */
+#if VC_EQ_2008( _MSC_VER )	/* VS 2008 forgets to define _WIN32_WINDOWS */
+  #define _WIN32_WINDOWS	0x0501
+#endif /* VS 2008 */
 #include <winperf.h>
 #pragma warning( push )
 #pragma warning( disable: 4668 )	/* #if 0 on undefined macro */
@@ -48,7 +51,23 @@
    to Tasm32.  This is only included with some high-end versions of BC++
    and it's not possible to order it separately, so if you're building with
    BC++ and get error messages about a missing tasm32.exe, add NO_ASM to
-   Project Options | Compiler | Defines */
+   Project Options | Compiler | Defines.
+   
+   There are two randomness sources, accessed via rdrand and rdseed.  rdseed 
+   provides more direct access to the noise source (although still with some 
+   processing) while rdrand provides access to a PRNG.  In Intel's case,
+   https://software.intel.com/en-us/articles/intel-digital-random-number-generator-drng-software-implementation-guide,
+   this is NIST's CTR_DRBG for rdrand and some sort of AES-based whitener 
+   for rdseed, with rdseed being used to reseed the PRNG for rdrand.  AMD 
+   doesn't seem to document what they do but it's probably something 
+   similar.
+
+   We don't really care too much which we use since we're only using either 
+   as input alongside many others into our own entropy pool, and rdrand has 
+   been around for longer (and is therefore more widely supported) than 
+   rdseed so we go with that.  This also means that problems like AMD-SB-
+   7055 "RDSEED Failure on AMD Zen 5 Processors" where it returned zero 
+   values while reporting success aren't a big deal */
 
 #if defined( _MSC_VER )
   #if _MSC_VER <= 1100
@@ -669,7 +688,7 @@ static void readEverestData( void )
 	if( ( everestDataPtr = MapViewOfFile( hEverestData, 
 										  FILE_MAP_READ, 0, 0, 0 ) ) != NULL )
 		{
-		const int length = strlen( everestDataPtr );
+		const int length = strnlen_s( everestDataPtr, MAX_PATH );
 
 		if( length > 128 )
 			{
@@ -1329,7 +1348,7 @@ static void readNetworkData( void )
 	GETNETWORKPARAMS pGetNetworkParams = NULL;
 	GETADAPTERSADDRESSES pGetAdaptersAddresses = NULL;
 	MESSAGE_DATA msgData;
-	BYTE outBuf[ NETWORK_INFO_BUFSIZE + 8 ];
+	ALIGN_STACK_DATA BYTE outBuf[ NETWORK_INFO_BUFSIZE + 8 ];
 	ULONG ulOutBufLen;
 	int status;
 
@@ -1752,13 +1771,13 @@ void fastPoll( void )
 		   level which means that it'd need to be disabled for the entire 
 		   function just to get rid of the spurious warning when cpuid is 
 		   called (and a second time for the pop ebx).  In addition it's
-		   not clear whether we can use the VS 2015-native __cpuid() in 
-		   place of the inline asm because it takes the CPUID function type 
-		   as an int parameter, implying that it's not expecting a value 
-		   with the sign bit set (the docs imply that extended function
-		   codes above 0x80000000 are permitted, but without a sample 
-		   system to test this on any more it's safer to stick to the known-
-		   good inline asm) */
+		   not clear whether we can use the VS-native __cpuid() in place of 
+		   the inline asm because it takes the CPUID function type as an int 
+		   parameter, implying that it's not expecting a value with the sign 
+		   bit set (the docs imply that extended function codes above 
+		   0x80000000 are permitted, but without a sample system to test 
+		   this on any more it's safer to stick to the known-good inline 
+		   asm) */
 		__asm {
 			push es
 			push ebx			/* Keep VC happy so it won't complain about 
@@ -2103,6 +2122,7 @@ static void slowPollWindows( void )
 	   equivalent STAT_SERVER_0 */
 #if VC_GE_2010( _MSC_VER )
 	#pragma warning( push )
+	#pragma warning( disable:6387 )		/* Incorrect annotation in lmstats.h */
 	#pragma warning( disable:28159 )	/* Incorrect annotation in lmstats.h */
 #endif /* VC++ >= 2010 */
 	if( NetStatisticsGet( NULL, isWorkstation ? SERVICE_WORKSTATION : \
@@ -2126,11 +2146,13 @@ static void slowPollWindows( void )
 		{
 		BYTE diskPerformance[ 256 + 8 ];
 		char szDevice[ 32 + 8 ];
+		int result;
 
 		ENSURES_V( LOOP_INVARIANT_MED( nDrive, 0, 19 ) );
 
 		/* Check whether we can access this device */
-		sprintf_s( szDevice, 32, "\\\\.\\PhysicalDrive%d", nDrive );
+		result = sprintf_s( szDevice, 32, "\\\\.\\PhysicalDrive%d", nDrive );
+		ENSURES_V( rangeCheck( result, 18, 31 ) );
 		hDevice = CreateFile( szDevice, 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
 							  NULL, OPEN_EXISTING, 0, NULL );
 		if( hDevice == INVALID_HANDLE_VALUE )
@@ -2189,7 +2211,7 @@ static void slowPollWindows( void )
 	   documented this function in early 2003, so it'll be fairly safe to 
 	   use */
 	REQUIRES_V( isIntegerRangeNZ( PERFORMANCE_BUFFER_SIZE ) );
-	if( ( hNTAPI == NULL ) || \
+	if( hNTAPI == NULL || \
 		( buffer = clAlloc( "slowPollWindows", \
 							PERFORMANCE_BUFFER_SIZE ) ) == NULL )
 		{
@@ -2211,7 +2233,7 @@ static void slowPollWindows( void )
 	   there either */
 	LOOP_LARGE( dwType = 0, dwType < 64, dwType++ )
 		{
-		ENSURES_V( LOOP_INVARIANT_LARGE( dwType, 0, 63 ) );
+		ENSURES_V_PTR( LOOP_INVARIANT_LARGE( dwType, 0, 63 ), buffer );
 
 		/* Some information types are write-only (the IDs are shared with
 		   a set-information call), we skip these */
@@ -2394,17 +2416,17 @@ static void slowPollWindows( void )
 
 /* Perform a thread-safe slow poll */
 
-unsigned __stdcall threadSafeSlowPollWindows( void *dummy )
+static unsigned __stdcall threadSafeSlowPollWindows( void *dummy )
 	{
 #if 0
 	typedef BOOL ( WINAPI *CREATERESTRICTEDTOKEN )( HANDLE ExistingTokenHandle,
-								DWORD Flags, DWORD DisableSidCount,
-								PSID_AND_ATTRIBUTES SidsToDisable,
-								DWORD DeletePrivilegeCount,
-								PLUID_AND_ATTRIBUTES PrivilegesToDelete,
-								DWORD RestrictedSidCount,
-								PSID_AND_ATTRIBUTES SidsToRestrict,
-								PHANDLE NewTokenHandle );
+						DWORD Flags, DWORD DisableSidCount,
+						PSID_AND_ATTRIBUTES SidsToDisable, 
+						DWORD DeletePrivilegeCount,
+						PLUID_AND_ATTRIBUTES PrivilegesToDelete,
+						DWORD RestrictedSidCount,
+						PSID_AND_ATTRIBUTES SidsToRestrict,
+						PHANDLE NewTokenHandle );
 	static CREATERESTRICTEDTOKEN pCreateRestrictedToken = NULL;
 	static BOOLEAN isInited = FALSE;
 #endif /* 0 */

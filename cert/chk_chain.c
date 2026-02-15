@@ -112,7 +112,7 @@ static int getCertInfo( const CERT_INFO *certInfoPtr,
 						OUT_PTR_PTR_COND CERT_INFO **certChainPtr, 
 						IN_RANGE( -1, MAX_CHAINLENGTH - 1 ) const int certChainIndex )
 	{
-	CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+	const CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isWritePtr( certChainPtr, sizeof( CERT_INFO * ) ) );

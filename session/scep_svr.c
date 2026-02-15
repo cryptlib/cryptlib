@@ -675,7 +675,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int issueCertFromRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 INOUT_PTR SCEP_PROTOCOL_INFO *protocolInfo )
 	{
-	SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	const SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
 	MESSAGE_KEYMGMT_INFO setkeyInfo;
 	MESSAGE_CERTMGMT_INFO certMgmtInfo;
 	MESSAGE_DATA msgData;

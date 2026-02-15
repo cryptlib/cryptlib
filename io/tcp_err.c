@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib TCP/IP Error Handling Routines					*
-*						Copyright Peter Gutmann 1998-2017					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -1012,6 +1012,14 @@ int diagnoseConnectionProblem( INOUT_PTR NET_STREAM_INFO *netStream,
 	ENSURES( LOOP_BOUND_OK );
 	if( isBadSocket( netSocket ) )
 		{
+		if( isInvalidSocket( netSocket ) )
+			{
+			status = closesocket( netSocket );
+			if( isSocketError( status ) )
+				{
+				DEBUG_DIAG(( "Error closing invalid socket %d", netSocket ));
+				}
+			}
 		freeAddressInfo( addrInfoPtr );
 		return( originalStatus );
 		}

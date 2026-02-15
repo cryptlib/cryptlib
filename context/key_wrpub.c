@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Public Key Write Routines						*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2023					*
 *																			*
 ****************************************************************************/
 
@@ -264,18 +264,17 @@ static int writeEccSubjectPublicKey( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_EDDSA ) || defined( USE_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int writeEddsaSubjectPublicKey( INOUT_PTR STREAM *stream, 
+static int write25519SubjectPublicKey( INOUT_PTR STREAM *stream, 
 									   const CONTEXT_INFO *contextInfoPtr )
 	{
 	const PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
-	int fieldSize DUMMY_INIT, encodedPointSize, totalSize;
-	int status;
+	BYTE buffer[ CRYPT_MAX_PKCSIZE + 8 ];
+	int encodedPointSize, totalSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -283,21 +282,17 @@ static int writeEddsaSubjectPublicKey( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( capabilityInfoPtr != NULL );
 	REQUIRES( contextInfoPtr->type == CONTEXT_PKC && \
-			  ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_EDDSA || \
-				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 ) );
+			  ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 || \
+				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ED25519 ) );
 	REQUIRES( sanityCheckPKCInfo( eccKey ) );
 
-	/* Get the information that we'll need to encode the key */
-	status = getECCFieldSize( eccKey->curveType, &fieldSize, FALSE );
+	/* Get the public value in Bernstein special-snowflake form */
+	status = export25519ByteString( buffer, CRYPT_MAX_PKCSIZE, 
+									&encodedPointSize, 
+									&eccKey->curve25519Param_pub );
 	if( cryptStatusError( status ) )
 		return( status );
-
-	/* Get the encoded point data */
-	status = exportECCPoint( buffer, MAX_PKCSIZE_ECCPOINT, &encodedPointSize, 
-							 &eccKey->eccParam_qx, &eccKey->eccParam_qy, 
-							 fieldSize );
-	if( cryptStatusError( status ) )
-		return( status );
+	ENSURES( encodedPointSize == 32 );
 
 	/* Determine the size of the AlgorithmIdentifier and the BIT STRING-
 	   encapsulated public-key data (the final +1 is for the bitstring) */
@@ -313,10 +308,10 @@ static int writeEddsaSubjectPublicKey( INOUT_PTR STREAM *stream,
 	/* Write the BIT STRING wrapper and the PKC information */
 	writeBitStringHole( stream, encodedPointSize, DEFAULT_TAG );
 	status = swrite( stream, buffer, encodedPointSize );
-	zeroise( buffer, MAX_PKCSIZE_ECCPOINT );
+	zeroise( buffer, CRYPT_MAX_PKCSIZE );
 	return( status );
 	}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 #endif /* USE_INT_ASN1 */
 
 #ifdef USE_SSH
@@ -337,7 +332,13 @@ static int writeEddsaSubjectPublicKey( INOUT_PTR STREAM *stream,
 	string		[ server key/certificate ]
 		string	"ecdsa-sha2-*"
 		string	"*"				-- The "*" portion from the above field
-		string	Q */
+		string	Q 
+
+   25519:
+
+	string		[ server key/certificate ]
+		string	"ssh-ed25519"
+		string	publicValue */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int writeSshRsaPublicKey( INOUT_PTR STREAM *stream, 
@@ -482,6 +483,55 @@ static int writeSshEccPublicKey( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static int writeSsh25519PublicKey( INOUT_PTR STREAM *stream, 
+								   const CONTEXT_INFO *contextInfoPtr,
+								   IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
+	{
+	const PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
+	const char *algoName;
+	BYTE buffer[ CRYPT_MAX_PKCSIZE + 8 ];
+	int algoNameLen, encodedPointSize, status;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_ED25519 );
+	REQUIRES( sanityCheckPKCInfo( eccKey ) );
+
+	/* Get the public value in Bernstein special-snowflake form */
+	status = export25519ByteString( buffer, CRYPT_MAX_PKCSIZE, 
+									&encodedPointSize, 
+									&eccKey->curve25519Param_pub );
+	if( cryptStatusError( status ) )
+		return( status );
+	ENSURES( encodedPointSize == 32 );
+
+	/* Get the string form of the algorithm */
+	switch( cryptAlgo )
+		{
+		case CRYPT_ALGO_ED25519:
+			algoName = "ssh-ed25519";
+			algoNameLen = 11;
+			break;
+
+		default:
+			retIntError();
+		}
+
+	/* Write the PKC information */
+	writeUint32( stream, sizeofString32( algoNameLen ) + \
+						 sizeofString32( encodedPointSize ) );
+	writeString32( stream, algoName, algoNameLen );
+	status = writeString32( stream, buffer, encodedPointSize );
+	zeroise( buffer, CRYPT_MAX_PKCSIZE );
+	return( status );
+	}
+#endif /* USE_25519 || USE_ED25519 */
+
 #endif /* USE_SSH */
 
 #ifdef USE_TLS
@@ -601,12 +651,12 @@ static int writeTlsEccPublicKey( INOUT_PTR STREAM *stream,
 
 /* Write PGP public keys:
 
-	byte		version
+	byte		version = 4
 	uint32		creationTime
-	byte		RSA		DSA		Elgamal
-	mpi			n		p		p
-	mpi			e		q		g
-	mpi					g		y
+	byte		RSA		DSA		Elgamal		ECDSA
+	mpi			n		p		p			byte	oidLen
+	mpi			e		q		g			byte[]	oid
+	mpi					g		y			mpi		X9.62-encoded point
 	mpi					y */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
@@ -682,6 +732,61 @@ static int writePgpDlpPublicKey( INOUT_PTR STREAM *stream,
 		writeBignumInteger16Ubits( stream, &dlpKey->dlpParam_q );
 	writeBignumInteger16Ubits( stream, &dlpKey->dlpParam_g );
 	return( writeBignumInteger16Ubits( stream, &dlpKey->dlpParam_y ) );
+	}
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static int writePgpEccPublicKey( INOUT_PTR STREAM *stream, 
+								 const CONTEXT_INFO *contextInfoPtr,
+								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
+	{
+	const PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
+	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ], oidBuffer[ MAX_OID_SIZE + 8 ];
+	int fieldSize, encodedPointSize DUMMY_INIT, oidLength DUMMY_INIT;
+	int status;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_ECDH || \
+			  cryptAlgo == CRYPT_ALGO_ECDSA );
+	REQUIRES( sanityCheckPKCInfo( eccKey ) );
+
+	/* Get the information that we'll need to encode the point data and the 
+	   key.  Note that this assumes that we'll be using a known (named) 
+	   curve rather than arbitrary curve parameters, which has been enforced 
+	   by the higher-level code */
+	status = getECCFieldSize( eccKey->curveType, &fieldSize, FALSE );
+	if( cryptStatusOK( status ) )
+		{
+		status = exportECCPoint( buffer, MAX_PKCSIZE_ECCPOINT, 
+								 &encodedPointSize, &eccKey->eccParam_qx, 
+								 &eccKey->eccParam_qy, fieldSize );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		STREAM oidStream;
+
+		/* PGP uses the OID without the tag at the start so we have to write
+		   it to an intermediate buffer in order to then write it without the
+		   tag */
+		sMemOpen( &oidStream, oidBuffer, MAX_OID_SIZE );
+		status = writeECCOID( &oidStream, eccKey->curveType );
+		if( cryptStatusOK( status ) )
+			oidLength = stell( &oidStream );
+		sMemDisconnect( &oidStream );
+		}
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* Write the ECC key */
+	status = writePgpKeyHeader( stream, eccKey, cryptAlgo );
+	if( cryptStatusOK( status ) )
+		status = swrite( stream, oidBuffer + 1, oidLength - 1 );
+	if( cryptStatusOK( status ) )
+		status = writeInteger16Ubits( stream, buffer, encodedPointSize );
+	zeroise( buffer, MAX_PKCSIZE_ECCPOINT );
+	return( status );
 	}
 #endif /* USE_PGP */
 
@@ -821,7 +926,8 @@ int writePublicKeyEccFunction( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( cryptAlgo == CRYPT_ALGO_ECDSA || cryptAlgo == CRYPT_ALGO_ECDH );
 	REQUIRES( formatType == KEYFORMAT_CERT || formatType == KEYFORMAT_TLS || \
-			  formatType == KEYFORMAT_TLS_EXT || formatType == KEYFORMAT_SSH );
+			  formatType == KEYFORMAT_TLS_EXT || \
+			  formatType == KEYFORMAT_PGP || formatType == KEYFORMAT_SSH );
 	REQUIRES( accessKeyLen == 10 );
 
 	/* Make sure that we really intended to call this function */
@@ -843,6 +949,12 @@ int writePublicKeyEccFunction( INOUT_PTR STREAM *stream,
 										  cryptAlgo ) );
 #endif /* USE_TLS */
 
+#ifdef USE_PGP
+		case KEYFORMAT_PGP:
+			return( writePgpEccPublicKey( stream, contextInfoPtr,
+										  cryptAlgo ) );
+#endif /* USE_PGP */
+
 #ifdef USE_SSH
 		case KEYFORMAT_SSH:
 			return( writeSshEccPublicKey( stream, contextInfoPtr,
@@ -854,10 +966,10 @@ int writePublicKeyEccFunction( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_EDDSA ) || defined( USE_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
-int writePublicKeyEddsaFunction( INOUT_PTR STREAM *stream, 
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
+int writePublicKey25519Function( INOUT_PTR STREAM *stream, 
 								 const CONTEXT_INFO *contextInfoPtr,
 								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 								 IN_ENUM( KEYFORMAT ) \
@@ -872,9 +984,10 @@ int writePublicKeyEddsaFunction( INOUT_PTR STREAM *stream,
 	assert( isReadPtrDynamic( accessKey, accessKeyLen ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
-	REQUIRES( cryptAlgo == CRYPT_ALGO_EDDSA || \
-			  cryptAlgo == CRYPT_ALGO_25519 );
-	REQUIRES( formatType == KEYFORMAT_CERT );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_25519 || \
+			  cryptAlgo == CRYPT_ALGO_ED25519 );
+	REQUIRES( formatType == KEYFORMAT_CERT || \
+			  formatType == KEYFORMAT_SSH );
 	REQUIRES( accessKeyLen == 10 );
 
 	/* Make sure that we really intended to call this function */
@@ -885,13 +998,18 @@ int writePublicKeyEddsaFunction( INOUT_PTR STREAM *stream,
 		{
 #ifdef USE_INT_ASN1
 		case KEYFORMAT_CERT:
-			return( writeEddsaSubjectPublicKey( stream, contextInfoPtr ) );
+			return( write25519SubjectPublicKey( stream, contextInfoPtr ) );
 #endif /* USE_INT_ASN1 */
+
+#ifdef USE_SSH
+		case KEYFORMAT_SSH:
+			return( writeSsh25519PublicKey( stream, contextInfoPtr, cryptAlgo ) );
+#endif /* USE_SSH */
 		}
 
 	retIntError();
 	}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 
 /****************************************************************************
 *																			*
@@ -911,7 +1029,8 @@ int writePublicKeyEddsaFunction( INOUT_PTR STREAM *stream,
 	RSA		  n		  e		  -		  -
 	DLP		  p		  q		  g		  y 
 	ECDLP	  point	  -		  -		  - 
-	ECDLP	  x		  y		  -		  - */
+	ECDLP	  x		  y		  -		  - 
+	25519	  point	  -		  -		  - */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 6 ) ) \
 int writeFlatPublicKey( OUT_BUFFER_OPT( bufMaxSize, *bufSize ) void *buffer, 
@@ -931,7 +1050,7 @@ int writeFlatPublicKey( OUT_BUFFER_OPT( bufMaxSize, *bufSize ) void *buffer,
 	STREAM stream;
 	ALGOID_PARAMS algoIDparams;
 #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	defined( USE_EDDSA ) || defined( USE_25519 )
+	defined( USE_25519 ) || defined( USE_ED25519 )
 	BYTE encodedPointBuffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
 #endif /* USE_ECDSA || USE_ECDH || USE_ECDSA || USE_ECDH */
 	const int comp1Size = sizeofInteger( component1, component1Length );
@@ -1014,11 +1133,11 @@ int writeFlatPublicKey( OUT_BUFFER_OPT( bufMaxSize, *bufSize ) void *buffer,
 			break;
 
 #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	defined( USE_EDDSA ) || defined( USE_25519 )
+	defined( USE_25519 ) || defined( USE_ED25519 ) 
 		case CRYPT_ALGO_ECDSA:
 		case CRYPT_ALGO_ECDH:
-		case CRYPT_ALGO_EDDSA:
 		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
 			REQUIRES( component3 == NULL && component4 == NULL );
 
 			/* ECC public-key information can be provided in one of two 
@@ -1177,7 +1296,10 @@ int writeFlatPublicKey( OUT_BUFFER_OPT( bufMaxSize, *bufSize ) void *buffer,
    need to be encoded as structured data.  The following two functions 
    perform this en/decoding.  SSH assumes that DLP values are two fixed-size
    blocks of 20 bytes so we can't use the normal read/write routines to 
-   handle these values */
+   handle these values.
+   
+   In the ECC case, the format is a pair of values rather than an X9.62 ECC
+   point, which would be read by importECCPoint() */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4, 5 ) ) \
 int encodeDLValuesFunction( OUT_BUFFER( bufMaxSize, *bufSize ) BYTE *buffer, 

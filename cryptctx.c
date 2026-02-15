@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib Encryption Context Routines					*
-*						Copyright Peter Gutmann 1992-2016					*
+*						Copyright Peter Gutmann 1992-2023					*
 *																			*
 ****************************************************************************/
 
@@ -454,7 +454,7 @@ static BOOLEAN checkContextFunctions( IN_PTR const CONTEXT_INFO *contextInfoPtr 
 
 				case CRYPT_ALGO_DSA:
 				case CRYPT_ALGO_ECDSA:
-				case CRYPT_ALGO_EDDSA:
+				case CRYPT_ALGO_ED25519:
 					if( capabilityInfoPtr->signFunction == NULL || \
 						capabilityInfoPtr->sigCheckFunction == NULL )
 						{
@@ -1217,7 +1217,7 @@ static int contextMessageFunction( INOUT_PTR TYPECAST( CONTEXT_INFO * ) \
 		   block size will be 1, so we have to explicitly hardcode in the 
 		   actual block size.  There's no easy way around this since the 
 		   cipher essentially lies about its nature, this is hidden by the
-		   implementation but this is the one location where it cna't be
+		   implementation but this is the one location where it can't be
 		   covered up */
 		if( isSpecialStreamCipher( capabilityInfoPtr->cryptAlgo ) )
 			ivSize = bitsToBytes( 128 );
@@ -1508,8 +1508,7 @@ int createContextFromCapability( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 		/* If it's a non-dummy object, initialise the bignums */
 		if( !( objectFlags & CREATEOBJECT_FLAG_DUMMY ) )
 			{
-			status = initContextBignums( pkcInfo, isEccAlgo( cryptAlgo ) ? \
-												  TRUE : FALSE );
+			status = initContextBignums( pkcInfo, cryptAlgo );
 			if( cryptStatusError( status ) )
 				{
 				/* Enqueue a destroy message for the context and tell the 

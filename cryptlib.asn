@@ -399,12 +399,13 @@ PKCS15KeyIdentifier ::= TYPED CHOICE {
 	...
 	}
 
--/ Private key information (DLP = DSA/DH/KEA/etc, ECC = ECDSA/ECDH/etc).
-   PKCS #15 actually has a separate type for DH keys but since they're
-   DLP keys like DSA we use that for both DH and DSA.  Note that the
-   AuthEnvelopedData form is a custom addition that postdates the v1.2
-   draft, and the Ext form is similar and cryptographically binds the
-   public-key components to the stored private key ones /-
+-/ Private key information (DLP = DSA/DH/KEA/etc, ECC = ECDSA/ECDH/etc,
+   Bernstein = 25519/448/etec). PKCS #15 actually has a separate type for
+   DH keys but since they're DLP keys like DSA we use that for both DH and
+   DSA.  Note that the AuthEnvelopedData form is a custom addition that
+   postdates the v1.2 draft, and the Ext form is similar and
+   cryptographically binds the public-key components to the stored private
+   key ones /-
 
 PKCS15PrivateRSAKeyAttributes ::= SEQUENCE {
 	value			[2]	EnvelopedData {		-- Before 3.4.0
@@ -482,6 +483,16 @@ PKCS15PrivateDLPKeyAttributesExt ::= SEQUENCE {
 	...
 	}
 
+PKCS15PrivateBernsteinKeyAttributesExt ::= SEQUENCE {
+	value			[4]	AuthEnvelopedData {
+						SEQUENCE {
+		spkiHash		ESSCertIDv2,
+		value			OCTET STRING		-- 25519/448/etc private value
+						}
+					},
+	...
+	}
+
 PKCS15PrivateKey ::= CHOICE {
 	privateRSAKey		PKCS15Object{ PKCS15CommonKeyAttributes,		-- ClassAttr
 									  PKCS15CommonPrivateKeyAttributes,	-- SubclassAttr
@@ -503,7 +514,9 @@ PKCS15PrivateKey ::= CHOICE {
 	privateDSAKeyExt[6]	PKCS15Object{ PKCS15CommonKeyAttributes,
 									  PKCS15CommonPrivateKeyAttributes,
 									  PKCS15PrivateDLPKeyAttributesExt }
-
+	privateBernsteinKeyExt[7] PKCS15Object{ PKCS15CommonKeyAttributes,
+									  PKCS15CommonPrivateKeyAttributes,
+									  PKCS15PrivateBernsteinKeyAttributesExt }
 	}
 
 -/ This expands out to:
@@ -533,9 +546,10 @@ PKCS15PrivateKey ::= CHOICE {
    with the key components stored in the crypto hardware, referenced by the
    value in the OCTET STRING /-
 
--/ Public key information (DLP = DSA/DH/KEA/etc, ECC = ECDSA/ECDH/etc).
-   PKCS #15 actually has a separate type for DH keys but since they're
-   DLP keys like DSA we use that for both DH and DSA /-
+-/ Public key information (DLP = DSA/DH/KEA/etc, ECC = ECDSA/ECDH/etc,
+   Bernstein = 25519/448/etc).  PKCS #15 actually has a separate type for
+   DH keys but since they're DLP keys like DSA we use that for both DH and
+   DSA /-
 
 PKCS15PublicRSAKeyAttributes ::= SEQUENCE {
 	value			[0]	EXPLICIT {
@@ -555,6 +569,11 @@ PKCS15PublicDLPKeyAttributes ::= SEQUENCE {
 	...
 	}
 
+PKCS15PublicBernsteinKeyAttributes ::= SEQUENCE {
+	value			[0]	EXPLICIT SubjectPublicKeyInfo,
+	...
+	}
+
 PKCS15PublicKey ::= CHOICE {
 	publicRSAKey		PKCS15Object{ PKCS15CommonKeyAttributes,		-- ClassAttr
 									  PKCS15CommonPublicKeyAttributes,	-- SubclassAttr
@@ -562,9 +581,14 @@ PKCS15PublicKey ::= CHOICE {
 	publicECCKey	[0]	PKCS15Object{ PKCS15CommonKeyAttributes,
 									  PKCS15CommonPublicKeyAttributes,
 									  PKCS15PublicECCKeyAttributes }
-	publicDSAKey	[2]	PKCS15Object{ PKCS15CommonKeyAttributes,
+--	publicDHKey		[1]	PKCS15Object{ ... }
+	publicDLPKey	[2]	PKCS15Object{ PKCS15CommonKeyAttributes,
 									  PKCS15CommonPublicKeyAttributes,
-									  PKCS15PublicDSAKeyAttributes }
+									  PKCS15PublicDLPKeyAttributes },
+--	publicKEAKey	[3]	PKCS15Object{ ... }
+	publicBernsteinKey [4]	PKCS15Object{ PKCS15CommonKeyAttributes,
+									  PKCS15CommonPublicKeyAttributes,
+									  PKCS15PublicBernsteinKeyAttributes }
 	}
 
 -/ This expands out to:

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib ECDSA Encryption Routines					*
-*			Copyright Matthias Bruestle and Peter Gutmann 2006-2014			*
+*			Copyright Matthias Bruestle and Peter Gutmann 2006-2018			*
 *																			*
 ****************************************************************************/
 
@@ -29,19 +29,21 @@
    that the blacklist can be bypassed by encoding the ECDSA signature into 
    its alternate form, so the signature is still valid but the item that 
    contains it is no longer on the blacklist.
+   
+   To try and not make the problem worse, we make sure that our signatures 
+   are always in a particular form, although it's not clear which one is the 
+   most appropriate one.  The X9.62 test vectors are created using the > N/2 
+   form, while some might regard the < N/2 form as the more correct one, in 
+   our case we use the < N/2 form.  A particularly amusing trick would be to 
+   leak the private key by using the (r, s) form as a subliminal channel.
 
-   We could check for and reject signatures that aren't in a particular 
-   form, but this will just end up rejecting signatures created by some 
-   library that happens to generate them one way or the other.  In addition 
-   we could make sure that our signatures are always in a particular form, 
-   but again it's not clear which one is the most appropriate one.  The 
-   X9.62 test vectors are created using the > N/2 form, while some might 
-   regard the < N/2 form as the more correct one.  A particularly amusing 
-   trick would be to leak the private key by using the (r, s) form as a 
-   subliminal channel.
+   We could also check for and reject signatures that aren't in a 
+   particular form, but this will end up rejecting signatures created by 
+   some library that happens to generate them one way or the other.  In
+   particular at least one Let's Encrypt root certificate uses the > N/2
+   form so we can't enable it by default.
 
-   To enable both generation of the < N/2 form and checking for the < N/2 
-   form, uncomment the following */
+   To enable checking for the < N/2 form, uncomment the following */
 
 /* #define CHECK_ECDSA_MALLEABILITY */
 
@@ -53,19 +55,23 @@
 
 /* Technically, ECDSA can be used with any hash function, including ones 
    with a block size larger than the subgroup order (although in practice
-   the hash function always seems to be matched to the subgroup size).  To
-   handle the possibility of a mismatched size we use the following custom 
-   conversion function, which applies the conversion rules for transforming 
-   the hash value into an integer from X9.62.  For a group order n, of size 
-   nlen (where 2 ^ (nlen-1) <= n < 2 ^ nlen), X9.62 mandates that the hash 
-   value is first truncated to its leftmost nlen bits if nlen is smaller 
-   than the hash value bit length before conversion to a bignum.  
-   Mathematically, this is equivalent to first converting the value to a 
-   bignum and then right-shifting it by hlen - nlen bits, where hlen is the 
-   hash length in bits (a more generic way to view the required conversion 
-   is 'while( BN_num_bits( hash ) > BN_num_bits( n ) 
-   { BN_rshift( hash, 1 ); }').  Finally, we reduce the value modulo n, 
-   which is a simple matter of a compare-and-subtract */
+   the hash function is always matched to the subgroup size).  To handle the 
+   (theoretical) possibility of a mismatched size we use the following 
+   custom conversion function, which applies the conversion rules for 
+   transforming the hash value into an integer from X9.62.  
+   
+   For a group order n, of size nlen (where 2 ^ (nlen-1) <= n < 2 ^ nlen), 
+   X9.62 mandates that the hash value is first truncated to its leftmost 
+   nlen bits if nlen is smaller than the hash value bit length before 
+   conversion to a bignum.  Mathematically, this is equivalent to first 
+   converting the value to a bignum and then right-shifting it by hlen - 
+   nlen bits, where hlen is the hash length in bits.  Again, this is really
+   a can't-occur situation because of the fashion-statement pairing of hash
+   algorithms to curve sizes so each curve gets its own matching hash 
+   algorithm.
+   
+   Finally, we reduce the value modulo n, which is a simple matter of a 
+   compare-and-subtract */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 static int hashToBignum( INOUT_PTR BIGNUM *bignum, 
@@ -100,17 +106,29 @@ static int hashToBignum( INOUT_PTR BIGNUM *bignum,
 	/* Shift out any extra bits */
 	if( hLen > nLen )
 		{
+		/* This should never happen, both because curves are paired to the 
+		   hash size and to a lesser extent because we hardcode in the
+		   de facto standard of P256 + SHA2-256 wherever it's used, so we
+		   warn in cases where this code path is executed */
+		DEBUG_DIAG(( "Truncating hash to fit ECDSA curve size" ));
+		assert( DEBUG_WARN );
+
 		CK( BN_rshift( bignum, bignum, hLen - nLen ) );
 		if( bnStatusError( bnStatus ) )
 			return( getBnStatus( bnStatus ) );
 		}
 
-	/* Make sure that the value really is smaller than the group order */
+	/* Make sure that the value really is smaller than the group order.  Only
+	   a single subtraction is nececssary because all of the NIST and 
+	   Brainpool curves have the high bit set (in the NIST case in particular
+	   the values start with a long string of one bits), so the following is
+	   essentially never triggered */
 	if( BN_cmp( bignum, n ) >= 0 )
 		{
 		CK( BN_sub( bignum, bignum, n ) );
 		if( bnStatusError( bnStatus ) )
 			return( getBnStatus( bnStatus ) );
+		ENSURES( BN_cmp( bignum, n ) < 0 );
 		}
 
 	ENSURES( sanityCheckBignum( bignum ) );
@@ -198,7 +216,7 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
    compressed format contains the LSB of Qy, here 1, which allows us to 
    unambiguously choose the square root).
 
-   Because a lot of the high-level encryption routines don't exist yet, we 
+   Because a lot of the high-level encryption routines don't exist yet we 
    cheat a bit and set up a dummy encryption context with just enough 
    information for the following code to work */
 
@@ -416,9 +434,9 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	BIGNUM *hash = &pkcInfo->tmp1, *x = &pkcInfo->tmp2;
 	BIGNUM *k = &pkcInfo->tmp3, *r = &pkcInfo->eccParam_tmp4;
 	BIGNUM *s = &pkcInfo->eccParam_tmp5;
-	EC_GROUP *ecCTX = pkcInfo->ecCTX;
+	const EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	EC_POINT *kg = pkcInfo->tmpPoint;
-	const int nLen = BN_num_bytes( n );
+	const int nLen = BN_num_bytes( n ), outLen = eccParams->outLen;
 	int bnStatus = BN_STATUS, status = CRYPT_OK;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -435,6 +453,11 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 									  MIN_CRYPT_OBJECTSIZE ) );
 	REQUIRES( capabilityInfoPtr != NULL );
 	REQUIRES( nLen >= ECCPARAM_MIN_N && nLen <= ECCPARAM_MAX_N );
+
+	/* Clear return values */
+	REQUIRES( isShortIntegerRangeNZ( eccParams->outLen ) ); 
+	memset( eccParams->outParam, 0, min( 16, eccParams->outLen ) );
+	eccParams->outLen = 0;
 
 	/* Generate the secret random value k.  During the initial self-test the 
 	   random data pool may not exist yet, and may in fact never exist in a 
@@ -554,9 +577,8 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( bnStatusError( bnStatus ) )
 		return( getBnStatus( bnStatus ) );
 
-	/* Optional code to ensure that the signature is always in < N/2 form, 
-	   see the comment about ECDSA malleability further up */
-#ifdef CHECK_ECDSA_MALLEABILITY
+	/* Ensure that the signature is always in < N/2 form, see the comment 
+	   about ECDSA malleability further up */
 	CKPTR( BN_copy( x, n ) );
 	CK( BN_rshift( x, x, 1 ) );
 	if( bnStatusError( bnStatus ) )
@@ -566,8 +588,8 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		CK( BN_sub( s, n, s ) );
 		if( bnStatusError( bnStatus ) )
 			return( getBnStatus( bnStatus ) );
+		DEBUG_PRINT(( "Converted ECDSA signature to canonical form.\n" ));
 		}
-#endif /* CHECK_ECDSA_MALLEABILITY */
 
 	/* Check that neither r = 0 or s = 0.  See the earlier comment where k 
 	   is checked for the real necessity of this check */
@@ -585,8 +607,8 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Encode the result as a DL data block */
 	status = capabilityInfoPtr->encodeDLValuesFunction( eccParams->outParam, 
-									eccParams->outLen, &eccParams->outLen, 
-									r, s, eccParams->formatType );
+										outLen, &eccParams->outLen, r, s, 
+										eccParams->formatType );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -608,10 +630,10 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	DLP_PARAMS *eccParams = ( DLP_PARAMS * ) buffer;
 	const ECC_DOMAINPARAMS *domainParams = pkcInfo->domainParams;
 	const BIGNUM *n = &domainParams->n;
-	BIGNUM *qx = &pkcInfo->eccParam_qx, *qy = &pkcInfo->eccParam_qy;
+	const BIGNUM *qx = &pkcInfo->eccParam_qx, *qy = &pkcInfo->eccParam_qy;
 	BIGNUM *u1 = &pkcInfo->tmp1, *u2 = &pkcInfo->tmp2;
 	BIGNUM *r = &pkcInfo->tmp3, *s = &pkcInfo->eccParam_tmp4;
-	EC_GROUP *ecCTX = pkcInfo->ecCTX;
+	const EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	EC_POINT *u1gu2q = pkcInfo->tmpPoint, *u2q DUMMY_INIT_PTR;
 	int bnStatus = BN_STATUS, status;
 
@@ -642,7 +664,10 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( bnStatusError( bnStatus ) )
 		return( getBnStatus( bnStatus ) );
 	if( BN_cmp( s, u1 ) > 0 )
+		{
+		DEBUG_PRINT(( "ECDSA signature isn't in canonical form.\n" ));
 		return( CRYPT_ERROR_SIGNATURE );
+		}
 #endif /* CHECK_ECDSA_MALLEABILITY */
 
 	/* Convert the hash value to an integer in the proper range. */

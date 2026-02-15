@@ -61,11 +61,11 @@ static const C_STR getAlgoLabel( const CRYPT_ALGO_TYPE cryptAlgo )
 		case CRYPT_ALGO_ECDH:
 			return( ECDSA_PRIVKEY_LABEL );
 
-		case CRYPT_ALGO_EDDSA:
-			return( EDDSA_PRIVKEY_LABEL );
-
 		case CRYPT_ALGO_25519:
 			return( CURVE25519_PRIVKEY_LABEL );
+
+		case CRYPT_ALGO_ED25519:
+			return( ED25519_PRIVKEY_LABEL );
 		}
 
 	return( TEXT( "<Unknown>" ) );
@@ -89,6 +89,9 @@ static int loadPrivateKeyContext( CRYPT_CONTEXT *cryptContext,
 
 		case CRYPT_ALGO_ECDSA:
 			return( loadECDSAContexts( CRYPT_UNUSED, NULL, cryptContext ) );
+
+		case CRYPT_ALGO_ED25519:
+			return( load25519Contexts( CRYPT_UNUSED, NULL, cryptContext ) );
 		}
 
 	fprintf( outputStream, "Algorithm %d not available, line %d.\n", 
@@ -316,14 +319,18 @@ int testGetPGPPublicKey( void )
 		return( FALSE );
 	if( !getPGPPublicKey( KEYFILE_PGP, NULL, TRUE, "PGP with wildcard name" ) )
 		return( FALSE );
-	if( !getPGPPublicKey( KEYFILE_OPENPGP_HASH, NULL, FALSE, "OpenPGP (GPG/hashed key)" ) )
-		return( FALSE );
-	if( !getPGPPublicKey( KEYFILE_OPENPGP_HASH, NULL, TRUE, "OpenPGP with wildcard name" ) )
-		return( FALSE );
-	if( !getPGPPublicKey( KEYFILE_OPENPGP_AES, NULL, FALSE, "OpenPGP (GPG/AES-256 key)" ) )
-		return( FALSE );
-	if( !getPGPPublicKey( KEYFILE_OPENPGP_AES_KEYID, NULL, FALSE, "OpenPGP (GPG/AES-256 key) by keyID" ) )
-		return( FALSE );
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_DSA, NULL ) ) && \
+		cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ELGAMAL, NULL ) ) ) 
+		{
+		if( !getPGPPublicKey( KEYFILE_OPENPGP_HASH, NULL, FALSE, "OpenPGP (GPG/hashed key)" ) )
+			return( FALSE );
+		if( !getPGPPublicKey( KEYFILE_OPENPGP_HASH, NULL, TRUE, "OpenPGP with wildcard name" ) )
+			return( FALSE );
+		if( !getPGPPublicKey( KEYFILE_OPENPGP_AES, NULL, FALSE, "OpenPGP (GPG/AES-256 key)" ) )
+			return( FALSE );
+		if( !getPGPPublicKey( KEYFILE_OPENPGP_AES_KEYID, NULL, FALSE, "OpenPGP (GPG/AES-256 key) by keyID" ) )
+			return( FALSE );
+		}
 #if 0	/* The key in this file has an S2K iteration count of 3.5M and will 
 		   be rejected by cryptlib's anti-DoS sanity checks */
 	if( !getPGPPublicKey( KEYFILE_OPENPGP_CAST, NULL, FALSE, "OpenPGP (GPG/CAST5 key)" ) )
@@ -341,10 +348,14 @@ int testGetPGPPublicKey( void )
 	if( !getPGPPublicKey( KEYFILE_PGP_SPECIAL, PGPKEY_FILE_TEMPLATE, FALSE, "Complex PGP key" ) )
 		return( FALSE );
 #endif /* 0 */
-#if 0	/* Not fully supported yet */
-	if( !getPGPPublicKey( KEYFILE_OPENPGP_ECC, NULL, FALSE, "OpenPGP (ECC)" ) )
-		return( FALSE );
-#endif /* 0 */
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDSA, NULL ) ) ) 
+		{
+		if( !getPGPPublicKey( KEYFILE_OPENPGP_ECC1, NULL, FALSE, "OpenPGP (ECC GPG1)" ) )
+			return( FALSE );
+		if( !getPGPPublicKey( KEYFILE_OPENPGP_ECC2, NULL, FALSE, "OpenPGP (ECC GPG2)" ) )
+			return( FALSE );
+		}
+
 	return( TRUE );
 	}
 
@@ -453,6 +464,19 @@ static int getPGPPrivateKey( const KEYFILE_TYPE keyFileType,
 
 int testGetPGPPrivateKey( void )
 	{
+	/* For a current GPG to create some of the files, search for "Simple 
+	   installer" on https://gnupg.org/download/index.html, install, then 
+	   copy over gpg.exe, also
+	   libassuan-9.dll libgcrypt-20.dll libgpg-error-0.dll libnpth-0.dll libsqlite3-0.dll zlib1.dll
+	   gpg-agent.exe pinentry-basic.exe keyboxd.exe
+
+	   Note that running anything that requires password entry starts a 
+	   "GnuPG private key daemon" task.  Afterwards may need to clean junk 
+	   out of C:/Users/$username/AppData/Roaming/gnupg.  Also, command-line 
+	   options change constantly and so does the bewildering array of 
+	   proprietary files and formats that everything is stored in, will need 
+	   to check what this week's version requires and outputs */
+
 	/* PGP 2.x file, RSA with IDEA, secring.pgp */
 #ifdef USE_PGP2
 	if( !getPGPPrivateKey( KEYFILE_PGP, FALSE, "PGP" ) )
@@ -466,16 +490,24 @@ int testGetPGPPrivateKey( void )
 	   Select DSA+Elgamal, size 1024 bits, key does not expire, 
 	   name = Test1, email = test1@test.org, comment blank, 
 	   password = test1 */
-#ifdef USE_3DES
-	if( !getPGPPrivateKey( KEYFILE_OPENPGP_HASH, FALSE, "OpenPGP (GPG/hashed key)" ) )
-		return( FALSE );
+#ifdef USE_3DES 
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_DSA, NULL ) ) && \
+		cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ELGAMAL, NULL ) ) ) 
+		{
+		if( !getPGPPrivateKey( KEYFILE_OPENPGP_HASH, FALSE, "OpenPGP (GPG/hashed key)" ) )
+			return( FALSE );
+		}
 #endif /* USE_3DES */
 
 	/* OpenPGP file, DSA+Elgamal with AES, sec_aes.skr */
-	if( !getPGPPrivateKey( KEYFILE_OPENPGP_AES, FALSE, "OpenPGP (GPG/AES-256 key)" ) )
-		return( FALSE );
-	if( !getPGPPrivateKey( KEYFILE_OPENPGP_AES, TRUE, "OpenPGP with wildcard name" ) )
-		return( FALSE );
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_DSA, NULL ) ) && \
+		cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ELGAMAL, NULL ) ) ) 
+		{
+		if( !getPGPPrivateKey( KEYFILE_OPENPGP_AES, FALSE, "OpenPGP (GPG/AES-256 key)" ) )
+			return( FALSE );
+		if( !getPGPPrivateKey( KEYFILE_OPENPGP_AES, TRUE, "OpenPGP with wildcard name" ) )
+			return( FALSE );
+		}
 
 #if 0	/* The key in this file has an S2K iteration count of 3.5M and will 
 		   be rejected by cryptlib's anti-DoS sanity checks */
@@ -506,18 +538,32 @@ int testGetPGPPrivateKey( void )
 	if( !getPGPPrivateKey( KEYFILE_OPENPGP_BOUNCYCASTLE, FALSE, "OpenPGP (RSA p,q swapped)" ) )
 		return( FALSE );
 
-	/* OpenPGP, ECC keys, sec_ecc.gpg.  Create using a development release 
-	   of GPG 2.x (which involves installing about a dozen dependency 
-	   libraries and apps), then:
+	/* OpenPGP, ECC keys, sec_ecc.gpg.  ECC1 created using a development 
+	   release of GPG 2.x (which involves installing about a dozen 
+	   dependency libraries and apps), then:
 
 		gpg2 --expert --full-gen-key
 
 	   Select ECC, NIST P256, key does not expire, name = Test1,
-	   email = test1@test.org, comment blank, password = test1 */
-#if 0	/* Not fully supported yet */
-	if( !getPGPPrivateKey( KEYFILE_OPENPGP_ECC, FALSE, "OpenPGP (ECC)" ) )
-		return( FALSE );
-#endif /* 0 */
+	   email = test1@test.org, comment blank, password = test1.
+	   
+	   ECC2 created with:
+
+		gpg2 --homedir . --expert --full-generate-key
+
+	   Select 10 "ECC (sign only)", then (3) "P256", 0 = no expiry, 
+	   user = Test1, email = test1@test.org, comment blank, password = test1.
+
+		gpg2 --homedir . --list-secret-keys --keyid-format=long
+		gpg2 --homedir . --output ./pubring.pgp --export test1
+		gpg2 --homedir . --output ./secring.pgp --export-secret-key test1 */
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDSA, NULL ) ) )
+		{
+		if( !getPGPPrivateKey( KEYFILE_OPENPGP_ECC1, FALSE, "OpenPGP (ECC GPG1)" ) )
+			return( FALSE );
+		if( !getPGPPrivateKey( KEYFILE_OPENPGP_ECC2, FALSE, "OpenPGP (ECC GPG2)" ) )
+			return( FALSE );
+		}
 
 	return( TRUE );
 	}
@@ -1096,7 +1142,10 @@ static int borkenKeyImport( const int fileNo )
 		Keyset #12 = OpenSSL, possibly the same type as #6.
 		Keyset #13 = Unknown source and not a PKCS #12 but some weird mutant
 			that turns into something PKCS #15-like after the outer PKCS #12 
-			wrappers */
+			wrappers, possibly OpenSSL.
+		Keyset #14 = OpenSSL, uses PBKDF2 instead of PKCS #12 PBE as #13.
+			Presumably incorrect password since #13 reads OK but #14 doesn't.
+		Keyset #15 = Entrust, RSA cert and private key */
 	switch( fileNo )
 		{
 		case 1:
@@ -1164,6 +1213,16 @@ static int borkenKeyImport( const int fileNo )
 		case 13:
 			userID = TEXT( "[none]" );
 			password = TEXT( "yz7nWwC5Re7mAjA6" );
+			break;
+
+		case 14:
+			userID = TEXT( "[none]" );
+			password = TEXT( "pass" );		/* May be incorrect */
+			break;
+
+		case 15:
+			userID = TEXT( "[none]" );
+			password = TEXT( "Welcome!1" );
 			break;
 
 		default:
@@ -1234,6 +1293,12 @@ static int borkenKeyImport( const int fileNo )
 				if( status == CRYPT_ERROR_WRONGKEY )
 					status = CRYPT_OK;
 				break;
+
+			case 14:
+				/* Presumably an incorrect password since #13 reads OK */
+				if( status == CRYPT_ERROR_WRONGKEY )
+					status = CRYPT_OK;
+				break;
 			}
 		if( cryptStatusError( status ) )
 			{
@@ -1266,6 +1331,7 @@ static int borkenKeyImport( const int fileNo )
 			case 9:
 			case 12:
 			case 13:
+			case 14:
 				/* All of these files encrypt the certificate so that it 
 				   can't be read using cryptGetPublicKey() */
 				status = CRYPT_OK;
@@ -1308,7 +1374,7 @@ int testReadAltFileKey( void )
 	borkenKeyImport( 12 );
   #endif /* 0 */
 
-	for( i = 1; i <= 13; i++ )
+	for( i = 1; i <= 15; i++ )
 		{
 		if( !borkenKeyImport( i ) )
 			return( FALSE );
@@ -1421,13 +1487,21 @@ static int readFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 	return( TRUE );
 	}
 
+typedef enum {
+	DUALKEY_OPTION_NONE,		/* Standard add */
+	DUALKEY_OPTION_DUPLICATE,	/* Second add of same key */
+	DUALKEY_OPTION_DSA1_DSA2,	/* DSA + DSA' key - bad */
+	DUALKEY_OPTION_ELGAMAL1_ELGAMAL2,/* Elgamal + Elgamal' key - bad */
+	DUALKEY_OPTION_ELGAMAL_DSA	/* Elgamal + DSA key - OK */
+	} DUALKEY_OPTION_TYPE;
+
 static int writeFileKey( const CRYPT_ALGO_TYPE cryptAlgo, 
 						 const CRYPT_FORMAT_TYPE formatType,
 						 const BOOLEAN createFile,
-						 const BOOLEAN generateKey )
+						 const DUALKEY_OPTION_TYPE dualKeyOption )
 	{
 	CRYPT_KEYSET cryptKeyset;
-	CRYPT_CONTEXT privateKeyContext;
+	CRYPT_CONTEXT privateKeyContext, privateKeyContext2 = -1;
 	const char *keyFileDescr = \
 			( formatType == CRYPT_FORMAT_NONE ) ? "alternative " : \
 			( formatType == CRYPT_FORMAT_PGP ) ? "PGP " : "";
@@ -1437,30 +1511,42 @@ static int writeFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 			 "file...\n", algoName( cryptAlgo ), keyFileDescr );
 
 	/* Create the private key context */
-	if( generateKey )
+	if( !loadPrivateKeyContext( &privateKeyContext, cryptAlgo ) )
+		return( FALSE );
+	if( dualKeyOption != DUALKEY_OPTION_NONE )
 		{
-		status = cryptCreateContext( &privateKeyContext, CRYPT_UNUSED, 
-									 cryptAlgo );
-		if( cryptStatusOK( status ) )
+		/* If it's a duplicate DSA key or Elgamal+DSA, use the fixed DSA 
+		   key */
+		if( dualKeyOption == DUALKEY_OPTION_DUPLICATE || \
+			dualKeyOption == DUALKEY_OPTION_ELGAMAL_DSA )
 			{
-			status = cryptSetAttributeString( privateKeyContext, 
-											  CRYPT_CTXINFO_LABEL, 
-											  getAlgoLabel( cryptAlgo ), 
-											  paramStrlen( getAlgoLabel( cryptAlgo ) ) );
+			if( !loadPrivateKeyContext( &privateKeyContext2, 
+										CRYPT_ALGO_DSA ) )
+				return( FALSE );
 			}
-		if( cryptStatusOK( status ) )
-			status = cryptGenerateKey( privateKeyContext );
-		if( cryptStatusError( status ) )
-			return( FALSE );
-		}
-	else
-		{
-		if( !loadPrivateKeyContext( &privateKeyContext, cryptAlgo ) )
-			return( FALSE );
+		else
+			{
+			/* It's a repeated DSA or Elgamal key, we have to generate a 
+			   new one */
+			status = cryptCreateContext( &privateKeyContext2, CRYPT_UNUSED, 
+										 cryptAlgo );
+			if( cryptStatusOK( status ) )
+				{
+				status = cryptSetAttributeString( privateKeyContext2, 
+									CRYPT_CTXINFO_LABEL, 
+									getAlgoLabel( cryptAlgo ), 
+									paramStrlen( getAlgoLabel( cryptAlgo ) ) );
+				}
+			if( cryptStatusOK( status ) )
+				status = cryptGenerateKey( privateKeyContext2 );
+			if( cryptStatusError( status ) )
+				return( FALSE );			
+			}
 		}
 
-	/* Create/open the file keyset.  For the first call (with RSA) we create
-	   a new keyset, for subsequent calls we update the existing keyset */
+	/* Create/open the file keyset.  For updateable keysets for the first 
+	   call we create a new keyset, for subsequent calls we update the 
+	   existing keyset */
 	status = cryptKeysetOpen( &cryptKeyset, CRYPT_UNUSED, CRYPT_KEYSET_FILE,
 							  ( formatType == CRYPT_FORMAT_NONE ) ? \
 								TEST_PRIVKEY_ALT_FILE : \
@@ -1471,6 +1557,8 @@ static int writeFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 	if( cryptStatusError( status ) )
 		{
 		cryptDestroyContext( privateKeyContext );
+		if( dualKeyOption != DUALKEY_OPTION_NONE )
+			cryptDestroyContext( privateKeyContext2 );
 		if( ( formatType != CRYPT_FORMAT_CRYPTLIB ) && \
 			( status == CRYPT_ERROR_NOTAVAIL ) )
 			{
@@ -1487,7 +1575,41 @@ static int writeFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 
 	/* Write the key to the file */
 	if( formatType == CRYPT_FORMAT_PGP )
+		{
 		status = cryptAddPublicKey( cryptKeyset, privateKeyContext );
+		if( cryptStatusOK( status ) && dualKeyOption != DUALKEY_OPTION_NONE )
+			{
+			status = cryptAddPublicKey( cryptKeyset, privateKeyContext2 );
+			switch( dualKeyOption )
+				{
+				case DUALKEY_OPTION_DUPLICATE:
+					if( status != CRYPT_ERROR_DUPLICATE )
+						{
+						fprintf( outputStream, "Failed to detect addition of "
+								 "duplicate %s key to %skey file.\n\n", 
+								 algoName( cryptAlgo ), keyFileDescr );
+						return( FALSE );
+						}
+					status = CRYPT_OK;
+					break;
+
+				case DUALKEY_OPTION_DSA1_DSA2:
+				case DUALKEY_OPTION_ELGAMAL1_ELGAMAL2:
+					if( status != CRYPT_ERROR_COMPLETE )
+						{
+						fprintf( outputStream, "Failed to detect addition of "
+								 "second %s key to %skey file.\n\n", 
+								 algoName( cryptAlgo ), keyFileDescr );
+						return( FALSE );
+						}
+					status = CRYPT_OK;
+					break;
+			
+				case DUALKEY_OPTION_ELGAMAL_DSA:
+					break;		/* This test should succeed */
+				}
+			}
+		}
 	else
 		{
 		status = cryptAddPrivateKey( cryptKeyset, privateKeyContext,
@@ -1502,17 +1624,53 @@ static int writeFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 
 	/* Close the keyset */
 	status = cryptKeysetClose( cryptKeyset );
-	if( cryptStatusError( status ) )
+	if( formatType == CRYPT_FORMAT_PGP && \
+		cryptAlgo == CRYPT_ALGO_ELGAMAL && \
+		( dualKeyOption == DUALKEY_OPTION_NONE || \
+		  dualKeyOption == DUALKEY_OPTION_ELGAMAL1_ELGAMAL2 ) )
 		{
-		fprintf( outputStream, "cryptKeysetClose() failed with error "
-				 "code %d, line %d.\n", status, __LINE__ );
-		return( FALSE );
+		if( status != CRYPT_ERROR_INCOMPLETE )
+			{
+			fprintf( outputStream, "cryptKeysetClose() after partial update "
+					 "succeeded, should have failed, line %d.\n", __LINE__ );
+			return( FALSE );
+			}
+		}
+	else
+		{
+		if( cryptStatusError( status ) )
+			{
+			fprintf( outputStream, "cryptKeysetClose() failed with error "
+					 "code %d, line %d.\n", status, __LINE__ );
+			return( FALSE );
+			}
 		}
 
 	/* Clean up */
 	cryptDestroyContext( privateKeyContext );
-	fprintf( outputStream, "Write of %s private key to %skey file "
-			 "succeeded.\n\n", algoName( cryptAlgo ), keyFileDescr );
+	if( dualKeyOption != DUALKEY_OPTION_NONE )
+		cryptDestroyContext( privateKeyContext2 );
+	if( status == CRYPT_ERROR_INCOMPLETE )
+		{
+		fprintf( outputStream, "Detection of incomplete update of %s "
+				 "key to %skey file succeeded.\n\n", 
+				 algoName( cryptAlgo ), keyFileDescr );
+		}
+	else
+		{
+		if( dualKeyOption != DUALKEY_OPTION_NONE && \
+			dualKeyOption != DUALKEY_OPTION_ELGAMAL_DSA )
+			{
+			fprintf( outputStream, "Detection of dual-key %s write attempt "
+					 "to %skey file succeeded.\n\n", 
+					 algoName( cryptAlgo ), keyFileDescr );
+			}
+		else
+			{
+			fprintf( outputStream, "Write of %s private key to %skey file "
+					 "succeeded.\n\n", algoName( cryptAlgo ), keyFileDescr );
+			}
+		}
 	return( TRUE );
 	}
 
@@ -1520,32 +1678,39 @@ int testReadWriteFileKey( void )
 	{
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_RSA, NULL ) ) ) 
 		{
-		if( !writeFileKey( CRYPT_ALGO_RSA, CRYPT_FORMAT_CRYPTLIB, TRUE, FALSE ) )
+		if( !writeFileKey( CRYPT_ALGO_RSA, CRYPT_FORMAT_CRYPTLIB, TRUE, DUALKEY_OPTION_NONE ) )
 			return( FALSE );
 		if( !readFileKey( CRYPT_ALGO_RSA, CRYPT_FORMAT_CRYPTLIB, FALSE ) )
 			return( FALSE );
 		if( !readFileKey( CRYPT_ALGO_RSA, CRYPT_FORMAT_CRYPTLIB, TRUE ) )
 			return( FALSE );
-		if( !writeFileKey( CRYPT_ALGO_DSA, CRYPT_FORMAT_CRYPTLIB, FALSE, FALSE ) )
-			return( FALSE );
 		}
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_DSA, NULL ) ) ) 
 		{
+		if( !writeFileKey( CRYPT_ALGO_DSA, CRYPT_FORMAT_CRYPTLIB, FALSE, DUALKEY_OPTION_NONE ) )
+			return( FALSE );
 		if( !readFileKey( CRYPT_ALGO_DSA, CRYPT_FORMAT_CRYPTLIB, FALSE ) )
 			return( FALSE );
 		}
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ELGAMAL, NULL ) ) ) 
 		{
-		if( !writeFileKey( CRYPT_ALGO_ELGAMAL, CRYPT_FORMAT_CRYPTLIB, FALSE, FALSE ) )
+		if( !writeFileKey( CRYPT_ALGO_ELGAMAL, CRYPT_FORMAT_CRYPTLIB, FALSE, DUALKEY_OPTION_NONE ) )
 			return( FALSE );
 		if( !readFileKey( CRYPT_ALGO_ELGAMAL, CRYPT_FORMAT_CRYPTLIB, FALSE ) )
 			return( FALSE );
 		}
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDSA, NULL ) ) )
 		{
-		if( !writeFileKey( CRYPT_ALGO_ECDSA, CRYPT_FORMAT_CRYPTLIB, FALSE, FALSE ) )
+		if( !writeFileKey( CRYPT_ALGO_ECDSA, CRYPT_FORMAT_CRYPTLIB, FALSE, DUALKEY_OPTION_NONE ) )
 			return( FALSE );
 		if( !readFileKey( CRYPT_ALGO_ECDSA, CRYPT_FORMAT_CRYPTLIB, FALSE ) )
+			return( FALSE );
+		}
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) )
+		{
+		if( !writeFileKey( CRYPT_ALGO_ED25519, CRYPT_FORMAT_CRYPTLIB, FALSE, DUALKEY_OPTION_NONE ) )
+			return( FALSE );
+		if( !readFileKey( CRYPT_ALGO_ED25519, CRYPT_FORMAT_CRYPTLIB, FALSE ) )
 			return( FALSE );
 		}
 	return( TRUE );
@@ -1559,7 +1724,7 @@ int testReadWriteAltFileKey( void )
 	/* We use CRYPT_FORMAT_NONE to denote the alternative format to the 
 	   standard PKCS #15.  This requires the use of 3DES so we make its use
 	   conditional on 3DES being enabled */
-	status = writeFileKey( CRYPT_ALGO_RSA, CRYPT_FORMAT_NONE, TRUE, FALSE );
+	status = writeFileKey( CRYPT_ALGO_RSA, CRYPT_FORMAT_NONE, TRUE, DUALKEY_OPTION_NONE );
 	if( status == CRYPT_ERROR_NOTAVAIL )
 		{
 		/* Alternative keyset access not available */
@@ -1577,14 +1742,78 @@ int testReadWriteAltFileKey( void )
 
 int testReadWritePGPFileKey( void )
 	{
-	/* To display the written keyring data:
+	/* Because of the extensive cross-linking of data in PGP keysets we 
+	   can't modify them once they're created without implementing a 
+	   complete key database manager, so we create a new file for each
+	   test.
+	
+	   To display the written keyring data:
 
 		gpg --list-sigs --keyring .\test.pgp
 		gpg --check-sigs --keyring .\test.pgp
 		gpg --list-keys --keyring .\test.pgp */
-	if( !writeFileKey( CRYPT_ALGO_RSA, CRYPT_FORMAT_PGP, TRUE, FALSE ) )
-		return( FALSE );
-	return( readFileKey( CRYPT_ALGO_RSA, CRYPT_FORMAT_PGP, FALSE ) );
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_RSA, NULL ) ) ) 
+		{
+		if( !writeFileKey( CRYPT_ALGO_RSA, CRYPT_FORMAT_PGP, TRUE, DUALKEY_OPTION_NONE ) )
+			return( FALSE );
+		if( !readFileKey( CRYPT_ALGO_RSA, CRYPT_FORMAT_PGP, FALSE ) )
+			return( FALSE );
+		}
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_DSA, NULL ) ) ) 
+		{
+		/* The first test will fail because we're trying to write the same 
+		   DSA key twice, the second will fail because we're trying to write
+		   two different DSA keys, the third will succeed */
+		if( !writeFileKey( CRYPT_ALGO_DSA, CRYPT_FORMAT_PGP, TRUE, DUALKEY_OPTION_DUPLICATE ) )
+			return( FALSE );
+		if( !writeFileKey( CRYPT_ALGO_DSA, CRYPT_FORMAT_PGP, TRUE, DUALKEY_OPTION_DSA1_DSA2 ) )
+			return( FALSE );
+		if( !writeFileKey( CRYPT_ALGO_DSA, CRYPT_FORMAT_PGP, TRUE, DUALKEY_OPTION_NONE ) )
+			return( FALSE );
+		if( !readFileKey( CRYPT_ALGO_DSA, CRYPT_FORMAT_PGP, FALSE ) )
+			return( FALSE );
+		}
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ELGAMAL, NULL ) ) ) 
+		{
+		/* The first test will fail because we're trying to write an Elgamal 
+		   key without a DSA binding signature, the second will fail because 
+		   we're trying to write two Elgamal keys, the third will succeed */
+		if( !writeFileKey( CRYPT_ALGO_ELGAMAL, CRYPT_FORMAT_PGP, TRUE, DUALKEY_OPTION_NONE ) )
+			return( FALSE );
+		if( !writeFileKey( CRYPT_ALGO_ELGAMAL, CRYPT_FORMAT_PGP, TRUE, DUALKEY_OPTION_ELGAMAL1_ELGAMAL2 ) )
+			return( FALSE );
+		if( !writeFileKey( CRYPT_ALGO_ELGAMAL, CRYPT_FORMAT_PGP, TRUE, DUALKEY_OPTION_ELGAMAL_DSA ) )
+			return( FALSE );
+
+		/* The read is a bit weird, because of PGP's use of paired different-
+		   algorithm keys the user ID is the one for the primary key, which is 
+		   the DSA one, not the secondary, which is the Elgamal one.  Because
+		   of this we have to read the DSA key since that's the ID that's
+		   present */
+		if( !readFileKey( CRYPT_ALGO_DSA, CRYPT_FORMAT_PGP, FALSE ) )
+			return( FALSE );
+		}
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDSA, NULL ) ) )
+		{
+		/* The combination options have already been tested by the 
+		   DSA/Elgamal tests above */
+		if( !writeFileKey( CRYPT_ALGO_ECDSA, CRYPT_FORMAT_PGP, TRUE, DUALKEY_OPTION_NONE ) )
+			return( FALSE );
+		if( !readFileKey( CRYPT_ALGO_ECDSA, CRYPT_FORMAT_PGP, FALSE ) )
+			return( FALSE );
+		}
+#if 0	/* Currently not supported because we can't generate the binding sigs.with it */
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) )
+		{
+		/* The combination options have already been tested by the 
+		   DSA/Elgamal tests above */
+		if( !writeFileKey( CRYPT_ALGO_ED25519, CRYPT_FORMAT_PGP, TRUE, DUALKEY_OPTION_NONE ) )
+			return( FALSE );
+		if( !readFileKey( CRYPT_ALGO_ED25519, CRYPT_FORMAT_PGP, FALSE ) )
+			return( FALSE );
+		}
+#endif /* 0 */
+	return( TRUE );
 	}
 
 #if 0	/* Disabled until we can get valid third-party PKCS #15 test data */
@@ -1842,7 +2071,7 @@ static int readOldKey( const int version )
 	keysetName = fileName;
 #endif /* UNICODE_STRINGS */
 	status = cryptKeysetOpen( &cryptKeyset, CRYPT_UNUSED, CRYPT_KEYSET_FILE, 
-							  fileName, CRYPT_KEYOPT_READONLY );
+							  keysetName, CRYPT_KEYOPT_READONLY );
 	if( cryptStatusError( status ) )
 		{
 		fprintf( outputStream, "cryptKeysetOpen() for version 3%d failed "
@@ -1876,7 +2105,7 @@ int testReadOldKey( void )
 	fputs( "Testing read of older key formats...\n", outputStream );
 
 	/* Test each keyset from 3.4.7 to 3.4.0.  Note that as of 3.4.6 we don't 
-	   test the 3.4.0 keyset, which was based on an RFC draft that didn't 
+	   test the 3.4.0 keyset which was based on an RFC draft that didn't 
 	   MAC the EncryptedContentInfo.ContentEncryptionAlgorithmIdentifier and 
 	   used a 128-bit HMAC-SHA1 key instead of a 160-bit one.  Versions from 
 	   3.4.1 to 3.4.5 contained a workaround which MAC'd the data in a 3.4.0-
@@ -2593,6 +2822,9 @@ int testSingleStepFileCert( void )
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDSA, NULL ) ) && \
 		!writeSingleStepFileCert( CRYPT_ALGO_ECDSA, FALSE, FALSE ) )
 		return( FALSE );
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) && \
+		!writeSingleStepFileCert( CRYPT_ALGO_ED25519, FALSE, FALSE ) )
+		return( FALSE );
 	return( TRUE );
 	}
 
@@ -2820,8 +3052,6 @@ int testDoubleCertFile( void )
 			{
 			fprintf( outputStream, "cryptKeysetOpen() failed with error "
 					 "code %d, line %d.\n", status, __LINE__ );
-			if( status == CRYPT_ERROR_OPEN )
-				return( CRYPT_ERROR_FAILED );
 			return( FALSE );
 			}
 		status = cryptGetAttributeString( cryptSigCert, 

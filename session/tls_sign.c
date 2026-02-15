@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TLS Signing Routines						*
-*					 Copyright Peter Gutmann 1998-2019						*
+*					 Copyright Peter Gutmann 1998-2024						*
 *																			*
 ****************************************************************************/
 
@@ -320,7 +320,11 @@ int createCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 					  INOUT_PTR STREAM *stream )
 	{
+	SIG_DATA_INFO sigDataInfo;
 	ERROR_INFO localErrorInfo;
+#if defined( USE_TLS13 ) && defined( USE_ED25519 )
+	BYTE transcriptDataBuffer[ 256 ];
+#endif /* USE_TLS13 && USE_ED25519 */
 #ifdef USE_ERRMSGS
 	char certName[ CRYPT_MAX_TEXTSIZE + 8 ];
 #endif /* USE_ERRMSGS */
@@ -339,10 +343,8 @@ int createCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* Create the signature.  The reason for the min() part of the
-	   expression is that iCryptCreateSignature() gets suspicious of very
-	   large buffer sizes, for example when the user has specified the use
-	   of a huge send buffer */
+	/* If it's a pre-TLS 1.2 signature then it needs to be handled 
+	   specially */
 	clearErrorInfo( &localErrorInfo );
 	if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 )
 		{
@@ -356,22 +358,60 @@ int createCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* See the note above about the complexities of handling the ever-
 		   changing pre-TLS 1.2 signature format and why we therefore use
 		   CRYPT_FORMAT_CRYPTLIB for the signature */
+		setSigDataInfoHash( &sigDataInfo, iHashContext );
 		status = iCryptCreateSignature( dataPtr, 
 					min( dataLength, MAX_INTLENGTH_SHORT - 1 ), &length, 
 					CRYPT_FORMAT_CRYPTLIB, sessionInfoPtr->privateKey, 
-					iHashContext, NULL, &localErrorInfo );
+					&sigDataInfo, NULL, &localErrorInfo );
 		krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
+		if( cryptStatusError( status ) )
+			{
+			retExtErr( status,
+					   ( status, SESSION_ERRINFO, &localErrorInfo,
+					     "Couldn't sign certificate-verify message with key "
+						 "for '%s'",
+						 getCertHolderName( sessionInfoPtr->privateKey, 
+											certName, CRYPT_MAX_TEXTSIZE ) ) );
+			}
+		
+		return( sSkip( stream, length, MAX_INTLENGTH_SHORT ) );
+		}
+
+	/* Create the signature on the handshake message transcript, with the
+	   usual special-snowflake handling for the Bernstein algorithms.  Note 
+	   that this can't be done for pre-1.3 TLS since it would mean storing 
+	   every handshake message somewhere, but the special-snowflakes aren't 
+	   defined for pre-TLS 1.3 so we should never encounter their use here */
+#if defined( USE_TLS13 ) && defined( USE_ED25519 )
+	if( isBernsteinAlgo( handshakeInfo->authAlgo ) )
+		{
+		/* Assemble the transcript prefix string and hash into a buffer so 
+		   that	it can be processed by the special-snowflake algorithms */
+		REQUIRES( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 );
+		REQUIRES( boundsCheck( handshakeInfo->transcriptPrefixStringLength,
+							   handshakeInfo->transcriptHashLength, 256 ) );
+		memcpy( transcriptDataBuffer, handshakeInfo->transcriptPrefixString,
+				handshakeInfo->transcriptPrefixStringLength );
+		memcpy( transcriptDataBuffer + \
+					handshakeInfo->transcriptPrefixStringLength,
+				handshakeInfo->transcriptHash, 
+				handshakeInfo->transcriptHashLength );
+		setSigDataInfoMessage( &sigDataInfo, transcriptDataBuffer,
+							   handshakeInfo->transcriptPrefixStringLength + \
+									handshakeInfo->transcriptHashLength );
 		}
 	else
+#endif /* USE_TLS13 && USE_ED25519 */
 		{
-		status = iCryptCreateSignature( dataPtr, 
+		setSigDataInfoHash( &sigDataInfo, 
+							handshakeInfo->sessionHashContext );
+		}
+	status = iCryptCreateSignature( dataPtr, 
 					min( dataLength, MAX_INTLENGTH_SHORT - 1 ), &length,
 					( sessionInfoPtr->version > TLS_MINOR_VERSION_TLS12 ) ? \
 					  CRYPT_IFORMAT_TLS13 : CRYPT_IFORMAT_TLS12, 
-					sessionInfoPtr->privateKey, 
-					handshakeInfo->sessionHashContext, NULL, 
+					sessionInfoPtr->privateKey, &sigDataInfo, NULL, 
 					&localErrorInfo );
-		}
 	if( cryptStatusError( status ) )
 		{
 		retExtErr( status,
@@ -392,7 +432,11 @@ int checkCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 IN_LENGTH_SHORT_MIN( MIN_CRYPT_OBJECTSIZE ) \
 						const int sigLength )
 	{
+	SIG_DATA_INFO sigDataInfo;
 	ERROR_INFO localErrorInfo;
+#if defined( USE_TLS13 ) && defined( USE_ED25519 )
+	BYTE transcriptDataBuffer[ 256 ];
+#endif /* USE_TLS13 && USE_ED25519 */
 #ifdef USE_ERRMSGS
 	char certName[ CRYPT_MAX_TEXTSIZE + 8 ];
 #endif /* USE_ERRMSGS */
@@ -413,10 +457,8 @@ int checkCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 	ANALYSER_HINT( dataPtr != NULL );
 
-	/* Verify the signature.  The reason for the min() part of the
-	   expression is that iCryptCheckSignature() gets suspicious of very
-	   large buffer sizes, for example when the user has specified the use
-	   of a huge send buffer */
+	/* If it's a pre-TLS 1.2 signature then it needs to be handled 
+	   specially */
 	clearErrorInfo( &localErrorInfo );
 	if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 )
 		{
@@ -436,7 +478,10 @@ int checkCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   only be RSA (DSA is gone and ECC is TLS 1.2-only) and perform a
 		   raw RSA public-key operation on the signature data, extract the
 		   lowest 20 bytes (the SHA-1 portion), and compare it with the hash 
-		   data */
+		   data.  However this is highly unlikely given both the almost 
+		   nonexistence of client certificates and the fact that the older 
+		   version of TLS are now mostly extinct, and that in the time this 
+		   code has been here no-one has ever noticed a problem */
 		if( *( ( BYTE * ) dataPtr ) != 0x30 )
 			{
 			assert( DEBUG_WARN );
@@ -451,35 +496,79 @@ int checkCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( cryptStatusError( status ) )
 			return( status );
 
+		/* Verify the signature.  The reason for the min() part of the
+		   expression is that iCryptCheckSignature() gets suspicious of very
+		   large buffer sizes, for example when the user has specified the 
+		   use of a huge send buffer */
+		setSigDataInfoHash( &sigDataInfo, iHashContext );
 		status = iCryptCheckSignature( dataPtr, 
 						min( sigLength, MAX_INTLENGTH_SHORT - 1 ), 
 						CRYPT_FORMAT_CRYPTLIB, sessionInfoPtr->iKeyexAuthContext, 
-						iHashContext, CRYPT_UNUSED, NULL, &localErrorInfo );
+						&sigDataInfo, NULL, &localErrorInfo );
 		krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
+		if( cryptStatusError( status ) )
+			{
+			retExtErr( status,
+					   ( status, SESSION_ERRINFO, &localErrorInfo,
+						 "Verification of certificate-verify message with "
+						 "public key for '%s' failed",
+						 getCertHolderName( sessionInfoPtr->iKeyexAuthContext, 
+											certName, CRYPT_MAX_TEXTSIZE ) ) );
+			}
+		
+		return( CRYPT_OK );
+		}
+
+	/* Verify the signature on the handshake message transcript, with the
+	   usual special-snowflake handling for the Bernstein algorithms.  Note 
+	   that this can't be done with the special-snowflake algorithms which 
+	   require the entire message to be present, which for pre-1.3 TLS would 
+	   mean storing every handshake message somewhere, but the special-
+	   snowflakes aren't defined for pre-TLS 1.3 so we should never encounter 
+	   their use here */
+#if defined( USE_TLS13 ) && defined( USE_ED25519 )
+	if( isBernsteinAlgo( handshakeInfo->authAlgo ) )
+		{
+		/* Assemble the transcript prefix string and hash into a buffer so 
+		   that	it can be processed by the special-snowflake algorithms */
+		REQUIRES( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 );
+		REQUIRES( boundsCheck( handshakeInfo->transcriptPrefixStringLength,
+							   handshakeInfo->transcriptHashLength, 256 ) );
+		memcpy( transcriptDataBuffer, handshakeInfo->transcriptPrefixString,
+				handshakeInfo->transcriptPrefixStringLength );
+		memcpy( transcriptDataBuffer + \
+					handshakeInfo->transcriptPrefixStringLength,
+				handshakeInfo->transcriptHash, 
+				handshakeInfo->transcriptHashLength );
+		setSigDataInfoMessage( &sigDataInfo, transcriptDataBuffer,
+							   handshakeInfo->transcriptPrefixStringLength + \
+									handshakeInfo->transcriptHashLength );
 		}
 	else
+#endif /* USE_TLS13 && USE_ED25519 */
 		{
-		status = iCryptCheckSignature( dataPtr, 
+		setSigDataInfoHash( &sigDataInfo, 
+							handshakeInfo->sessionHashContext );
+		}
+	status = iCryptCheckSignature( dataPtr, 
 						min( sigLength, MAX_INTLENGTH_SHORT - 1 ), 
 						CRYPT_IFORMAT_TLS12, sessionInfoPtr->iKeyexAuthContext, 
-						handshakeInfo->sessionHashContext, CRYPT_UNUSED, NULL,
-						&localErrorInfo );
+						&sigDataInfo, NULL, &localErrorInfo );
 #ifdef CONFIG_SUITEB_TESTS 
+	if( cryptStatusOK( status ) )
+		{
+		int sigKeySize;
+
+		status = krnlSendMessage( sessionInfoPtr->iKeyexAuthContext, 
+								  IMESSAGE_GETATTRIBUTE, &sigKeySize, 
+								  CRYPT_CTXINFO_KEYSIZE );
 		if( cryptStatusOK( status ) )
 			{
-			int sigKeySize;
-
-			status = krnlSendMessage( sessionInfoPtr->iKeyexAuthContext, 
-									  IMESSAGE_GETATTRIBUTE, &sigKeySize, 
-									  CRYPT_CTXINFO_KEYSIZE );
-			if( cryptStatusOK( status ) )
-				{
-				DEBUG_PRINT(( "Verified client's P%d authentication.\n", 
-							  bytesToBits( sigKeySize ) ));
-				}
+			DEBUG_PRINT(( "Verified client's P%d authentication.\n", 
+						  bytesToBits( sigKeySize ) ));
 			}
-#endif /* CONFIG_SUITEB_TESTS */
 		}
+#endif /* CONFIG_SUITEB_TESTS */
 	if( cryptStatusError( status ) )
 		{
 		retExtErr( status,
@@ -489,6 +578,7 @@ int checkCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 getCertHolderName( sessionInfoPtr->iKeyexAuthContext, 
 										certName, CRYPT_MAX_TEXTSIZE ) ) );
 		}
+
 	return( CRYPT_OK );
 	}
 
@@ -596,6 +686,7 @@ int createKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  IN_LENGTH_SHORT const int keyDataLength )
 	{
 	CRYPT_CONTEXT md5Context DUMMY_INIT, shaContext;
+	SIG_DATA_INFO sigDataInfo;
 	ERROR_INFO localErrorInfo;
 #ifdef USE_ERRMSGS
 	char certName[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -612,7 +703,11 @@ int createKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckTLSHandshakeInfo( handshakeInfo ) );
 	REQUIRES( isShortIntegerRangeNZ( keyDataLength ) );
 
-	/* Hash the data to be signed */
+	/* Hash the data to be signed.  This assumes the use of a signed hash so
+	   won't work with the special-snowflake algorithms, in theory we could 
+	   just assemble the data to be signed in a buffer and pass that to the
+	   signature function but since these algorithms aren't defined for TLS
+	   classic there's no need to accommodate them */
 	status = createKeyexHash( handshakeInfo, &shaContext, 
 				( handshakeInfo->keyexSigHashAlgo != CRYPT_ALGO_NONE ) ? \
 					handshakeInfo->keyexSigHashAlgo : CRYPT_ALGO_SHA1,
@@ -650,27 +745,22 @@ int createKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS12 )
 			{
+			setSigDataInfoHash( &sigDataInfo, shaContext );
 			status = iCryptCreateSignature( dataPtr, 
-											min( dataLength, \
-												 MAX_INTLENGTH_SHORT - 1 ), 
-											&sigLength, CRYPT_IFORMAT_TLS12, 
-											sessionInfoPtr->privateKey,
-											shaContext, NULL, 
-											&localErrorInfo );
+								min( dataLength, MAX_INTLENGTH_SHORT - 1 ), 
+								&sigLength, CRYPT_IFORMAT_TLS12, 
+								sessionInfoPtr->privateKey, &sigDataInfo, 
+								NULL, &localErrorInfo );
 			}
 		else
 			{
-			SIGPARAMS sigParams;
-
-			initSigParams( &sigParams );
-			sigParams.iSecondHash = shaContext;
+			setSigDataInfoHash( &sigDataInfo, md5Context );
+			sigDataInfo.hashContext2 = shaContext;
 			status = iCryptCreateSignature( dataPtr, 
-											min( dataLength, \
-												 MAX_INTLENGTH_SHORT - 1 ), 
-											&sigLength, CRYPT_IFORMAT_TLS, 
-											sessionInfoPtr->privateKey,
-											md5Context, &sigParams,
-											&localErrorInfo );
+								min( dataLength, MAX_INTLENGTH_SHORT - 1 ), 
+								&sigLength, CRYPT_IFORMAT_TLS, 
+								sessionInfoPtr->privateKey, &sigDataInfo, 
+								NULL, &localErrorInfo );
 			}
 		}
 	insertCryptoDelay();
@@ -701,6 +791,7 @@ int checkKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	{
 	CRYPT_CONTEXT md5Context DUMMY_INIT, shaContext;
 	CRYPT_ALGO_TYPE hashAlgo = CRYPT_ALGO_SHA1;
+	SIG_DATA_INFO sigDataInfo;
 	void *dataPtr;
 	int dataLength, keyexKeySize, sigKeySize DUMMY_INIT, hashParam = 0;
 	int status;
@@ -786,7 +877,11 @@ int checkKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		hashAlgo = cryptHashAlgo;	/* int vs.enum */
 		}
 
-	/* Hash the data to be signed */
+	/* Hash the data to be signed.  This assumes the use of a signed hash so
+	   won't work with the special-snowflake algorithms, in theory we could 
+	   just assemble the data to be signed in a buffer and pass that to the
+	   signature function but since these algorithms aren't defined for 
+	   classic there's no need to accommodate them */
 	status = createKeyexHash( handshakeInfo, &shaContext, hashAlgo, 
 							  hashParam, keyData, keyDataLength,
 							  TEST_FLAG( sessionInfoPtr->protocolFlags,
@@ -816,21 +911,22 @@ int checkKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   use of a huge send buffer */
 	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS12 )
 		{
+		setSigDataInfoHash( &sigDataInfo, shaContext );
 		status = iCryptCheckSignature( dataPtr, 
 								min( dataLength, MAX_INTLENGTH_SHORT - 1 ),
 								CRYPT_IFORMAT_TLS12, 
 								sessionInfoPtr->iKeyexAuthContext, 
-								shaContext, CRYPT_UNUSED, NULL,
-								errorInfo );
+								&sigDataInfo, NULL, errorInfo );
 		}
 	else
 		{
+		setSigDataInfoHash( &sigDataInfo, md5Context );
+		sigDataInfo.hashContext2 = shaContext;
 		status = iCryptCheckSignature( dataPtr, 
 								min( dataLength, MAX_INTLENGTH_SHORT - 1 ),
 								CRYPT_IFORMAT_TLS, 
 								sessionInfoPtr->iKeyexAuthContext, 
-								md5Context, shaContext, NULL,
-								errorInfo );
+								&sigDataInfo, NULL, errorInfo );
 		}
 	if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 )
 		krnlSendNotifier( md5Context, IMESSAGE_DECREFCOUNT );
@@ -844,7 +940,7 @@ int checkKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   fashion statement (see the comment below).  When performing the check 
 	   we allow a small amount of wiggle room to deal with keygen 
 	   differences */
-	status = krnlSendMessage( handshakeInfo->dhContext, 
+	status = krnlSendMessage( handshakeInfo->keyexContext, 
 							  IMESSAGE_GETATTRIBUTE, &keyexKeySize, 
 							  CRYPT_CTXINFO_KEYSIZE );
 	if( cryptStatusOK( status ) )

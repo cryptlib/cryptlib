@@ -85,7 +85,7 @@ static int getFileSize( const char *fileName )
 	fseek( filePtr, 0L, SEEK_END );
 	size = ftell( filePtr );
 	fclose( filePtr );
-	if( size > INT_MAX )
+	if( size >= INT_MAX )
 		return( BUFFER_SIZE );
 
 	return( ( int ) size );
@@ -101,7 +101,7 @@ static int readFileFromTemplate( const C_STR fileTemplate, const int count,
 
 	filenameFromTemplate( fileName, fileTemplate, count );
 	return( readFileData( fileName, description, buffer, bufSize, 32, 
-						  FALSE ) );
+						  TRUE ) );
 	}
 
 /* Verify the contents of a data buffer */
@@ -3254,6 +3254,12 @@ int testEnvelopeSignAlgos( void )
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDSA, NULL ) ) && \
 		!envelopeAlgoSign( "env_sig_ecdsa", CRYPT_ALGO_ECDSA ) )
 		return( FALSE );
+#if 0	/* RFC 8410 for Ed25519 only allows pure Ed25519, so no prehash and 
+		   with SHA2-512 hardcoded */
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) && \
+		!envelopeAlgoSign( "env_sig_ecdsa", CRYPT_ALGO_ED25519 ) )
+		return( FALSE );
+#endif /* 0 */
 	return( TRUE );
 	}
 
@@ -3510,6 +3516,7 @@ static int envelopeAuthent( const void *data, const int dataLength,
 							const BOOLEAN useAuthEnc, 
 							const BOOLEAN useDatasize,
 							const BOOLEAN usePKC,
+							const BOOLEAN useNestedContent,
 							const int corruptDataLocation )
 	{
 	CRYPT_ENVELOPE cryptEnvelope;
@@ -3525,6 +3532,8 @@ static int envelopeAuthent( const void *data, const int dataLength,
 		{
 		if( useDatasize )
 			fprintf( outputStream, " with datasize hint" );
+		if( useNestedContent )
+			fprintf( outputStream, " and nested content" );
 		}
 	fputs( "...\n", outputStream );
 
@@ -3545,6 +3554,16 @@ static int envelopeAuthent( const void *data, const int dataLength,
 			return( TRUE );
 			}
 		return( FALSE );
+		}
+	if( useNestedContent )
+		{
+		/* Nested content is always signed data */
+		if( !addEnvInfoNumeric( cryptEnvelope, CRYPT_ENVINFO_CONTENTTYPE,
+								CRYPT_CONTENT_SIGNEDDATA ) )
+			{
+			cryptDestroyEnvelope( cryptEnvelope );
+			return( FALSE );
+			}
 		}
 	if( usePKC )
 		{
@@ -3727,20 +3746,37 @@ int testEnvelopeAuthenticate( void )
 	   It's also somewhat unclear what the benefits of using a PKC for a MAC
 	   are, so until there's a demand for this we only allow use with
 	   passwords */
-	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, FALSE, FALSE, FALSE, 0 ) )
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, FALSE, FALSE, FALSE, FALSE, 0 ) )
 		return( FALSE );	/* Indefinite length */
-	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, FALSE, TRUE, FALSE, 0 ) )
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, FALSE, TRUE, FALSE, FALSE, 0 ) )
 		return( FALSE );	/* Datasize */
-	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, FALSE, TRUE, TRUE, 0 ) )
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, FALSE, TRUE, TRUE, FALSE, 0 ) )
 		return( FALSE );	/* Datasize, PKC to check rejection of this format */
-	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_PGP, FALSE, TRUE, FALSE, 0 ) )
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_PGP, FALSE, TRUE, FALSE, FALSE, 0 ) )
 		return( FALSE );	/* PGP format to check rejection of this format */
-	return( envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, FALSE, TRUE, FALSE, ( macAlgo == CRYPT_ALGO_HMAC_SHA1 ) ? 175 : 208 ) );
+	return( envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, FALSE, TRUE, FALSE, FALSE, ( macAlgo == CRYPT_ALGO_HMAC_SHA1 ) ? 175 : 208 ) );
 	}						/* Datasize, corrupt data to check sig.verification */
+
+static int pgpAuthEncEncoding( void )
+	{
+	BYTE buffer[ 256 ];
+	int i;
+
+	/* Special-case test code to test handling of PGP MDC'd data that crosses
+	   encoding-length boundaries at 192 bytes */
+	for( i = 140; i < 240; i++ )
+		{
+		initBufferContents( buffer, i );
+		if( !envelopeAuthent( buffer, i, CRYPT_FORMAT_PGP, TRUE, TRUE, FALSE, FALSE, 0 ) )
+			return( FALSE );
+		}
+	
+	return( TRUE );
+	}
 
 int testEnvelopeAuthEnc( void )
 	{
-	int macAlgo, status;
+	int macAlgo, count, status;
 
 	/* Find out what the default MAC algorithm is.  This is required because 
 	   the data location that we corrupt changes based on the MAC algorithm 
@@ -3749,20 +3785,41 @@ int testEnvelopeAuthEnc( void )
 	if( cryptStatusError( status ) )
 		return( FALSE );
 
-	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, TRUE, FALSE, FALSE, 0 ) )
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, TRUE, FALSE, FALSE, FALSE, 0 ) )
 		return( FALSE );	/* Indefinite length */
-	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, TRUE, TRUE, FALSE, 0 ) )
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, TRUE, TRUE, FALSE, FALSE, 0 ) )
 		return( FALSE );	/* Datasize */
-	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, TRUE, TRUE, TRUE, 0 ) )
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, TRUE, TRUE, TRUE, FALSE, 0 ) )
 		return( FALSE );	/* Datasize, PKC */
-	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_PGP, TRUE, TRUE, FALSE, 0 ) )
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_PGP, TRUE, TRUE, FALSE, FALSE, 0 ) )
 		return( FALSE );	/* PGP format */
-	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_PGP, TRUE, TRUE, TRUE, 0 ) )
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_PGP, TRUE, TRUE, TRUE, FALSE, 0 ) )
 		return( FALSE );	/* PGP format, PKC */
-	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, TRUE, TRUE, FALSE, ( macAlgo == CRYPT_ALGO_HMAC_SHA1 ) ? 192 : /*260*/290 ) )
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, TRUE, TRUE, FALSE, FALSE, ( macAlgo == CRYPT_ALGO_HMAC_SHA1 ) ? 192 : /*260*/290 ) )
 		return( FALSE );	/* Datasize, corrupt payload data to check sig.verification.  For SHA-2 with SHA1 KDF, offset = 260.  SHA-2 throughout, offset = 290 */
-	return( envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, TRUE, TRUE, FALSE, ( macAlgo == CRYPT_ALGO_HMAC_SHA1 ) ? 170 : /*228*/240 ) );
-	}						/* Datasize, corrupt metadata to check sig.verification.  For SHA-2 with SHA1 KDF, offset = 228.  SHA-2 throughout, offset = 240 */
+	if( !envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, CRYPT_FORMAT_CRYPTLIB, TRUE, TRUE, FALSE, FALSE, ( macAlgo == CRYPT_ALGO_HMAC_SHA1 ) ? 170 : /*228*/240 ) )
+		return( FALSE );	/* Datasize, corrupt metadata to check sig.verification.  For SHA-2 with SHA1 KDF, offset = 228.  SHA-2 throughout, offset = 240 */
+
+	/* Test non-data nested content.  This is required specifically for PGP
+	   which nests a literal-data packet inside the authEnc'd data for plain
+	   data but copies the data in as is for nested content */
+	count = readFileFromTemplate( SMIME_SIG_FILE_TEMPLATE, 1, "CMS nested data",
+								  globalBuffer, BUFFER_SIZE );
+	if( count <= 0 )
+		return( FALSE );
+	if( !envelopeAuthent( globalBuffer, count, CRYPT_FORMAT_CRYPTLIB, TRUE, TRUE, FALSE, TRUE, 0 ) )
+		return( FALSE );	/* Datasize, nested content */
+	count = readFileFromTemplate( PGP_SIG_FILE_TEMPLATE, 8, "PGP nested data",
+								  globalBuffer, BUFFER_SIZE );
+	if( count <= 0 )
+		return( FALSE );
+	if( !envelopeAuthent( globalBuffer, count, CRYPT_FORMAT_PGP, TRUE, TRUE, FALSE, TRUE, 0 ) )
+		return( FALSE );	/* Datasize, nested content */
+
+	/* Special-case test for handling of PGP MDC'd data that crosses 
+	   encoding-length boundaries at 192 bytes */
+	return( pgpAuthEncEncoding() );
+	}
 
 /* Test handling of injected faults */
 
@@ -3786,13 +3843,13 @@ static int testCMSDebugCheck( const TEST_TYPE testType, const FAULT_TYPE testFau
 		case TEST_AUTH:
 			status = envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
 									  CRYPT_FORMAT_CRYPTLIB, FALSE, TRUE, 
-									  FALSE, 0 );
+									  FALSE, FALSE, 0 );
 			break;
 
 		case TEST_AUTHENC:
 			status = envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
 									  CRYPT_FORMAT_CRYPTLIB, TRUE, TRUE, 
-									  FALSE, 0 );
+									  FALSE, FALSE, 0 );
 			break;
 
 		default:
@@ -3828,7 +3885,7 @@ static int testPGPDebugCheck( const TEST_TYPE testType, const FAULT_TYPE testFau
 
 		case TEST_AUTH:
 			status = envelopeAuthent( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
-									  CRYPT_FORMAT_PGP, TRUE, TRUE, FALSE, 0 );
+									  CRYPT_FORMAT_PGP, TRUE, TRUE, FALSE, FALSE, 0 );
 			break;
 
 		default:
@@ -4780,7 +4837,7 @@ static int cmsEnvelopeDecrypt( const void *envelopedData,
 	if( cryptStatusError( count ) )
 		{
 		cryptDestroyEnvelope( cryptEnvelope );
-		return( FALSE );
+		return( ( count == CRYPT_ERROR_NOTFOUND ) ? count : FALSE );
 		}
 	count = popData( cryptEnvelope, globalBuffer, BUFFER_SIZE );
 	if( cryptStatusError( count ) )
@@ -4943,7 +5000,17 @@ static int cmsEnvelopeCrypt( const char *dumpFileName,
 	status = cmsEnvelopeDecrypt( globalBuffer, count, externalKeyset,
 								 externalPassword, TRUE );
 	if( status <= 0 )	/* Can be FALSE or an error code */
+		{
+		/* If we've been called from the dual encryption/signing certificate
+		   test then the public-key database can get out of sync with the 
+		   dual-key keyset, so we return a special status value to indicate
+		   that this may be the case */
+		if( externalKeyset != CRYPT_UNUSED && recipientName != NULL && \
+			!useExternalRecipientKeyset && status == CRYPT_ERROR_NOTFOUND )
+			return( status ); 
+			
 		return( FALSE );
+		}
 
 	/* Clean up */
 	fputs( "Enveloping of CMS public-key encrypted data succeeded.\n\n", 
@@ -5142,7 +5209,7 @@ int testCMSEnvelopePKCCryptDoubleCert( void )
 			   "self-test is run\n   in separate stages, with one stage "
 			   "re-using data that was created\n   earlier during a "
 			   "previous stage).\n\n", outputStream );
-		return( FALSE );
+		return( TRUE );
 		}
 	return( status );
 	}
@@ -5287,14 +5354,14 @@ int testEnvelopePasswordCryptImport( void )
 									TEST_PASSWORD, FALSE );
 		if( i == 3 )
 			{
-			if( count )
+			if( count > 0 )
 				return( FALSE );
 			fputs( "  (This test checks error handling, so the failure "
 				   "response is correct).\n\n", outputStream );
 			}
 		else
 			{
-			if( !count )
+			if( count <= 0 )
 				return( FALSE );
 			}
 		}
@@ -5571,7 +5638,16 @@ int testPGPEnvelopePKCCryptImport( void )
 			rm secring.gpg pubring.gpg
 		
 		File 5: Elgamal and AES with MDC and partial lengths (not sure how 
-				this was created) */
+				this was created).
+				
+		File 6: Elgamal and AES with MDC containing nested signed data, used 
+				to test handling of encapsulated (non-literal) data.  Create 
+				with:
+				
+			cp sec_hash.gpg secring.gpg
+			cp pub_hash.gpg pubring.gpg
+			gpg -s -e -z 0 --homedir . -r test1 -o gpg_enc6.gpg test.txt
+			rm secring.gpg pubring.gpg */
 #if defined( USE_PGP2 ) && defined( USE_3DES )	/* Uses PGP 2.x private keyring */
 	count = readFileFromTemplate( OPENPGP_PKE_FILE_TEMPLATE, 1, 
 								  "OpenPGP (GPG)-encrypted data",
@@ -5599,6 +5675,7 @@ int testPGPEnvelopePKCCryptImport( void )
 	if( !compareData( ENVELOPE_PGP_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
 					  globalBuffer, count ) )
 		return( FALSE );
+#endif /* USE_3DES */
 	count = readFileFromTemplate( OPENPGP_PKE_FILE_TEMPLATE, 3, 
 								  "OpenPGP (GPG)-encrypted data (AES+MDC)", 
 								  globalBuffer, BUFFER_SIZE );
@@ -5611,7 +5688,6 @@ int testPGPEnvelopePKCCryptImport( void )
 	if( !compareData( ENVELOPE_PGP_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
 					  globalBuffer, count ) )
 		return( FALSE );
-#endif /* USE_3DES */
 #ifdef USE_BLOWFISH		/* Uses Blowfish for encryption */
 	count = readFileFromTemplate( OPENPGP_PKE_FILE_TEMPLATE, 4, 
 								  "OpenPGP (GPG)-encrypted data (Blowfish+MDC)", 
@@ -5649,6 +5725,16 @@ int testPGPEnvelopePKCCryptImport( void )
   #pragma convlit( suspend )
 #endif /* IBM big iron */
 #endif /* USE_3DES */
+	count = readFileFromTemplate( OPENPGP_PKE_FILE_TEMPLATE, 6, 
+								  "OpenPGP (GPG)-encrypted nested-content data (AES+MDC)", 
+								  globalBuffer, BUFFER_SIZE );
+	if( count <= 0 )
+		return( FALSE );
+	count = envelopePKCDecrypt( globalBuffer, count, KEYFILE_OPENPGP_HASH, 
+								CRYPT_UNUSED );
+	if( count <= 0 )
+		return( FALSE );
+
 	fputs( "Import of OpenPGP-encrypted data succeeded.\n\n", 
 		   outputStream );
 
@@ -5691,7 +5777,7 @@ int testPGPEnvelopeSignedDataImport( void )
 		pgp -s +secring="secring.pgp" +pubring="pubring.pgp" -u test test.txt */
 #ifdef USE_PGP2
 	count = readFileFromTemplate( PGP_SIG_FILE_TEMPLATE, 1, 
-								  "PGP-signed data", globalBuffer,
+								  "PGP 2.x signed data", globalBuffer,
 								  BUFFER_SIZE );
 	if( count <= 0 )
 		return( FALSE );
@@ -5703,7 +5789,7 @@ int testPGPEnvelopeSignedDataImport( void )
 	if( !compareData( ENVELOPE_PGP_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
 					  globalBuffer, count ) )
 		return( FALSE );
-	fputs( "Import of PGP-signed data succeeded.\n\n", outputStream );
+	fputs( "Import of PGP 2.x signed data succeeded.\n\n", outputStream );
 #endif /* USE_PGP2 */
 
 #if 0	/* Disabled because it uses a 512-bit sig and there doesn't appear to
@@ -5717,7 +5803,7 @@ int testPGPEnvelopeSignedDataImport( void )
 	   starts with a marker packet and then a one-pass sig, which isn't 
 	   generated by default by any of the PGP 5.x or 6.x versions */
 	count = readFileFromTemplate( PGP_SIG_FILE_TEMPLATE, 2, 
-								  "PGP 2.x/OpenPGP-hybrid-signed data",
+								  "PGP 2.x/OpenPGP hybrid signed data",
 								  globalBuffer, BUFFER_SIZE );
 	if( count <= 0 )
 		return( FALSE );
@@ -5729,7 +5815,7 @@ int testPGPEnvelopeSignedDataImport( void )
 	if( !compareData( ENVELOPE_PGP_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
 					  globalBuffer, count ) )
 		return( FALSE );
-	fputs( "Import of PGP 2.x/OpenPGP-hybrid-signed data succeeded.\n\n", 
+	fputs( "Import of PGP 2.x/OpenPGP hybrid signed data succeeded.\n\n", 
 		   outputStream );
 #endif /* 0 */
 
@@ -5740,7 +5826,7 @@ int testPGPEnvelopeSignedDataImport( void )
 		gpg -s -z 0 --homedir . -o signed3.pgp test.txt 
 		rm secring.gpg pubring.gpg */
 	count = readFileFromTemplate( PGP_SIG_FILE_TEMPLATE, 3, 
-								  "OpenPGP-signed data",
+								  "OpenPGP DSA signed data",
 								  globalBuffer, BUFFER_SIZE );
 	if( count <= 0 )
 		return( FALSE );
@@ -5752,7 +5838,7 @@ int testPGPEnvelopeSignedDataImport( void )
 	if( !compareData( ENVELOPE_PGP_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
 					  globalBuffer, count ) )
 		return( FALSE );
-	fputs( "Import of OpenPGP-signed data succeeded.\n\n", outputStream );
+	fputs( "Import of OpenPGP DSA signed data succeeded.\n\n", outputStream );
 
 	/* Process the OpenPGP detached signed data.  Create with:
 
@@ -5771,7 +5857,7 @@ int testPGPEnvelopeSignedDataImport( void )
 							   ENVELOPE_TESTDATA_SIZE, 0 ) )
 		return( FALSE );
 	count = readFileFromTemplate( PGP_SIG_FILE_TEMPLATE, 4, 
-								  "OpenPGP detached signature", 
+								  "OpenPGP DSA detached signature", 
 								  globalBuffer, BUFFER_SIZE );
 	if( count <= 0 )
 		return( FALSE );
@@ -5781,7 +5867,7 @@ int testPGPEnvelopeSignedDataImport( void )
 	cryptDestroyContext( hashContext );
 	if( count <= 0 )
 		return( FALSE );
-	fputs( "Import of OpenPGP detached signature succeeded.\n\n", 
+	fputs( "Import of OpenPGP detached DSA signature succeeded.\n\n", 
 		   outputStream );
 
 	/* Process alternative OpenPGP detached signed data, created by 
@@ -5874,6 +5960,28 @@ int testPGPEnvelopeSignedDataImport( void )
 		return( FALSE );
 	fputs( "  (This test checks error handling, so the failure response is "
 		   "correct).\n\n", outputStream );
+
+	/* Process the OpenPGP signed data: ECDSA with SHA2.  Create with:
+
+		cp sec_ecc2.gpg secring.gpg
+		cp pub_ecc2.gpg pubring.gpg
+		gpg2 -s -z 0 --homedir . -o signed10.pgp test.txt 
+		rm secring.gpg pubring.gpg */
+	count = readFileFromTemplate( PGP_SIG_FILE_TEMPLATE, 10, 
+								  "OpenPGP ECDSA signed data",
+								  globalBuffer, BUFFER_SIZE );
+	if( count <= 0 )
+		return( FALSE );
+	count = envelopeSigCheck( globalBuffer, count, CRYPT_UNUSED,
+							  CRYPT_UNUSED, KEYFILE_OPENPGP_ECC2, FALSE, 
+							  CRYPT_FORMAT_PGP );
+	if( count <= 0 )
+		return( FALSE );
+	if( !compareData( ENVELOPE_PGP_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
+					  globalBuffer, count ) )
+		return( FALSE );
+	fputs( "Import of OpenPGP ECDSA signed data succeeded.\n\n", 
+		   outputStream );
 
 	return( TRUE );
 	}
@@ -6087,7 +6195,6 @@ static void signedDataImport( const BYTE *sigData, const int sigLength,
 void xxxDetachedSignedDataImport( const char *dataFileName, 
 								  const char *sigFileName )
 	{
-	CRYPT_CONTEXT hashContext = CRYPT_UNUSED;
 	BYTE detachedBuffer[ 2048 ];
 	BYTE *sigBufPtr, *detachedBufPtr = NULL;
 	int sigCount, detachedCount = 0;
@@ -6109,8 +6216,6 @@ void xxxDetachedSignedDataImport( const char *dataFileName,
 	signedDataImport( sigBufPtr, sigCount, detachedBufPtr, detachedCount );
 	if( sigBufPtr != globalBuffer )
 		free( sigBufPtr );
-	if( hashContext != CRYPT_UNUSED )
-		cryptDestroyContext( hashContext );
 	}
 
 void xxxSignedDataImport( const char *fileName )

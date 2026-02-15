@@ -964,7 +964,7 @@ static int setSpecialItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	   in general we rely on developers reading the warnings in the 
 	   documentation about the appropriate use of this capability */
 	strlcpy_s( sqlBuffer, MAX_SQL_QUERY_SIZE, selectString );
-	sqlLength = strlen( sqlBuffer );
+	sqlLength = strnlen_s( sqlBuffer, MAX_SQL_QUERY_SIZE );
 	status = dbmsFormatQuery( sqlBuffer + sqlLength, 
 							 ( MAX_SQL_QUERY_SIZE - 1 ) - sqlLength, 
 							 &sqlQueryLength, data, dataLength );

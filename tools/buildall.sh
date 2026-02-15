@@ -7,6 +7,7 @@ SHARED=0
 ANALYSE=0
 ISSPECIAL=0
 GENERICBUILD=0
+SYSTEMLINKER=0
 
 # Make sure that we've been given sufficient arguments.
 
@@ -40,13 +41,34 @@ shift 3
 
 MAJ="3"
 MIN="4"
-PLV="8"
+PLV="9"
 PROJ="cl"
 SHARED_OBJ_PATH="./shared-obj/"
 if [ "$OSNAME" = "Darwin" ] ; then
 	SLIBNAME="lib$PROJ.$MAJ.$MIN.dylib" ;
 else
 	SLIBNAME="lib$PROJ.so.$MAJ.$MIN.$PLV" ;
+fi
+
+# Get the compiler that we'll be using.  This takes the given $CC and
+# substitutes are more preferred one if available, unless $CC is a custom
+# compiler like a static source code analyser or fuzzer build.  However for
+# the gcc analysis build the compiler is standard gcc so we have to keep
+# that to make sure we don't get overridden with the more preferred (less
+# buggy) clang.
+#
+# Note though the comment in tools/ccopts.sh about this producing nothing
+# but huge amounts of FPs, it's left in here in case it's ever useful in
+# the future.  Otherwise, ccopts only enables it for one specific
+# development system to avoid drowning in noise.
+
+if [ $ANALYSE -le 0 ] || [ "$CC" != "gcc" ] ; then
+	if [ "$OSNAME" = "SunOS" ] ; then
+		# shellcheck disable=SC2006 # Antediluvian Sun tools.
+		CC=`./tools/getcompiler.sh $CC $OSNAME` ;
+	else
+		CC="$(./tools/getcompiler.sh $CC $OSNAME)" ;
+	fi
 fi
 
 # More SunOS braindamage, deal with with Sun's totally braindamaged handling
@@ -121,35 +143,29 @@ checkSunCompilerVersion()
 	}
 
 if [ "$OSNAME" = "SunOS" ] ; then
-	for sunccpath in $SUNCCPATHS ; do
-		if [ -f $sunccpath ] ; then
-			checkSunCompilerVersion $CC $sunccpath ;
-			break ;
-		fi
-	done
-	if [ $SUNCC -eq 0 ] && [ "$($CC -v 2>&1 | grep -c "gcc")" -gt 0 ] ; then
-		echo "Sun compiler not detected but gcc is present, using that instead." >&2 ;
-	fi
-fi
-
-# Get the compiler that we'll be using.  This takes the given $CC and
-# substitutes are more preferred one if available, unless $CC is a custom
-# compiler like a static source code analyser or fuzzer build.  However for
-# the gcc analysis build the compiler is standard gcc so we have to keep
-# that to make sure we don't get overridden with the more preferred (less
-# buggy) clang.
-#
-# Note though the comment in tools/ccopts.sh about this producing nothing
-# but huge amounts of FPs, it's left in here in case it's ever useful in
-# the future.  Otherwise, ccopts only enables it for one specific
-# development system to avoid drowning in noise.
-
-if [ $ANALYSE -le 0 ] || [ "$CC" != "gcc" ] ; then
-	if [ "$OSNAME" = "SunOS" ] ; then
+	# We have to be a bit careful here because some systems can contain a
+	# mixture of Sun compilers and gcc or clang so we only perform the Sun
+	# compiler sanity checks if we're not already committed to gcc or clang.
+	if [ "$CC" != "gcc" ] && [ "$CC" != "clang" ] ; then
+		for sunccpath in $SUNCCPATHS ; do
+			if [ -f $sunccpath ] ; then
+				checkSunCompilerVersion $CC $sunccpath ;
+				break ;
+			fi
+		done
 		# shellcheck disable=SC2006 # Antediluvian Sun tools.
-		CC=`./tools/getcompiler.sh $CC $OSNAME` ;
+		if [ $SUNCC -eq 0 ] && [ `$CC -v 2>&1 | grep -c "gcc"` -gt 0 ] ; then
+			echo "Sun compiler not detected but gcc is present, using that instead." >&2 ;
+		fi
 	else
-		CC="$(./tools/getcompiler.sh $CC $OSNAME)" ;
+		# We're committed to gcc or clang, make sure that other tools match.
+		# Yes, there are crazy configs where this is the case.
+		# shellcheck disable=SC2006 # Antediluvian Sun tools.
+		if [ `ld -V 2>&1 | grep -c "Solaris Link Editors"` -gt 0 ] ; then
+			echo "Compiler is $CC but linker is Sun Workshop, continuing under the assumption" >&2 ;
+			echo "that this is OK." >&2 ;
+			SYSTEMLINKER=1 ;
+		fi
 	fi
 fi
 
@@ -217,6 +233,8 @@ fi
 # problems (typically sh bugs on some OSes) cause the script to bail out
 # without producing any output.  Since the resulting CFLAGS string is empty,
 # we add an extra character to the comparison string to avoid syntax errors.
+# Finally, we filter out any linker options present, which causes warnings
+# from some compilers.
 
 if [ $ANALYSE -gt 0 ] ; then
 	CFLAGS="$(./tools/ccopts.sh analyse $CC $OSNAME)" ;
@@ -224,6 +242,8 @@ elif [ $ISSPECIAL -gt 0 ] ; then
 	CFLAGS="$(./tools/ccopts.sh special $CC $OSNAME)" ;
 elif [ $GENERICBUILD -gt 0 ] ; then
 	CFLAGS="$(./tools/ccopts.sh generic $CC $OSNAME)" ;
+elif [ $SYSTEMLINKER -gt 0 ] ; then
+	CFLAGS="$(./tools/ccopts.sh systemlinker $CC $OSNAME)" ;
 elif [ $SHARED -gt 0 ] ; then
 	CFLAGS="$(./tools/ccopts.sh shared $CC $OSNAME)" ;
 else
@@ -238,6 +258,12 @@ fi
 if [ '$(CFLAGS)x' = 'x' ] ; then
 	echo "$0: Couldn't get compiler flags via tools/ccopts.sh." >&2 ;
 	exit 1 ;
+fi
+if [ "$OSNAME" = "SunOS" ] ; then
+	# shellcheck disable=SC2006 # Antediluvian Sun tools.
+	CFLAGS=`echo "$CFLAGS" | sed 's/ -Wl,[^ ]*//'`
+else
+	CFLAGS="$(echo "$CFLAGS" | sed 's/ -Wl,[^ ]*//')"
 fi
 
 if [ "$OSNAME" = "SunOS" ] ; then

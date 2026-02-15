@@ -45,7 +45,10 @@ typedef struct TI {
 	DATAPTR next, prev;			/* Next trustInfo record in the chain */
 	} TRUST_INFO;
 
-/* The data structure that stores the trust management information */
+/* The data structure that stores the trust management information.  This is
+   just a hash table with chaining using TRUSTINFO_SIZE buckets, the 
+   "hashing" is performed via the checksum of the key, usually the subject 
+   DN */
 
 typedef struct {
 	/* Array of pointers to certificate trust information */

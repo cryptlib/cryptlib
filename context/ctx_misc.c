@@ -170,7 +170,8 @@ static BOOLEAN sanityCheckFunctionality( const CAPABILITY_INFO *capabilityInfoPt
 			DEBUG_PUTS(( "sanityCheckFunctionality: Missing publickey R/W capability" ));
 			return( FALSE );
 			}
-		if( isDlpAlgo( cryptAlgo ) || isEccAlgo( cryptAlgo ) )
+		if( ( isDlpAlgo( cryptAlgo ) || isEccAlgo( cryptAlgo ) ) && \
+			!isKeyexAlgo( cryptAlgo ) )
 			{
 			if( capabilityInfoPtr->encodeDLValuesFunction == NULL || \
 				capabilityInfoPtr->decodeDLValuesFunction == NULL )
@@ -876,8 +877,7 @@ int staticInitContext( OUT_PTR CONTEXT_INFO *contextInfoPtr,
 			memset( pkcInfo, 0, sizeof( PKC_INFO ) );
 			INIT_FLAGS( pkcInfo->flags, PKCINFO_FLAG_NONE );
 			status = initContextBignums( pkcInfo, 
-							isEccAlgo( capabilityInfoPtr->cryptAlgo ) ? \
-								TRUE : FALSE );
+										 capabilityInfoPtr->cryptAlgo );
 			if( cryptStatusError( status ) )
 				return( status );
 			initKeyID( contextInfoPtr );
@@ -1166,7 +1166,7 @@ void getHashParameters( IN_ALGO const CRYPT_ALGO_TYPE hashAlgorithm,
 		*hashOutputSize = SHA_DIGEST_LENGTH;
 
 	/* Fast-path for SHA-1, which is almost always the one that we're being 
-	   asked for */
+	   asked for since it's used everywhere for ID generation */
 	if( hashAlgorithm == CRYPT_ALGO_SHA1 )
 		return;
 
@@ -1244,7 +1244,7 @@ void getHashAtomicParameters( IN_ALGO const CRYPT_ALGO_TYPE hashAlgorithm,
 		*hashOutputSize = SHA_DIGEST_LENGTH;
 
 	/* Fast-path for SHA-1, which is almost always the one that we're being 
-	   asked for */
+	   asked for since it's used everywhere for ID generation */
 	if( hashAlgorithm == CRYPT_ALGO_SHA1 )
 		return;
 

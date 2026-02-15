@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib OS-Specific Interface Header File 			*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -232,6 +232,8 @@
   #else
 	/* Older versions of VC++ have pre-stdint.h equivalents so we make it 
 	   look like stdint.h is defined */
+	typedef INT32			int32_t;
+	typedef INT64			int64_t;
 	typedef unsigned char	uint8_t;
 	typedef unsigned short	uint16_t;
 	typedef DWORD32			uint32_t;
@@ -344,6 +346,29 @@
 	( defined( _MSC_VER ) && VC_LT_2005( _MSC_VER ) )
   #define __func__				"(unknown)"
 #endif /* HAS_FUNC */
+
+/* Check whether we have flexible-array support.  This is a C99 feature but
+   was supported before C99 by some compilers like gcc and VC++, detect for
+   VC++ with "#if ( defined( _MSC_VER ) && VC_GE_2005( _MSC_VER ) )".  
+   
+   However since it was a nonstandard feature at that point VC++ will both 
+   produce a warning "warning C4200: nonstandard extension used: zero-sized 
+   array in struct/union" (which we can disable with "#pragma warning( 
+   disable : 4200 )") but then also fail the build with "error C2229: struct 
+   '<unnamed-tag>' has an illegal zero-sized array" when we put a
+   flexarray struct followed by something else inside a parent struct.  This
+   occurs in statically-initialised varstructs which are laid out as:
+
+	data_struct ending in [];
+	storage for [] portion above;
+
+   rather than being malloc'd with size sizeof( data_struct ) + storage.
+   Because of this we don't define HAS_STDC_FLEXARRAY for VC++, which means
+   it gets defined with the older form "[1]" instead of "[]" */
+
+#if ( defined( __STDC_VERSION__ ) && ( __STDC_VERSION__ >= 199901L ) )
+  #define HAS_STDC_FLEXARRAY
+#endif /* Flexible-array support */
 
 /* If we're compiling on the AS/400, make enums a fixed size rather than
    using the variable-length values that IBM compilers default to, and force
@@ -896,7 +921,57 @@ typedef int					BOOLEAN_INT;
 				  va_list argPtr );
   #define sprintf_s				sPrintf_s
   #define vsprintf_s			vsPrintf_s
-#else
+#endif /* EBCDIC_CHARS */
+
+/* Compare two strings in a case-insensitive manner.  These are then mapped 
+   to the abstract functions strCompare() (with length) and strCompareZ() 
+   (zero-terminated) */
+
+#if defined( __UNIX__ ) && !( defined( __CYGWIN__ ) )
+  #include <strings.h>
+  #define strnicmp	strncasecmp
+  #define stricmp	strcasecmp
+#elif defined( __WINCE__ )
+  #define strnicmp	_strnicmp
+  #define stricmp	_stricmp
+#elif defined( _MSC_VER ) 
+  /* VC++ 8 and up warn about these being deprecated Posix functions and
+     require the ANSI/ISO-conformant _strXcmp */
+  #if _MSC_VER >= 1300 
+	#define strnicmp _strnicmp
+	#define stricmp	_stricmp
+  #endif /* VC++ >= 8 */
+#elif defined( __ECOS__ ) || defined( __FreeRTOS__ ) || defined( __iOS__ )
+  #define strnicmp	strncasecmp
+  #define stricmp	strcasecmp
+#elif defined __PALMOS__
+  /* PalmOS has strcasecmp()/strncasecmp() but these aren't i18n-aware so we
+     have to use a system function instead */
+  #include <StringMgr.h>
+
+  #define strnicmp	StrNCaselessCompare
+  #define stricmp	StrCaselessCompare
+#elif defined( __TI_COMPILER_VERSION__ )
+  #include <strings.h>
+  #define strnicmp	strncasecmp
+  #define stricmp	strcasecmp
+#elif defined( __ARINC653__ ) || defined( __CMSIS__ ) || \
+	  defined( __embOS__ ) || defined( __BEOS__ ) || \
+	  defined( __IAR_SYSTEMS_ICC__ ) || defined( __ITRON__ ) || \
+	  defined( __MQXRTOS__ ) || defined( __OSEK__ ) || \
+	  defined( __Quadros__ ) || defined( __RTEMS__ ) || \
+	  defined( __SMX__ ) || defined( __SYMBIAN32__ ) || \
+	  defined( __Telit__ ) || defined( __TKernel__ ) || \
+	  defined( __UCOS__ ) || defined( __VxWorks__ ) || \
+	  defined( __ZEPHYR__ )
+  int strnicmp( const char *src, const char *dest, const int length );
+  int stricmp( const char *src, const char *dest );
+
+  /* Make sure that we provide our own versions of the functions */
+  #define NO_NATIVE_STRICMP
+#endif /* OS-specific case-insensitive string compares */
+
+#ifndef EBCDIC_CHARS
   #if defined( __Nucleus__ )
 	#include <nu_ctype.h>
 	#include <nu_string.h>
@@ -911,6 +986,7 @@ typedef int					BOOLEAN_INT;
   #define isXDigit( ch )		isxdigit( byteToInt( ch ) )
   #define toLower( ch )			tolower( byteToInt( ch ) )
   #define toUpper( ch )			toupper( byteToInt( ch ) )
+
   #define strCompareZ( str1, str2 )	\
 								stricmp( str1, str2 )
   #define strCompare( str1, str2, len )	\
@@ -977,21 +1053,33 @@ typedef int					BOOLEAN_INT;
   inconsistently, namely IBM's xlc which is supposed to support __align()
   (alongside the gcc-style __attribute__(( aligned() )) ) but only
   seems to support the gcc-style option, fortunately testable by checking
-  for __IBM__ALIGN being defined */
+  for __IBM__ALIGN being defined.
+  
+  Alongside the compiler-specific keywords there's also the C11 _Alignas()
+  and C23 alignas() specifiers, given the erratic support for these we
+  fall back to them as a last resort if the more common ways of doing it 
+  aren't available */
 
 #if defined( __INTEL_COMPILER ) || \
 	( defined( _MSC_VER ) && VC_GE_2002( _MSC_VER ) )
-  #define ALIGN_SPECIFIER( alignment )	__declspec( align( alignment ) )
+  #define ALIGN_SPECIFIER( alignment )		__declspec( align( alignment ) )
 #elif defined( __clang__ ) || defined( __DCC__ ) || defined( __ghs__ ) || \
 	  defined( __GNUC__ ) || defined( __HP_cc ) || \
 	  defined( __IAR_SYSTEMS_ICC__ ) || \
 	  ( defined( __IBMC__ ) && !defined( __IBM__ALIGN ) ) || \
 	  defined( __KEIL__ ) || defined( __SUNPRO_C ) || \
 	  defined( __TI_COMPILER_VERSION__ )
-  #define ALIGN_SPECIFIER( alignment )	__attribute__(( aligned( alignment ) ) )
+  #define ALIGN_SPECIFIER( alignment )		__attribute__(( aligned( alignment ) ) )
 #elif defined( __CC_ARM ) || \
 	  ( defined( __IBMC__ ) && defined( __IBM__ALIGN ) ) 
-  #define ALIGN_SPECIFIER( alignment )	__align( alignment )
+  #define ALIGN_SPECIFIER( alignment )		__align( alignment )
+#elif defined( __STDC_VERSION__ )
+  /* The form of this keyword changed between C11 and C23 */
+  #if ( __STDC_VERSION__ >= 201112L && __STDC_VERSION__ < 202311L )
+	#define ALIGN_SPECIFIER( alignment )	_Alignas( alignment )
+  #elif ( __STDC_VERSION__ >= 202311L )
+	#define ALIGN_SPECIFIER( alignment )	alignas( alignment )
+  #endif /* C standard-specific alignment specifiers */
 #endif /* Compiler-specific alignment directives */
 
 #ifdef ALIGN_SPECIFIER
@@ -1020,47 +1108,39 @@ typedef int					BOOLEAN_INT;
    object-specific storage within a larger kernel-storage structure, with
    alignment requirements for the object-specific storage.
 
-   For the latter this occurs in two cases, firstly where we're adding 
-   cookies to buffers on architectures that fault on unaligned accesses if 
-   the fault handler doesn't fix up the access.  In most cases these buffers 
-   are aligned anyway due to the additional data surrounding them, the code 
-   doesn't depend on it.
-
-   Secondly, where we're working with hardware crypto intrinsics that depend 
-   on a particular alignment for key and/or input/output data.  This 
-   currently only occurs with VIA CPUs, which require 16-byte alignment for 
-   AES crypto, however some older Intel AES-NI implementations also require 
-   16-byte alignment.
+   For the latter this occurs when we're working with hardware crypto 
+   intrinsics that depend on a particular alignment for key and/or input/
+   output data.  This currently only occurs with VIA CPUs, which require 
+   16-byte alignment for AES crypto, however some older Intel AES-NI 
+   implementations also require 16-byte alignment.
    
    Currently ALIGN_STACK_DATA is always the same as ALIGN_STRUCT_FIELD, but 
    we use distinct defines in case there's a need to tune it for different 
-   situations.  In particular, it relies on a bare 
-   '__attribute__(( aligned ))' being "maximum useful alignment for a scalar 
-   data type / the target machine", which is typically 16 bytes for a 64-bit
-   system and 8 bytes for a 32-bit system, the same as the explicit setting
-   used in (some decalarations of) ALIGN_STRUCT_FIELD */
+   situations.
+   
+   The specifiers are compiler-specific, C11 added _Alignas but by the time
+   enough compilers finally got around to implementing it it had been
+   changed to the C++ alignas in C23, whereas everyone seems to implement
+   the gcc-style '__attribute__(( aligned ))' so we got with that */
 
+#ifdef SYSTEM_64BIT
+  #define ALIGN_AMOUNT	16
+#else
+  #define ALIGN_AMOUNT	8
+  #endif /* SYSTEM_64BIT */
 #if defined( __INTEL_COMPILER ) || \
 	( defined( _MSC_VER ) && VC_GE_2002( _MSC_VER ) )
-  #ifdef SYSTEM_64BIT
-	#define ALIGN_STRUCT_FIELD	__declspec( align( 16 ) )
-  #else
-	#define ALIGN_STRUCT_FIELD	__declspec( align( 8 ) )
-  #endif /* SYSTEM_64BIT */
+  #define ALIGN_STRUCT_FIELD	__declspec( align( ALIGN_AMOUNT ) )
 #elif defined( __clang__ ) || defined( __DCC__ ) || defined( __ghs__ ) || \
 	  defined( __GNUC__ ) || defined( __HP_cc ) || \
 	  defined( __IAR_SYSTEMS_ICC__ ) || \
 	  ( defined( __IBMC__ ) && !defined( __IBM__ALIGN ) ) || \
 	  defined( __KEIL__ ) || \
 	  defined( __SUNPRO_C ) || defined( __TI_COMPILER_VERSION__ )
-  #define ALIGN_STRUCT_FIELD	__attribute__(( aligned ))
+  #define ALIGN_STRUCT_FIELD	__attribute__(( aligned( ALIGN_AMOUNT ) ))
 #elif defined( __CC_ARM ) || \
 	  ( defined( __IBMC__ ) && defined( __IBM__ALIGN ) ) 
-  #ifdef SYSTEM_64BIT
-	#define ALIGN_STRUCT_FIELD	__align( 16 )
-  #else
-	#define ALIGN_STRUCT_FIELD	__align( 8 )
-  #endif /* SYSTEM_64BIT */
+  #define ALIGN_STRUCT_FIELD	__align( ALIGN_AMOUNT )
 #else
   #define ALIGN_STRUCT_FIELD
 #endif /* Compiler-specific alignment directives */
@@ -1073,6 +1153,29 @@ typedef int					BOOLEAN_INT;
   #define ALIGN_FIELD_CHECK( pointer ) \
 		  ( ( pointer ) == ptr_align( pointer, 4 ) )
 #endif /* Compiler-specific field alignment check */
+
+/* Occasionally we need to provide opaque storage for state data that's used
+  by the function that we're calling.  The state data may have specific
+  alignment requirements so we declare a data type that will result in the 
+  state data being appropiately aligned.  It's used as follows:
+
+	typedef ALIGN_DATA_TYPE( THING_STATE[ 8 ] ); 
+  
+  We have to declare this as a macro to handle declspec vs. attribute 
+  alignment specifiers, and also use pointers for this rather than, say, a 
+  long because with CHERI pointers are 128 bits with 64 bits of provenance 
+  values so wouldn't fit in a long */
+
+#if defined( __INTEL_COMPILER ) || \
+	( defined( _MSC_VER ) && VC_GE_2002( _MSC_VER ) )
+  /* declspec alignment specifier */
+  #define ALIGN_DATA_TYPE( dataType ) \
+		  ALIGN_STRUCT_FIELD void *dataType
+#else
+  /* attribute alignment specifier */
+  #define ALIGN_DATA_TYPE( dataType ) \
+		  void *dataType ALIGN_STRUCT_FIELD
+#endif /* declspec vs. attribute alignment specifiers */
 
 /* Perform various operations on pointers */
 
@@ -1152,6 +1255,7 @@ int ptr_diff( const void *ptr1, const void *ptr2 );
      truncation semantics are quite useful so we use these as well, 
 	 overlaying them with a macro that make them match the TR 24731 look 
 	 and feel */
+  #define strnlen_s						strnlen
   #define strcpy_s( s1, s1max, s2 )		strcpy( s1, s2 )
   #if defined( __UNIX__ ) && \
 	  ( defined( __APPLE__ ) || defined( __FreeBSD__ ) || \
@@ -1211,16 +1315,21 @@ int ptr_diff( const void *ptr1, const void *ptr2 );
   #endif /* Compiler-specific safe printf() support */
 
   /* Misc.functions.  gmtime() is an ugly non-thread-safe function that runs 
-     into the same problems as gethostbyname() (see the long comment in 
+	 into the same problems as gethostbyname() (see the long comment in 
 	 io/tcp.h), to deal with this as best we can we map it to the reentrant 
 	 gmtime_r() if it's available.  In addition some OSes use TLS for the
 	 result value so it's handled automatically, see again the comments in 
-	 io/tcp.h for more on this */
-  #if defined( USE_THREADS ) && defined( __GLIBC__ ) && ( __GLIBC__ >= 2 ) 
+	 io/tcp.h for more on this.
+	 
+	 We have to guard the glibc check with USE_EMBEDDED_OS because when 
+	 cross-compiling an incorrect mix of local and target headers can make
+	 it look like there's glibc present when there isn't */
+  #if defined( USE_THREADS ) && !defined( USE_EMBEDDED_OS ) && \
+	  defined( __GLIBC__ ) && ( __GLIBC__ >= 2 ) 
 	#define gmTime_s					gmtime_r
   #elif defined( __MQXRTOS__ )
 	#define gmTime_s					gmtime_r
-  #elif defined( __VxWorks ) && defined( _EXTENSION_POSIX_REENTRANT )
+  #elif defined( __VxWorks__ ) && defined( _EXTENSION_POSIX_REENTRANT )
 	#define gmTime_s					gmtime_r
   #else
 	#define gmTime_s( timer, result )	gmtime( timer )
@@ -1232,6 +1341,48 @@ int ptr_diff( const void *ptr1, const void *ptr2 );
 *				Miscellaneous System-specific Support Functions				*
 *																			*
 ****************************************************************************/
+
+/* A macro to clear sensitive data from memory.  This is somewhat easier to
+   use than calling memset with the second parameter set to 0 all the time,
+   and makes it obvious where sensitive data is being erased.  In addition
+   some systems, recognising the problem of compilers removing what they see
+   as dead stores, have distinct memory zeroisation support, so if available 
+   we use that */
+
+#if defined( _MSC_VER ) && VC_GE_2005( _MSC_VER )
+  /* This is just a mapping to RtlSecureZeroMemory() (via WinBase.h) which 
+     is implemented as inline code implementing a loop on a pointer declared 
+	 volatile, but unlike the corresponding RtlZeroMemory() there's a 
+	 contract that this will always zeroise memory even in the face of 
+	 compiler changes that would otherwise optimise away the access */
+  #define zeroise( memory, size )	SecureZeroMemory( memory, size )
+#elif defined( __STDC_LIB_EXT1__ )
+  /* C11 defines a function memset_s() that guarantees that it won't be
+	 optimised away, although this is quite well obfuscated in the spec,
+	 "the memory indicated by [the memset parameters] may be accessible in 
+	 the future and therefore must contain the values indicated by [the
+	 value to set]", hopefully the implementers will know that this equates
+	 to "the memset_s() call can't be optimised away" */
+  #define zeroise( memory, size )	memset_s( memory, size, 0, size )
+#elif defined( __STDC_VERSION_STRING_H__ ) && \
+	  ( __STDC_VERSION_STRING_H__ >= 202311L )
+  /* C23 memset_explicit().  In theory we could detect this with 
+     "defined( __STDC_VERSION__ ) && ( __STDC_VERSION__ >= 202311L )" but
+     this fails when the compiler is C23 but the headers aren't, which can 
+     happen when using system header files with a third-party compiler.  
+     To deal with this we check for __STDC_VERSION_STRING_H__ which is 
+     defined in the C23 string.h */
+  #define zeroise( memory, size )	memset_explicit( memory, 0, size )
+#elif defined( __GLIBC__ ) && ( __GLIBC__ >= 2 ) && ( __GLIBC_MINOR__ > 25 )
+  /* glibc 2.25 and newer have explicit_bzero() */
+  #define zeroise( memory, size )	explicit_bzero( memory, size )
+#elif defined( __OpenBSD__ )
+  /* The OpenBSD folks defined their own won't-be-optimised-away bzero()
+	 function */
+  #define zeroise( memory, size )	explicit_bzero( memory, size )
+#else
+  #define zeroise( memory, size )	memset( memory, 0, size )
+#endif /* Systems with distinct zeroise functions */
 
 /* Many OSes support locking pages in memory, the following helper functions 
    implement this locking */

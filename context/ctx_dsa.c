@@ -162,7 +162,7 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
 /* Test the DSA implementation using the sample key and hash from FIPS 186
    (we actually use a generated 1024-bit key because the FIPS 186 key at
    512 bits is too short to load).  Because a lot of the high-level 
-   encryption routines don't exist yet, we cheat a bit and set up a dummy 
+   encryption routines don't exist yet we cheat a bit and set up a dummy 
    encryption context with just enough information for the following code to 
    work */
 
@@ -438,11 +438,11 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 	DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) buffer;
-	BIGNUM *p = &pkcInfo->dlpParam_p, *q = &pkcInfo->dlpParam_q;
-	BIGNUM *g = &pkcInfo->dlpParam_g, *x = &pkcInfo->dlpParam_x;
+	const BIGNUM *p = &pkcInfo->dlpParam_p, *q = &pkcInfo->dlpParam_q;
+	const BIGNUM *g = &pkcInfo->dlpParam_g, *x = &pkcInfo->dlpParam_x;
 	BIGNUM *hash = &pkcInfo->tmp1, *k = &pkcInfo->tmp2, *kInv = &pkcInfo->tmp3;
 	BIGNUM *r = &pkcInfo->dlpTmp1, *s = &pkcInfo->dlpTmp2;
-	const int qLen = BN_num_bytes( q );
+	const int qLen = BN_num_bytes( q ), outLen = dlpParams->outLen;
 	int bnStatus = BN_STATUS, status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -456,10 +456,15 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			  dlpParams->inLen1 <= CRYPT_MAX_HASHSIZE );
 	REQUIRES( dlpParams->inParam2 == NULL && \
 			  ( dlpParams->inLen2 == 0 || dlpParams->inLen2 == -999 ) );
-	REQUIRES( dlpParams->outLen >= ( 2 + dlpParams->inLen1 ) * 2 && \
-			  dlpParams->outLen < MAX_INTLENGTH_SHORT );
+	REQUIRES( isShortIntegerRangeMin( dlpParams->outLen, \
+									  2 + dlpParams->inLen1 ) * 2 );
 	REQUIRES( qLen >= DLPPARAM_MIN_Q && qLen <= DLPPARAM_MAX_Q )
 	REQUIRES( capabilityInfoPtr != NULL );
+
+	/* Clear return values */
+	REQUIRES( isShortIntegerRangeNZ( dlpParams->outLen ) ); 
+	memset( dlpParams->outParam, 0, min( 16, dlpParams->outLen ) );
+	dlpParams->outLen = 0;
 
 	/* Generate the secret random value k.  During the initial self-test
 	   the random data pool may not exist yet, and may in fact never exist in
@@ -603,8 +608,8 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Encode the result as a DL data block */
 	status = capabilityInfoPtr->encodeDLValuesFunction( dlpParams->outParam, 
-								dlpParams->outLen, &dlpParams->outLen, 
-								r, s, dlpParams->formatType );
+										outLen, &dlpParams->outLen, r, s, 
+										dlpParams->formatType );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -624,8 +629,8 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 	DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) buffer;
-	BIGNUM *p = &pkcInfo->dlpParam_p, *q = &pkcInfo->dlpParam_q;
-	BIGNUM *g = &pkcInfo->dlpParam_g, *y = &pkcInfo->dlpParam_y;
+	const BIGNUM *p = &pkcInfo->dlpParam_p, *q = &pkcInfo->dlpParam_q;
+	const BIGNUM *g = &pkcInfo->dlpParam_g, *y = &pkcInfo->dlpParam_y;
 	BIGNUM *r = &pkcInfo->tmp1, *s = &pkcInfo->tmp2;
 	BIGNUM *u1 = &pkcInfo->tmp3, *u2 = &pkcInfo->dlpTmp1;	/* Doubles as w */
 	int bnStatus = BN_STATUS, status;

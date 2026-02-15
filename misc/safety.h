@@ -27,7 +27,6 @@
 #define REQUIRES_V( x )		if( !( x ) ) retIntError_Void()
 #define REQUIRES_EXT( x, y )	if( !( x ) ) retIntError_Ext( y )
 #define REQUIRES_D( x )		if( !( x ) ) retIntError_Dataptr()
-#define REQUIRES_S( x )		if( !( x ) ) retIntError_Stream( stream )
 
 #else
 
@@ -37,7 +36,6 @@
 #define REQUIRES_V( x )
 #define REQUIRES_EXT( x, y )
 #define REQUIRES_D( x )
-#define REQUIRES_S( x )
 
 #endif /* CONFIG_CONSERVE_MEMORY_EXTRA */
 
@@ -47,12 +45,45 @@
 #define ENSURES_V			REQUIRES_V
 #define ENSURES_EXT			REQUIRES_EXT
 #define ENSURES_D			REQUIRES_D
-#define ENSURES_S			REQUIRES_S
 
-/* A special-case form of the REQUIRES() predicate that's used in functions 
-   that acquire a mutex.  There are two versions of this, one for cryptlib
-   kernel mutexes, denoted by KRNLMUTEX, and one for native mutexes that are
-   only visible inside the kernel, denoted by MUTEX */
+/* Special-case forms of the REQUIRES() predicate used when working with
+   streams.  The basic form REQUIRES_S() sets the stream error state 
+   alongside returning an error.  The variants REQUIRES_SC() and 
+   REQUIRES_SCN() are used when working with local streams and close the
+   stream before exiting, the first for a generic '&stream', the second
+   for a &named-stream */ 
+
+#ifndef CONFIG_CONSERVE_MEMORY_EXTRA
+
+#define REQUIRES_S( x )		if( !( x ) ) retIntError_Stream( stream )
+#define REQUIRES_SC( x ) \
+		if( !( x ) ) \
+			{ \
+			sMemClose( &stream ); \
+			retIntError(); \
+			}
+#define REQUIRES_SCN( x, sn ) \
+		if( !( x ) ) \
+			{ \
+			sMemClose( &sn ); \
+			retIntError(); \
+			}
+#else
+
+#define REQUIRES_S( x )
+#define REQUIRES_SA( x )
+#define REQUIRES_SN( x )
+
+#endif /* CONFIG_CONSERVE_MEMORY_EXTRA */
+
+#define ENSURES_S			REQUIRES_S
+#define ENSURES_SC			REQUIRES_SC
+#define ENSURES_SCN			REQUIRES_SCN
+
+/* Special-case forms of the REQUIRES() predicate used in functions that 
+   acquire a mutex.  There are two versions of this, one for cryptlib kernel 
+   mutexes, denoted by KRNLMUTEX, and one for native mutexes that are only 
+   visible inside the kernel, denoted by MUTEX */
 
 #ifndef CONFIG_CONSERVE_MEMORY_EXTRA
 
@@ -115,27 +146,43 @@
 #define REQUIRES_PTR( x, ptr ) \
 		if( !( x ) ) \
 			retIntError_Ptr( ptr )
+#define REQUIRES_PTR_OPT( x, ptr ) \
+		if( !( x ) ) \
+			{ \
+			if( ptr != NULL ) \
+				clFree( "Internal error", ptr ); \
+			retIntError(); \
+			}
+#define REQUIRES_N_PTR( x, ptr ) \
+		if( !( x ) ) \
+			{ \
+			clFree( "Internal error", ptr ); \
+			retIntError_Null(); \
+			}
 #define REQUIRES_V_PTR( x, ptr ) \
 		if( !( x ) ) \
 			{ \
 			clFree( "Internal error", ptr ); \
 			retIntError_Void(); \
 			}
-#define ENSURES_PTR		REQUIRES_PTR
-#define ENSURES_N_PTR( x, ptr ) \
+#define REQUIRES_S_PTR( x, ptr ) \
 		if( !( x ) ) \
 			{ \
 			clFree( "Internal error", ptr ); \
-			retIntError_Null(); \
+			retIntError_Stream( stream ); \
 			}
 #else
 
 #define REQUIRES_PTR( x, ptr )
+#define REQUIRES_PTR_OPT( x, ptr )
+#define REQUIRES_N_PTR( x, ptr ) 
 #define REQUIRES_V_PTR( x, ptr )
-#define ENSURES_PTR		REQUIRES_PTR
-#define ENSURES_N_PTR( x, ptr )
 
 #endif /* CONFIG_CONSERVE_MEMORY_EXTRA */
+
+#define ENSURES_PTR		REQUIRES_PTR
+#define ENSURES_N_PTR	REQUIRES_N_PTR
+#define ENSURES_V_PTR	REQUIRES_V_PTR
 
 /****************************************************************************
 *																			*
@@ -398,7 +445,7 @@ BOOLEAN pointerBoundsCheck( IN_PTR_OPT const void *data,
    overflow is an issue, which is always the case since we only use it with 
    buffers under MAX_BUFSIZE */
 
-#define SAFEBUFFER_COOKIE_SIZE	( sizeof( uintptr_t ) )
+#define SAFEBUFFER_COOKIE_SIZE	8
 
 #define SAFEBUFFER_SIZE( size )	( SAFEBUFFER_COOKIE_SIZE + ( size ) + \
 								  SAFEBUFFER_COOKIE_SIZE )
@@ -2278,20 +2325,30 @@ typedef struct {
 *																			*
 ****************************************************************************/
 
-/* Check for overflow on various arithmetic operations.  In theory we could
-   also use compiler-specific intrinsics (see the comment further down) but 
-   according to "Understanding Integer Overflow in C/C++" by Dietz, Li, 
-   Regehr and Adve, 2012, LLVM at least can aggressively optimise the 
-   precondition tests below while the intrinsics aren't optimised much, 
-   leading to little gain from using intrinsics.
+/* Check for overflow on various arithmetic operations.  "Understanding 
+   Integer Overflow in C/C++" by Dietz, Li, Regehr and Adve, 2012 indicated 
+   that LLVM at least can aggressively optimise the precondition tests below 
+   while using the compiler intrinsics that existed is suboptimal leading to 
+   little gain from using intrinsics, but newer forms of the checking
+   intrinsics compile to a single add/sub/whatever + jo/jno so it makes 
+   sense to use them where available.
 
    By default we check for overflow of MAX_INTLENGTH, which is the safe
-   upper bound allowed by cryptlib, if we want to check for standard int
-   or long overflow we have to make it explicit.  Note that we check for
-   <= / >= since the range checks all enforced a range < MAX, not <= MAX.
-   This also means that we couldn't use the compiler intrinsics even if
-   they were better-performing than they actually are since they check for
-   over at INT_MAX, not MAX_INTLENGTH.
+   upper bound allowed by cryptlib and provides a good safety margin for
+   things like sizeofObject() and small extra data values without risk of
+   overflowing the calcuation.  If we want to check for standard int or long 
+   overflow we have to make it explicit (currently only the long form is
+   used since we use the MAX_INTLENGTH form everywhere the int form would be
+   used).
+   
+   To find locations where possible overflows might occur, use the PCRE 
+   regex " (\+|-)=? ".
+   
+   Note that we check for <= / >= since the range checks all enforced a 
+   range < MAX, not <= MAX.  This also means that for the standard checks we 
+   couldn't use the compiler intrinsics even if they were better-performing 
+   than they actually are since they check for overflow at INT_MAX and not 
+   MAX_INTLENGTH.
 
    Strictly speaking the check for b < 0 isn't necessary, we just have to
    change the check type for b if a < 0, but neither a nor b should ever be
@@ -2309,24 +2366,42 @@ typedef struct {
 										  ( a ) >= MAX_INTLENGTH / ( b ) )
 #define checkOverflowDiv( a, b )		( ( a ) < 0 || ( b ) <= 0 )
 
-#define checkOverflowAddInt( a, b )		( ( a ) > INT_MAX - ( b ) )
-#define checkOverflowSubInt( a, b )		( ( a ) < INT_MIN + ( b ) )
-#define checkOverflowMulInt( a, b )		( ( a ) > INT_MAX / ( b ) )
+#if ( defined( __GNUC__ ) && ( __GNUC__ >= 7 ) )
+  /* Checking using compiler intrinsics.  The gcc description of these
+	 contains a bunch of gibberish about infinite-precision types but what
+	 the compiler uses is an add/sub/whatever + jo/jno depending on the
+	 condition used with it.  Note that clang has the standard 
+	 __builtin_add_overflow() as of clang 4 (check with 
+	 "defined( __clang__ ) && ( __clang_major__ >= 4 )" but not the _p,
+	 variants so we can only enable them for gcc.  Also while gcc added the
+	 base intrisics in gcc 5, it only added the _p forms in gcc 7 */
+  #define checkOverflowAddLong( a, b ) \
+		  __builtin_add_overflow_p( a, b, ( __typeof__( ( a ) + ( b ) ) ) 0 )
+  #define checkOverflowSubLong( a, b ) \
+		  __builtin_sub_overflow_p( a, b, ( __typeof__( ( a ) + ( b ) ) ) 0 )
+  #define checkOverflowMulLong( a, b ) \
+		  __builtin_mul_overflow_p( a, b, ( __typeof__( ( a ) + ( b ) ) ) 0 )
+#else
+  #if 0		/* Not used but present for documentation purposes */
+  #define checkOverflowAddInt( a, b )	( ( a ) > INT_MAX - ( b ) )
+  #define checkOverflowSubInt( a, b )	( ( a ) < INT_MIN + ( b ) )
+  #define checkOverflowMulInt( a, b )	( ( a ) > INT_MAX / ( b ) )
+  #endif /* 0 */
+  #define checkOverflowAddLong( a, b )	( ( a ) > LONG_MAX - ( b ) )
+  #define checkOverflowSubLong( a, b )	( ( a ) < LONG_MIN + ( b ) )
+  #define checkOverflowMulLong( a, b )	( ( a ) > LONG_MAX / ( b ) )
+#endif /* Compiler-specific overflow checks */
 #define checkOverflowDivInt( a, b )		( ( a ) < 0 || ( b ) <= 0 )
-#define checkOverflowAddLong( a, b )	( ( a ) > LONG_MAX - ( b ) )
-#define checkOverflowSubLong( a, b )	( ( a ) < LONG_MAX + ( b ) )
-#define checkOverflowMulLong( a, b )	( ( a ) > LONG_MAX / ( b ) )
 #define checkOverflowDivLong( a, b )	( ( a ) < 0 || ( b ) <= 0 )
 
-/* As an alternative to the above we could also define safe-maths functions 
-   that check for overflow, but support is pretty hit and miss, for gcc and 
-   clang there's the intrinsics:
+/* Three-operand forms of the above */
 
-	bool __builtin_sadd_overflow( int x, int y, int *sum );
-	bool __builtin_smul_overflow( int x, int y, int *prod );
+#define checkOverflowAdd3( a, b, c ) \
+		( checkOverflowAdd( a, b ) || checkOverflowAdd( ( a ) + ( b ), c ) )
+#define checkOverflowSub3( a, b, c ) \
+		( checkOverflowSub( a, b ) || checkOverflowSub( ( a ) - ( b ), c ) )
 
-   which compile to two instructions, the arithmetic op and a setcc for 
-   the bool, however Windows has:
+/* In terms of other compiler intrinsics, Windows has:
    
 	#define ENABLE_INTSAFE_SIGNED_FUNCTIONS
 	#include <intsafe.h>
@@ -2334,11 +2409,33 @@ typedef struct {
 	HRESULT IntAdd( INT iAugend, INT iAddend, INT *piResult );
 	HRESULT IntMult( INT iMultiplicand, INT iMultiplier, INT *piResult );
 
-   which aren't implemented as intrinsics but as "portable" code, producing
-   a dozen or more instructions per arithmetic operation and possibly
-   function calls depending on what the compiler feels like.  For this 
-   reason we don't define these until they're more widely supported as
-   intrinsics */
+   which aren't actually implemented as intrinsics but as "portable" code, 
+   producing a dozen or more instructions per arithmetic operation and 
+   possibly function calls depending on what the compiler feels like.  It
+   also has intrinsics available through <intrin.h> but they're more or
+   less unusable for the checking that we need to do here, being designed
+   more to implement bignum maths.  For this they work on fixed-width 
+   unsigned quantities, for example _addcarry_u32(), and are available
+   for x86/x64 only.  Usage is:
+
+	carry_out = _addcarry_uXX( carry_in, a, b, &result );
+   
+   C23 finally sorted this out with ckd_add() / ckd_sub() / ckd_mul() which 
+   behave like the gcc / clang intrinsics but with one of the parameters 
+   moved around to make sure that it's incompatible with all existing code. 
+   Since it could be decades before everyone's caught up on these we don't 
+   enable them for now, given that we have the portable and widely-supported 
+   checkOverflowXXX() functions anyway.  In any case the stdckdint functions 
+   are just mapped to the compiler intrinsics via a macro that fixes the 
+   broken parameter order, e.g. clang's:
+
+	#define ckd_add(R, A, B) __builtin_add_overflow((A), (B), (R)) */
+
+#if defined( __STDC_VERSION__ ) && ( __STDC_VERSION__ >= 202311L )
+  #if __has_include( <stdckdint.h> )
+	#include <stdckdint.h>
+  #endif /* Checked-add available */
+#endif /* C23 support */
 
 /****************************************************************************
 *																			*

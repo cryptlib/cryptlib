@@ -270,10 +270,10 @@ typedef enum {
    the caller */
 
 #define FAULTACTION_SESSION_CORRUPT_ID_SSH_1 \
-		userNameBuffer[ 0 ]++
+		authInfo->userName[ 0 ]++
 #define FAULTACTION_SESSION_CORRUPT_AUTHENTICATOR_SSH_1 \
 		if( cryptStatusOK( status ) ) \
-			stringBuffer[ 0 ]++
+			authInfo->password[ 0 ]++
 
 /* Corrupt the client keyex value that's sent to the server and server keyex 
    value that's sent to the client */
@@ -561,6 +561,7 @@ void injectMemoryFaults( void );
    in which case we no-op them out */
 
 #define assert_nofuzz( x )
+#define assert_notest( x )
 
 #else
 
@@ -570,6 +571,9 @@ void injectMemoryFaults( void );
 #define FUZZ_SKIP_REMAINDER_V()
 #define FUZZ_SET( a, b )
 #define assert_nofuzz	assert
+#ifndef assert_notest
+  #define assert_notest	assert
+#endif /* !assert_notest */
 
 #endif /* CONFIG_FUZZ */
 
@@ -593,6 +597,9 @@ void injectMemoryFaults( void );
   #define FUZZ_SKIP_REMAINDER_V()
   #define FUZZ_SET( a, b )
   #define assert_nofuzz	assert
+  #ifndef assert_notest
+	#define assert_notest	assert
+  #endif /* !assert_notest */
 #endif /* CONFIG_FUZZ */
 
 #endif /* !NDEBUG */

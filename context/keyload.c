@@ -177,8 +177,47 @@ static int checkPKCparams( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 	REQUIRES( isPkcAlgo( cryptAlgo ) );
 	REQUIRES( keyInfo != NULL );
 
+	/* The Bernstein algorithms have their own special-case checking.  We 
+	   put this check before the ECC check since they're also ECC algorithms
+	   and would end up being passed into that checking code */
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+	if( isBernsteinAlgo( cryptAlgo ) )
+		{
+		const CRYPT_PKCINFO_DJB *curve25519Key = \
+							( CRYPT_PKCINFO_DJB * ) keyInfo;
+
+		assert( isReadPtr( keyInfo, sizeof( CRYPT_PKCINFO_DJB ) ) );
+
+		/* Check the general info and make sure that all required values are
+		   initialised */
+		if( ( curve25519Key->isPublicKey != TRUE_ALT && \
+			  curve25519Key->isPublicKey != FALSE ) )
+			return( CRYPT_ARGERROR_STR1 );
+		if( curve25519Key->pubLen <= 0 || curve25519Key->privLen < 0 )
+			return( CRYPT_ARGERROR_STR1 );
+
+		/* Check the public components */
+		if( curve25519Key->pubLen < bytesToBits( MIN_PKCSIZE_BERNSTEIN ) )
+			{
+			/* Special-case handling for insecure-sized public keys */
+			return( CRYPT_ERROR_NOSECURE );
+			}
+		if( curve25519Key->pubLen != bytesToBits( MIN_PKCSIZE_BERNSTEIN ) )
+			return( CRYPT_ARGERROR_STR1 );
+		if( curve25519Key->isPublicKey )
+			return( CRYPT_OK );
+
+		/* Check the private components */
+		if( curve25519Key->privLen != bytesToBits( MIN_PKCSIZE_BERNSTEIN ) )
+			return( CRYPT_ARGERROR_STR1 );
+
+		return( CRYPT_OK );
+		}
+#endif /* USE_25519 || USE_ED25519 */
+
 	/* The ECC check is somewhat different to the others because ECC key
 	   sizes work in different ways so we have to special-case this one */
+#if defined( USE_ECDH ) || defined( USE_ECDSA )
 	if( isEccAlgo( cryptAlgo ) )
 		{
 		const CRYPT_PKCINFO_ECC *eccKey = ( CRYPT_PKCINFO_ECC * ) keyInfo;
@@ -196,8 +235,6 @@ static int checkPKCparams( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 			eccKey->hLen != 0 || eccKey->qxLen <= 0 || eccKey->qyLen <= 0 || \
 			eccKey->dLen < 0 )
 			return( CRYPT_ARGERROR_STR1 );
-		if( !isEnumRange( eccKey->curveType, CRYPT_ECCCURVE ) )
-			return( CRYPT_ARGERROR_STR1 );
 
 		/* Check the parameters and public components */
 		if( isShortECCKey( eccKey->pLen ) )
@@ -205,32 +242,15 @@ static int checkPKCparams( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 			/* Special-case handling for insecure-sized public keys */
 			return( CRYPT_ERROR_NOSECURE );
 			}
-		if( cryptAlgo == CRYPT_ALGO_EDDSA || cryptAlgo == CRYPT_ALGO_25519 )
-			{
-			/* Perform a more specific check of the curve type and 
-			   parameters */
-			if( eccKey->curveType < CRYPT_ECCCURVE_25519 || \
-				eccKey->curveType > CRYPT_ECCCURVE_448 )
-				return( CRYPT_ARGERROR_STR1 );
-			if( eccKey->qxLen < bytesToBits( ECCPARAM_MIN_QX ) || \
-				eccKey->qxLen > bytesToBits( ECCPARAM_MAX_QX ) || \
-				eccKey->qyLen < bytesToBits( ECCPARAM_MIN_QY ) || \
-				eccKey->qyLen > bytesToBits( ECCPARAM_MAX_QY ) )
-				return( CRYPT_ARGERROR_STR1 ); 
-			}
-		else
-			{
-			/* Perform a more specific check of the curve type and 
-			   parameters */
-			if( eccKey->curveType < CRYPT_ECCCURVE_P256 || \
-				eccKey->curveType > CRYPT_ECCCURVE_BRAINPOOL_P512 )
-				return( CRYPT_ARGERROR_STR1 );
-			if( eccKey->qxLen < bytesToBits( ECCPARAM_MIN_QX ) || \
-				eccKey->qxLen > bytesToBits( ECCPARAM_MAX_QX ) || \
-				eccKey->qyLen < bytesToBits( ECCPARAM_MIN_QY ) || \
-				eccKey->qyLen > bytesToBits( ECCPARAM_MAX_QY ) )
-				return( CRYPT_ARGERROR_STR1 ); 
-			}
+
+		/* Perform a more specific check of the curve type and parameters */
+		if( !isEnumRange( eccKey->curveType, CRYPT_ECCCURVE ) )
+			return( CRYPT_ARGERROR_STR1 );
+		if( eccKey->qxLen < bytesToBits( ECCPARAM_MIN_QX ) || \
+			eccKey->qxLen > bytesToBits( ECCPARAM_MAX_QX ) || \
+			eccKey->qyLen < bytesToBits( ECCPARAM_MIN_QY ) || \
+			eccKey->qyLen > bytesToBits( ECCPARAM_MAX_QY ) )
+			return( CRYPT_ARGERROR_STR1 ); 
 		if( eccKey->isPublicKey )
 			return( CRYPT_OK );
 
@@ -240,6 +260,7 @@ static int checkPKCparams( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 			return( CRYPT_ARGERROR_STR1 );
 		return( CRYPT_OK );
 		}
+#endif /* USE_ECDH || USE_ECDSA */
 
 	/* For the non-ECC algorithms the DLP check is simpler than the RSA one 
 	   because there are less odd parameter combinations possible so we get 
@@ -718,7 +739,8 @@ int setKeyComponents( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			  needsKey( contextInfoPtr ) );
 	REQUIRES( keyDataLen == sizeof( CRYPT_PKCINFO_RSA ) || \
 			  keyDataLen == sizeof( CRYPT_PKCINFO_DLP ) || \
-			  keyDataLen == sizeof( CRYPT_PKCINFO_ECC ) );
+			  keyDataLen == sizeof( CRYPT_PKCINFO_ECC ) || \
+			  keyDataLen == sizeof( CRYPT_PKCINFO_DJB ) );
 	REQUIRES( capabilityInfoPtr != NULL );
 	REQUIRES( calculateKeyIDFunction != NULL );
 	REQUIRES( loadKeyFunction != NULL );
@@ -734,14 +756,46 @@ int setKeyComponents( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   source (internal loads only come from marshalled data), so we have
 	   to convert the boolean representation from the external to the 
 	   internal form */
-	if( isEccAlgo( capabilityInfoPtr->cryptAlgo ) )
-		externalBoolean = ( ( CRYPT_PKCINFO_ECC * ) keyData )->isPublicKey;
-	else
+	switch( capabilityInfoPtr->cryptAlgo )
 		{
-		if( isDlpAlgo( capabilityInfoPtr->cryptAlgo ) )
-			externalBoolean = ( ( CRYPT_PKCINFO_DLP * ) keyData )->isPublicKey;
-		else
+		case CRYPT_ALGO_RSA:
+			if( keyDataLen != sizeof( CRYPT_PKCINFO_RSA ) )
+				return( CRYPT_ARGERROR_NUM1 );
 			externalBoolean = ( ( CRYPT_PKCINFO_RSA * ) keyData )->isPublicKey;
+			break;
+		
+		case CRYPT_ALGO_DH:
+#ifdef USE_DSA
+		case CRYPT_ALGO_DSA:
+#endif /* USE_DSA */
+#ifdef USE_ELGAMAL
+		case CRYPT_ALGO_ELGAMAL:
+#endif /* USE_ELGAMAL */
+			if( keyDataLen != sizeof( CRYPT_PKCINFO_DLP ) )
+				return( CRYPT_ARGERROR_NUM1 );
+			externalBoolean = ( ( CRYPT_PKCINFO_DLP * ) keyData )->isPublicKey;
+			break;
+
+#if defined( USE_ECDH ) || defined( USE_ECDSA )
+		case CRYPT_ALGO_ECDH:
+		case CRYPT_ALGO_ECDSA:
+#endif /* USE_ECDH || USE_ECDSA */
+			if( keyDataLen != sizeof( CRYPT_PKCINFO_ECC ) )
+				return( CRYPT_ARGERROR_NUM1 );
+			externalBoolean = ( ( CRYPT_PKCINFO_ECC * ) keyData )->isPublicKey;
+			break;
+
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
+			if( keyDataLen != sizeof( CRYPT_PKCINFO_DJB ) )
+				return( CRYPT_ARGERROR_NUM1 );
+			externalBoolean = ( ( CRYPT_PKCINFO_DJB * ) keyData )->isPublicKey;
+			break;
+#endif /* USE_25519 || USE_ED25519 */
+
+		default:
+			retIntError();
 		}
 	isPublicKey = externalBoolean ? TRUE : FALSE;
 

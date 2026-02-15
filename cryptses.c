@@ -135,6 +135,12 @@ BOOLEAN sanityCheckSession( const SESSION_INFO *sessionInfoPtr )
 		DEBUG_PUTS(( "sanityCheckSession: Crypto object handles" ));
 		return( FALSE );
 		}
+	if( sessionInfoPtr->privateKey != CRYPT_ERROR && \
+		!isPkcAlgo( sessionInfoPtr->privateKeyAlgo ) )
+		{
+		DEBUG_PUTS(( "sanityCheckSession: Private key algo" ));
+		return( FALSE );
+		}
 	if( ( sessionInfoPtr->cryptBlocksize != 0 && \
 		  sessionInfoPtr->cryptBlocksize != 1 &&		/* Stream cipher */ 
 		  ( sessionInfoPtr->cryptBlocksize < MIN_IVSIZE || \
@@ -563,7 +569,7 @@ static int sessionMessageFunction( INOUT_PTR TYPECAST( CONTEXT_INFO * ) \
 			   tries to write data to the closed channel */
 			sessionInfoPtr->writeErrorState = CRYPT_ERROR_COMPLETE;
 			}
-		if( !cryptStatusOK( sessionInfoPtr->writeErrorState ) )
+		if( cryptStatusError( sessionInfoPtr->writeErrorState ) )
 			return( sessionInfoPtr->writeErrorState );
 
 		/* Write the data */
@@ -592,7 +598,7 @@ static int sessionMessageFunction( INOUT_PTR TYPECAST( CONTEXT_INFO * ) \
 		ENSURES( sessionInfoPtr->receiveBuffer != NULL );
 
 		/* Make sure that everything is in order */
-		if( sessionInfoPtr->readErrorState != CRYPT_OK )
+		if( cryptStatusError( sessionInfoPtr->readErrorState ) )
 			return( sessionInfoPtr->readErrorState );
 
 		/* Read the data */

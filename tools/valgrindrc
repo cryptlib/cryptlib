@@ -8,12 +8,51 @@ Memcheck:Leak
 fun:openDatabase
 }
 
-# dlopen() also leaks via an internal function _dl_open() that gets
-# called via various paths.
+# dlopen() et al leak via an internal function _dl_open() by allocating
+# internal storage somewhere.  Note that this is explicitly _dl_open() and
+# not dlopen(), which is a common function reached via assorted paths from
+# higher-level functions.
 
 {
 ignore_dlopen_leaks
 Memcheck:Leak
 ...
 fun:_dl_open
+}
+
+# ctime() leaks by calling strdup() for the returned time string.
+
+{
+ignore_ctime_leaks
+Memcheck:Leak
+...
+fun:ctime
+}
+
+# mktime() leaks by calling tzset() which allocates memory somewhere.
+
+{
+ignore_mktime_leaks
+Memcheck:Leak
+...
+fun:mktime
+}
+
+# getaddrinfo() leaks by allocating internal storage somewhere.
+
+{
+ignore_getaddrinfo_leaks
+Memcheck:Leak
+...
+fun:getaddrinfo
+}
+
+# getpwuid() leaks by allocating memory during internal account lookup
+# operations.
+
+{
+ignore_getpwuid_leaks
+Memcheck:Leak
+...
+fun:getpwuid
 }

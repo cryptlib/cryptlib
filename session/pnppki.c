@@ -149,23 +149,26 @@ static BOOLEAN isNamedObjectPresent( IN_HANDLE const CRYPT_HANDLE iCryptHandle,
 	return( cryptStatusOK( status ) ? TRUE : FALSE );
 	}
 
-/* Get the identified CA/RA certificate from a CTL */
+/* Get the identified CA/RA certificate from a CTL.  When asked to perform a
+   match for a specific certificate this function searches by SHA-2 
+   fingerprint rather than the standard keyID (= SHA-1 fingerprint) because 
+   the server fingerprint is given as a SHA-2 hash rather than a SHA-1 one */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int getCACert( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iNewCert, 
 					  IN_HANDLE const CRYPT_CERTIFICATE iCTL, 
-					  IN_BUFFER_OPT( certIDlength ) const void *certID, 
-					  IN_LENGTH_KEYID_Z const int certIDlength )
+					  IN_BUFFER_OPT( certIDv2length ) const void *certIDv2, 
+					  IN_LENGTH_SHORT_Z const int certIDv2length )
 	{
 	int status;
 
 	assert( isWritePtr( iNewCert, sizeof( CRYPT_CERTIFICATE ) ) );
-	assert( ( certID == NULL && certIDlength == 0 ) || \
-			( isReadPtrDynamic( certID,  certIDlength ) ) );
+	assert( ( certIDv2 == NULL && certIDv2length == 0 ) || \
+			( isReadPtrDynamic( certIDv2, certIDv2length ) ) );
 
 	REQUIRES( isHandleRangeValid( iCTL ) );
-	REQUIRES( ( certID == NULL && certIDlength == 0 ) || \
-			  ( certID != NULL && certIDlength == KEYID_SIZE ) );
+	REQUIRES( ( certIDv2 == NULL && certIDv2length == 0 ) || \
+			  ( certIDv2 != NULL && certIDv2length == 32 ) );
 
 	/* Clear return value */
 	*iNewCert = CRYPT_ERROR;
@@ -185,12 +188,13 @@ static int getCACert( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iNewCert,
 							  CRYPT_CERTINFO_CURRENT_CERTIFICATE );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( certIDlength > 0 )
+	if( certIDv2length > 0 )
 		{
 		MESSAGE_DATA msgData;
 		int LOOP_ITERATOR;
 
-		setMessageData( &msgData, ( MESSAGE_CAST ) certID, KEYID_SIZE );
+		setMessageData( &msgData, ( MESSAGE_CAST ) certIDv2, 
+						certIDv2length );
 		LOOP_MED_CHECKINC( cryptStatusOK( status ),
 						   status = krnlSendMessage( iCTL, 
 										IMESSAGE_SETATTRIBUTE,
@@ -200,7 +204,7 @@ static int getCACert( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iNewCert,
 			ENSURES( LOOP_INVARIANT_MED_GENERIC() );
 
 			status = krnlSendMessage( iCTL, IMESSAGE_COMPARE, &msgData, 
-									  MESSAGE_COMPARE_FINGERPRINT_SHA1 );
+									  MESSAGE_COMPARE_FINGERPRINT_SHA2 );
 			if( cryptStatusOK( status ) )
 				{
 				/* We've found the identified certificate, we're done */
@@ -268,14 +272,20 @@ static int generateKey( OUT_HANDLE_OPT CRYPT_CONTEXT *iPrivateKey,
 	if( !algoAvailable( pkcAlgo ) )
 		{
 		/* The default algorithm type isn't available for this device, try 
-		   and fall back to an alternative */
+		   and fall back to an alternative.  Note that we don't have to
+		   create an #ifdef maze to handle optional algorithms because any 
+		   problems will be caught by the availablility check at the end */
 		switch( pkcAlgo )
 			{
 			case CRYPT_ALGO_RSA:
-				pkcAlgo = CRYPT_ALGO_DSA;
+				pkcAlgo = CRYPT_ALGO_ECDSA;
 				break;
 
 			case CRYPT_ALGO_DSA:
+				pkcAlgo = CRYPT_ALGO_RSA;
+				break;
+
+			case CRYPT_ALGO_ECDSA:
 				pkcAlgo = CRYPT_ALGO_RSA;
 				break;
 
@@ -484,6 +494,45 @@ static int updateKeys( IN_HANDLE const CRYPT_HANDLE iCryptHandle,
 							 &setkeyInfo, KEYMGMT_ITEM_PUBLICKEY ) );
 	}
 
+/* Update the private key for a session.  We can't do this as a standard set-
+   attribute operation because we're swapping out the key in the middle of 
+   operations so we have to duplicate part of the functionality of the 
+   session-attribute code here */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int updateSessionPrivateKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+									IN_HANDLE_OPT \
+										const CRYPT_CONTEXT iPrivateKey )
+	{
+	int privateKeyAlgo;		/* int vs. enum */
+	int status;
+	
+	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+
+	REQUIRES( iPrivateKey == CRYPT_UNUSED || \
+			  isHandleRangeValid( iPrivateKey ) );
+
+	/* If we're clearing the private key, reset the relevant variables */
+	if( iPrivateKey == CRYPT_UNUSED )
+		{
+		sessionInfoPtr->privateKey = CRYPT_ERROR;
+		sessionInfoPtr->privateKeyAlgo = CRYPT_ALGO_NONE;
+		
+		return( CRYPT_OK );
+		}
+
+	/* Get any additional information that we may need for the private key 
+	   and update it */
+	status = krnlSendMessage( iPrivateKey, IMESSAGE_GETATTRIBUTE, 
+							  &privateKeyAlgo, CRYPT_CTXINFO_ALGO );
+	if( cryptStatusError( status ) )
+		return( status );
+	sessionInfoPtr->privateKey = iPrivateKey;
+	sessionInfoPtr->privateKeyAlgo = privateKeyAlgo;
+
+	return( CRYPT_OK );
+	}
+
 /* Update the keyset/device with any required trusted certificates up to the 
    root.  This ensures that we can still build a full certificate chain even 
    if the PKIBoot trusted certificates aren't preserved */
@@ -631,7 +680,7 @@ int pnpPkiSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	/* Get the CA/RA certificate from the returned CTL and set it as the 
 	   certificate to use for authenticating server responses */
 	attributeListPtr = findSessionInfo( sessionInfoPtr,
-										CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 );
+								CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 );
 	if( attributeListPtr != NULL )
 		{
 		status = getCACert( &iCACert, sessionInfoPtr->iCertResponse, 
@@ -647,6 +696,13 @@ int pnpPkiSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	sessionInfoPtr->iCertResponse = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
+		if( status == CRYPT_ERROR_NOTFOUND )
+			{
+			retExt( status, 
+					( status, SESSION_ERRINFO, 
+					  "Couldn't locate CA/RA certificate in returned "
+					  "certificate trust list" ) );
+			}
 		retExt( status, 
 				( status, SESSION_ERRINFO, 
 				  "Couldn't read CA/RA certificate from returned "
@@ -831,13 +887,17 @@ int pnpPkiSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	CLEAR_FLAG( sessionInfoPtr->protocolFlags, CMP_PFLAG_RETAINCONNECTION );
 	sessionInfoPtr->sessionCMP->requestType = CRYPT_REQUESTTYPE_CERTIFICATE;
 	sessionInfoPtr->iCertRequest = iCertReq;
-	sessionInfoPtr->privateKey = iPrivateKey2;
-	sessionInfoPtr->iAuthOutContext = iPrivateKey1;
-	status = transactFunction( sessionInfoPtr );
-	sessionInfoPtr->privateKey = CRYPT_ERROR;
-	sessionInfoPtr->iAuthOutContext = CRYPT_ERROR;
-	krnlSendNotifier( sessionInfoPtr->iCertRequest, IMESSAGE_DECREFCOUNT );
-	sessionInfoPtr->iCertRequest = CRYPT_ERROR;
+	status = updateSessionPrivateKey( sessionInfoPtr, iPrivateKey2 );
+	if( cryptStatusOK( status ) )
+		{
+		sessionInfoPtr->iAuthOutContext = iPrivateKey1;
+		status = transactFunction( sessionInfoPtr );
+		( void ) updateSessionPrivateKey( sessionInfoPtr, CRYPT_UNUSED );
+		sessionInfoPtr->iAuthOutContext = CRYPT_ERROR;
+		krnlSendNotifier( sessionInfoPtr->iCertRequest, 
+						  IMESSAGE_DECREFCOUNT );
+		sessionInfoPtr->iCertRequest = CRYPT_ERROR;
+		}
 	if( cryptStatusError( status ) )
 		{
 		cleanupObject( iPrivateKey1, KEY_TYPE_SIGNATURE );

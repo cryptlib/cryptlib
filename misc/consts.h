@@ -21,18 +21,18 @@
 #define KEYID_SIZE				20
 #define	PGP_KEYID_SIZE			8
 
-/* The minimum and maximum private key data size.  This is used when 
-   buffering the encrypted private key from a keyset during decryption and 
-   is equal to the overall size of the total number of possible PKC 
-   parameters in an encryption context, plus a little extra for encoding and 
+/* The minimum and maximum private key data size.  This is used when
+   buffering the encrypted private key from a keyset during decryption and
+   is equal to the overall size of the total number of possible PKC
+   parameters in an encryption context, plus a little extra for encoding and
    encryption */
 
 #define MIN_PRIVATE_KEYSIZE		18	/* For DLP keys */
 #define MAX_PRIVATE_KEYSIZE		( ( CRYPT_MAX_PKCSIZE * 8 ) + 256 )
 
-/* The minimum and maximum working conventional key size.  In order to avoid 
-   problems with space inside PKC-encrypted blocks when MIN_PKCSIZE is less 
-   than 1024 bits, we limit the total keysize to 256 bits, which is adequate 
+/* The minimum and maximum working conventional key size.  In order to avoid
+   problems with space inside PKC-encrypted blocks when MIN_PKCSIZE is less
+   than 1024 bits, we limit the total keysize to 256 bits, which is adequate
    for all purposes - the limiting factor is AES-256 */
 
 #ifdef USE_DES
@@ -46,38 +46,45 @@
 
 #define MIN_IVSIZE				bitsToBytes( 64 )
 
-/* The minimum public key size (c.f. CRYPT_MAX_PKCSIZE).  This is a bit less 
-   than the actual size because keygen specifics can lead to keys that are 
+/* The minimum public key size (c.f. CRYPT_MAX_PKCSIZE).  This is a bit less
+   than the actual size because keygen specifics can lead to keys that are
    slightly shorter than the nominal size, and signatures and wrapped keys
    can also be shorter (1/256 will be one byte shorter, 1/64K will be two
-   bytes shorter, and so on).  In addition we have to have a special value 
-   for ECC keys, for which key sizes work differently that conventional 
+   bytes shorter, and so on).  In addition we have to have a special value
+   for ECC keys, for which key sizes work differently that conventional
    PKCs */
 
 #define MIN_PKCSIZE				( bitsToBytes( 1024 ) - 2 )
 #define MIN_PKCSIZE_ECC			( bitsToBytes( 256 ) - 2 )
 
 /* When we read a public key, a value that's too short to be even vaguely
-   sensible is reported as CRYPT_ERROR_BADDATA, but if it's at least 
-   vaguely sensible but too short to be secure it's reported as 
-   CRYPT_ERROR_NOSECURE.  The following value defines the cutoff point 
+   sensible is reported as CRYPT_ERROR_BADDATA, but if it's at least
+   vaguely sensible but too short to be secure it's reported as
+   CRYPT_ERROR_NOSECURE.  The following value defines the cutoff point
    between "obviously invalid" and "theoretically valid but not secure",
-   so that 0...MIN_PKCSIZE_THRESHOLD - 1 is rejected with 
-   CRYPT_ERROR_BADDATA, MIN_PKCSIZE_THRESHOLD... MIN_PKCSIZE - 1 is rejected 
-   with CRYPT_ERROR_NOSECURE, and MIN_PKCSIZE...CRYPT_MAX_PKCSIZE is 
+   so that 0...MIN_PKCSIZE_THRESHOLD - 1 is rejected with
+   CRYPT_ERROR_BADDATA, MIN_PKCSIZE_THRESHOLD... MIN_PKCSIZE - 1 is rejected
+   with CRYPT_ERROR_NOSECURE, and MIN_PKCSIZE...CRYPT_MAX_PKCSIZE is
    accepted */
 
 #define MIN_PKCSIZE_THRESHOLD	( bitsToBytes( 504 ) )
 #define MIN_PKCSIZE_ECC_THRESHOLD ( bitsToBytes( 120 ) )
 
 /* ECC points present special problems of their own since they're encoded
-   by stuffing them into byte strings with a type indicator at the start 
+   by stuffing them into byte strings with a type indicator at the start
    which leads to a length that bears no relation to the actual key size */
 
 #define MIN_PKCSIZE_ECCPOINT	( 1 + ( MIN_PKCSIZE_ECC * 2 ) )
 #define MIN_PKCSIZE_ECCPOINT_THRESHOLD \
 								( 1 + ( MIN_PKCSIZE_ECC_THRESHOLD * 2 ) )
 #define MAX_PKCSIZE_ECCPOINT	( 1 + ( CRYPT_MAX_PKCSIZE_ECC * 2 ) )
+
+/* The Bernstein ECCs are yet another special case since they only use the 
+   X coordinate (via point compression), for which the smallest curve is
+   25519 with 32 bytes */
+
+#define MIN_PKCSIZE_BERNSTEIN	32
+#define MAX_PKCSIZE_BERNSTEIN	32
 
 /* The minimum hash/MAC size */
 
@@ -113,14 +120,14 @@
 /* The maximum number of iterations that we allow for an iterated key setup
    such as a hashed password.  This is used to prevent DoS attacks from data
    containing excessive iteration counts.
-   
-   The best value to use here is difficult to determine, see the comment 
-   below about PGP S2K issues, and in particular we don't want to have 
-   older/less capable systems grind to a halt processing excessive iteration 
-   counts while it doesn't really matter so much for newer ones.  Taking 
-   newer = 64-bit, we specify a much more generous upper bound for 64-bit 
+
+   The best value to use here is difficult to determine, see the comment
+   below about PGP S2K issues, and in particular we don't want to have
+   older/less capable systems grind to a halt processing excessive iteration
+   counts while it doesn't really matter so much for newer ones.  Taking
+   newer = 64-bit, we specify a much more generous upper bound for 64-bit
    systems.  The somewhat odd bound of 55000L if PKCS #12 is enabled is to
-   deal with OpenSSL-created PKCS #12 files which default to 51200 
+   deal with OpenSSL-created PKCS #12 files which default to 51200
    iterations */
 
 #if defined( SYSTEM_64BIT )
@@ -132,44 +139,44 @@
 #endif /* SYSTEM_64BIT */
 
 /* PGP's S2K uses a bizarre processing-complexity specifier that specifies,
-   in a very roundabout manner, the number of bytes hashed rather than the 
+   in a very roundabout manner, the number of bytes hashed rather than the
    iteration count.  In addition a number of PGP implementations specify
-   ridiculous levels of hashing that make them more akin to a DoS attack 
-   than any legitimate security measure.  In theory we could recalculate the 
-   above define for an assumption of an 8-byte hash salt and and 8-byte 
+   ridiculous levels of hashing that make them more akin to a DoS attack
+   than any legitimate security measure.  In theory we could recalculate the
+   above define for an assumption of an 8-byte hash salt and and 8-byte
    password to get a value of ( ( MAX_KEYSETUP_ITERATIONS * 16 ) / 64 ),
-   with the '/ 64' term being present because what's specified is the value 
-   without an additional * 64 multiplier that's added by the S2K mechanism 
-   code, so we divide by 64 to account for this later scaling.  
-   
+   with the '/ 64' term being present because what's specified is the value
+   without an additional * 64 multiplier that's added by the S2K mechanism
+   code, so we divide by 64 to account for this later scaling.
+
    However in 2011 GPG raised its default hash specifier count from the
    GPG 1.x standard of 64K to over 2M (while still defaulting to the 15-
-   year-old CAST5 for its block cipher, so it may use an obsolete 64-bit 
-   crypto algorithm but at least it iterates the password hashing enough to 
-   perform a DoS on anyone with an older machine) and some configurations go 
-   even further and set it at 3,407,872.  Then at some point in 2017 the 
-   Kleopatra GPG front-end raised the stakes even further with a value of 
-   3,932,160, and then some time early in 2018 to 6,815,744 (all of these 
-   values appear to be arbitrary, with or without the * 64 multiplier they 
+   year-old CAST5 for its block cipher, so it may use an obsolete 64-bit
+   crypto algorithm but at least it iterates the password hashing enough to
+   perform a DoS on anyone with an older machine) and some configurations go
+   even further and set it at 3,407,872.  Then at some point in 2017 the
+   Kleopatra GPG front-end raised the stakes even further with a value of
+   3,932,160, and then some time early in 2018 to 6,815,744 (all of these
+   values appear to be arbitrary, with or without the * 64 multiplier they
    have no obvious significance).
 
-   In addition to GPG's constantly-changing behaviour, PGP Desktop 9 
-   (apparently) in its default config uses values up to 4M, and there's a 
-   mutant GPG build used with loop-AES that uses 8M setup iterations for PGP 
-   private keys.  Why this is used and why it writes PGP keys with this 
+   In addition to GPG's constantly-changing behaviour, PGP Desktop 9
+   (apparently) in its default config uses values up to 4M, and there's a
+   mutant GPG build used with loop-AES that uses 8M setup iterations for PGP
+   private keys.  Why this is used and why it writes PGP keys with this
    setting is uncertain.
 
    The more extreme GPG iteration-count settings seem to be OS-specific
-   fashion statements, Centos 8.4 has 39,845,888, Fedora has 58,720,256, 
+   fashion statements, Centos 8.4 has 39,845,888, Fedora has 58,720,256,
    and Ubuntu goes all the way to 65,011,712, corresponding to a coded count
    of 0xFF, the highest that it's possible to set (see below).
 
    Unfortunately with these ludicrous-speed iteration counts there's no way
-   to ensure any protection against DoS attacks due to such ridiculously 
+   to ensure any protection against DoS attacks due to such ridiculously
    high iteration counts.  What eventually saves us is that it's physically
-   impossible to encode more than 65M iterations, since the encoding is 
+   impossible to encode more than 65M iterations, since the encoding is
    poked into a single byte, defined as:
-   
+
 	count = (16 + (c & 15)) << ((c >> 4) + EXPBIAS);
 
    where c is an 8-bit value and EXPBIAS is 6.  This then evaluates to:
@@ -185,13 +192,13 @@
 #define MAX_KEYSETUP_HASHSPECIFIER	min( INT_MAX - 256, ( 65011712L / 64 ) )
 
 /* The HMAC input and output padding values.  These are defined here rather
-   than in context.h because they're needed by some PRF mechanisms that 
+   than in context.h because they're needed by some PRF mechanisms that
    synthesise HMAC operations from low-level hash operations */
 
 #define HMAC_IPAD				0x36
 #define HMAC_OPAD				0x5C
 
-/* The default encryption, hash, and MAC algorithms, representing an 
+/* The default encryption, hash, and MAC algorithms, representing an
    always-available algorithm type
 
    Alongside the algorithm type define, we also need to define symbolic
@@ -221,10 +228,12 @@
 
 /* The maximum length that can be safely handled using an integer.  We don't
    quite allow the maximum possible length since most data/message formats
-   impose some extra overhead themselves.
-   
+   impose some extra overhead themselves, this means that we can, for 
+   example, do something like sizeofObject() + small extra data values
+   without risk of overflowing the calculation.
+
    In addition to the maximum-possible length we also define a shorter
-   length defined as a generally sensible upper bound for values that 
+   length defined as a generally sensible upper bound for values that
    shouldn't require arbitrary-length data quantities */
 
 #ifdef SYSTEM_16BIT
@@ -235,12 +244,15 @@
 #define MAX_INTLENGTH			( INT_MAX - MAX_INTLENGTH_DELTA )
 #define MAX_INTLENGTH_SHORT		16384
 
-/* The minimum size of a certificate.  This is used by the pointer-check
-   macros (for the OSes that support this) to check that the pointers being
-   passed to these functions point to the minimal amount of valid memory
-   required for an object.  Certificates must be >= MIN_CERTSIZE */
+/* The minimum size of a certificate.  The Bernstein algorithms combined with
+   PKCS #10 certificate requests can result in unusually small objects so we
+   allow shorter-than-normal sizes if they're being used */
 
-#define MIN_CERTSIZE			256
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+  #define MIN_CERTSIZE			200
+#else
+  #define MIN_CERTSIZE			256
+#endif /* USE_25519 || USE_ED25519 */
 
 /* The maximum size of an object attribute.  In theory this can be any size,
    but in practice we limit it to the following maximum to stop people
@@ -249,22 +261,22 @@
 
 #define MAX_ATTRIBUTE_SIZE		1024
 
-/* Some objects contain internal buffers used to process data whose size can 
-   be specified by the user, the following is the minimum and maximum size 
-   allowed for these buffers.  We don't use MAX_INTLENGTH for this both 
-   because it's a peculiarly high value (using all addressable memory as a 
+/* Some objects contain internal buffers used to process data whose size can
+   be specified by the user, the following is the minimum and maximum size
+   allowed for these buffers.  We don't use MAX_INTLENGTH for this both
+   because it's a peculiarly high value (using all addressable memory as a
    buffer is a bit odd) and because using a fraction of the full INT_MAX
-   range makes it safe to perform range-based comparisons, 'value1 + 
+   range makes it safe to perform range-based comparisons, 'value1 +
    value2 < value3', without the risk of integer overflow */
 
 #define MIN_BUFFER_SIZE			8192
 #define MAX_BUFFER_SIZE			( INT_MAX / 8 )
 
-/* The minimum allowed length for (typically human-readable) object names 
-   (keysets, devices, users, etc).  In theory this could be a single 
-   character, but by default we make it 2 chars to make things more 
-   resistant to off-by-one errors in lengths, particularly since it applies 
-   to external objects outside cryptlib's control.  Alongside this we also 
+/* The minimum allowed length for (typically human-readable) object names
+   (keysets, devices, users, etc).  In theory this could be a single
+   character, but by default we make it 2 chars to make things more
+   resistant to off-by-one errors in lengths, particularly since it applies
+   to external objects outside cryptlib's control.  Alongside this we also
    define a minimum length for generic binary IDs */
 
 #ifdef UNICODE_CHARS
@@ -275,9 +287,14 @@
 #define MIN_ID_LENGTH			2
 
 /* The minimum and maximum size of various Internet-related values, used for
-   range checking */
+   range checking.  Note that there's one exception to MIN_DNS_SIZE which is
+   "::1", however there are only two places where we can encounter this, in 
+   IPv6 loopback tests when reading the TLS SNI in 
+   session/tls_ext.c:readSNI() and when parsing URLs in 
+   io/net_url.c:parseURL() and the accompanying sanity-check function, which 
+   special-case the length value there */
 
-#define MIN_DNS_SIZE			4			/* x.com */
+#define MIN_DNS_SIZE			5			/* x.com */
 #define MAX_DNS_SIZE			255			/* Max hostname size */
 #define MIN_RFC822_SIZE			7			/* x@yy.zz */
 #define MAX_RFC822_SIZE			255
@@ -302,43 +319,43 @@
 
 /* Various time values:
 
-	MIN_TIME_VALUE: The minimum time value that's regarded as being a valid 
-		time.  We have to allow dates slightly before the current time 
-		because of things like backdated certificate revocations, as a rule 
+	MIN_TIME_VALUE: The minimum time value that's regarded as being a valid
+		time.  We have to allow dates slightly before the current time
+		because of things like backdated certificate revocations, as a rule
 		of thumb we allow a date up to two years in the past.
-	
-	MIN_STORED_TIME_VALUE: A somewhat more relaxed minimum time value used 
-		when reading stored data like private keys, which can contain 
+
+	MIN_STORED_TIME_VALUE: A somewhat more relaxed minimum time value used
+		when reading stored data like private keys, which can contain
 		associated certificates that have been hanging around for years.
 
 	MAX_TIME_VALUE: The maximum time value that we can safely use while
-		avoiding the Y2038 problem.  This issue only affects systens with 
+		avoiding the Y2038 problem.  This issue only affects systens with
 		a 32-bit time_t so we only clip the time value on those systems.
 
-	CURRENT_TIME_VALUE: An approximation of the current time with the 
-		constraint that it's not after the current date.  Unfortunately we 
-		can't use any preprocessor macros for this since __DATE__ and 
+	CURRENT_TIME_VALUE: An approximation of the current time with the
+		constraint that it's not after the current date.  Unfortunately we
+		can't use any preprocessor macros for this since __DATE__ and
 		__TIME__ are text strings rather than timestamps so we have to
-		build it the hard way from the __DATE__ value, which ANSI defines as 
-		"Mmm dd yyyy" with a space inserted if dd is less than 10.  The year 
-		is relatively straightforward, the month is more complicated.  We 
-		perform a match on the third letter of the month name, which has the 
-		least collisions, and then disambiguate between Jan/Jun and Mar/Apr 
-		to select the month days from a cumulative count of 31, 28, 31, 30, 
-		31, 30, 31, 31, 30, 31, 30, 31, which is 0, 31, 59, 90, 120, 151, 
-		181, 212, 243, 273, 304, 334, (365).  We ignore leap years since 
-		it's only a single day and all we need is an approximate date, and 
+		build it the hard way from the __DATE__ value, which ANSI defines as
+		"Mmm dd yyyy" with a space inserted if dd is less than 10.  The year
+		is relatively straightforward, the month is more complicated.  We
+		perform a match on the third letter of the month name, which has the
+		least collisions, and then disambiguate between Jan/Jun and Mar/Apr
+		to select the month days from a cumulative count of 31, 28, 31, 30,
+		31, 30, 31, 31, 30, 31, 30, 31, which is 0, 31, 59, 90, 120, 151,
+		181, 212, 243, 273, 304, 334, (365).  We ignore leap years since
+		it's only a single day and all we need is an approximate date, and
 		we backdate the calculated date by one month to deal with leap-year
 		rounding errors.
-		
+
 		Note that some compilers aren't tough enough to evaluate this at
-		compile time so we whitelist the compilers that can handle it and 
-		for all others use an approximation.  In particular no version of 
-		VC++ up to 2019 can handle it and different versions of gcc seem to 
-		handle or not handle it at random for version 6 and above.  
-		
-		Also the calculation is typically done by the compiler rather than 
-		the preprocessor so using it in the code works but using it in a 
+		compile time so we whitelist the compilers that can handle it and
+		for all others use an approximation.  In particular no version of
+		VC++ up to 2019 can handle it and different versions of gcc seem to
+		handle or not handle it at random for version 6 and above.
+
+		Also the calculation is typically done by the compiler rather than
+		the preprocessor so using it in the code works but using it in a
 		preprocessor expression, "#if CURRENT_TIME_VALUE < xxx", doesn't */
 
 #define DATE_YEAR \
@@ -385,24 +402,24 @@
 #if defined( __clang__ ) && ( __clang_major__ > 5 ) && \
 	( !defined( __apple_build_version__ ) || \
 	  ( __apple_build_version__ >= 8000000 ) )
-  /* Apple's mutant clang fork reports the Xcode version as the clang 
+  /* Apple's mutant clang fork reports the Xcode version as the clang
 	 version, thus inflating the apparent version number, so we have to add
 	 an explicit check for this and base use on an approximate mapping from
-	 Xcode to clang releases */ 
+	 Xcode to clang releases */
   #define CURRENT_TIME_VALUE	( ( DATE_YEAR + DATE_MONTH - 30 ) * 86400UL )
-#elif defined( __GNUC__ ) && ( __GNUC__ > 7 ) 
+#elif defined( __GNUC__ ) && ( __GNUC__ > 7 )
   #define CURRENT_TIME_VALUE	( ( DATE_YEAR + DATE_MONTH - 30 ) * 86400UL )
 #else
   #define CURRENT_TIME_VALUE	( YEARS_TO_SECONDS( 2021 - 1970 ) )
   #define CHECK_CURRENT_TIME
 #endif /* Compilers that aren't tough enough for the above */
 
-/* Check that there are no (obvious) under- or overflows in the time 
+/* Check that there are no (obvious) under- or overflows in the time
    constant calculations.  We explicitly check for the value going negative
    alongside the general range check just to make it obvious.  The two
-   constants are a value less then MAX_TIME_VALUE_Y2038 for the 
+   constants are a value less then MAX_TIME_VALUE_Y2038 for the
    MAX_TIME_VALUE check and 1/1/2020 for the CURRENT_TIME_VALUE check.
-   
+
    Since the CURRENT_TIME_VALUE when calcuated via __DATE__ requires the
    compiler rather than the preprocessor, we only perform the check if
    we're using the preprocessor-safe derivation of CURRENT_TIME_VALUE.
@@ -420,12 +437,12 @@
   #endif /* Range check for CURRENT_TIME_VALUE calculation */
 #endif /* CHECK_CURRENT_TIME */
 
-/* The minimum and maximum network port numbers.  Note that we allow ports 
-   down to 21 (= FTP) rather than the more obvious 22 (= SSH) provided by 
+/* The minimum and maximum network port numbers.  Note that we allow ports
+   down to 21 (= FTP) rather than the more obvious 22 (= SSH) provided by
    cryptlib sessions because the URL-handling code is also used for general-
-   purpose URI parsing for which the lowest-numbered one that we'd normally 
-   run into is FTP.  For desitnation ports we set the upper bound at the end 
-   of the non-ephemeral port range, 49152-65535 is for ephemeral source 
+   purpose URI parsing for which the lowest-numbered one that we'd normally
+   run into is FTP.  For desitnation ports we set the upper bound at the end
+   of the non-ephemeral port range, 49152-65535 is for ephemeral source
    ports that are only valid for the duration of a TCP session */
 
 #define MIN_PORT_NUMBER			21
@@ -450,12 +467,12 @@
 
 #define CRYPT_ERROR				-1
 
-/* Sometimes compilers get confused about whether a variable has been 
+/* Sometimes compilers get confused about whether a variable has been
    initialised or not and report a used-before-initialised error when there
    isn't one.  This happens most frequently when the variable is initialised
    as part of a conditional expression where the developer knows the control
    flow will result in an initialisation but the compiler doesn't.  To get
-   around this we perform a dummy initialisation of the variable with a 
+   around this we perform a dummy initialisation of the variable with a
    symbolic value to get rid of the false positive */
 
 #define DUMMY_INIT				= 0
@@ -496,7 +513,7 @@
 #define cryptParamError( status ) \
 		( ( status ) >= CRYPT_ERROR_PARAM7 && ( status ) <= CRYPT_ERROR_PARAM1 )
 
-/* Network I/O is government by all sorts of timeouts.  The following are 
+/* Network I/O is government by all sorts of timeouts.  The following are
    the default timeout values used for network I/O, unless overridden by the
    user */
 
@@ -523,9 +540,9 @@ typedef enum {
    function for each object class.  This instructs the management function
    to initialise or shut down any object-class-specific information that it
    may maintain.
-   
+
    Init actions are split into two classes, standard and deferred.  This
-   distinction is necessary because some initialisation actions such as 
+   distinction is necessary because some initialisation actions such as
    driver binding may be performed asychronously, so we need to distinguish
    between init actions that need to be performed sychronously and ones that
    can be performed asynchronously */
@@ -540,8 +557,8 @@ typedef enum {
 	MANAGEMENT_ACTION_LAST				/* Last possible management action */
 	} MANAGEMENT_ACTION_TYPE;
 
-/* Certificate key usage types.  SIGN is for data signing and CA is for 
-   certificate signing.  we don't include CRYPT_KEYUSAGE_DATAENCIPHERMENT in 
+/* Certificate key usage types.  SIGN is for data signing and CA is for
+   certificate signing.  we don't include CRYPT_KEYUSAGE_DATAENCIPHERMENT in
    KEYUSAGE_CRYPT since this is more or less never what's actually meant */
 
 #define KEYUSAGE_SIGN			( CRYPT_KEYUSAGE_DIGITALSIGNATURE | \

@@ -320,9 +320,12 @@ static int selfTest( void )
 		}
 	ENSURES( LOOP_BOUND_OK );
 
-	/* Test the ChaCha20 algorithm as used in ChaCha20-Poly1305 */
+	/* Test the ChaCha20 algorithm as used in ChaCha20-Poly1305.  Note that
+	   this requires that we construct a 128-bit ChaCha20 IV from the given
+	   96-bit nonce and the 32-bit counter that we initialise to 1 in little-
+	   endian form */
 	REQUIRES( boundsCheck( bitsToBytes( 32 ), bitsToBytes( 96 ), 
-			  CHACHA20_IV_SIZE ) );
+						   CHACHA20_IV_SIZE ) );
 	memcpy( iv, "\x01\x00\x00\x00", 4 );
 	memcpy( iv + bitsToBytes( 32 ), chacha20IV, bitsToBytes( 96 ) );
 	status = chacha20Test( chacha20Key, iv, chacha20PT, chacha20CT, 114 );
@@ -605,6 +608,37 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 *						Capability Access Routines							*
 *																			*
 ****************************************************************************/
+
+/* The block size, which also acts as the IV size, is a problem due to the
+   special-snowflake form of ChaCha20.  If you have a block cipher in stream
+   mode, e.g. AES-CFB, then everything works fine, you get an IV of 128 bits 
+   as expected.  The problem is that ChaCha20 is a block cipher pretending 
+   to be a stream cipher, being a replacement for the pure stream cipher RC4 
+   via Salsa20.  It also doesn't really have an IV but some portion of the 
+   value being a nonce and then the rest being an internal counter, with the 
+   split varying depending on which standard you follow.
+
+   Internally where cryptlib uses ChaCha20 it has to encode whatever nonce 
+   size the protocol requires.  For example for TLS it knows that it needs 
+   to load a 96-bit value (actually not even that, it's an XOR of the TLS 
+   sequence number with an IV for a total of 96 bits with the internal 
+   counter adding another 32 bits to the mix).  For SSH the split is 64 bits 
+   of big-endian packet sequence number and 64 bits of internal little-
+   endian counter, so two counters of different endianness and no actual 
+   nonce, because why not?
+
+   The user-supplied value for the IV can therefore be either 64, 96, or 
+   possibly 128 bits depending on which protocol you're using it with.  One 
+   option would be to return the IV size as 96 bits on the assumption that 
+   the IETF and not the SSH interpretation is being used, but that's still 
+   going to cause problems if someone does want to use the SSH 
+   interpretation.  Setting the IV is really a write-only quantity where you 
+   set the nonce part of the value, the ChaCha20 code uses the bytes it 
+   wants and runs the internal-counter part itself, and you can't read the 
+   value back because its interpretation is situation-dependant.  Poly1305 
+   (which goes with ChaCha20) is even more problematic, you can't just key 
+   it and use it like a normal MAC but have to go through all sorts of 
+   calisthenics to use it appropriately */
 
 static const CAPABILITY_INFO capabilityInfo = {
 	CRYPT_ALGO_CHACHA20, bitsToBytes( 8 ), "ChaCha20", 8,

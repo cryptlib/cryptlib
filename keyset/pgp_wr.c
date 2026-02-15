@@ -66,8 +66,10 @@ static int hashKeyData( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 	status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH,
 							  headerBuffer, headerLength );
 	if( cryptStatusOK( status ) )
+		{
 		status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH,
 								  ( MESSAGE_CAST ) keyData, keyDataLength );
+		}
 	return( status );
 	}
 
@@ -101,8 +103,10 @@ static int hashUserID( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 	status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH,
 							  headerBuffer, headerLength );
 	if( cryptStatusOK( status ) )
+		{
 		status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH,
 								  ( MESSAGE_CAST ) userID, userIDlength );
+		}
 	return( status );
 	}
 
@@ -400,7 +404,8 @@ static int createSubpacketSignature( OUT_BUFFER( sigMaxLength, \
 	{
 	CRYPT_CONTEXT iLocalHashContext;
 	MESSAGE_CREATEOBJECT_INFO createInfo;
-	SIGPARAMS sigParams;
+	SIG_DATA_INFO sigDataInfo;
+	SIG_PARAMS sigParams;
 	int status;
 
 	assert( isWritePtrDynamic( signature, sigMaxLength ) );
@@ -462,12 +467,13 @@ static int createSubpacketSignature( OUT_BUFFER( sigMaxLength, \
 		}
 
 	/* Finally, sign the hashed data */
-	initSigParamsPGP( &sigParams, sigType, sigAttributes, 
-					  sigAttributeLength );
+	setSigDataInfoHash( &sigDataInfo, iLocalHashContext );
+	setSigParamsPGP( &sigParams, sigType, sigAttributes, 
+					 sigAttributeLength );
 	status = iCryptCreateSignature( signature, sigMaxLength,
 									signatureLength, CRYPT_FORMAT_PGP,
-									iSigContext, iLocalHashContext,
-									&sigParams, errorInfo );
+									iSigContext, &sigDataInfo, &sigParams, 
+									errorInfo );
 
 	/* Clean up */
 	krnlSendNotifier( iLocalHashContext, IMESSAGE_DECREFCOUNT );

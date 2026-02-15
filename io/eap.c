@@ -567,6 +567,15 @@ static int activateEAPClient( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 
+	/* Send an RFC 5997 RADIUS ping before we send the standard EAP 
+	   (+RADIUS) ping that starts the session */
+	DEBUG_PRINT(( "Sending RFC 5997 RADIUS ping to server.\n" ));
+	status = writeRADIUSPing( stream, eapInfo );
+	if( cryptStatusOK( status ) )
+		status = readRADIUSPingResponse( stream, eapInfo );
+	if( cryptStatusError( status ) )
+		return( status );
+
 	/* Send the RADIUS packet containing the request to trigger the 
 	   EAP-TLS/TTLS/PEAP response, an EAP_SUBTYPE_IDENTITY packet containing 
 	   the user name as payload.  Because only the server is allowed to

@@ -328,7 +328,6 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			int length, totalLength;
 
 			/* If it's a channel message, try and read the channel number */
-			channelNo = -1;
 			if( sshInfo->packetType >= SSH_MSG_CHANNEL_OPEN && \
 				sshInfo->packetType <= SSH_MSG_CHANNEL_FAILURE )
 				{
@@ -336,6 +335,12 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				if( cryptStatusError( channelNo ) )
 					channelNo = -1;
 				}
+			else
+				{
+				/* It's something else, there's no channel number present */
+				channelNo = -1;
+				}
+			ANALYSER_HINT_DEADSTORE_OK( channelNo );	/* clang FP */
 #endif /* USE_ERRMSGS */
 
 			/* We got something unexpected, throw an exception in the debug
@@ -477,7 +482,7 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										CHANNEL_BOTH, TRUE );
 				}
 			DEBUG_PRINT(( "Processing channel close message for "
-						  "channel %d.\n", channelNo ));
+						  "channel %ld.\n", channelNo ));
 
 			/* If this wasn't the last channel, we're done */
 			if( status != OK_SPECIAL )
@@ -762,6 +767,10 @@ int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 			/* We got a packet and it's probably the channel close ack, read 
 			   it */
+			REQUIRES( boundsCheck( sessionInfoPtr->receiveBufEnd, 
+								   min( sessionInfoPtr->pendingPacketRemaining, \
+										bytesLeft ), 
+								   sessionInfoPtr->receiveBufSize ) );
 			status = sread( &sessionInfoPtr->stream,
 							sessionInfoPtr->receiveBuffer + \
 								sessionInfoPtr->receiveBufEnd,

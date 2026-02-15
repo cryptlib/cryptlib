@@ -402,7 +402,7 @@ static int checkPreAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int processStringID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							IN_BUFFER( versionStringLength ) \
-								const char *versionString,
+								const BYTE *versionString,
 							IN_LENGTH_SHORT_MIN( 3 ) \
 								const int versionStringLength )
 	{
@@ -597,7 +597,7 @@ static int processStringID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int processVersionID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 IN_BUFFER( versionStringLength ) \
-								const char *versionString,
+								const BYTE *versionString,
 							 IN_LENGTH_SHORT_MIN( 3 ) \
 								const int versionStringLength )
 	{
@@ -685,10 +685,6 @@ static int processVersionID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  SSH_PFLAG_SIGFORMAT );
 				DEBUG_PUTS(( "Enabling workaround for ssh.com "
 							 "signature-format bug." ));
-				}
-			if( !memcmp( versionString, "2.0", 3 ) || \
-				!memcmp( versionString, "2.1", 3 ) )
-				{
 				SET_FLAG( sessionInfoPtr->protocolFlags, 
 						  SSH_PFLAG_WINDOWSIZE );
 				DEBUG_PUTS(( "Enabling workaround for ssh.com window-size "
@@ -821,7 +817,8 @@ int readSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		ENSURES( LOOP_INVARIANT_MED( linesRead, 0, 19 ) );
 
-		/* Get a line of input.  Since this is the first communication that
+		/* Get a line of input, which sanitises the data read into non-
+		   control ASCII text.  Since this is the first communication that
 		   we have with the remote system we're a bit more loquacious about
 		   diagnostics in the event of an error */
 		status = readTextLine( &sessionInfoPtr->stream, 
@@ -1082,7 +1079,8 @@ int writeSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				"OK IMAP/POP3 ready server.com\r\n"
 				"220 FTP Server server.com ready\r\n"
 				SSH_ID_STRING "\r\n";
-			swrite( &stream, idString, strlen( idString ) );
+			swrite( &stream, idString, 
+					strnlen_s( idString, MAX_ATTRIBUTE_SIZE ) );
 #endif /* 0 */
 			/* We're just using standard SSH ID strings */
 			status = swrite( &stream, SSH_ID_STRING "\r\n", 

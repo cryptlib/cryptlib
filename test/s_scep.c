@@ -803,8 +803,6 @@ static int connectSCEP( const BOOLEAN localSession,
 	/* Get the CA certificate fingerprint */
 	if( !addCACert )
 		{
-		char filenameBuffer[ FILENAME_BUFFER_SIZE ];
-
 		filenameFromTemplate( filenameBuffer, SCEPCA_PRIVKEY_FILE_TEMPLATE, 
 							  ( cryptAlgo == CRYPT_ALGO_RSA ) ? 1 : 2 );
 		status = getPublicKey( &cryptCACert, filenameBuffer,

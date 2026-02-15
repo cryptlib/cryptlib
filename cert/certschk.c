@@ -869,7 +869,7 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 	   as the checking object for a chain that's missing the root */
 	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 		{
-		CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+		const CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
 		int certSubType;
 
 		/* Get the certificate check-object type for error reporting 

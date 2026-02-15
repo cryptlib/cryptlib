@@ -7,9 +7,10 @@ PROGNAME_SRC="./testlib"
 PROGNAME="./fuzz-clib"
 FUZZER="../AFL/afl-fuzz"
 FUZZTYPES="base64 certificate certchain certreq cms pgp pkcs12 pkcs15 \
-		   tls-client tls-server ssh-client ssh-server ocsp-client ocsp-server tsp-client tsp-server \
-		   cmp-client cmp-server rtcs-client rtcs-server scvp-client scvp-server \
-		   pgppub pgpsec bignum url http-req http-resp websockets eap"
+		   tls-client tls-server tls13-server ssh-client ssh-server ocsp-client \
+		   ocsp-server tsp-client tsp-server cmp-client cmp-server rtcs-client \
+		   rtcs-server scvp-client scvp-server pgppub pgpsec bignum config url \
+		   http-req http-resp websockets eap"
 FUZZTYPE=""
 DIRNAME=""
 INPUT_DIR=""
@@ -58,6 +59,7 @@ Usage: fuzz [-cd] options.  Valid options are
     pkcs12/pkcs15           - Fuzz PKCS #12/#15 keyset.
     pgppub/pgpsec           - Fuzz PGP pub/priv.keyset.
     tls-client/tls-server   - Fuzz TLS client/server.
+    tls13-server            - Fuzz TLS 1.3 server.
     ssh-client/ssh-server   - Fuzz SSH client/server.
     cmp-client/cmp-server   - Fuzz CMP client/server.
     tsp-client/tsp-server   - Fuzz TSP client/server.
@@ -66,6 +68,7 @@ Usage: fuzz [-cd] options.  Valid options are
     scvp-client/scvp-server - Fuzz SCVP client/server.
     (SCEP is fuzzed via CMS envelopes).
     bignum                  - Fuzz bignum ops.
+    config					- Fuzz configuration file handling.
     url                     - Fuzz URL parsing.
     http-req/http-resp      - Fuzz HTTP request/response.
     websockets              - Fuzz WebSockets.
@@ -321,6 +324,9 @@ case $1 in
 
 	'tls-server')
 		FILENAME=${FILEPATH}tls_cli.dat ;;
+
+	'tls13-server')
+		FILENAME=${FILEPATH}tls13_cli.dat ;;
 
 	'cmp-client')
 		FILENAME=${FILEPATH}cmp_svr.dat ;;

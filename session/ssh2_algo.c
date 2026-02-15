@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib SSHv2 Algorithm Information Processing				*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -22,18 +22,20 @@
 /* Tables mapping SSHv2 algorithm names to cryptlib algorithm IDs, in 
    preferred algorithm order. 
 
-   ECC support by SSH implementations is rather hit-and-miss.  If we were to 
-   advertise ECC only (which we never do), some servers will respond with 
-   RSA/DSA keys (even though they're not specified as being supported), and 
-   others will respond with an empty host key.
+   ECC support by SSH implementations, some of which can be quite old, is 
+   rather hit-and-miss.  If we were to advertise ECC only (which we never 
+   do), some servers will respond with RSA/DSA keys (even though they're 
+   not specified as being supported), and others will respond with an empty 
+   host key.
    
    In addition the algorithms aren't just algorithm values but a combination 
    of the algorithm, the key size, and the hash algorithm, with 
    CRYPT_ALGO_ECDH/CRYPT_ALGO_ECDSA being the default P256 curve with 
-   SHA-256.  Because the curve types are tied to the oddball SHA-2 hash 
-   variants (we can't just use SHA-256 for every curve), we don't support 
-   P384 and P512 because we'd have to support an entirely new (and 64-bit-
-   only) hash algorithm for each of the curves.
+   SHA-256, and CRYPT_ALGO_25519 also being SHA-256.  Because the curve 
+   types are tied to the oddball SHA-2 hash variants (we can't just use 
+   SHA-256 for every curve), we don't support P384, P512, and X448 because 
+   we'd have to support an entirely new (and 64-bit-only) hash algorithm 
+   for each of the curves.
 
    Some algorithms also have additional parameters, specifically the OpenSSH-
    invented EtM variants for which the numeric parameter is a flag indicating
@@ -55,7 +57,7 @@
    supporting only "diffie-hellman-group1-sha1", and not even the mandatory-
    to-support "diffie-hellman-group14-sha1" let alone the group-exchange 
    suites.
-
+   
    Another issue exists around the use of OpenSSH fashion-statement 
    mechanisms like EtM (at least as specified by OpenSSH) and ChaCha20-
    Poly1305, which are vulnerable to the Terrapin attack.  We aren't 
@@ -87,22 +89,34 @@
 
    We actually do a lot of this already since we implement the handshake as 
    a ladder diagram rather than a state machine and so enforce flow-dependent
-   messages, but there's still a lot of scope for getting things wrong and 
-   since we're not vulnerable in the first place there doesn't seem much 
-   point to adding a vulnerable mechanism and then having to patch around the
-   vulnerability that we've just added */
+   messages, but there's still a lot of scope for getting things wrong (and 
+   almost everyone does, see "Finding SSH Strict Key Exchange Violations by 
+   State Learning", Fabian Bäumer, Marcel Maehren, Marcus Brinkmann and Jörg 
+   Schwenk) and since we're not vulnerable in the first place there doesn't 
+   seem much point to adding a vulnerable mechanism and then having to try 
+   and patch around the vulnerability that we've just added */
 
 static const ALGO_STRING_INFO algoStringKeyexTbl[] = {
-#if defined( USE_ECDH ) && defined( PREFER_ECC )
+#ifdef PREFER_ECC
+  #ifdef USE_25519 
+	{ "curve25519-sha256", 17, CRYPT_ALGO_25519, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
+  #endif /* USE_25519 */
+  #ifdef USE_ECDH 
 	{ "ecdh-sha2-nistp256", 18, CRYPT_ALGO_ECDH, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
-#endif /* USE_ECDH && PREFER_ECC */
+  #endif /* USE_ECDH */
+#endif /* PREFER_ECC */
 	{ "diffie-hellman-group-exchange-sha256", 36, CRYPT_ALGO_DH, CRYPT_ALGO_SHA2 },
 	{ "diffie-hellman-group-exchange-sha1", 34, CRYPT_ALGO_DH, CRYPT_ALGO_SHA1 },
 	{ "diffie-hellman-group14-sha256", 29, CRYPT_ALGO_DH, CRYPT_ALGO_SHA2, bitsToBytes( 2048 ) },
 	{ "diffie-hellman-group14-sha1", 27, CRYPT_ALGO_DH, CRYPT_ALGO_SHA1, bitsToBytes( 2048 ) },
-#if defined( USE_ECDH ) && !defined( PREFER_ECC ) 
+#ifndef PREFER_ECC 
+  #ifdef USE_25519 
+	{ "curve25519-sha256", 17, CRYPT_ALGO_25519, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
+  #endif /* USE_25519 */
+  #ifdef USE_ECDH 
 	{ "ecdh-sha2-nistp256", 18, CRYPT_ALGO_ECDH, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
-#endif /* USE_ECDH && !PREFER_ECC */
+  #endif /* USE_ECDH */
+#endif /* !PREFER_ECC */
 	{ NULL, 0, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE, 0 }, 
 		{ NULL, 0, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE, 0 }
 	};
@@ -116,17 +130,27 @@ static const ALGO_STRING_INFO algoStringKeyexNoECCTbl[] = {
 	};
 
 static const ALGO_STRING_INFO algoStringPubkeyTbl[] = {
-#if defined( USE_ECDSA ) && defined( PREFER_ECC )
+#ifdef PREFER_ECC
+  #ifdef USE_ED25519 
+	{ "ssh-ed25519", 11, CRYPT_ALGO_ED25519, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
+  #endif /* USE_ED25519 */
+  #ifdef USE_ECDSA 
 	{ "ecdsa-sha2-nistp256", 19, CRYPT_ALGO_ECDSA, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
-#endif /* USE_ECDSA && PREFER_ECC */
+  #endif /* USE_ECDSA */
+#endif /* PREFER_ECC */
 	{ "rsa-sha2-256", 12, CRYPT_ALGO_RSA, CRYPT_ALGO_SHA2 },
 	{ "ssh-rsa", 7, CRYPT_ALGO_RSA, CRYPT_ALGO_SHA1 },
 #ifdef USE_DSA
 	{ "ssh-dss", 7, CRYPT_ALGO_DSA, CRYPT_ALGO_SHA1 },
 #endif /* USE_DSA */
-#if defined( USE_ECDSA ) && !defined( PREFER_ECC )
+#ifndef PREFER_ECC 
+  #ifdef USE_ED25519 
+	{ "ssh-ed25519", 11, CRYPT_ALGO_ED25519, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
+  #endif /* USE_ED25519 */
+  #ifdef USE_ECDSA 
 	{ "ecdsa-sha2-nistp256", 19, CRYPT_ALGO_ECDSA, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
-#endif /* USE_ECDSA && !PREFER_ECC */
+  #endif /* USE_ECDSA */
+#endif /* !PREFER_ECC */
 	{ NULL, 0, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE, 0 }, 
 		{ NULL, 0, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE, 0 }
 	};
@@ -169,6 +193,9 @@ static const ALGO_STRING_INFO algoStringMapTbl[] = {
 	{ "diffie-hellman-group-exchange-sha1", 34, CRYPT_ALGO_DH, CRYPT_ALGO_SHA1 },
 	{ "diffie-hellman-group14-sha256", 29, CRYPT_ALGO_DH, CRYPT_ALGO_SHA2, bitsToBytes( 2048 ) },
 	{ "diffie-hellman-group14-sha1", 27, CRYPT_ALGO_DH, CRYPT_ALGO_SHA1, bitsToBytes( 2048 ) },
+#ifdef USE_25519 
+	{ "curve25519-sha256", 17, CRYPT_ALGO_25519, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
+#endif /* USE_25519 */
 #ifdef USE_ECDH
 	{ "ecdh-sha2-nistp256", 18, CRYPT_ALGO_ECDH, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
 #endif /* USE_ECDH */
@@ -182,6 +209,9 @@ static const ALGO_STRING_INFO algoStringMapTbl[] = {
 #ifdef USE_ECDSA
 	{ "ecdsa-sha2-nistp256", 19, CRYPT_ALGO_ECDSA, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
 #endif /* USE_ECDSA */
+#ifdef USE_ED25519 
+	{ "ssh-ed25519", 11, CRYPT_ALGO_ED25519, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
+#endif /* USE_ED25519 */
 
 	/* Encryption algorithms */
 	{ "aes128-cbc", 10, CRYPT_ALGO_AES, CRYPT_MODE_CBC, bitsToBytes( 128 ) },
@@ -1039,8 +1069,6 @@ int processHelloSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   point */
 	if( isServer )
 		{
-		int pkcAlgo;
-
 		setAlgoStringInfoEx( &algoStringInfo, algoStringKeyexTbl, 
 							 FAILSAFE_ARRAYSIZE( algoStringKeyexTbl, \
 												 ALGO_STRING_INFO ),
@@ -1051,10 +1079,7 @@ int processHelloSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   it can't be used with an ECC keyex so we have to explicitly
 		   disable it (technically it is possible to mix ECDH with RSA but
 		   this is more likely an error than anything deliberate) */
-		status = krnlSendMessage( sessionInfoPtr->privateKey, 
-								  IMESSAGE_GETATTRIBUTE, &pkcAlgo,
-								  CRYPT_CTXINFO_ALGO );
-		if( cryptStatusError( status ) || !isEccAlgo( pkcAlgo ) )
+		if( !isEccAlgo( sessionInfoPtr->privateKeyAlgo ) )
 			algoStringInfo.allowECC = FALSE;
 #ifdef USE_SSH_EXTENDED
 		algoStringInfo.allowExtIndicator = TRUE;
@@ -1097,7 +1122,8 @@ int processHelloSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			handshakeInfo->requestedServerKeySize = SSH2_DEFAULT_KEYSIZE;
 			}
 		}
-	if( algoStringInfo.algo == CRYPT_ALGO_ECDH )
+	if( algoStringInfo.algo == CRYPT_ALGO_ECDH || \
+		algoStringInfo.algo == CRYPT_ALGO_25519 )
 		{
 		/* If we're using an ECDH cipher suite then we need to switch to the
 		   appropriate hash algorithm for the keyex hashing */
@@ -1277,7 +1303,12 @@ int processHelloSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	string		[ server key/certificate ]
 		string	"ecdsa-sha2-*"
 		string	"*"				-- The "*" portion from the above field
-		string	Q */
+		string	Q 
+
+   Ed25519:		
+	string		[ server key/certificate ]
+		string	"curve25519-sha256"
+		string	key */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
 int checkReadPublicKey( INOUT_PTR STREAM *stream,
@@ -1354,6 +1385,15 @@ int checkReadPublicKey( INOUT_PTR STREAM *stream,
 									BIGNUM_CHECK_VALUE_ECC );
 			break;
 #endif /* USE_ECDSA */
+
+#ifdef USE_ED25519
+		case CRYPT_ALGO_ED25519:
+			status = readInteger32( stream, NULL, &dummy, 
+									MIN_PKCSIZE_BERNSTEIN, 
+									MAX_PKCSIZE_BERNSTEIN,
+									BIGNUM_CHECK_VALUE_FIXEDLEN );
+			break;
+#endif /* USE_ED25519 */
 
 		default:
 			retIntError();

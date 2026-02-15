@@ -10,7 +10,7 @@
 #            into a Visual Basic interface file for Cryptlib (CL32.DLL).
 #
 #            This script does the translation of C-statements into
-#            Visual Basic code. (But only as much as is needed in 
+#            Visual Basic code. (But only as much as is needed in
 #            cryptlib.h, -NOT- usable as general translation utility)
 #
 #       --------------------------------------------------------------------
@@ -21,7 +21,7 @@
 #               cryptlib.h ... (optional) Pathname of crytlib header file
 #                              default is "cryptlib.h"
 #
-#               creates the Visual Basic interface file with same basic name 
+#               creates the Visual Basic interface file with same basic name
 #               and extension ".bas" in the same directory as the source file
 #               default is "cryptlib.bas"
 #
@@ -36,7 +36,7 @@ use File::Basename;
 my $FileName = shift @ARGV || 'cryptlib.h';		# default filename is "cryptlib.h"
 my %DEFINED = ( 1, 1,                         # ifdef 1 is to be included
                 "USE_VENDOR_ALGOS", 0 );			# set to 1 to include #IFDEF USE_VENDOR_ALGOS
-my $Startline = qr{^#endif\s+\/\*\s+_CRYPTLIB_DEFINED\s+\*\/};	# ignore all lines before this one
+my $Startline = qr{^\/\* END_OF_PREAMBLE \*\/};    # ignore all lines before this one
 
 my ($FileBase, $Path, $Ext) = fileparse($FileName, qr{\.[^.]*$});
 die("\"usage: $0 cryptlib.h\"\nParameter must be a C header file\nStop") unless ($Ext =~ m/^\.h$/i) && -r $FileName;
@@ -65,7 +65,7 @@ my $INACTIVE = 0;
 my $LEVEL = 0;
 my $COMMENT = 0;
 # handle conditionals, include conditional code only if definition agrees with %DEFINED
-while (<INFILE>) { 
+while (<INFILE>) {
     # remove preprocessor symbols
     s/C_CHECK_RETVAL//;
     s/C_NONNULL_ARG\s*\(\s*\([ \t0-9,]+\s*\)\s*\)//;
@@ -125,19 +125,19 @@ while ($_ = shift @source) {
         $_ = shift @source  while (!(/#endif/));
         $_ = shift @source;
     }
-    
+
     # continued lines
     if (s/\\$//) {
         $_ .= shift @source;
         redo if @source;
     }
-    
+
     # incomplete typedef / enum lines
     if (/^\s*(typedef\s+enum|typedef\s+struct|enum)\s*\{[^}]*$/) {
         $_ .= shift @source;
         redo if @source;
     }
-    
+
     # incomplete procedure calls
     if (/^\s*C_RET\s+\w+\s*\([^)]*$/) {
         $_ .= shift @source;
@@ -147,7 +147,7 @@ while ($_ = shift @source) {
 
     # hex values
     s{0x([0-9a-fA-F]+)}{&H$1}g;
-    
+
 		# constant definitions
 		s/^\s*#define\s+(\w+)\s+(\w+|[+\-0-9]+|&H[0-9a-fA-F]+)/  Public Const $1 As Long = $2/;
 		s/^\s*#define\s+(\w+)\s+\(\s*(\w+|[+\-0-9]+|&H[0-9a-fA-F]+)\s*\)/  Public Const $1 As Long = $2/;
@@ -182,7 +182,7 @@ while ($_ = shift @source) {
         $_ = "Public Declare Function $1 Lib \"CL32.DLL\" ($_) As Long\n\n";
         $_ = "' ***Warning: function '$1' $Warn\n$_" if ($Warn);
     }
-		
+
 		# C-macro definitions are ignored
     if (s/\s*#define\s+(.*)/$1/) {
         s/\n/\n'/g;
@@ -235,7 +235,7 @@ Option Explicit
 '
 'Examples using Visual Basic are available on the same web address.
 '
-'Published by W. Gothier, 
+'Published by W. Gothier,
 'mailto: problems\@cryptlib.sogot.de if you find errors in this file.
 
 '-----------------------------------------------------------------------------
@@ -284,9 +284,9 @@ sub enumt {
         if ($parval =~ /^([^',]+)\,\s*([^'\t \n]+)/) {
             $parval =~ s/^(\s*)([^',]+)\,\s*(.*)$/$1$2/;
             $newpar = "$1$3";
-        } 
-        else { 
-            $newpar = "" 
+        }
+        else {
+            $newpar = ""
         }
         $parval =~ s/\,\s*$//;
         $parval =~ s/^(\s*\w+\s*\=\s*[^']+\s*)\,/$1 /g;

@@ -303,14 +303,14 @@ int ebcdicToAscii( char *dest, const char *src, const int length )
 char *bufferToEbcdic( char *buffer, const char *string )
 	{
 	strcpy( buffer, string );
-	asciiToEbcdic( buffer, buffer, strlen( string ) );
+	asciiToEbcdic( buffer, buffer, strnlen_s( string, MAX_ATTRIBUTE_SIZE ) );
 	return( buffer );
 	}
 
 char *bufferToAscii( char *buffer, const char *string )
 	{
 	strcpy( buffer, string );
-	ebcdicToAscii( buffer, buffer, strlen( string ) );
+	ebcdicToAscii( buffer, buffer, strnlen_s( string, MAX_ATTRIBUTE_SIZE ) );
 	return( buffer );
 	}
 
@@ -398,12 +398,12 @@ int strCompare( IN_STRING const char *src, IN_STRING const char *dest,
 CHECK_RETVAL_LENGTH_SHORT STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int strCompareZ( IN_STRING const char *src, IN_STRING const char *dest )
 	{
-	const int length = strlen( src );
+	const int length = strnlen_s( src, MAX_ATTRIBUTE_SIZE );
 
 	assert( isReadPtrDynamic( src, length ) );
 	assert( isReadPtrDynamic( dest, 1 ) );
 
-	if( length != strlen( dest ) )
+	if( length != strnlen_s( dest, MAX_ATTRIBUTE_SIZE ) )
 		return( 1 );	/* Lengths differ */
 	return( strCompare( src, dest, length ) );
 	}
@@ -489,7 +489,8 @@ int vsPrintf_s( INOUT_BUFFER_FIXED( bufSize ) char *buffer,
 			case 'e':	/* For EBCDIC strings */ 
 				{
 				const char *bufPtr = va_arg( argPtr, char * );
-				const int bufStrLen = strlen( bufPtr );
+				const int bufStrLen = strnlen_s( bufPtr. 
+												 MAX_ATTRIBUTE_SIZE + 8 );
 
 				REQUIRES( isShortIntegerRange( bufStrLen ) );
 
@@ -536,7 +537,7 @@ int vsPrintf_s( INOUT_BUFFER_FIXED( bufSize ) char *buffer,
 			break;
 		if( needsConversion )
 			bufferToAscii( formatBuffer, formatBuffer );
-		formatBufPos = strlen( formatBuffer );
+		formatBufPos = strnlen_s( formatBuffer, MAX_ATTRIBUTE_SIZE );
 		if( needsUppercase )
 			{
 			LOOP_LARGE( i = 0, i < formatBufPos, i++ )
@@ -1126,7 +1127,7 @@ HMODULE WINAPI SafeLoadLibrary( IN_STRING LPCTSTR lpFileName )
 	SHGETFOLDERPATH pSHGetFolderPath;
 	HINSTANCE hShell32;
 	char path[ MAX_PATH + 8 ];
-	const int fileNameLength = strlen( lpFileName );
+	const int fileNameLength = strnlen_s( lpFileName, MAX_PATH_LENGTH );
 	BOOLEAN gotPath = FALSE;
 	LOOP_INDEX i;
 	int pathLength;
@@ -1207,7 +1208,7 @@ HMODULE WINAPI SafeLoadLibrary( IN_STRING LPCTSTR lpFileName )
 		   don't try and go any further */
 		return( NULL );
 		}
-	pathLength = strlen( path );
+	pathLength = strnlen_s( path, MAX_PATH_LENGTH );
 	if( pathLength < 3 || pathLength + fileNameLength > MAX_PATH - 8 )
 		{
 		/* Under WinNT and Win2K the LocalSystem account doesn't have its 
@@ -1232,17 +1233,17 @@ HMODULE WINAPI SafeLoadLibrary( IN_STRING LPCTSTR lpFileName )
 	}
 #else	/* Newer code that does the same thing */
 
-#if VC_GE_2005( _MSC_VER )
+#if VC_GE_2010( _MSC_VER )
   #pragma warning( push )
   #pragma warning( disable : 4255 )	/* Errors in VersionHelpers.h */
   #include <VersionHelpers.h>
   #pragma warning( pop )
-#endif /* VC++ >= 2005 */
+#endif /* VC++ >= 2010 */
 
 HMODULE WINAPI SafeLoadLibrary( IN_STRING LPCTSTR lpFileName )
 	{
 	char path[ MAX_PATH + 8 ];
-	const int fileNameLength = strlen( lpFileName );
+	const int fileNameLength = strnlen_s( lpFileName, MAX_PATH + 1 );
 	int pathLength;
 
 	REQUIRES_EXT( fileNameLength >= 1 && fileNameLength < MAX_PATH, \
@@ -1511,14 +1512,15 @@ STDAPI DllRegisterServer( void )
 	}
 #endif /* !( NT_DRIVER || STATIC_LIB ) */
 
-#if VC_LE_VC6( _MSC_VER ) || VC_GE_2019( _MSC_VER )
+#if defined( _MSC_VER ) && !defined( NDEBUG ) && \
+	( VC_LT_2010( _MSC_VER ) || VC_GE_2019( _MSC_VER ) ) 
 
-/* Under VC++ 6 assert() can randomly stop working so that only the abort() 
-   portion still functions, making it impossible to find out what went wrong.
-   Under VS 2019, assert() still functions but reports the location where the
-   assert was triggered as some random location somewhere in cryptlib, 
-   requiring tedious stepping through each line of code to find out where 
-   the actuall assertion occurred.
+/* Under VC++ 6 to at least VS 2008, assert() can randomly stop working so 
+   that only the abort() portion still functions, making it impossible to 
+   find out what went wrong.  Under VS 2019, assert() still functions but 
+   reports the location where the assert was triggered as some random 
+   location somewhere in cryptlib, requiring tedious stepping through each 
+   line of code to find out where the actual assertion occurred.
 
    To deal with this, misc/debug.h redefines the assert() macro to call the 
    following function, which emulates what a correctly-functioning assert()
@@ -1972,9 +1974,9 @@ int strnicmp( const char *src, const char *dest, /* const */ int length )
 
 int stricmp( const char *src, const char *dest )
 	{
-	const int length = strlen( src );
+	const int length = strnlen_s( src, MAX_ATTRIBUTE_SIZE );
 
-	if( length != strlen( dest ) )
+	if( length != strnlen_s( dest, MAX_ATTRIBUTE_SIZE ) )
 		return( 1 );	/* Lengths differ */
 	return( strnicmp( src, dest, length ) );
 	}
@@ -2181,7 +2183,7 @@ static int getHWIntrins( void )
 
 #elif defined( __WIN32__ )  && defined( _M_X64 )
 
-/* 64-bit VC++ doesn't allow inline asm, but does provide the __cpuid() 
+/* 64-bit VC++ doesn't allow inline asm but does provide the __cpuid() 
    builtin to perform the operation above.  We don't guard this with the 
    NO_ASM check because it's not (technically) done with inline asm, 
    although it's a bit unclear whether an intrinsic qualifies as asm or
@@ -2214,7 +2216,7 @@ CHECK_RETVAL_ENUM( HWINTRINS_FLAG ) \
 static int getHWIntrins( void )
 	{
 	CPUID_INFO cpuidInfo;
-	char vendorID[ 12 + 8 ];
+	ALIGN_STACK_DATA char vendorID[ 12 + 8 ];
 	int *vendorIDptr = ( int * ) vendorID;
 	unsigned long processorID, featureFlags, featureFlags2;
 	int sysCaps = HWINTRINS_FLAG_RDTSC;	/* x86-64 always has RDTSC */

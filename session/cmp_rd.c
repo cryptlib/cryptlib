@@ -127,12 +127,17 @@ static int updateCertID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( isEnumRangeOpt( cmpMsgInfo, CMP_MSGINFO ) );
 
-	status = addSessionInfoS( sessionInfoPtr,
-							  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
-							  protocolInfo->certID,
-							  protocolInfo->certIDsize );
-	if( cryptStatusError( status ) )
-		return( status );
+	/* If we've got an ESSCertIDv2 that means we have a SHA-2 fingerprint
+	   that we can use as the server fingerprint */
+	if( protocolInfo->certIDv2changed )
+		{
+		status = addSessionInfoS( sessionInfoPtr,
+								  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
+								  protocolInfo->certIDv2,
+								  protocolInfo->certIDv2size );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
 
 	/* If this is the first message to the server, set up the server's 
 	   public-key context for the client's key based on the information
@@ -412,8 +417,12 @@ static int readGeneralInfoAttribute( INOUT_PTR STREAM *stream,
 		return( readSetZ( stream, NULL ) );			/* Attribute */
 		}
 
-	/* Check for the ESSCertID, which fixes CMP's broken certificate 
-	   identification mechanism */
+	/* Check for the ESSCertID/ESSCertIDv2, which fixes CMP's broken 
+	   certificate identification mechanism.  Original code used the 
+	   ESSCertID, starting with 3.4.9 we also use the ESSCertIDv2.
+	   This works because it's only used to identify a certificate in the
+	   message and not as a keyID for database lookup, which is a SHA-1
+	   hash */
 	if( matchOID( oid, length, OID_ESS_CERTID ) )
 		{
 		BYTE certID[ CRYPT_MAX_HASHSIZE + 8 ];
@@ -440,6 +449,51 @@ static int readGeneralInfoAttribute( INOUT_PTR STREAM *stream,
 			memcpy( protocolInfo->certID, certID, KEYID_SIZE );
 			protocolInfo->certIDsize = KEYID_SIZE;
 			protocolInfo->certIDchanged = TRUE;
+			DEBUG_PRINT(( "%s: Read ESSCertID.\n",
+						  protocolInfo->isServer ? "SVR" : "CLI" ));
+			DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", 
+							protocolInfo->certID, protocolInfo->certIDsize );
+			}
+		if( stell( stream ) < endPos )
+			{
+			/* Skip the issuerSerial if there's one present.  We can't 
+			   really do much with it in this form without rewriting it into 
+			   the standard issuerAndSerialNumber, but in any case we don't 
+			   need it because we've already got the certificate ID */
+			status = readUniversal( stream );
+			}
+		return( status );
+		}
+	if( matchOID( oid, length, OID_ESS_CERTIDv2 ) )
+		{
+		BYTE certIDv2[ CRYPT_MAX_HASHSIZE + 8 ];
+		int certIDv2size, endPos;
+
+		/* Extract the certificate hash from the ESSCertIDv2 */
+		readSet( stream, NULL );					/* Attribute */
+		readSequence( stream, NULL );				/* SigningCerts */
+		readSequence( stream, NULL );				/* Certs */
+		status = readSequence( stream, &length );	/* ESSCertIDv2 */
+		if( cryptStatusError( status ) )
+			return( status );
+		endPos = stell( stream ) + length;
+		ENSURES( isIntegerRangeMin( endPos, length ) );
+		status = readOctetString( stream, certIDv2, &certIDv2size, 32, 32 );
+		if( cryptStatusError( status ) )
+			return( status );
+		if( protocolInfo->certIDv2size != 32 || \
+			memcmp( certIDv2, protocolInfo->certIDv2, 32 ) )
+			{
+			/* The certificate used for authentication purposes has changed,
+			   remember the new certIDv2 */
+			memcpy( protocolInfo->certIDv2, certIDv2, 32 );
+			protocolInfo->certIDv2size = 32;
+			protocolInfo->certIDv2changed = TRUE;
+			DEBUG_PRINT(( "%s: Read ESSCertIDv2.\n",
+						  protocolInfo->isServer ? "SVR" : "CLI" ));
+			DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", 
+							protocolInfo->certIDv2, 
+							protocolInfo->certIDv2size );
 			}
 		if( stell( stream ) < endPos )
 			{
@@ -799,7 +853,7 @@ static int readPkiHeader( INOUT_PTR STREAM *stream,
 
 	/* Clear per-message state information */
 	protocolInfo->userIDchanged = protocolInfo->certIDchanged = \
-		protocolInfo->useMACreceive = FALSE;
+		protocolInfo->certIDv2changed = protocolInfo->useMACreceive = FALSE;
 	protocolInfo->macInfoPos = 0;
 	protocolInfo->senderDNPtr = NULL;
 	protocolInfo->senderDNlength = 0;
@@ -1052,7 +1106,7 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_ERRMSGS
 	ERROR_INFO *errorInfo = &sessionInfoPtr->errorInfo;
 #endif /* USE_ERRMSGS */
-	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	const CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
 	READMESSAGE_FUNCTION readMessageFunction;
 	STREAM stream;
 	const CMP_MSGINFO_TYPE cmpMsgInfo = \
@@ -1114,18 +1168,18 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISCRYPTLIB );
 
 	/* In order to fix CMP's inability to properly identify keys via 
-	   certificates, we use the certID field in the generalInfo.  If there's
-	   no PKI user ID present but no certID either then we can't identify 
-	   the key that's needed in order to continue.  This also retroactively 
-	   invalidates the headerRead flag, since we don't know which key to use
-	   to authenticate our response.
+	   certificates, we use the certID/certIDv2 field in the generalInfo.  
+	   If there's no PKI user ID present but no certID/certIDv2 either then 
+	   we can't identify the key that's needed in order to continue.  This 
+	   also retroactively invalidates the headerRead flag, since we don't 
+	   know which key to use to authenticate our response.
 
 	   In theory we shouldn't ever get into this state because we require 
 	   a PKI user ID for the client's initial message and the server will
-	   always send a certID for its signing certificate, but due to the
-	   confusing combination of values that can affect the protocol state
-	   (see the start of writePkiHeader() in cmp_wr.c for an example) we
-	   do the following as a safety check to catch potential problems 
+	   always send a certID/certIDv2 for its signing certificate, but due to 
+	   the confusing combination of values that can affect the protocol 
+	   state (see the start of writePkiHeader() in cmp_wr.c for an example) 
+	   we do the following as a safety check to catch potential problems 
 	   early.
 	   
 	   This also leads to a special-case exception, if we're the client then
@@ -1157,13 +1211,14 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	else
 		{
 		/* As with the case for MAC contexts, there's a special-case 
-		   situation in which there's no certID present and that's during a 
-		   PnP PKI transaction preceded by a PKIBoot that communicates the 
-		   CA's certificate, where the PKIBoot creates the required 
-		   sig-check context as part of the initialisation process.  In
-		   addition we have to allow for DN-only identification from 
-		   servers, see the comment above for details */
+		   situation in which there's no certID/certIDv2 present and that's 
+		   during a PnP PKI transaction preceded by a PKIBoot that 
+		   communicates the CA's certificate, where the PKIBoot creates 
+		   the required sig-check context as part of the initialisation 
+		   process.  In addition we have to allow for DN-only identification 
+		   from servers, see the comment above for details */
 		if( protocolInfo->certIDsize <= 0 && \
+			protocolInfo->certIDv2size <= 0 && \
 			( !isServer( sessionInfoPtr ) && 
 			  protocolInfo->senderDNlength <= 0 ) && \
 			!( protocolInfo->isCryptlib && \
@@ -1179,9 +1234,9 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 
 	/* If this is the first message from the client and we've been sent a 
-	   new user ID or certificate ID (via the ESSCertID in the header's
-	   kitchen-sink field, used to identify the signing certificate when
-	   signature-based authentication is used), process the user/
+	   new user ID or certificate ID (via the ESSCertID/ESSCertIDv2 in the 
+	   header's kitchen-sink field, used to identify the signing certificate 
+	   when signature-based authentication is used), process the user/
 	   authentication information */
 	if( protocolInfo->userIDchanged )
 		{
@@ -1193,7 +1248,7 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( status );
 			}
 		}
-	if( protocolInfo->certIDchanged )
+	if( protocolInfo->certIDchanged || protocolInfo->certIDv2changed )
 		{
 		status = updateCertID( sessionInfoPtr, protocolInfo, cmpMsgInfo );
 		if( cryptStatusError( status ) )
@@ -1451,7 +1506,7 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   getCMPMessageName( tag ) ) );
 				}
 			DEBUG_PRINT(( "%s: Skipping unauthenticated extraCerts field "
-						  "length %d for %s.\n", getCMPMessageName( tag ), 
+						  "length %d for %s.\n",  
 						  isServer( sessionInfoPtr ) ? "SVR" : "CLI", 
 						  certSize, getCMPMessageName( tag ) ));
 			status = sSkip( &stream, certSize, MAX_INTLENGTH_SHORT );

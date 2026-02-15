@@ -81,7 +81,7 @@ void slowPoll( void )
 	if( !addedStaticData )
 		{
 		BYTE textStringBuffer[ CRYPT_MAX_TEXTSIZE ];
-		BYTE *textStringPtr;
+		const BYTE *textStringPtr;
 
 		m2m_info_get_model( textStringBuffer );
 		addRandomData( randomState, textStringBuffer, 

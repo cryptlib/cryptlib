@@ -317,6 +317,7 @@ int readFixedHeaderAtomic( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	memset( headerBuffer, 0, min( 16, headerLength ) );
 
 	/* Try and read the header bytes */
+	REQUIRES( rangeCheck( headerLength, 1, headerLength ) );
 	status = length = \
 		sread( &sessionInfoPtr->stream, headerBuffer, headerLength );
 	if( cryptStatusError( status ) )
@@ -404,8 +405,8 @@ int readFixedHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	memset( bufPtr, 0, min( 16, bytesToRead ) );
 
 	/* Try and read the remaining header bytes */
-	ENSURES( boundsCheckZ( headerLength - sessionInfoPtr->partialHeaderRemaining,
-						   bytesToRead, headerLength ) );
+	REQUIRES( boundsCheckZ( headerLength - sessionInfoPtr->partialHeaderRemaining,
+							bytesToRead, headerLength ) );
 	status = length = \
 		sread( &sessionInfoPtr->stream, bufPtr, bytesToRead );
 	if( cryptStatusError( status ) )

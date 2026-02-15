@@ -319,15 +319,23 @@ typedef enum {
 	SSH_ATTRIBUTE_LAST						/* Last channel attribute */
 	} SSH_ATTRIBUTE_TYPE;
 
-/* Check whether a DH/ECDH value is valid for a given server key size.  The 
-   check is slightly different for the ECC version because the value is
-   a composite ECC point with two coordinates, so we have to divide the 
-   length by two to get the size of a single coordinate.  
+/* Check whether a DH/ECDH keyex value is valid for a given server key 
+   size.  The check is slightly different for the ECC version because the 
+   value is a composite ECC point with two coordinates, so we have to divide 
+   the length by two to get the size of a single coordinate.  
    
    In addition when we print an error message based on the check we need to 
    extract the underlying size from the overall data item.  The reason for 
    masking the LSB for the DH extraction is because the value can have a
    leading zero byte that isn't counted as part of the length */
+
+typedef enum {
+	KEYEX_CHECK_NONE,		/* No protocol keyex check type */
+	KEYEX_CHECK_MPI,
+	KEYEX_CHECK_PHASE1,
+	KEYEX_CHECK_PHASE2,
+	KEYEX_CHECK_LAST		/* Last possible keyex check type */
+	} KEYEX_CHECK_TYPE;
 
 #define isValidDHsize( value, serverKeySize, extraLength ) \
 		( ( value ) > ( ( serverKeySize ) - 8 ) + ( extraLength ) && \
@@ -339,6 +347,11 @@ typedef enum {
 		  ( value ) / 2 < ( ( serverKeySize ) + 2 ) + ( extraLength ) )
 #define extractECDHsize( value, extraLength ) \
 		( ( ( value ) - ( ( extraLength ) + 1 ) ) / 2 )
+#define isValidBernsteinDHsize( value, serverKeySize, extraLength ) \
+		( ( value ) > ( ( serverKeySize ) - 8 ) + ( extraLength ) && \
+		  ( value ) < ( ( serverKeySize ) + 2 ) + ( extraLength ) )
+#define extractBernsteinDHsize( value, extraLength ) \
+		( ( value ) - ( extraLength ) )
 
 /* The following macro can be used to enable dumping of PDUs to disk.  As a
    safeguard, this only works in the Win32 debug version to prevent it from
@@ -403,9 +416,18 @@ struct SH;
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 	int ( *SSH_HANDSHAKE_FUNCTION )( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									 INOUT_PTR struct SH *handshakeInfo );
-
 typedef struct SH {
-	/* SSH exchange hash */
+	/* SSH exchange hash.  We have to maintain two hash contexts because SSH 
+	   doesn't use a consistent hash algorithm throughout but can use either 
+	   of SHA-1 or SHA-2 for the exchange hash and signing, so it could use
+	   SHA-2 to sign a SHA-1 exchange hash and vice versa alongside the 
+	   obvious SHA-2 to sign a SHA-2 hash.
+	   
+	   In addition there's the usual Bernstein special-snowflake handling for
+	   Ed25519, which doesn't sign a hash but the entire message.  
+	   Fortunately we're saved by the fact that the exchange hash 
+	   is a double hash, by saving a copy of the first hash we get the 
+	   message that Ed25519 wants to sign */
 	BUFFER_FIXED( SSH2_COOKIE_SIZE ) \
 	BYTE cookie[ SSH2_COOKIE_SIZE + 8 ];	/* Anti-spoofing cookie */
 	BUFFER_FIXED( CRYPT_MAX_HASHSIZE ) \
@@ -414,6 +436,10 @@ typedef struct SH {
 	CRYPT_ALGO_TYPE exchangeHashAlgo;		/* Exchange hash algorithm */
 	CRYPT_CONTEXT iExchangeHashContext, iExchangeHashAltContext;
 											/* Hash of exchanged information */
+#ifdef USE_ED25519
+	BYTE preExchangeHash[ CRYPT_MAX_HASHSIZE + 8 ];
+	int preExchangeHashLength;				/* Preimage of exchange hash */
+#endif /* USE_ED25519 */
 
 	/* Information needed to compute the session ID.  SSH requires the 
 	   client and server DH/ECDH values (along with various other things, 
@@ -534,6 +560,12 @@ int hashHandshakeStrings( INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo,
 						  IN_BUFFER( serverStringLength ) \
 								const void *serverString,
 						  IN_LENGTH_SHORT const int serverStringLength );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
+int checkKeyexValueLength( const SSH_HANDSHAKE_INFO *handshakeInfo,
+						   IN_PTR_OPT const KEYAGREE_PARAMS *keyAgreeParams,
+						   IN_ENUM( KEYEX_CHECK ) \
+								const KEYEX_CHECK_TYPE checkType,
+						   INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readExtensionsSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   INOUT_PTR STREAM *stream );
@@ -682,41 +714,6 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int appendChannelData( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 					   IN_LENGTH_SHORT_Z const int offset );
 
-/* Prototypes for functions in ssh2_id.c */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int readSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
-			   INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int writeSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
-				INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo );
-
-/* Prototypes for functions in ssh2_msg.c */
-
-CHECK_RETVAL_RANGE_NOERROR( 10000, MAX_WINDOW_SIZE ) STDC_NONNULL_ARG( ( 1 ) ) \
-int getWindowSize( const SESSION_INFO *sessionInfoPtr );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
-				  IN_BOOL const BOOLEAN closeAllChannels );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
-								  INOUT_PTR STREAM *stream );
-
-/* Prototypes for functions in ssh2_msgcli.c */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr );
-
-/* Prototypes for functions in ssh2_msgsvr.c */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int processChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
-						INOUT_PTR STREAM *stream );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int processChannelRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
-						   INOUT_PTR STREAM *stream, 
-						   const long prevChannelNo );
-
 /* Prototypes for functions in ssh2_crypt.c */
 
 typedef enum { MAC_NONE, MAC_START, MAC_END, MAC_LAST } MAC_TYPE;
@@ -783,6 +780,62 @@ int createMacSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 				  IN_BUFFER( dataMaxLength ) BYTE *data, 
 				  IN_DATALENGTH const int dataMaxLength, 
 				  IN_DATALENGTH const int dataLength );
+#ifdef USE_ED25519
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
+int processAuthDataSigBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+								 IN_PTR \
+									const SSH_HANDSHAKE_INFO *handshakeInfo, 
+								 INOUT_PTR STREAM *stream,
+								 IN_BUFFER( packetDataLength ) \
+									const void *packetData,
+								 IN_LENGTH_SHORT \
+									const int packetDataLength,
+								 IN_ALGO const CRYPT_ALGO_TYPE pkcAlgo,
+								 IN_BOOL const BOOLEAN createSignature );
+#endif /* USE_ED25519 */
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
+int processAuthDataSig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+						IN_PTR const SSH_HANDSHAKE_INFO *handshakeInfo, 
+						INOUT_PTR STREAM *stream,
+						IN_BUFFER( packetDataLength ) const void *packetData,
+						IN_LENGTH_SHORT const int packetDataLength,
+						IN_ALGO const CRYPT_ALGO_TYPE pkcAlgo,
+						IN_BOOL const BOOLEAN createSignature );
+
+/* Prototypes for functions in ssh2_id.c */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int readSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+			   INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int writeSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+				INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo );
+
+/* Prototypes for functions in ssh2_msg.c */
+
+CHECK_RETVAL_RANGE_NOERROR( 10000, MAX_WINDOW_SIZE ) STDC_NONNULL_ARG( ( 1 ) ) \
+int getWindowSize( const SESSION_INFO *sessionInfoPtr );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+				  IN_BOOL const BOOLEAN closeAllChannels );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+								  INOUT_PTR STREAM *stream );
+
+/* Prototypes for functions in ssh2_msgcli.c */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr );
+
+/* Prototypes for functions in ssh2_msgsvr.c */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int processChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
+						INOUT_PTR STREAM *stream );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int processChannelRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+						   INOUT_PTR STREAM *stream, 
+						   const long prevChannelNo );
 
 /* Prototypes for functions in ssh2_rd.c */
 

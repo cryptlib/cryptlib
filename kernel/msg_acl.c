@@ -645,11 +645,14 @@ CHECK_RETVAL_RANGE( 0, INT_MAX ) STDC_NONNULL_ARG( ( 1 ) ) \
 static int getWideChar( const BYTE *string )
 	{
 	long value = 0;
-	LOOP_INDEX i;
-
 #ifdef DATA_LITTLEENDIAN
 	int shiftAmount = 0;
+#endif /* DATA_LITTLEENDIAN */
+	LOOP_INDEX i;
 
+	assert( isReadPtr( string, sizeof( wchar_t ) ) );
+
+#ifdef DATA_LITTLEENDIAN
 	/* Read a widechar value from a byte string */
 	LOOP_SMALL( i = 0, i < sizeof( wchar_t ), i++ )
 		{
@@ -770,7 +773,8 @@ static int checkActionPermitted( const OBJECT_INFO *objectInfoPtr,
 		/* The required level is less than the actual level (e.g. level 2
 		   access attempted from level 3), return more detailed information
 		   about the problem */
-		return( ( ( requiredLevel >> ACTION_PERM_SHIFT( localMessage ) ) == ACTION_PERM_NOTAVAIL ) ? \
+		return( EXTRACT_ACTION_PERM( requiredLevel, \
+									 localMessage ) == ACTION_PERM_NOTAVAIL ? \
 				CRYPT_ERROR_NOTAVAIL : CRYPT_ERROR_PERMISSION );
 		}
 
@@ -788,7 +792,9 @@ static const CHECK_ACL *findCheckACL( IN_ENUM( MESSAGE_CHECK ) \
 	/* Precondition: It's a valid check message type */
 	REQUIRES_N( isEnumRange( messageValue, MESSAGE_CHECK ) );
 
-	/* Find the appropriate ACL for a given check type */
+	/* Find the appropriate ACL for a given check type.  The range has
+	   already been checked by the precondition check but we make it 
+	   explicit here */
 	if( messageValue > MESSAGE_CHECK_NONE && \
 		messageValue < MESSAGE_CHECK_LAST )
 		checkACL = &checkACLTbl[ messageValue - 1 ];
@@ -2375,7 +2381,8 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int preDispatchCheckUserMgmtAccess( IN_HANDLE const int objectHandle, 
 									IN_MESSAGE const MESSAGE_TYPE message,
 									STDC_UNUSED const void *dummy1,
-									IN_ENUM( MESSAGE_USERMGMT ) const int messageValue, 
+									IN_ENUM( MESSAGE_USERMGMT ) \
+										const int messageValue, 
 									STDC_UNUSED const void *dummy2 )
 	{
 	const OBJECT_INFO *objectTable = \
@@ -2404,7 +2411,8 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int preDispatchCheckTrustMgmtAccess( IN_HANDLE const int objectHandle, 
 									 IN_MESSAGE const MESSAGE_TYPE message,
 									 IN_PTR const void *messageDataPtr,
-									 STDC_UNUSED const int messageValue, 
+									 IN_ENUM( MESSAGE_TRUSTMGMT ) \
+										const int messageValue, 
 									 STDC_UNUSED const void *dummy )
 	{
 	static const OBJECT_ACL objectTrustedCertificate = {
@@ -2549,7 +2557,6 @@ int postDispatchMakeObjectExternal( STDC_UNUSED const int dummy,
 			   sending the response to an external caller */
 			REQUIRES( attributeACL->valueType == ATTRIBUTE_VALUE_OBJECT );
 			REQUIRES( isValidObject( *( ( int * ) messageDataPtr ) ) );
-			REQUIRES( !isInternalMessage );
 
 			objectHandle = *( ( int * ) messageDataPtr );
 

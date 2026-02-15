@@ -145,10 +145,17 @@ typedef enum {
 #define PGP_ALGO_RSA_SIGN	3		/* RSA sign-only */
 #define PGP_ALGO_ELGAMAL	16		/* ElGamal */
 #define PGP_ALGO_DSA		17		/* DSA */
-#define PGP_ALGO_ECDH		18		/* RFC 4880: Rsvd.for "ECC", RFC 6637: ECDH */
-#define PGP_ALGO_ECDSA		19		/* RFC 4880: Rsvd.for ECDSA, RFC 6637: ECDSA */
-#define PGP_ALGO_PKC_RES1	20		/* Reserved, formerly Elgamal sign */
-#define PGP_ALGO_PKC_RES2	21		/* Reserved for "X9.42" */
+#define PGP_ALGO_ECDH		18		/* RFC 4880: Rsvd.for "ECC", RFC 6637/RFC 9580: ECDH */
+#define PGP_ALGO_ECDSA		19		/* RFC 4880: Rsvd.for ECDSA, RFC 6637/RFC 9580: ECDSA */
+#define PGP_ALGO_PKC_RES1	20		/* RFC 4880: Reserved, formerly Elgamal sign */
+#define PGP_ALGO_PKC_RES2	21		/* RFC 4880: Reserved for "X9.42" */
+#define PGP_ALGO_PKC_RES3	22		/* RFC 9580: "EdDSA legacy" */
+#define PGP_ALGO_PKC_RES4	23		/* RFC 9580: Resvd.for "AEDH" */
+#define PGP_ALGO_PKC_RES5	24		/* RFC 9580: Resvd.for "AEDSA" */
+#define PGP_ALGO_25519		25		/* RFC 9580: X25519 */
+#define PGP_ALGO_448		26		/* RFC 9580: X448 */
+#define PGP_ALGO_ED25519	27		/* RFC 9580: Ed25519 */
+#define PGP_ALGO_ED448		28		/* RFC 9580: Ed448 */
 
 /* Conventional encryption algorithms */
 

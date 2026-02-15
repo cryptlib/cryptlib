@@ -300,7 +300,7 @@ static int getKeyUsageFlags( IN_HANDLE const CRYPT_HANDLE iCryptContext,
 
 			case CRYPT_ALGO_DSA:
 			case CRYPT_ALGO_ECDSA:
-			case CRYPT_ALGO_EDDSA:
+			case CRYPT_ALGO_ED25519:
 				return( PKCS15_USAGE_SIGN | PKCS15_USAGE_VERIFY );
 
 			case CRYPT_ALGO_ELGAMAL:

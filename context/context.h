@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib Encryption Context Header File 				*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -495,6 +495,13 @@ typedef struct CI {
 #define eccParam_tmp4		param4
 #define eccParam_tmp5		param5
 
+/* 25519 parameters are processed in Bernstein special-snowflake form but 
+   since we store values as standard bignums we convert them before use */
+
+#define curve25519Param_pub	param1
+#define curve25519Param_priv param2
+#define curve25519Param_s	param3
+
 /* Minimum and maximum permitted lengths for various PKC components.  These
    can be loaded in various ways (read from ASN.1 data, read from 
    PGP/SSH/TLS data, loaded by the user, and so on) so we define permitted
@@ -810,23 +817,6 @@ int writePublicKeyEccFunction( INOUT_PTR STREAM *stream,
 									const char *accessKey, 
 							   IN_LENGTH_FIXED( 10 ) \
 									const int accessKeyLen );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int readPublicKeyEddsaFunction( INOUT_PTR STREAM *stream, 
-								INOUT_PTR CONTEXT_INFO *contextInfoPtr,
-								IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
-								IN_ENUM( KEYFORMAT )  \
-									const KEYFORMAT_TYPE formatType,
-								STDC_UNUSED const BOOLEAN checkRead );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
-int writePublicKeyEddsaFunction( INOUT_PTR STREAM *stream, 
-								 const CONTEXT_INFO *contextInfoPtr,
-								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
-								 IN_ENUM( KEYFORMAT ) \
-									const KEYFORMAT_TYPE formatType,
-								 IN_BUFFER( accessKeyLen ) \
-									const char *accessKey, 
-								 IN_LENGTH_FIXED( 10 ) \
-									const int accessKeyLen );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4, 5 ) ) \
 int encodeECDLValuesFunction( OUT_BUFFER( bufMaxSize, *bufSize ) BYTE *buffer, 
 							  IN_LENGTH_SHORT_MIN( 20 + 20 ) \
@@ -864,6 +854,42 @@ int checkECCPublicValue( INOUT_PTR PKC_INFO *pkcInfo, const BIGNUM *qx,
 						 const BIGNUM *qy );
 #endif /* USE_ECDSA || USE_ECDH */
 
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int generate25519Key( INOUT_PTR CONTEXT_INFO *contextInfoPtr );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int initCheck25519Key( INOUT_PTR CONTEXT_INFO *contextInfoPtr );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int readPublicKey25519Function( INOUT_PTR STREAM *stream, 
+								INOUT_PTR CONTEXT_INFO *contextInfoPtr,
+								IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
+								IN_ENUM( KEYFORMAT )  \
+									const KEYFORMAT_TYPE formatType,
+								STDC_UNUSED const BOOLEAN checkRead );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
+int writePublicKey25519Function( INOUT_PTR STREAM *stream, 
+								 const CONTEXT_INFO *contextInfoPtr,
+								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
+								 IN_ENUM( KEYFORMAT ) \
+									const KEYFORMAT_TYPE formatType,
+								 IN_BUFFER( accessKeyLen ) \
+									const char *accessKey, 
+								 IN_LENGTH_FIXED( 10 ) \
+									const int accessKeyLen );
+
+/* Prototype for function in context/ctx_x25519.c.  If use of 25519 is
+   disabled we no-op the check out */
+
+#ifdef USE_25519 
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN is25519SmallOrder( IN_BUFFER( CURVE25519_SIZE ) \
+								const BYTE *pubValue );
+#else
+  #define is25519SmallOrder( pubValue )		0
+#endif /* USE_25519 */
+
+#endif /* USE_25519 || USE_ED25519 */
+
 #ifndef CONFIG_CONSERVE_MEMORY_EXTRA
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN sanityCheckBignum( const BIGNUM *bignum );
@@ -900,7 +926,7 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 void clearTempBignums( INOUT_PTR PKC_INFO *pkcInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initContextBignums( INOUT_PTR PKC_INFO *pkcInfo, 
-						IN_BOOL const BOOLEAN isECC );
+						IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo );
 STDC_NONNULL_ARG( ( 1 ) ) \
 void endContextBignums( INOUT_PTR PKC_INFO *pkcInfo, 
 						IN_BOOL const BOOLEAN isDummyContext );

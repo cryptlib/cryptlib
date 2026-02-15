@@ -909,8 +909,7 @@ static int pkcs1Unwrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 	CRYPT_ALGO_TYPE cryptAlgo;
 	MESSAGE_DATA msgData;
 	BYTE decryptedData[ CRYPT_MAX_PKCSIZE + 8 ];
-	BYTE *decryptedDataPtr = decryptedData;
-	const BYTE *payloadPtr;
+	const BYTE *decryptedDataPtr = decryptedData, *payloadPtr;
 	const int maxPayloadLength = 
 #ifdef USE_TLS
 								 ( type == PKCS1_WRAP_RAW ) ? \
@@ -1795,8 +1794,8 @@ static void manipulateDataBlock( INOUT_BUFFER_FIXED( length ) BYTE *buffer,
 CHECK_RETVAL \
 static int testPKCS1( IN_ENUM( TEST ) const TEST_TYPE testType )
 	{
-	BYTE buffer[ min( 256, CRYPT_MAX_PKCSIZE ) + 8 ];
-	BYTE *payloadPtrIn, *payloadPtrOut;
+	BYTE buffer[ min( 256, CRYPT_MAX_PKCSIZE ) + 8 ], *payloadPtrIn;
+	const BYTE *payloadPtrOut;
 	const int length = min( 256, CRYPT_MAX_PKCSIZE ), payloadSizeIn = 16;
 	int payloadSizeOut = length, padSizeIn, padSizeOut, status;
 

@@ -387,7 +387,9 @@ static int updateCertChain( INOUT_PTR PKCS11_INFO *pkcs11Info,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int setItemFunction( INOUT_PTR DEVICE_INFO *deviceInfo, 
-							IN_HANDLE const CRYPT_HANDLE iCryptHandle )
+							IN_HANDLE const CRYPT_HANDLE iCryptHandle,
+							IN_ENUM( KEYMGMT_ITEM ) \
+								const KEYMGMT_ITEM_TYPE itemType )
 	{
 	CRYPT_CERTIFICATE iCryptCert;
 	PKCS11_INFO *pkcs11Info = deviceInfo->devicePKCS11;
@@ -398,6 +400,7 @@ static int setItemFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 
 	REQUIRES( sanityCheckDevice( deviceInfo ) );
 	REQUIRES( isHandleRangeValid( iCryptHandle ) );
+	REQUIRES( itemType == KEYMGMT_ITEM_PUBLICKEY );
 
 	/* If the certificate isn't signed then we can't store it in this 
 	   state */

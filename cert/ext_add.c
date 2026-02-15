@@ -1187,7 +1187,7 @@ int deleteCompleteAttribute( INOUT_PTR DATAPTR_ATTRIBUTE *attributePtr,
 	DATAPTR_ATTRIBUTE attribute = *attributePtr, listItem;
 	const DATAPTR_ATTRIBUTE cursor = ( cursorPtr == NULL ) ? \
 									 DATAPTR_NULL : *cursorPtr;
-	ATTRIBUTE_LIST *attributeListCursorNext;
+	const ATTRIBUTE_LIST *attributeListCursorNext;
 	LOOP_INDEX_PTR ATTRIBUTE_LIST *attributeListCursor;
 
 	assert( isWritePtr( attributePtr, sizeof( DATAPTR_ATTRIBUTE ) ) );

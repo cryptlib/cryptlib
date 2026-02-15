@@ -253,6 +253,18 @@ static int signData( const CRYPT_ALGO_TYPE algorithm,
 					}
 				break;
 
+			case CRYPT_ALGO_ED25519:
+				status = load25519Contexts( CRYPT_UNUSED, &checkContext, 
+											&signContext );
+				if( status == CRYPT_ERROR_NOTAVAIL )
+					{
+					cryptDestroyContext( hashSignContext );
+					cryptDestroyContext( hashCheckContext );
+					return( exitUnsupportedAlgo( CRYPT_ALGO_ED25519, 
+												 "Ed25519 signing" ) );
+					}
+				break;
+
 			default:
 				status = FALSE;
 			}
@@ -314,14 +326,17 @@ static int signData( const CRYPT_ALGO_TYPE algorithm,
 		{
 		debugDump( ( algorithm == CRYPT_ALGO_DSA ) ? "sig_dsa" : \
 				   ( algorithm == CRYPT_ALGO_ECDSA ) ? "sig_ecdsa" : \
+				   ( algorithm == CRYPT_ALGO_ED25519 ) ? "sig_ed25519" : \
 				   ( hashAlgo != CRYPT_ALGO_SHA1 ) ? "sig_rsa_sha2" : \
 													 "sig_rsa_sha1", 
 				   buffer, length );
 		}
 	else
 		{
-		debugDump( ( algorithm == CRYPT_ALGO_RSA ) ? \
-				   "sig_rsa.pgp" : "sig_dsa.pgp", buffer, length );
+		debugDump( ( algorithm == CRYPT_ALGO_DSA ) ? "sig_dsa.pgp" : \
+				   ( algorithm == CRYPT_ALGO_ECDSA ) ? "sig_ecdsa.pgp" : \
+				   ( algorithm == CRYPT_ALGO_ED25519 ) ? "sig_ed25519.pgp" : \
+				   "sig_rsa.pgp", buffer, length );
 		}
 
 	/* Check the signature on the hash */
@@ -385,8 +400,7 @@ static int keyExportImport( const CRYPT_ALGO_TYPE algorithm,
 		if( cryptStatusError( status ) )
 			return( FALSE );
 		cryptSetAttribute( sessionKeyContext2, CRYPT_CTXINFO_MODE,
-						   ( formatType == CRYPT_FORMAT_PGP ) ? \
-							 CRYPT_MODE_CFB : CRYPT_MODE_CBC );
+						   CRYPT_MODE_CBC );
 		}
 
 	/* Create the appropriate en/decryption contexts */
@@ -1269,7 +1283,7 @@ int testMACExportImport( void )
 	CRYPT_CONTEXT cryptContext, decryptContext;
 	CRYPT_CONTEXT macContext1, macContext2 DUMMY_INIT;
 	BYTE mac1[ CRYPT_MAX_HASHSIZE ], mac2[ CRYPT_MAX_HASHSIZE ];
-	C_STR userKey = TEXT( "This is a long user key for MAC testing" );
+	const C_STR userKey = TEXT( "This is a long user key for MAC testing" );
 	BYTE *buffer;
 	int userKeyLength = paramStrlen( userKey );
 	int status, length1, length2 DUMMY_INIT;
@@ -1465,6 +1479,13 @@ int testSignData( void )
 		if( !signData( CRYPT_ALGO_ECDSA, CRYPT_UNUSED, CRYPT_UNUSED, FALSE, CRYPT_ALGO_SHA1, CRYPT_FORMAT_CRYPTLIB ) )
 			return( FALSE );	/* ECDSA */
 		}
+  #if 0	/* Handling of the Bernstein algorithms isn't possible using the standard API */
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) )
+		{
+		if( !signData( CRYPT_ALGO_ED25519, CRYPT_UNUSED, CRYPT_UNUSED, FALSE, CRYPT_ALGO_SHA1, CRYPT_FORMAT_CRYPTLIB ) )
+			return( FALSE );	/* Ed25519 */
+		}
+  #endif /* 0 */
 #else
 	exitUnsupportedAlgo( "CMS", "signing" );
 #endif /* USE_INT_CMS */
@@ -1479,6 +1500,18 @@ int testSignData( void )
 		if( !signData( CRYPT_ALGO_DSA, CRYPT_UNUSED, CRYPT_UNUSED, FALSE, CRYPT_ALGO_SHA1, CRYPT_FORMAT_PGP ) )
 			return( FALSE );	/* DSA, PGP format */
 		}
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDSA, NULL ) ) )
+		{
+		if( !signData( CRYPT_ALGO_ECDSA, CRYPT_UNUSED, CRYPT_UNUSED, FALSE, CRYPT_ALGO_SHA1, CRYPT_FORMAT_PGP ) )
+			return( FALSE );	/* ECDSA, PGP format */
+		}
+  #if 0	/* Handling of the Bernstein algorithms isn't possible using the standard API */
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) )
+		{
+		if( !signData( CRYPT_ALGO_ED25519, CRYPT_UNUSED, CRYPT_UNUSED, FALSE, CRYPT_ALGO_SHA1, CRYPT_FORMAT_PGP ) )
+			return( FALSE );	/* Ed25519 */
+		}
+  #endif /* 0 */
 #endif /* USE_PGP */
 
 	return( TRUE );
@@ -1539,7 +1572,6 @@ static int keygen( const CRYPT_ALGO_TYPE cryptAlgo,
 		case CRYPT_ALGO_RSA:
 		case CRYPT_ALGO_DSA:
 		case CRYPT_ALGO_ECDSA:
-		case CRYPT_ALGO_EDDSA:
 			{
 			CRYPT_CONTEXT hashContext;
 			BYTE hashBuffer[] = "abcdefghijklmnopqrstuvwxyz";
@@ -1623,6 +1655,11 @@ static int keygen( const CRYPT_ALGO_TYPE cryptAlgo,
 			break;
 			}
 
+		case CRYPT_ALGO_ED25519:
+KLUDGE_WARN( "Ed25519 test because of special-case handling needed for Ed25519 signatures" );
+cryptDestroyContext( cryptContext );
+return( TRUE );
+
 		case CRYPT_ALGO_DH:
 		case CRYPT_ALGO_ECDH:
 		case CRYPT_ALGO_25519:
@@ -1630,8 +1667,7 @@ static int keygen( const CRYPT_ALGO_TYPE cryptAlgo,
 KLUDGE_WARN( "DH/ECDH/25519 test because of absence of DH/ECDH/25519 key exchange mechanism" );
 cryptDestroyContext( cryptContext );
 return( TRUE );
-
-#if 0		/* Get rid if unreachable-code warnings */
+#if 0
 			CRYPT_CONTEXT dhContext;
 			CRYPT_CONTEXT sessionKeyContext1, sessionKeyContext2;
 
@@ -1740,11 +1776,11 @@ int testKeygen( void )
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDH, NULL ) ) && \
 		!keygen( CRYPT_ALGO_ECDH, "ECDH", CRYPT_USE_DEFAULT ) )
 		return( FALSE );
-	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_EDDSA, NULL ) ) && \
-		!keygen( CRYPT_ALGO_EDDSA, "EDDSA", CRYPT_USE_DEFAULT ) )
-		return( FALSE );
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_25519, NULL ) ) && \
 		!keygen( CRYPT_ALGO_25519, "Curve25519", CRYPT_USE_DEFAULT ) )
+		return( FALSE );
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) && \
+		!keygen( CRYPT_ALGO_ED25519, "Ed25519", CRYPT_USE_DEFAULT ) )
 		return( FALSE );
 	fprintf( outputStream, "\n" );
 	return( TRUE );

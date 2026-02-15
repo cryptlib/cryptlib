@@ -82,7 +82,7 @@ int connectViaSocksProxy( INOUT_PTR STREAM *stream )
 	mputWord( bufPtr, netStream->port );
 	status = getIPAddress( stream, bufPtr, netStream->host );
 	strlcpy_s( bufPtr + 4, CRYPT_MAX_TEXTSIZE, userName );
-	length = 1 + 1 + 2 + 4 + strlen( userName ) + 1;
+	length = 1 + 1 + 2 + 4 + strnlen_s( userName, CRYPT_MAX_TEXTSIZE ) + 1;
 	if( cryptStatusError( status ) )
 		{
 		netStream->transportDisconnectFunction( stream, TRUE );
@@ -123,11 +123,14 @@ int connectViaSocksProxy( INOUT_PTR STREAM *stream )
 				   "Socks proxy returned" );
 		LOOP_SMALL( i = 0, i < 8, i++ )
 			{
+			int result;
+
 			ENSURES( LOOP_INVARIANT_SMALL( i, 0, 7 ) );
 
-			sprintf_s( netStream->errorInfo->errorString + 20 + ( i * 3 ),
-					   MAX_ERRMSG_SIZE - ( 20 + ( i * 3 ) ), " %02X", 
-					   socksBuffer[ i ] );
+			result = sprintf_s( netStream->errorInfo->errorString + 20 + ( i * 3 ),
+								MAX_ERRMSG_SIZE - ( 20 + ( i * 3 ) ), " %02X", 
+								socksBuffer[ i ] );
+			ENSURES( isShortIntegerRangeNZ( result ) );
 			}
 		ENSURES( LOOP_BOUND_OK );
 		strlcat_s( netStream->errorInfo->errorString, MAX_ERRMSG_SIZE, "." );
@@ -538,7 +541,7 @@ static int findProxyUrl( char *proxy, const int proxyMaxLen,
 	   to meet the strange input-parameter requirements we have to pre-
 	   parse the target URL in order to provide the various bits and pieces 
 	   that InternetGetProxyInfo() requires */
-	status = parseURL( &urlInfo, url, strlen( url ), 80, URL_TYPE_HTTP );
+	status = parseURL( &urlInfo, url, urlLen, 80, URL_TYPE_HTTP );
 	if( cryptStatusError( status ) )
 		return( status );
 	if( urlInfo.hostLen > MAX_DNS_SIZE )
@@ -546,7 +549,7 @@ static int findProxyUrl( char *proxy, const int proxyMaxLen,
 	REQUIRES( rangeCheck( urlInfo.hostLen, 1, MAX_DNS_SIZE );
 	memcpy( urlHost, urlInfo.host, urlInfo.hostLen );
 	urlHost[ urlInfo.hostLen ] = '\0';
-	if( !pInternetGetProxyInfo( url, strlen( url ), urlHost, urlInfo.hostLen,
+	if( !pInternetGetProxyInfo( url, urlLen, urlHost, urlInfo.hostLen,
 								&proxyHost, &proxyHostLen ) )
 		return( CRYPT_ERROR_NOTFOUND );
 	REQUIRES( rangeCheck( proxyHostLen, 1, CRYPT_MAX_TEXTSIZE ) );

@@ -39,7 +39,7 @@ static int getAddrInfoError( INOUT_PTR NET_STREAM_INFO *netStream,
 	int errorStringLen;
   #elif defined( USE_IPv6 )
 	const char *errorString = gai_strerror( errorCode );
-	const int errorStringLen = strlen( errorString );
+	const int errorStringLen = strnlen_s( errorString, MAX_ERRMSG_SIZE );
   #endif /* System-specific error string handling */
 
 	assert( isWritePtr( netStream, sizeof( NET_STREAM_INFO ) ) );
@@ -162,7 +162,8 @@ static int SOCKET_API my_getaddrinfo( IN_STRING_OPT const char *nodename,
 									  OUT_PTR_PTR_COND struct addrinfo **res )
 	{
 	struct hostent *pHostent;
-	const int nodenameLen = ( nodename != NULL ) ? strlen( nodename ) : 0;
+	const int nodenameLen = ( nodename != NULL ) ? \
+							strnlen_s( nodename, MAX_DNS_SIZE ) : 0;
 #ifdef EBCDIC_CHARS
 	char servBuffer[ 16 + 8 ];
 #endif /* EBCDIC_CHARS */
@@ -208,7 +209,8 @@ static int SOCKET_API my_getaddrinfo( IN_STRING_OPT const char *nodename,
 #endif /* EBCDIC_CHARS */
 
 	/* Convert the text-string port number into a numeric value */
-	status = strGetNumeric( servname, strlen( servname ), &port, 1, 65535 );
+	status = strGetNumeric( servname, strnlen_s( servname, MAX_DNS_SIZE ), 
+							&port, 1, 65535 );
 	if( cryptStatusError( status ) )
 		{
 		/* Provide a more useful diagnostic than the default Unix one of
@@ -370,7 +372,7 @@ static int SOCKET_API my_getnameinfo( IN_BUFFER( salen ) \
 	/* Get the remote system's address and port number */
 	if( ( ipAddress = inet_ntoa( sockAddr->sin_addr ) ) == NULL )
 		return( -1 );
-	ipAddressLen = strlen( ipAddress );
+	ipAddressLen = strnlen_s( ipAddress, CRYPT_MAX_TEXTSIZE );
 	if( ipAddressLen <= 0 || ipAddressLen > nodelen - 1 )
 		return( -1 );
 	memcpy( node, ipAddress, ipAddressLen );
@@ -402,7 +404,7 @@ int getAddressInfo( INOUT_PTR NET_STREAM_INFO *netStream,
 	{
 	struct addrinfo hints;
 	char nameBuffer[ MAX_DNS_SIZE + 1 + 8 ], portBuffer[ 16 + 8 ];
-	int errorCode;
+	int errorCode, result;
 
 	assert( isWritePtr( netStream, sizeof( NET_STREAM_INFO ) ) );
 	assert( isWritePtr( addrInfoPtrPtr, sizeof( struct addrinfo * ) ) );
@@ -435,7 +437,8 @@ int getAddressInfo( INOUT_PTR NET_STREAM_INFO *netStream,
 		nameBuffer[ nameLen ] = '\0';
 		name = nameBuffer;
 		}
-	sprintf_s( portBuffer, 8, "%d", port );
+	result = sprintf_s( portBuffer, 8, "%d", port );
+	ENSURES( rangeCheck( result, 1, 7 ) );
 
 	/* If we're a client and using auto-detection of a PKI service, try and
 	   locate it via DNS SRV */
@@ -460,7 +463,8 @@ int getAddressInfo( INOUT_PTR NET_STREAM_INFO *netStream,
 		if( cryptStatusError( status ) )
 			return( status );
 		name = nameBuffer;
-		sprintf_s( portBuffer, 8, "%d", localPort );
+		result = sprintf_s( portBuffer, 8, "%d", localPort );
+		ENSURES( rangeCheck( result, 1, 7 ) );
 		}
 #endif /* USE_DNSSRV */
 
@@ -599,7 +603,7 @@ void getSocketAddress( IN_BUFFER( sockAddrLen ) const void *sockAddr,
 							int *addressLen, 
 					   OUT_PORT_Z int *port )
 	{
-	char nameBuffer[ MAX_DNS_SIZE + 8 ];
+	char nameBuffer[ MAX_DNS_SIZE + 1 + 8 ];
 	char portBuffer[ 32 + 8 ];
 	int nameLength, portLength, localPort, status;
 
@@ -630,8 +634,8 @@ void getSocketAddress( IN_BUFFER( sockAddrLen ) const void *sockAddr,
 		assert( DEBUG_WARN );
 		return;
 		}
-	nameLength = strlen( nameBuffer );
-	portLength = strlen( portBuffer );
+	nameLength = strnlen_s( nameBuffer, MAX_DNS_SIZE );
+	portLength = strnlen_s( portBuffer, 32 );
 	if( nameLength <= 0 || nameLength > addressMaxLen || \
 		portLength <= 0 || portLength > 8 )
 		{

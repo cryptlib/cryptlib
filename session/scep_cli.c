@@ -300,7 +300,7 @@ static int writePkiDatagramAsGet( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	LOOP_MAX( i = 0, i < fullEncodedLength, i++ )
 		{
 		char escapeBuffer[ 8 + 8 ];
-		int ch;
+		int ch, result;
 
 		ENSURES( LOOP_INVARIANT_MAX( i, 0, fullEncodedLength - 1 ) );
 
@@ -316,7 +316,8 @@ static int writePkiDatagramAsGet( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 							   sessionInfoPtr->receiveBufSize ) );
 		memmove( sessionInfoPtr->receiveBuffer + i + 2, 
 				 sessionInfoPtr->receiveBuffer + i, fullEncodedLength - i );
-		sprintf_s( escapeBuffer, 8, "%%%02X", ch );
+		result = sprintf_s( escapeBuffer, 8, "%%%02X", ch );
+		ENSURES( rangeCheck( result, 3, 7 ) );
 		REQUIRES( boundsCheck( i, 3, sessionInfoPtr->receiveBufSize ) );
 		memcpy( sessionInfoPtr->receiveBuffer + i, escapeBuffer, 3 );
 		fullEncodedLength += 2;
@@ -1085,7 +1086,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int createScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  INOUT_PTR SCEP_PROTOCOL_INFO *protocolInfo )
 	{
-	SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	const SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
 	const CRYPT_CERTIFICATE iCACryptContext = \
 		( sessionInfoPtr->iCryptOutContext != CRYPT_ERROR ) ? \
 		sessionInfoPtr->iCryptOutContext : sessionInfoPtr->iAuthInContext;

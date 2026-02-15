@@ -50,7 +50,6 @@ static int copyAttributeField( OUT_PTR_PTR_COND \
 									const ATTRIBUTE_LIST *srcAttributeField )
 	{
 	ATTRIBUTE_LIST *newElement;
-	int status = CRYPT_OK;
 
 	assert( isWritePtr( newDestAttributeField, sizeof( ATTRIBUTE_LIST * ) ) );
 	assert( isReadPtr( srcAttributeField, sizeof( ATTRIBUTE_LIST ) ) );
@@ -67,6 +66,8 @@ static int copyAttributeField( OUT_PTR_PTR_COND \
 	copyVarStruct( newElement, srcAttributeField, ATTRIBUTE_LIST, dataValue );
 	if( srcAttributeField->fieldType == FIELDTYPE_DN )
 		{
+		int status;
+
 		DATAPTR_DN dn = GET_DN_POINTER( newElement );
 		DATAPTR_DN srcDN = GET_DN_POINTER( srcAttributeField );
 
@@ -444,7 +445,7 @@ int copyAttributes( INOUT_PTR DATAPTR_ATTRIBUTE *destHeadPtr,
 													 ATTRIBUTE_PROPERTY_BLOBATTRIBUTE ),
 					attributeListCursor = DATAPTR_GET( attributeListCursor->next ) )
 			{
-			ATTRIBUTE_LIST *attributeListCursorNext;
+			const ATTRIBUTE_LIST *attributeListCursorNext;
 			DATAPTR_ATTRIBUTE attributePtr;
 
 			REQUIRES( sanityCheckAttributePtr( attributeListCursor ) );
@@ -486,8 +487,8 @@ int copyAttributes( INOUT_PTR DATAPTR_ATTRIBUTE *destHeadPtr,
 				{
 				/* We can't set the locus for blob-type attributes since 
 				   it's not a known attribute */
-				*errorLocus = CRYPT_ATTRIBUTE_NONE;
-				*errorType = CRYPT_ERRTYPE_ATTR_PRESENT;
+				setErrorValues( CRYPT_ATTRIBUTE_NONE, 
+								CRYPT_ERRTYPE_ATTR_PRESENT );
 				return( CRYPT_ERROR_DUPLICATE );
 				}
 			}
@@ -710,7 +711,7 @@ int copyIssuerAttributes( INOUT_PTR DATAPTR_ATTRIBUTE *destHeadPtr,
 	{
 	DATAPTR_ATTRIBUTE destHead = *destHeadPtr, attributePtr;
 	const ATTRIBUTE_LIST *attributeListPtr;
-	int status = CRYPT_OK;
+	int status;
 
 	assert( isWritePtr( destHeadPtr, sizeof( DATAPTR_ATTRIBUTE ) ) );
 	assert( isWritePtr( errorLocus, sizeof( CRYPT_ATTRIBUTE_TYPE ) ) );

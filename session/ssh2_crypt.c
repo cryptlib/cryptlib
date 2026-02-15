@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  cryptlib SSHv2 Crypto Routines					*
-*						Copyright Peter Gutmann 1998-2008					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -159,6 +159,76 @@ int ctrModeCrypt( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 	}
 #endif /* USE_SSH_CTR */
 
+/* Rewrite an RSA signature into the form required by some buggy 
+   implementations, see the comment in processAuthDataSig() for details */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static int rewriteRSASignature( const SESSION_INFO *sessionInfoPtr,
+								INOUT_PTR STREAM *stream,
+								IN_LENGTH_SHORT const int sigLength,
+								IN_LENGTH_SHORT const int sigDataMaxLength )
+	{
+	BYTE sigDataBuffer[ CRYPT_MAX_PKCSIZE + 8 ];
+	const int sigOffset = stell( stream );
+	int sigSize, keySize, delta, status;
+
+	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+
+	REQUIRES( isShortIntegerRangeNZ( sigLength ) );
+	REQUIRES( isShortIntegerRangeNZ( sigDataMaxLength ) );
+	REQUIRES( isBufsizeRangeNZ( sigOffset ) );
+
+	status = krnlSendMessage( sessionInfoPtr->privateKey, 
+							  IMESSAGE_GETATTRIBUTE, &keySize, 
+							  CRYPT_CTXINFO_KEYSIZE );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* Read the signature length and check whether it needs padding.  Note 
+	   that we read the signature data with readString32() rather than 
+	   readInteger32() to ensure that we get the raw signature data exactly 
+	   as written rather than the cleaned-up integer value */
+	readUint32( stream );
+	readUniversal32( stream );
+	status = readString32( stream, sigDataBuffer, CRYPT_MAX_PKCSIZE,
+						   &sigSize );
+	ENSURES( cryptStatusOK( status ) );
+	if( sigSize >= keySize )
+		{
+		/* The signature size is the same as the modulus size, there's 
+		   nothing to do.  The reads above have reset the stream-position 
+		   indicator to the end of the signature data so there's no need to 
+		   perform an explicit seek before exiting */
+		return( CRYPT_OK );
+		}
+
+	/* We've got a signature that's shorter than the RSA modulus, we need to 
+	   rewrite it to pad it out to the modulus size:
+
+		  sigOfs				  sigDataBuffer
+			|							|
+			v uint32	string32		v
+			+-------+---------------+---+-------------------+
+			| length|	algo-name	|pad|	sigData			|
+			+-------+---------------+---+-------------------+
+			|						|<+>|<---- sigSize ---->|
+			|						delta					|
+			|						|<------ keySize ------>|
+			|<----------------- sigLength ----------------->|
+			|<------------- sigDataMaxLength --------[...]-------->| */
+	delta = keySize - sigSize;
+	ENSURES( delta > 0 && delta < 16 );
+	if( sigLength + delta > sigDataMaxLength )
+		return( CRYPT_ERROR_OVERFLOW );
+	sseek( stream, sigOffset );
+	writeUint32( stream, sizeofString32( 7 ) + \
+						 sizeofString32( keySize ) );
+	writeString32( stream, "ssh-rsa", 7 );
+	writeUint32( stream, keySize );
+	return( writeFixedsizeValue( stream, sigDataBuffer, sigSize, keySize ) );
+	}
+
 /****************************************************************************
 *																			*
 *							Key Load/Init Functions							*
@@ -226,7 +296,7 @@ int initDHcontextSSH( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 		const int roundedKeySize = requestedKeySize & ~1;
 
 		/* When we ask for a given key size we clear the low bit which is
-		   used to signal the use of an alternate DH value, necessiated by
+		   used to signal the use of an alternate DH value, necessitated by
 		   TLS 1.3 braindamage */
 		status = krnlSendMessage( iDHContext, IMESSAGE_SETATTRIBUTE, 
 								  ( MESSAGE_CAST ) &roundedKeySize, 
@@ -261,10 +331,9 @@ int initDHcontextSSH( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 	return( CRYPT_OK );
 	}
 
-#ifdef USE_ECDH
+#if defined( USE_ECDH ) || defined( USE_25519 )
 
-/* Load one of the fixed SSH ECDH keys into a context.  Since there's no SSH
-   format defined for this, we use the TLS format */
+/* Load one of the fixed SSH ECDH/25519 keys into a context */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int initECDHcontextSSH( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
@@ -274,27 +343,31 @@ int initECDHcontextSSH( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 	CRYPT_CONTEXT iECDHContext;
 	MESSAGE_CREATEOBJECT_INFO createInfo;
 	MESSAGE_DATA msgData;
-	static const int eccKeySize = CRYPT_ECCCURVE_P256;
+	static const int eccCurveSize = CRYPT_ECCCURVE_P256;
 	int status;
 
 	assert( isWritePtr( iCryptContext, sizeof( CRYPT_CONTEXT ) ) );
 	assert( isWritePtr( keySize, sizeof( int ) ) );
 
-	REQUIRES( cryptAlgo == CRYPT_ALGO_ECDH );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_ECDH || \
+			  cryptAlgo == CRYPT_ALGO_25519 );
 
 	/* Clear return values */
 	*iCryptContext = CRYPT_ERROR;
 	*keySize = 0;
 
 	/* Create the ECDH context to contain the key */
-	setMessageCreateObjectInfo( &createInfo, CRYPT_ALGO_ECDH );
+	setMessageCreateObjectInfo( &createInfo, cryptAlgo );
 	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE, 
 							  IMESSAGE_DEV_CREATEOBJECT, &createInfo, 
 							  OBJECT_TYPE_CONTEXT );
 	if( cryptStatusError( status ) )
 		return( status );
 	iECDHContext = createInfo.cryptHandle;
-	setMessageData( &msgData, "SSH ECDH key", 12 );
+	if( cryptAlgo == CRYPT_ALGO_ECDH )
+		{ setMessageData( &msgData, "SSH ECDH key", 12 ); }
+	else
+		{ setMessageData( &msgData, "SSH 25519 key", 13 ); }
 	status = krnlSendMessage( iECDHContext, IMESSAGE_SETATTRIBUTE_S, 
 							  &msgData, CRYPT_CTXINFO_LABEL );
 	if( cryptStatusError( status ) )
@@ -303,10 +376,22 @@ int initECDHcontextSSH( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 		return( status );
 		}
 
-	/* Load the appropriate static ECDH key parameters */
-	status = krnlSendMessage( iECDHContext, IMESSAGE_SETATTRIBUTE, 
-							  ( MESSAGE_CAST ) &eccKeySize, 
-							  CRYPT_IATTRIBUTE_KEY_ECCPARAM );
+	/* If it's a parameterised algorithm, load the appropriate key 
+	   parameters */
+	if( cryptAlgo == CRYPT_ALGO_ECDH )
+		{
+		status = krnlSendMessage( iECDHContext, IMESSAGE_SETATTRIBUTE, 
+								  ( MESSAGE_CAST ) &eccCurveSize, 
+								  CRYPT_IATTRIBUTE_KEY_ECCPARAM );
+		}
+	else
+		{
+		/* It's a non-parameterised algorithm, in other words one with an
+		   implicit key, set up the key */
+		status = krnlSendMessage( iECDHContext, IMESSAGE_SETATTRIBUTE,
+								  MESSAGE_VALUE_TRUE, 
+								  CRYPT_IATTRIBUTE_KEY_IMPLICIT );
+		}
 	if( cryptStatusError( status ) )
 		{
 		krnlSendNotifier( iECDHContext, IMESSAGE_DECREFCOUNT );
@@ -423,6 +508,8 @@ static int loadCTR( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	zeroise( hashInfo, sizeof( HASHINFO ) );
 
 	/* Send the data to the context */
+	REQUIRES( boundsCheck( sessionInfoPtr->cryptBlocksize, 1, 
+						   CRYPT_MAX_IVSIZE ) );
 	if( isWriteCTR )
 		memcpy( sshInfo->writeCTR, buffer, sessionInfoPtr->cryptBlocksize );
 	else
@@ -644,8 +731,8 @@ int initSecurityInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		int headerLength DUMMY_INIT;
 
 		/* Hash the shared secret as an MPI.  We can't use hashAsMPI() for
-		   this because it works with contexts rather than the internal hash
-		   functions used here */
+		   this because it works with hash contexts rather than the 
+		   HASH_FUNCTION interface used here */
 		sMemOpen( &stream, header, 8 );
 		status = writeUint32( &stream, mpiLength );
 		if( handshakeInfo->secretValue[ 0 ] & 0x80 )
@@ -676,7 +763,7 @@ int initSecurityInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   Although HMAC has a variable-length key and should therefore follow
 	   the SSH2_FIXED_KEY_SIZE rule, the key size was in later RFC drafts
 	   set to the HMAC block size.  Some implementations erroneously use
-	   the fixed-size key, so we adjust the HMAC key size if we're talking
+	   the fixed-size key so we adjust the HMAC key size if we're talking
 	   to one of these */
 	if( !isStreamCipher( sessionInfoPtr->cryptAlgo ) )
 		{
@@ -927,7 +1014,7 @@ static int macDataSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 				  ( macType == MAC_START && packetDataLength >= dataLength ) );
 
 		/* Since the payload has had the length stripped during the 
-		   speculative read if we're MAC'ing read data we have to 
+		   speculative read if we're MAC'ing read data then we have to 
 		   reconstruct it and hash it separately before we hash the data.  
 		   If we're doing the hash in parts then the amount of data being 
 		   hashed won't match the overall length so the caller needs to 
@@ -1020,7 +1107,8 @@ int checkMacSSHIncremental( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* If we're starting the ongoing hashing of a data block, we're done */
+	/* If we're starting the ongoing hashing of a data block then we're 
+	   done */
 	if( macType == MAC_START )
 		return( CRYPT_OK );
 
@@ -1112,11 +1200,275 @@ int createMacSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 
 /****************************************************************************
 *																			*
+*								Sign/Verify Data							*
+*																			*
+****************************************************************************/
+
+/* Process public-key authentication data, with the usual special-snowflake
+   handling for the Bernstein algorithms */
+
+#ifdef USE_ED25519
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
+int processAuthDataSigBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+								 IN_PTR \
+									const SSH_HANDSHAKE_INFO *handshakeInfo, 
+								 INOUT_PTR STREAM *stream,
+								 IN_BUFFER( packetDataLength ) \
+									const void *packetData,
+								 IN_LENGTH_SHORT \
+									const int packetDataLength,
+								 IN_ALGO const CRYPT_ALGO_TYPE pkcAlgo,
+								 IN_BOOL const BOOLEAN createSignature )
+	{
+	SIG_DATA_INFO sigDataInfo;
+	ERROR_INFO localErrorInfo;
+	STREAM authDataStream;
+	BYTE authDataBuffer[ 512 + 8 ];
+	void *sigDataPtr;
+	int authDataLength DUMMY_INIT, sigDataLength, sigLength DUMMY_INIT;
+	int status;
+
+	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+	assert( isReadPtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isReadPtr( packetData, packetDataLength ) );
+	
+	REQUIRES( isShortIntegerRangeNZ( packetDataLength ) );
+	REQUIRES( isBooleanValue( createSignature ) );
+		
+	/* Write the authentication data to a buffer, since the special-
+	   snowflake algorithms need to see the entire message rather than just 
+	   a hash of it:
+		   
+		string	exchange hash			-- Max.64 bytes
+		byte	type = SSH_MSG_USERAUTH_REQUEST
+		string	user_name				-- Max.64 bytes
+		string	service_name = "ssh-connection"
+		string	method_name = "publickey"
+		string	"ed25519"
+		string		[ client key/certificate ]
+			string	"ed25519"
+			string	pubKey				-- 32 bytes
+		   
+	   The maximum size of the authentication data is the session ID, max.64 
+	   bytes, the user name, max CRYPT_MAX_TEXTSIZE = 64 bytes, the service 
+	   name and method strings, and the public key consisting of the 
+	   algorithm name followed by MAX_PKCSIZE_BERNSTEIN = 32 bytes of key, 
+	   alongside various 32-bit length fields, for a total of around 256 
+	   bytes, so 512 is plenty.
+	   
+	   The packet-read code strips the ID byte on read so if we're verifying
+	   a signature we have to re-insert it before we write the packet data
+	   body to the authData buffer */
+	sMemOpen( &authDataStream, authDataBuffer, 512 );
+	writeString32( &authDataStream, handshakeInfo->sessionID,
+				   handshakeInfo->sessionIDlength );
+	if( !createSignature )
+		sputc( &authDataStream, SSH_MSG_USERAUTH_REQUEST );
+	status = swrite( &authDataStream, packetData, packetDataLength );
+	if( cryptStatusOK( status ) )
+		authDataLength = stell( &authDataStream );
+	sMemDisconnect( &authDataStream );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* Create or check the signature.  The reason for the min() part of the 
+	   expression is that iCryptCreate/CheckSignature() gets suspicious of 
+	   very large buffer sizes, for example if the client were to specify 
+	   the use of a huge signature packet */
+	clearErrorInfo( &localErrorInfo );
+	status = sMemGetDataBlockRemaining( stream, &sigDataPtr, 
+										&sigDataLength );
+	if( cryptStatusError( status ) )
+		return( status );
+	setSigDataInfoMessage( &sigDataInfo, authDataBuffer, authDataLength );
+	if( createSignature )
+		{
+		status = iCryptCreateSignature( sigDataPtr, 
+						min( sigDataLength, MAX_INTLENGTH_SHORT - 1 ), 
+						&sigLength, CRYPT_IFORMAT_SSH, 
+						sessionInfoPtr->privateKey, &sigDataInfo, NULL, 
+						&localErrorInfo );
+		}
+	else
+		{
+		status = iCryptCheckSignature( sigDataPtr, 
+						min( sigDataLength, MAX_INTLENGTH_SHORT - 1 ),
+						CRYPT_IFORMAT_SSH, 
+						sessionInfoPtr->iKeyexAuthContext, 
+						&sigDataInfo, NULL, &localErrorInfo );
+		}
+	if( cryptStatusError( status ) )
+		{
+		if( createSignature )
+			{
+			retExtErr( status,
+					   ( status, SESSION_ERRINFO, &localErrorInfo,
+					     "Couldn't sign SSH_MSG_USERAUTH_REQUEST packet" ) );
+			}
+
+		retExtErr( status,
+				   ( status, SESSION_ERRINFO, &localErrorInfo,
+					 "Verification of client's %s public-key "
+					 "authentication failed", getAlgoName( pkcAlgo ) ) );
+		}
+	if( createSignature )
+		status = sSkip( stream, sigLength, MAX_INTLENGTH_SHORT );
+
+	return( status );
+	}
+#endif /* USE_ED25519 */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
+int processAuthDataSig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+						IN_PTR const SSH_HANDSHAKE_INFO *handshakeInfo, 
+						INOUT_PTR STREAM *stream,
+						IN_BUFFER( packetDataLength ) const void *packetData,
+						IN_LENGTH_SHORT const int packetDataLength,
+						IN_ALGO const CRYPT_ALGO_TYPE pkcAlgo,
+						IN_BOOL const BOOLEAN createSignature )
+	{
+	MESSAGE_CREATEOBJECT_INFO createInfo;
+	SIG_DATA_INFO sigDataInfo;
+	ERROR_INFO localErrorInfo;
+	void *sigDataPtr DUMMY_INIT_PTR;
+	int sigDataLength DUMMY_INIT, sigLength DUMMY_INIT, status;
+	
+	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+	assert( isReadPtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isReadPtr( packetData, packetDataLength ) );
+	
+	REQUIRES( isShortIntegerRangeNZ( packetDataLength ) );
+	REQUIRES( isEnumRange( pkcAlgo, CRYPT_ALGO ) );
+	REQUIRES( isBooleanValue( createSignature ) );
+
+	/* Hash the authentication request data, composed of:
+	
+		string		exchange hash
+		[ SSH_MSG_USERAUTH_REQUEST packet payload up to signature start ] */
+	setMessageCreateObjectInfo( &createInfo, handshakeInfo->hashAlgo );
+	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,
+							  IMESSAGE_DEV_CREATEOBJECT, &createInfo,
+							  OBJECT_TYPE_CONTEXT );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_NOHASHLENGTH ) )
+		{
+		/* Some implementations erroneously omit the length when hashing the 
+		   exchange hash */
+		status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH,
+								  ( MESSAGE_CAST ) handshakeInfo->sessionID,
+								  handshakeInfo->sessionIDlength );
+		}
+	else
+		{
+		status = hashAsString( createInfo.cryptHandle, 
+							   handshakeInfo->sessionID,
+							   handshakeInfo->sessionIDlength );
+		}
+	if( cryptStatusOK( status ) && !createSignature )
+		{
+		static const BYTE packetID = SSH_MSG_USERAUTH_REQUEST;
+
+		/* readAuthPacketSSH2() has stripped the ID byte from the start of 
+		   the packet so we need to hash it in explicitly before we hash the 
+		   rest of the packet */
+		krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH, 
+						 ( MESSAGE_CAST ) &packetID, ID_SIZE );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH, 
+								  ( MESSAGE_CAST ) packetData, 
+								  packetDataLength );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		status = krnlSendMessage( createInfo.cryptHandle, 
+								  IMESSAGE_CTX_HASH, "", 0 );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		status = sMemGetDataBlockRemaining( stream, &sigDataPtr, 
+											&sigDataLength );
+		}
+	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+		retExt( status,
+				( status, SESSION_ERRINFO,
+				  "Couldn't hash authentication request data" ) );
+		}
+
+	/* Create or check the signature.  The reason for the min() part of the 
+	   expression is that iCryptCreate/CheckSignature() gets suspicious of 
+	   very large buffer sizes, for example if the client were to specify 
+	   the use of a huge signature packet */
+	clearErrorInfo( &localErrorInfo );
+	setSigDataInfoHash( &sigDataInfo, createInfo.cryptHandle );
+	if( createSignature )
+		{
+		status = iCryptCreateSignature( sigDataPtr, 
+						min( sigDataLength, MAX_INTLENGTH_SHORT - 1 ), 
+						&sigLength, CRYPT_IFORMAT_SSH, 
+						sessionInfoPtr->privateKey, &sigDataInfo, NULL, 
+						&localErrorInfo );
+		}
+	else
+		{
+		status = iCryptCheckSignature( sigDataPtr, 
+						min( sigDataLength, MAX_INTLENGTH_SHORT - 1 ),
+						CRYPT_IFORMAT_SSH, 
+						sessionInfoPtr->iKeyexAuthContext, 
+						&sigDataInfo, NULL, &localErrorInfo );
+		}
+	krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+	if( cryptStatusError( status ) )
+		{
+		if( createSignature )
+			{
+			retExtErr( status,
+					   ( status, SESSION_ERRINFO, &localErrorInfo,
+					     "Couldn't sign SSH_MSG_USERAUTH_REQUEST packet" ) );
+			}
+
+		retExtErr( status,
+				   ( status, SESSION_ERRINFO, &localErrorInfo,
+					 "Verification of client's %s public-key "
+					 "authentication failed", getAlgoName( pkcAlgo ) ) );
+		}
+
+	/* Some buggy implementations require that RSA signatures be padded with 
+	   zeroes to the full modulus size, mysteriously failing the 
+	   authentication in a small number of randomly-distributed cases when 
+	   the signature format happens to be less than the modulus size.  To 
+	   handle this we have to rewrite the signature to include the extra 
+	   padding bytes */
+	if( createSignature )
+		{
+		if( TEST_FLAG( sessionInfoPtr->protocolFlags, 
+					   SSH_PFLAG_RSASIGPAD ) && pkcAlgo == CRYPT_ALGO_RSA )
+			{
+			status = rewriteRSASignature( sessionInfoPtr, stream, sigLength, 
+										  min( sigDataLength, \
+											   MAX_INTLENGTH_SHORT - 1 ) );
+			}
+		else
+			status = sSkip( stream, sigLength, MAX_INTLENGTH_SHORT );
+		}
+
+	return( status );
+	}
+
+/****************************************************************************
+*																			*
 *								Keyex Functions								*
 *																			*
 ****************************************************************************/
 
-/* Complete the DH/ECDH key agreement */
+/* Complete the DH/ECDH/25519 key agreement */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
@@ -1150,71 +1502,63 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		sMemConnect( &stream, handshakeInfo->serverKeyexValue,
 					 handshakeInfo->serverKeyexValueLength );
 		}
-	if( handshakeInfo->isECDH )
+	switch( handshakeInfo->keyexAlgo )
 		{
-		/* This is actually a String32 and not an Integer32, however the
-		   formats are identical and we need to read the value as an integer
-		   to take advantage of the range-checking */
-		status = readInteger32( &stream, keyAgreeParams.publicValue,
-								&keyAgreeParams.publicValueLen, 
-								MIN_PKCSIZE_ECCPOINT, MAX_PKCSIZE_ECCPOINT,
-								BIGNUM_CHECK_VALUE_ECC );
-		}
-	else
-		{
-		status = readInteger32( &stream, keyAgreeParams.publicValue,
-								&keyAgreeParams.publicValueLen, 
-								MIN_PKCSIZE, CRYPT_MAX_PKCSIZE,
-								BIGNUM_CHECK_VALUE_PKC );
+		case CRYPT_ALGO_DH:
+			status = readInteger32( &stream, keyAgreeParams.publicValue,
+									&keyAgreeParams.publicValueLen, 
+									MIN_PKCSIZE, CRYPT_MAX_PKCSIZE,
+									BIGNUM_CHECK_VALUE_PKC );
+			break;
+
+#ifdef USE_ECDH		
+		case CRYPT_ALGO_ECDH:		
+			/* This is actually a String32 and not an Integer32, however the formats 
+			   are identical and we need to read the value as an integer to take 
+			   advantage of the range-checking */
+			status = readInteger32( &stream, keyAgreeParams.publicValue,
+									&keyAgreeParams.publicValueLen, 
+									MIN_PKCSIZE_ECCPOINT, MAX_PKCSIZE_ECCPOINT,
+									BIGNUM_CHECK_VALUE_ECC );
+			break;
+#endif /* USE_ECDH */
+
+#ifdef USE_25519
+		case CRYPT_ALGO_25519:
+			/* The 25519 data must be exactly 32 bytes */
+			status = readString32( &stream, keyAgreeParams.publicValue,
+								   32, &keyAgreeParams.publicValueLen );
+			if( cryptStatusOK( status ) && \
+				keyAgreeParams.publicValueLen != 32 )
+				status = CRYPT_ERROR_BADDATA;
+			break;
+#endif /* USE_25519 */
+	
+		default:
+			retIntError();		
 		}
 	sMemDisconnect( &stream );
 	if( cryptStatusError( status ) )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid %s phase 1 MPI",
-				  handshakeInfo->isECDH ? "ECDH" : "DH" ) );
+				  "Invalid %s phase 1 value",
+				  getAlgoName( handshakeInfo->keyexAlgo ) ) );
 		}
-	if( cryptStatusOK( status ) )
-		{
-		if( handshakeInfo->isECDH )
-			{
-			if( !isValidECDHsize( keyAgreeParams.publicValueLen,
-								  handshakeInfo->serverKeySize, 0 ) )
-				status = CRYPT_ERROR_BADDATA;
-			}
-		else
-			{
-			if( !isValidDHsize( keyAgreeParams.publicValueLen,
-								handshakeInfo->serverKeySize, 0 ) )
-				status = CRYPT_ERROR_BADDATA;
-			}
-		}
+	status = checkKeyexValueLength( handshakeInfo, &keyAgreeParams, 
+									KEYEX_CHECK_MPI, SESSION_ERRINFO );
 	if( cryptStatusError( status ) )
-		{
-#ifdef USE_ERRMSGS
-		const int clientKeyexSize = handshakeInfo->isECDH ? \
-			extractECDHsize( keyAgreeParams.publicValueLen, 0 ) : \
-			extractDHsize( keyAgreeParams.publicValueLen, 0 );
-#endif /* USE_ERRMSGS */
-
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid %s phase 1 MPI size, expected %d (%d), "
-				  "got %d (%d)", handshakeInfo->isECDH ? "ECDH" : "DH",
-				  handshakeInfo->serverKeySize, 
-				  handshakeInfo->serverKeySize * 8,
-				  clientKeyexSize, clientKeyexSize * 8 ) );
-		}
+		return( status );
 
 	/* If we're fuzzing then there's no crypto active */
 	FUZZ_SKIP_REMAINDER();
 
-	/* Perform phase 2 of the DH/ECDH key agreement */
+	/* Perform phase 2 of the DH/ECDH/25519 key agreement */
 	status = krnlSendMessage( handshakeInfo->iServerCryptContext,
 							  IMESSAGE_CTX_DECRYPT, &keyAgreeParams,
 							  sizeof( KEYAGREE_PARAMS ) );
-	if( cryptStatusOK( status ) && handshakeInfo->isECDH )
+	if( cryptStatusOK( status ) && handshakeInfo->isECDH && \
+		!isBernsteinAlgo( handshakeInfo->keyexAlgo ) )
 		{
 		const int xCoordLen = ( keyAgreeParams.wrappedKeyLen - 1 ) / 2;
 
@@ -1222,7 +1566,7 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   unknown reason SSH only uses the x coordinate and not the full
 		   point.  To work around this we have to rewrite the point as a
 		   standalone x coordinate, which is relatively easy because we're
-		   using an "uncompressed" point format:
+		   using the uncompressed point format:
 
 			+---+---------------+---------------+
 			|04	|		qx		|		qy		|
@@ -1239,7 +1583,7 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusOK( status ) )
 		{
-		REQUIRES( rangeCheck( keyAgreeParams.wrappedKeyLen, 0,
+		REQUIRES( rangeCheck( keyAgreeParams.wrappedKeyLen, 1,
 							  CRYPT_MAX_PKCSIZE ) );
 		memcpy( handshakeInfo->secretValue, keyAgreeParams.wrappedKey,
 				keyAgreeParams.wrappedKeyLen );
@@ -1249,7 +1593,7 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* If we're using ephemeral DH, hash the requested keyex key length(s)
+	/* If we're using negotiated DH, hash the requested keyex key length(s)
 	   and DH p and g values.  Since this has been deferred until long after
 	   the keyex negotiation took place (so that the original data isn't 
 	   available any more) we have to recreate the original encoded values 
@@ -1281,7 +1625,7 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( status );
 		}
 
-	/* Hash the client and server DH/ECDH values and shared secret */
+	/* Hash the client and server DH/ECDH/25519 values and shared secret */
 	status = krnlSendMessage( handshakeInfo->iExchangeHashContext, 
 							  IMESSAGE_CTX_HASH,
 							  handshakeInfo->clientKeyexValue,
@@ -1323,6 +1667,10 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		string	Q_C, client ECDH keyex value
 		string	Q_S, server ECDH keyex value
 		mpint	K, the shared secret
+	   25519:
+		string	pubValue_C, client 25519 keyex value
+		string	pubValue_S, server 25519 keyex value
+		string	privValue, the shared secret
 
 	   The client and server version string ahd hellos and the host key were
 	   hashed inline during the handshake.  The optional parameters are for
@@ -1348,6 +1696,25 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusError( status ) )
 		return( status );
+
+	/* We now need a workaround for the Bernstein special-snowflake 
+	   algorithms that don't sign a hash but want to sign the entire
+	   message.  Fortunately we're saved by the fact that the exchange hash 
+	   is a double hash, by saving a copy of the first hash we get the 
+	   message that Ed25519 wants to sign */
+#ifdef USE_ED25519
+	if( handshakeInfo->pubkeyAlgo == CRYPT_ALGO_ED25519 )
+		{
+		setMessageData( &msgData, handshakeInfo->preExchangeHash, 
+						CRYPT_MAX_HASHSIZE );
+		status = krnlSendMessage( handshakeInfo->iExchangeHashContext,
+								  IMESSAGE_GETATTRIBUTE_S, &msgData,
+								  CRYPT_CTXINFO_HASHVALUE );
+		if( cryptStatusError( status ) )
+			return( status );
+		handshakeInfo->preExchangeHashLength = msgData.length;
+		}
+#endif /* USE_ED25519 */
 
 	/* At this point we continue the hash-algorithm dance, in most cases 
 	   switching back to SHA-1 if we've been using a different algorithm for 

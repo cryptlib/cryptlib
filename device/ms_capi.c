@@ -27,6 +27,12 @@
 
 #undef USE_ERRMSGS
 
+/* VS 2008 forgets to define NTDDI_WINLH, needed in wincrypt.h */
+
+#if VC_EQ_2008( _MSC_VER )
+  #define NTDDI_WINLH			0
+#endif /* VS 2008 */
+
 /* The size of the (packed) header used for key blobs */
 
 #define BLOBHEADER_SIZE			8
@@ -406,7 +412,7 @@ static int mapError( CRYPTOAPI_INFO *cryptoapiInfo, const int defaultError )
 	const DWORD errorCode = GetLastError();
 #ifdef USE_ERRMSGS
 	ERROR_INFO *errorInfo = &cryptoapiInfo->errorInfo;
-	const int errorStringLen = strlen( errorInfo->errorString );
+	const int errorStringLen = errorInfo->errorStringLength;
 	int messageLength, LOOP_ITERATOR;
 #endif /* USE_ERRMSGS */
 
@@ -1147,7 +1153,7 @@ static int createPrivkeyContext( DEVICE_INFO *deviceInfo,
 	krnlSendMessage( *iCryptContext, IMESSAGE_SETATTRIBUTE, 
 					 ( MESSAGE_CAST ) &hKey, CRYPT_IATTRIBUTE_DEVICEOBJECT );
 	setMessageData( &msgData, ( MESSAGE_CAST ) label, 
-					min( strlen( label ), CRYPT_MAX_TEXTSIZE ) );
+					strnlen_s( label, CRYPT_MAX_TEXTSIZE ) );
 #if 0
 	if( cryptAlgo == CRYPT_ALGO_RSA )
 		/* Send the keying information to the context.  This is only 
@@ -1445,7 +1451,7 @@ static int getItemFunction( DEVICE_INFO *deviceInfo,
 		if( flags & KEYMGMT_FLAG_LABEL_ONLY )
 			{
 			strlcpy_s( auxInfo, *auxInfoLength, label );
-			*auxInfoLength = strlen( label );
+			*auxInfoLength = strnlen_s( label, CRYPT_MAX_TEXTSIZE );
 			pCryptDestroyKey( hKey ); 
 			return( CRYPT_OK );
 			}
@@ -1747,7 +1753,8 @@ BOOLEAN publicComponentsOnly = FALSE;
 /* Update a device with a certificate */
 
 static int setItemFunction( DEVICE_INFO *deviceInfo, 
-							const CRYPT_HANDLE iCryptHandle )
+							const CRYPT_HANDLE iCryptHandle,
+							const KEYMGMT_ITEM_TYPE itemType )
 	{
 	CRYPTOAPI_INFO *cryptoapiInfo = deviceInfo->deviceCryptoAPI;
 	HCRYPTKEY hKey;
@@ -3602,7 +3609,6 @@ static const MECHANISM_FUNCTION_INFO mechanismFunctions[] = {
 	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_HOTP, ( MECHANISM_FUNCTION ) deriveHOTP },
 #endif /* USE_TLS || USE_SSH */
 #ifdef USE_TLS
-	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_SSL, ( MECHANISM_FUNCTION ) deriveSSL },
 	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_TLS, ( MECHANISM_FUNCTION ) deriveTLS },
 	{ MESSAGE_DEV_SIGN, MECHANISM_SIG_TLS, ( MECHANISM_FUNCTION ) signTLS },
 	{ MESSAGE_DEV_SIGCHECK, MECHANISM_SIG_TLS, ( MECHANISM_FUNCTION ) sigcheckTLS },

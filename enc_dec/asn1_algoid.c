@@ -21,13 +21,13 @@
 #ifdef USE_INT_ASN1
 
 /* The minimum size of an encoded OID.  Usually these are at least 7 bytes 
-   long, but 25519/EDDSA use very short OIDs */
+   long, but 25519 uses very short OIDs */
 
-#if defined( USE_EDDSA ) || defined( USE_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
   #define MIN_ALGOID_OID_SIZE		MIN_OID_SIZE
 #else
   #define MIN_ALGOID_OID_SIZE		7
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 
 /****************************************************************************
 *																			*
@@ -147,10 +147,28 @@ BOOLEAN sanityCheckAlgoIDparams( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 			return( FALSE );
 			}
 		if( algoIDparams->hashAlgo != cryptAlgo || \
-			algoIDparams->hashParam < MIN_HASHSIZE || \
-			algoIDparams->hashParam > CRYPT_MAX_HASHSIZE )
+			!rangeCheck( algoIDparams->hashParam, MIN_HASHSIZE, 
+						 CRYPT_MAX_HASHSIZE ) )
 			{
 			DEBUG_PUTS(( "sanityCheckAlgoIDparams: Hash/MAC parameters" ));
+			return( FALSE );
+			}
+
+		return( TRUE );
+		}
+
+	/* If it's a special-snowflake algorithm then there are no parameters */
+	if( isBernsteinAlgo( cryptAlgo ) )
+		{
+		if( algoIDparams->hashAlgo != CRYPT_ALGO_NONE || \
+			algoIDparams->hashParam != 0 )
+			{
+			DEBUG_PUTS(( "sanityCheckAlgoIDparams: PKC hash parameters" ));
+			return( FALSE );
+			}
+		if( algoIDparams->encodingType != ALGOID_ENCODING_NONE )
+			{
+			DEBUG_PUTS(( "sanityCheckAlgoIDparams: PKC signature parameters" ));
 			return( FALSE );
 			}
 
@@ -161,8 +179,8 @@ BOOLEAN sanityCheckAlgoIDparams( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 	   encryption case if they were absent then no ALGOID_PARAMS would be 
 	   specified */
 	if( !isHashAlgo( algoIDparams->hashAlgo ) || \
-		algoIDparams->hashParam < MIN_HASHSIZE || \
-		algoIDparams->hashParam > CRYPT_MAX_HASHSIZE )
+		!rangeCheck( algoIDparams->hashParam, MIN_HASHSIZE, 
+					 CRYPT_MAX_HASHSIZE ) )
 		{
 		DEBUG_PUTS(( "sanityCheckAlgoIDparams: PKC hash parameters" ));
 		return( FALSE );
@@ -340,7 +358,7 @@ static int readPKCSparams( INOUT_PTR STREAM *stream,
 	{
 	CRYPT_ALGO_TYPE hashAlgo DUMMY_INIT;
 	ALGOID_PARAMS hashAlgoIDparams DUMMY_INIT_STRUCT;
-	int tag, length, status;
+	int tag, length, endPos, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( algoIDparams, sizeof( ALGOID_PARAMS ) ) );
@@ -360,6 +378,8 @@ static int readPKCSparams( INOUT_PTR STREAM *stream,
 
 		return( CRYPT_OK );
 		}
+	endPos = stell( stream ) + length;
+	ENSURES( isIntegerRangeMin( endPos, length + 1 ) );
 
 	/* Read the hash algorithm */
 	status = readConstructed( stream, NULL, CTAG_PP_HASHALGO );
@@ -396,9 +416,17 @@ static int readPKCSparams( INOUT_PTR STREAM *stream,
 
 	/* Read the optional salt length and make sure that it matches the hash 
 	   size */
-	status = tag = peekTag( stream );
-	if( cryptStatusError( status ) )
-		return( status );
+	if( stell( stream ) < endPos )
+		{
+		status = tag = peekTag( stream );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
+	else
+		{
+		/* There's no more data present, set a dummy value */
+		tag = CRYPT_ERROR;
+		}
 	if( tag == MAKE_CTAG( CTAG_PP_SALTLEN ) )
 		{
 		long value;
@@ -414,10 +442,10 @@ static int readPKCSparams( INOUT_PTR STREAM *stream,
 		{
 		/* There's no salt size specified which means that it defaults to 20 
 		   bytes to match the default algorithm of SHA-1.  This is 
-		   problematic because RFC 4055 says it should match the hash size 
-		   and we have no easy way to communicate a nonstandard salt size 
-		   across n levels of function calls, so we require that the salt 
-		   size match the hash size */
+		   problematic because RFC 4055 says (section 3.1) that it should 
+		   match the hash size and we have no easy way to communicate a 
+		   nonstandard salt size across n levels of function calls, so we 
+		   require that the salt size match the hash size */
 		if( algoIDparams->hashParam != 20 )
 			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 		}

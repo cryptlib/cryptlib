@@ -15,8 +15,10 @@ ISCLANG_ANALYSER=0
 ISDEVELOPMENT=0
 ISGCC=0
 ISSPECIAL=0
+ISLD_GNUCOMPAT=0
 GENERICBUILD=0
 SHARED=0
+SYSTEMLINKER=0
 SPECIAL_SNOWFLAKE=0
 
 # Make sure that we've been given sufficient arguments.
@@ -33,6 +35,9 @@ elif [ "$1" = "special" ] ; then
 	shift ;
 elif [ "$1" = "generic" ] ; then
 	GENERICBUILD=1 ;
+	shift ;
+elif [ "$1" = "systemlinker" ] ; then
+	SYSTEMLINKER=1 ;
 	shift ;
 fi
 if [ $# -lt 2 ] ; then
@@ -113,6 +118,12 @@ fi
 
 getFQDNName()
 	{
+	# Special-case handling for broken Sun tools.
+	if [ "$OSNAME" = "SunOS" ] ; then
+		HOSTNAME="$(hostname)" ;
+		return ;
+	fi
+
 	# Check whether the hostname command is available.  It usually is, but
 	# if it isn't then we fall back to the machine name via uname -n, which
 	# in theory is the same as what we'd get from hostname but in practice
@@ -144,7 +155,12 @@ getNodeName()
 	# as "erpro8-fsf1", cfarm110 as "gcc1-power7", cfarm111 as "power-aix".
 	# To deal with this we have to delete everything returned by uname past
 	# the first dot.
-	NODENAME="$(uname -n | cut -f1 -d'.')" ;
+	if [ "$OSNAME" = "SunOS" ] ; then
+		# shellcheck disable=SC2006 # Antediluvian Sun tools.
+		NODENAME=`uname -n | cut -f1 -d'.'` ;
+	else
+		NODENAME="$(uname -n | cut -f1 -d'.')" ;
+	fi
 	}
 
 checkForDevSystem()
@@ -156,13 +172,14 @@ checkForDevSystem()
 	getNodeName
 
 	# Sun's antediluvian tools don't recognise "$(...)" so we explicitly
-	# check for the two Sun development systems using backticks and early-
-	# exit at this point.
+	# check for the Sun development systems using backticks and early-exit
+	# at this point.  See further down for the list of NODENAME values.
 	if [ "$OSNAME" = "SunOS" ] ; then
-		# shellcheck disable=SC2006 # Antediluvian Sun tools.
-		if [ "`uname -n`" = "gcc-solaris10" ] || [ "`uname -n`" = "gcc-solaris11" ] ; then
-			ISDEVELOPMENT=1 ;
-		fi ;
+		case $NODENAME in
+			'gcc-solaris10'|'gcc-solaris11'|'s11-i386')
+				ISDEVELOPMENT=1 ;
+				return ;;
+		esac ;
 		return ;
 	fi
 
@@ -185,6 +202,7 @@ checkForDevSystem()
 	#	cfarm112 = "gcc2-power8"
 	#	cfarm210 = "gcc-solaris10"
 	#	cfarm211 = "gcc-solaris11"
+	#	cfarm215 = "s11-i386"
 	#	cfarm400 = "gcc400"
 	# so we have to delete everything past the first dot and explicitly
 	# check for weird names.
@@ -195,13 +213,13 @@ checkForDevSystem()
 	esac ;
 	if [ "$(uname -n | grep -c "cfarm[0-9][0-9]")" -gt 0 ] ; then
 		case $NODENAME in
-			'cfarm23'|'cfarm27'|'cfarm70'|'cfarm92')
+			'cfarm27'|'cfarm70'|'cfarm94'|'cfarm95')
 				ISDEVELOPMENT=1 ;
 				return ;;
-			'cfarm104'|'cfarm110'|'cfarm111'|'cfarm112'|'cfarm119'|'cfarm185')
+			'cfarm104'|'cfarm110'|'cfarm111'|'cfarm112'|'cfarm121'|'cfarm185')
 				ISDEVELOPMENT=1 ;
 				return ;;
-			'cfarm203'|'cfarm210'|'cfarm211'|'cfarm220'|'cfarm230'|'cfarm231'|'cfarm240')
+			'cfarm210'|'cfarm211'|'cfarm215'|'cfarm216'|'cfarm220'|'cfarm230'|'cfarm231'|'cfarm240')
 				ISDEVELOPMENT=1 ;
 				return ;;
 			'cfarm400')
@@ -222,7 +240,15 @@ checkForDevSystem()
 	fi
 
 	# Check for local development systems based on their network address and
-	# name.  This is vulnerable to FPs but should be reasonably safe:
+	# name.  Under Linux we have to check for the network interface under a
+	# variety of names, the difference being that eth0 is the onboard wired
+	# ethernet adapter while eno1 is the onboard wired ethernet adapter, this
+	# being someone's clever idea to expose kernel implementation artefacts
+	# to userspace.
+	#
+	# This check is theoretically vulnerable to FPs but should be reasonably
+	# safe in practice:
+	#
 	# Devices in the 192.168.1.x range with gateway 192.168.1.1 with
 	# specific device names.
 	if [ $OSNAME = "FreeBSD" ] ; then
@@ -237,23 +263,36 @@ checkForDevSystem()
 		fi ;
 		return ;
 	fi
-	if [ ! "$(ip addr show eth0 2>/dev/null)" ] ; then
-		return ;
-	fi
-	if [ "$(ip addr show eth0 | grep -c "inet 192.168.1.")" -le 0 ] ; then
-		return ;
+	if [ "$(ip addr show eth0 2>/dev/null)" ] ; then
+		# ethX naming scheme
+		if [ "$(ip addr show eth0 | grep -c "inet 192.168.1.")" -le 0 ] ; then
+			return ;
+		fi
+	else
+		# enoX naming scheme
+		if [ "$(ip addr show eno1 | grep -c "inet 192.168.1.")" -le 0 ] ; then
+			return ;
+		fi
 	fi
 	if [ "$(ip route show default | grep -cF "via 192.168.1.1")" -le 0 ] ; then
 		return ;
 	fi
-	if [ $HOSTNAME = "ci20.lan" ] || [ $HOSTNAME = "odroid" ] || \
-	   [ $HOSTNAME = "odroid-n2" ] || [ $HOSTNAME = "starfive" ] ; then
+	if [ $HOSTNAME = "ci20.lan" ] || [ $HOSTNAME = "fuzzer.lan" ] || \
+	   [ $HOSTNAME = "odroid" ] || [ $HOSTNAME = "odroid-n2" ] || \
+	   [ $HOSTNAME = "starfive" ] ; then
 		ISDEVELOPMENT=1 ;
 	fi
 	}
 
-if [ -f ~/.ISDEVELOPMENT ] ; then
-	checkForDevSystem "$(date +%Z)" ;
+if [ "$OSNAME" = "SunOS" ] ; then
+	if [ -f $HOME/.ISDEVELOPMENT ] ; then
+		# shellcheck disable=SC2006 # Antediluvian Sun tools.
+		checkForDevSystem "`date +%Z`" ;
+	fi ;
+else
+	if [ -f ~/.ISDEVELOPMENT ] ; then
+		checkForDevSystem "$(date +%Z)" ;
+	fi ;
 fi
 
 # Check whether we're running clang in a code-analysis mode.  Since some of
@@ -477,8 +516,8 @@ elif [ $ISSPECIAL -gt 0 ] ; then
 	echo "  (Disabling compile warnings for instrumented build)." >&2 ;
 	CCARGS="$CCARGS -DUSE_ANALYSER" ;
 elif [ $ISDEVELOPMENT -gt 0 ] ; then
-	echo "  (Enabling additional source code options for development version)." >&2 ;
-	CCARGS="$CCARGS -DUSE_CERT_DNSTRING -DUSE_DNSSRV" ;
+	echo "  (Enabling all source code options for development version)." >&2 ;
+	CCARGS="$CCARGS -DCONFIG_ALL_OPTIONS" ;
 fi
 
 # Some distros - and it's always Linux distros - want to set their own
@@ -519,7 +558,7 @@ fi
 
 hasStackClashProtection()
 	{
-	TMPFILE=$(mktemp)
+	TMPFILE="$(mktemp)"
 	RETURN_STATUS=0
 
 	# Check whether clang supports -fstack-clash-protection.  In theory
@@ -528,7 +567,8 @@ hasStackClashProtection()
 	# the flag that doesn't mean it actually supports it, producing
 	# warnings about 'argument unused during compilation' for each file.
 	echo "int main(void) {return 0;}" >> $TMPFILE.c
-	if [ "$(clang $TMPFILE.c -o $TMPFILE -fstack-clash-protection 2>&1 | grep -c "argument unused")" -gt 0 ] ; then
+	if [ "$(clang $TMPFILE.c -o $TMPFILE -fstack-clash-protection 2>&1 | grep -c "unknown argument")" -gt 0 ] || \
+	   [ "$(clang $TMPFILE.c -o $TMPFILE -fstack-clash-protection 2>&1 | grep -c "argument unused")" -gt 0 ] ; then
 		# No support for -fstack-clash-protection.
 		RETURN_STATUS=255 ;
 	fi
@@ -542,13 +582,32 @@ hasStackClashProtection()
 	}
 
 if [ $ISCLANG -gt 0 ] ; then
+	# Some compiler options are only available when the linker and/or
+	# libraries match the compiler.  If the system is set up to use clang
+	# but also the system linker rather than ldd then we can't use some
+	# compiler options.
+	if [ $SYSTEMLINKER -gt 0 ] ; then
+		EXTRAARGS="" ;
+	else
+		EXTRAARGS="-fstack-protector-strong" ;
+	fi
+
+	# The CHERI capabilities in CheriBSD make the stack-protector option
+	# redundant so we remove it from EXTRAARGS.  We also disable provenance
+	# warnings for DATAPTR types, which are otherwise enabled by -Wall.
+	if [ "$(uname -a | grep -ci cheribsd)" -gt 0 ] ; then
+		EXTRAARGS="" ;
+		CCARGS="$CCARGS -Wno-cheri-provenance" ;
+	fi
+
+	# With the preliminaries sorted, we can set up the options.
 	if [ "$COMPILER_VER" -ge 70 ] ; then
-		CCARGS="$CCARGS -fstack-protector-strong -D_FORTIFY_SOURCE=2" ;
+		CCARGS="$CCARGS $EXTRAARGS -D_FORTIFY_SOURCE=2" ;
 		if hasStackClashProtection ; then
 			CCARGS="$CCARGS -fstack-clash-protection" ;
 		fi
 	elif [ "$COMPILER_VER" -ge 50 ] ; then
-		CCARGS="$CCARGS -fstack-protector-strong -D_FORTIFY_SOURCE=2" ;
+		CCARGS="$CCARGS $EXTRAARGS -D_FORTIFY_SOURCE=2" ;
 	elif [ "$COMPILER_VER" -ge 43 ] ; then
 		# Various web pages claim that this was added in 3.7 but it's not
 		# present in 4.2 and the manual only documents command-line options
@@ -633,34 +692,79 @@ if [ $ISCLANG -gt 0 ] && [ $ISSPECIAL -eq 0 ] ; then
 	fi ;
 fi
 
+# Check whether the linker is GNU or LLVM ld, meaning that it can deal with
+# the probing we'll be performing later.  This doesn't necessarily match the
+# compiler so we have to check whether whatever we'll be linking with is
+# GNU ld-compatible.  For GNU ld the output of -v is "GNU ld ...", for LLVM
+# ld (ld.lld under Unix) the output of -v is "LLD ...".
+#
+# Note that this won't detect Apple's ld, which is some mangled form of the
+# LLVM ld that adds a pile of Apple-specific arguments and removes a pile of
+# LLVM ld arguments so that it isn't really LLVM's ld any more and can't be
+# used as such.
+
+if [ $ISCLANG -gt 0 ] || [ $ISGCC -gt 0 ] ; then
+	if [ "$($CC -Wl,-v 2>&1 | grep -c "GNU ld ")" -gt 0 ] || \
+	   [ "$($CC -Wl,-v 2>&1 | grep -c "LLD ")" -gt 0 ] ; then
+		ISLD_GNUCOMPAT=1 ;
+	fi ;
+fi
+
 # If we're using clang or gcc and RELRO support is present, enable it.  This
 # is a bit of an odd one, the various descriptions and docs imply it really
 # only works on Linux x86-64 (at least in part because of it being tied to
 # the ELF format), but it seems to work even on lesser-supported platforms
 # like 32-bit ARM, so we try and detect it and enable it if present.  Check
 # for its presence in the compiled binary with
-# 'readelf -l ./testlib | grep RELRO'.
+# 'readelf -lW ./testlib | grep RELRO' (relro) and
+# 'readelf -dW ./testlib | grep BIND' (immediate binding).
 #
-# As an additional factor, for versions of gcc starting at 14 we enable
-# -fhardened which auto-enables RELRO if available, but there again
-# -fhardened is only supported on x86-64 Linux.
+# For the code below, these are linker flags and we're compiling with -c so
+# the linker is never invoked, however the code below is used both to make
+# the flags visible on the command line and because the link script will
+# check for their presence in the compiler flags so it can pass them on to
+# the linker.
 #
-# The reason why the section below is commented out is because these are
-# linker flags and we're compiling with -c, so the linker is never invoked.
-# Instead, we enable the flags in tools/buildsharedlib.sh, the code below is
-# left in place in case some future versions require compile options as
-# well.
+# As an additional factor, for versions of gcc starting at 14 we could
+# enable -fhardened which auto-enables RELRO if available, but there again
+# -fhardened is only supported on x86-64 Linux in which case we've enabled
+# RELRO anyway.
 #
-#if [ $ISCLANG -gt 0 ] && [ $COMPILER_VER -ge 70 ] ; then
-#	if [ "$(clang -Wl,-help | grep -c "relro")" -gt 0 ] ; then
-#		CCARGS="$CCARGS -Wl,-z,relro,-z,now" ;
-#	fi ;
-#fi
-#if [ $ISGCC -gt 0 ] && [ $COMPILER_VER -ge 90 ] ; then
-#	if [ "$(gcc -Wl,-help | grep -c "relro")" -gt 0 ] ; then
-#		CCARGS="$CCARGS -Wl,-z,relro,-z,now" ;
-#	fi ;
-#fi
+# Finally, we have to explicitly check whether we're using GNU or LLVM ld
+# since some setups use clang or gcc but then some unrelated linker.
+
+if [ $ISCLANG -gt 0 ] && [ $COMPILER_VER -ge 70 ] && [ $ISLD_GNUCOMPAT -gt 0 ] ; then
+	if [ "$(clang -Wl,-help | grep -c "relro")" -gt 0 ] ; then
+		CCARGS="$CCARGS -Wl,-z,relro,-z,now" ;
+		echo "Enabling R/O relocations, consider linking the final binary with -Wl,-z,relro,-z,now." >&2 ;
+	fi ;
+fi
+if [ $ISGCC -gt 0 ] && [ $COMPILER_VER -ge 90 ] && [ $ISLD_GNUCOMPAT -gt 0 ] ; then
+	if [ "$(gcc -Wl,-help | grep -c "relro")" -gt 0 ] ; then
+		CCARGS="$CCARGS -Wl,-z,relro,-z,now" ;
+		echo "Enabling R/O relocations, consider linking the final binary with -Wl,-z,relro,-z,now." >&2 ;
+	fi ;
+fi
+
+# If we're using clang or gcc and CFI is present, enable it.  Both are
+# annoying in this regard because they'll tell us it's available even if it
+# isn't, so we have to perform a secondary check to see if it really is
+# available.
+
+if [ $ISCLANG -gt 0 ] && [ $COMPILER_VER -ge 130 ] ; then
+	if [ "$(clang --help | grep -c "fcf-protection")" -gt 0 ] ; then
+		if [ "$(clang -c -fcf-protection ./tools/endian.c -o /dev/null 2>&1 | grep -c "error:")" -le 0 ] ; then
+			CCARGS="$CCARGS -fcf-protection" ;
+		fi ;
+	fi ;
+fi
+if [ $ISGCC -gt 0 ] && [ $COMPILER_VER -ge 110 ] ; then
+	if [ "$(gcc --help=common | grep -c "fcf-protection")" -gt 0 ] ; then
+		if [ "$(gcc -c -fcf-protection ./tools/endian.c -o /dev/null 2>&1 | grep -c "error:")" -le 0 ] ; then
+			CCARGS="$CCARGS -fcf-protection" ;
+		fi ;
+	fi ;
+fi
 
 # The Sun compiler has its own set of problems, the biggest of which is
 # determining where it is and what it is (see comments elsewhere), but
@@ -671,7 +775,8 @@ fi
 # Sun antediluvian tools problem.
 
 # shellcheck disable=SC2006,SC2046 # Antediluvian Sun tools.
-if [ "$OSNAME" = "SunOS" ] && [ `$CC 2>&1 | grep -c "cc -flags"` -gt 0 ] ; then
+if [ "$OSNAME" = "SunOS" ] && [ "$CC" != "gcc" ] && [ "$CC" != "clang" ] && \
+   [ `$CC 2>&1 | grep -c "cc -flags"` -gt 0 ] ; then
 	CCARGS="$CCARGS -errtags=yes" ;
 	touch suncctest.c ;
 	# shellcheck disable=SC2006,SC2046 # Antediluvian Sun tools.
@@ -694,9 +799,15 @@ fi
 # For the PIC options, the only difference between -fpic and -fPIC is that
 # the latter generates large-displacement jumps while the former doesn't,
 # bailing out with an error if a large-displacement jump would be required.
-# As a side-effect, -fPIC code is slightly less efficient because of the use
-# of large-displacement jumps, so if you're tuning the code for size/speed
-# you can try -fpic to see if you get any improvement.
+# In gcc terms, -fpic implies -msmall-data (objects in ".sdata"/".sbss"
+# accessed via 16-bit offsets) and -fPIC implies -mlarge-data and up to 2GB
+# data in ".data"/".bss".
+#
+# There's no difference between -fpic and -fPIC on x86/x86-64 but there is
+# for architectures like S390, M68k, and PPC.
+#
+# Note that for shared libraries -fPIC has the same effect as -fPIE so we
+# don't need to special-case the use of -fPIE if it's available.
 
 if [ $SHARED -gt 0 ] ; then
 	case $OSNAME in
@@ -716,11 +827,10 @@ if [ $SHARED -gt 0 ] ; then
 			;;
 
 		'SunOS')
-			# shellcheck disable=SC2006,SC2046 # Antediluvian Sun tools.
-			if [ `$CC -v 2>&1 | grep -c "gcc"` = 0 ] ; then
-				CCARGS="$CCARGS -KPIC" ;
-			else
+			if [ $ISGCC -gt 0 ] || [ $ISCLANG -gt 0 ] ; then
 				CCARGS="$CCARGS -fPIC" ;
+			else
+				CCARGS="$CCARGS -KPIC" ;
 			fi ;;
 
 		*)
@@ -748,12 +858,12 @@ fi
 
 if [ $SHARED -eq 0 ] ; then
 	if [ $ISCLANG -gt 0 ] && [ "$COMPILER_VER" -ge 30 ] ; then
-		CCARGS="$CCARGS -fpie" ;
-		echo "Enabling ASLR support, consider linking the final binary with -pie." >&2 ;
+		CCARGS="$CCARGS -fPIE" ;
+		echo "Enabling ASLR support, consider linking the final binary with -Wl,pie." >&2 ;
 	fi ;
 	if [ $ISGCC -gt 0 ] && [ "$COMPILER_VER" -ge 42 ] ; then
-		CCARGS="$CCARGS -fpie" ;
-		echo "Enabling ASLR support, consider linking the final binary with -pie." >&2 ;
+		CCARGS="$CCARGS -fPIE" ;
+		echo "Enabling ASLR support, consider linking the final binary with -Wl,pie." >&2 ;
 	fi ;
 fi
 
@@ -834,12 +944,17 @@ fi
 #	-Wdeclaration-after-statement: Declaration follows code, for older
 #		compilers.
 #
+#	-Wdefault-const-init: const object doesn't have an initialiser.
+#
 #	-Wduplicate-enum: (Something about assigning enums to things?).
 #
 #	-Wempty-init-stmt: Empty initialization statement of if/switch has no
 #		effect.
 #
 #	-Wextra-semi: Spurious semicolon.
+#
+#	-Wformat-signedness: Signed value passwed to unsigned arg in format
+#		string.
 #
 #	-Wformat-type-confusion: Format specifier is type X but argument is
 #		type Y.
@@ -848,6 +963,9 @@ fi
 #		condition without parentheses.
 #
 #	-Winfinite-recursion: All paths through this function call itself.
+#
+#	-Wjump-misses-init: goto/switch bypasses intialisation of a local
+#		variable.
 #
 #	-Wkeyword-macro: Keyword hidden by macro definition.
 #
@@ -982,6 +1100,18 @@ if [ $ISCLANG_ANALYSER -gt 0 ] || \
 		echo "  (Enabling additional compiler options for clang 14.x)." >&2 ;
 		CCARGS="$CCARGS -Wbool-operation" ;
 	fi
+	# After about this point things get a lot more sparse as newer warnings
+	# are either rolled into -Wextra or if not are sufficiently obscure,
+	# e.g. C++ compatibility issues, that they don't affect us.
+	if [ $COMPILER_VER -ge 190 ] ; then
+		echo "  (Enabling additional compiler options for clang 19.x)." >&2 ;
+		CCARGS="$CCARGS -Wformat-signedness" ;
+	fi
+	if [ $COMPILER_VER -ge 210 ] ; then
+		echo "  (Enabling additional compiler options for clang 21.x)." >&2 ;
+		CCARGS="$CCARGS -Wdefault-const-init -Wjump-misses-init" ;
+	fi
+	# Last clang version checked = 21.x.
 fi
 
 # If we're not using gcc, we're done.  This isn't as simple as a straight
@@ -1306,7 +1436,12 @@ fi
 #
 # gcc 14 added an umbrella -fhardened that enables all of the options that
 # we enable item by item based on compiler versions and detection, but this
-# is currently only supported under Linux.
+# is currently only supported under Linux, details at
+# https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html.  However
+# with -Wall this then produces a FP warning "'_FORTIFY_SOURCE' is not
+# enabled by '-fhardened' because it was specified in '-D' or '-U'
+# [-Whardened]" because the left hand doesn't know what the right hand is
+# doing.
 
 if [ "$COMPILER_VER" -ge 140 ] && [ $OSNAME = "Linux" ] ; then
 	CCARGS="$CCARGS -fhardened" ;

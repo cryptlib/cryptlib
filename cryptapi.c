@@ -14,6 +14,33 @@
   #include "misc/rpc.h"
 #endif /* Compiler-specific includes */
 
+/****************************************************************************
+*																			*
+*								Utility Functions							*
+*																			*
+****************************************************************************/
+
+/* Checks for algorithms that are present but not usable externally because 
+   they don't work like any mormal algorithm.  These are essentially the 
+   Bernstein special-snowflake ones, which require such complex calisthenics 
+   for key and other cryptovariable setup that we can't safely allow 
+   external access.
+   
+   However since ChaCha20 at least is run by the external test suite we need 
+   to allow this, but Poly1305 is too complex to test via external code */
+
+CHECK_RETVAL_BOOL \
+static BOOLEAN isInternalOnlyAlgo( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
+	{
+	return( ( cryptAlgo == CRYPT_ALGO_POLY1305 ) ? TRUE : FALSE );
+	}
+
+/****************************************************************************
+*																			*
+*								Command Handlers							*
+*																			*
+****************************************************************************/
+
 /* Handlers for the various commands */
 
 #ifdef USE_CERTIFICATES
@@ -127,6 +154,12 @@ static int cmdCreateObject( COMMAND_INFO *cmd )
 			if( cmd->arg[ 2 ] <= CRYPT_ALGO_NONE || \
 				cmd->arg[ 2 ] >= CRYPT_ALGO_LAST_EXTERNAL )
 				return( CRYPT_ARGERROR_NUM1 );
+
+			/* Checks for algorithms that are present but not usable 
+			   externally because they don't work like any mormal 
+			   algorithm */
+			if( isInternalOnlyAlgo( cmd->arg[ 2 ] ) )
+				return( CRYPT_ERROR_NOTAVAIL );
 			break;
 
 		case OBJECT_TYPE_CERTIFICATE:
@@ -961,6 +994,11 @@ static int cmdQueryCapability( COMMAND_INFO *cmd )
 		cmd->arg[ 1 ] >= CRYPT_ALGO_LAST_EXTERNAL )
 		return( CRYPT_ARGERROR_NUM1 );
 
+	/* Checks for algorithms that are present but not usable externally 
+	   because they don't work like any mormal algorithm */
+	if( isInternalOnlyAlgo( cmd->arg[ 1 ] ) )
+		return( CRYPT_ERROR_NOTAVAIL );
+
 	/* Query the device for information on the given algorithm and mode.
 	   Since we're usually doing this via the system object (or crypto 
 	   object if this is in use) which is invisible to the user, we have to 
@@ -1052,7 +1090,8 @@ static int cmdSetAttribute( COMMAND_INFO *cmd )
 			   composite structures used are quite large */
 			if( cmd->strArgLen[ 0 ] != sizeof( CRYPT_PKCINFO_RSA ) && \
 				cmd->strArgLen[ 0 ] != sizeof( CRYPT_PKCINFO_DLP ) && \
-				cmd->strArgLen[ 0 ] != sizeof( CRYPT_PKCINFO_ECC ) )
+				cmd->strArgLen[ 0 ] != sizeof( CRYPT_PKCINFO_ECC ) && \
+				cmd->strArgLen[ 0 ] != sizeof( CRYPT_PKCINFO_DJB ) )
 				return( CRYPT_ARGERROR_NUM2 );
 			}
 		else
@@ -1108,10 +1147,37 @@ static int cmdSetKey( COMMAND_INFO *cmd )
 		return( CRYPT_ARGERROR_OBJECT );
 	if( !isHandleRangeValid( cmd->arg[ 1 ] ) )
 		return( CRYPT_ARGERROR_NUM1 );
-	if( cmd->noStrArgs == 1 && \
-		( cmd->strArgLen[ 0 ] < MIN_NAME_LENGTH || \
-		  cmd->strArgLen[ 0 ] >= MAX_ATTRIBUTE_SIZE ) )
-		return( CRYPT_ARGERROR_STR1 );
+	if( itemType == KEYMGMT_ITEM_PRIVATEKEY )
+		{
+		int value;
+		
+		/* Depending on whether we're writing a private key to a keyset or
+		   a device we may or may not need a password.  The check for this
+		   is a bit complicated because reading the object type requres an
+		   internal message, so we first check for external accessibility
+		   with a dummy read of an object property and then read the actual
+		   object type using an internal message */
+		if( !cryptStatusOK( krnlSendMessage( cmd->arg[ 0 ],
+									MESSAGE_GETATTRIBUTE, &value,
+									CRYPT_PROPERTY_LOCKED ) ) || \
+			!cryptStatusOK( krnlSendMessage( cmd->arg[ 0 ],
+									IMESSAGE_GETATTRIBUTE, &value,
+									CRYPT_IATTRIBUTE_TYPE ) ) )
+			return( CRYPT_ARGERROR_OBJECT );
+		if( value == OBJECT_TYPE_KEYSET )
+			{
+			if( cmd->strArg[ 0 ] == NULL || \
+				cmd->strArgLen[ 0 ] < MIN_NAME_LENGTH || \
+				cmd->strArgLen[ 0 ] >= MAX_ATTRIBUTE_SIZE )
+				return( CRYPT_ARGERROR_STR1 );
+			}
+		else
+			{
+			if( cmd->strArg[ 0 ] != NULL || \
+				cmd->strArgLen[ 0 ] != 0 )
+				return( CRYPT_ARGERROR_STR1 );
+			}
+		}
 	if( cmd->arg[ 2 ] )
 		{
 		int value;
@@ -1828,7 +1894,7 @@ static BOOLEAN needsTranslation( const CRYPT_ATTRIBUTE_TYPE attribute )
 	}
 
 #ifdef EBCDIC_CHARS
-  #define nativeStrlen( string )	strlen( string )
+  #define nativeStrlen( string )	strnlen_s( string, MAX_ATTRIBUTE_SIZE )
   #define nativeToCryptlibString( dest, destMaxLen, src, length ) \
 		  ebcdicToAscii( dest, src, length )
   #define cryptlibToNativeString( dest, destMaxLen, src, length ) \
@@ -2169,7 +2235,8 @@ C_RET cryptDeviceOpen( C_OUT CRYPT_DEVICE C_PTR device,
 	/* Check and clean up any string parameters if required */
 	if( namePtr != NULL )
 		{
-		nameLen = strStripWhitespace( &namePtr, namePtr, strlen( namePtr ) );
+		nameLen = strStripWhitespace( &namePtr, namePtr, 
+								strnlen_s( namePtr, MAX_ATTRIBUTE_SIZE ) );
 		if( nameLen <= 0 )
 			return( CRYPT_ERROR_PARAM4 );
 		}
@@ -2293,7 +2360,8 @@ C_RET cryptKeysetOpen( C_OUT CRYPT_KEYSET C_PTR keyset,
 #endif /* EBCDIC_CHARS || UNICODE_CHARS */
 
 	/* Check and clean up any string parameters if required */
-	nameLen = strStripWhitespace( &namePtr, namePtr, strlen( namePtr ) );
+	nameLen = strStripWhitespace( &namePtr, namePtr, 
+							strnlen_s( namePtr, MAX_ATTRIBUTE_SIZE ) );
 	if( nameLen <= 0 )
 		return( CRYPT_ERROR_PARAM4 );
 
@@ -2413,11 +2481,12 @@ C_RET cryptLogin( C_OUT CRYPT_USER C_PTR user,
 #endif /* EBCDIC_CHARS || UNICODE_CHARS */
 
 	/* Check and clean up any string parameters if required */
-	nameLen = strStripWhitespace( &namePtr, namePtr, strlen( namePtr ) );
+	nameLen = strStripWhitespace( &namePtr, namePtr, 
+							strnlen_s( namePtr, MAX_ATTRIBUTE_SIZE ) );
 	if( nameLen <= 0 )
 		return( CRYPT_ERROR_PARAM2 );
 	passwordLen = strStripWhitespace( &passwordPtr, passwordPtr, 
-									  strlen( passwordPtr ) );
+							strnlen_s( passwordPtr, MAX_ATTRIBUTE_SIZE ) );
 	if( passwordLen <= 0 )
 		return( CRYPT_ERROR_PARAM3 );
 
@@ -2686,7 +2755,8 @@ C_RET cryptSetAttributeString( C_IN CRYPT_HANDLE cryptHandle,
 		   composite structures used are quite large */
 		if( valueLength != sizeof( CRYPT_PKCINFO_RSA ) && \
 			valueLength != sizeof( CRYPT_PKCINFO_DLP ) && \
-			valueLength != sizeof( CRYPT_PKCINFO_ECC ) )
+			valueLength != sizeof( CRYPT_PKCINFO_ECC ) && \
+			valueLength != sizeof( CRYPT_PKCINFO_DJB ) )
 			return( CRYPT_ERROR_PARAM4 );
 		}
 	else
@@ -3237,7 +3307,8 @@ C_RET cryptCAGetItem( C_IN CRYPT_KEYSET keyset,
 	/* Check and clean up any string parameters if required */
 	if( keyIDPtr != NULL )
 		{
-		keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, strlen( keyIDPtr ) );
+		keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, 
+								strnlen_s( keyIDPtr, MAX_ATTRIBUTE_SIZE ) );
 		if( keyIDlen <= 0 )
 			return( CRYPT_ERROR_PARAM5 );
 		}
@@ -3319,7 +3390,8 @@ C_RET cryptCADeleteItem( C_IN CRYPT_KEYSET keyset,
 #endif /* EBCDIC_CHARS || UNICODE_CHARS */
 
 	/* Check and clean up any string parameters if required */
-	keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, strlen( keyIDPtr ) );
+	keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, 
+							strnlen_s( keyIDPtr, MAX_ATTRIBUTE_SIZE ) );
 	if( keyIDlen <= 0 )
 		return( CRYPT_ERROR_PARAM4 );
 
@@ -3587,7 +3659,8 @@ C_RET cryptGetPublicKey( C_IN CRYPT_KEYSET keyset,
 	/* Check and clean up any string parameters if required */
 	if( keyIDPtr != NULL )
 		{
-		keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, strlen( keyIDPtr ) );
+		keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, 
+								strnlen_s( keyIDPtr, MAX_ATTRIBUTE_SIZE ) );
 		if( keyIDlen <= 0 )
 			return( CRYPT_ERROR_PARAM4 );
 		}
@@ -3667,13 +3740,14 @@ C_RET cryptGetPrivateKey( C_IN CRYPT_HANDLE keyset,
 #endif /* EBCDIC_CHARS || UNICODE_CHARS */
 
 	/* Check and clean up any string parameters if required */
-	keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, strlen( keyIDPtr ) );
+	keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, 
+							strnlen_s( keyIDPtr, MAX_ATTRIBUTE_SIZE ) );
 	if( keyIDlen <= 0 )
 		return( CRYPT_ERROR_PARAM4 );
 	if( passwordPtr != NULL )
 		{
 		passwordLen = strStripWhitespace( &passwordPtr, passwordPtr, 
-										  strlen( passwordPtr ) );
+							strnlen_s( passwordPtr, MAX_ATTRIBUTE_SIZE ) );
 		if( passwordLen <= 0 )
 			return( CRYPT_ERROR_PARAM5 );
 		}
@@ -3758,13 +3832,14 @@ C_RET cryptGetKey( C_IN CRYPT_HANDLE keyset,
 #endif /* EBCDIC_CHARS || UNICODE_CHARS */
 
 	/* Check and clean up any string parameters if required */
-	keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, strlen( keyIDPtr ) );
+	keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, 
+							strnlen_s( keyIDPtr, MAX_ATTRIBUTE_SIZE ) );
 	if( keyIDlen <= 0 )
 		return( CRYPT_ERROR_PARAM4 );
 	if( passwordPtr != NULL )
 		{
 		passwordLen = strStripWhitespace( &passwordPtr, passwordPtr, 
-										  strlen( passwordPtr ) );
+							strnlen_s( passwordPtr, MAX_ATTRIBUTE_SIZE ) );
 		if( passwordLen <= 0 )
 			return( CRYPT_ERROR_PARAM5 );
 		}
@@ -3862,7 +3937,7 @@ C_RET cryptAddPrivateKey( C_IN CRYPT_KEYSET keyset,
 
 		/* Clean up the password parameter if required */
 		passwordLen = strStripWhitespace( &passwordPtr, passwordPtr, 
-										  strlen( passwordPtr ) );
+							strnlen_s( passwordPtr, MAX_ATTRIBUTE_SIZE ) );
 		if( passwordLen <= 0 )
 			return( CRYPT_ERROR_PARAM3 );
 		}
@@ -3921,7 +3996,8 @@ C_RET cryptDeleteKey( C_IN CRYPT_KEYSET keyset,
 #endif /* EBCDIC_CHARS || UNICODE_CHARS */
 
 	/* Check and clean up any string parameters if required */
-	keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, strlen( keyIDPtr ) );
+	keyIDlen = strStripWhitespace( &keyIDPtr, keyIDPtr, 
+							strnlen_s( keyIDPtr, MAX_ATTRIBUTE_SIZE ) );
 	if( keyIDlen <= 0 )
 		return( CRYPT_ERROR_PARAM3 );
 
@@ -3999,7 +4075,8 @@ C_RET cryptQueryCapability( C_IN CRYPT_ALGO_TYPE cryptAlgo,
 			{
 			BYTE buffer[ MAX_ATTRIBUTE_SIZE ];
 			const int algoNameLength = \
-						strlen( ( char * ) cryptQueryInfo->algoName ) + 1;
+						strnlen_s( ( char * ) cryptQueryInfo->algoName, 
+								   CRYPT_MAX_TEXTSIZE ) + 1;
 
 			memcpy( buffer, cryptQueryInfo->algoName, algoNameLength );
 			cryptlibToNativeString( cryptQueryInfo->algoName,
@@ -4059,7 +4136,8 @@ C_RET cryptDeviceQueryCapability( C_IN CRYPT_DEVICE device,
 			{
 			BYTE buffer[ MAX_ATTRIBUTE_SIZE ];
 			const int algoNameLength = \
-						strlen( ( char * ) cryptQueryInfo->algoName ) + 1;
+						strnlen_s( ( char * ) cryptQueryInfo->algoName,
+								   CRYPT_MAX_TEXTSIZE ) + 1;
 
 			memcpy( buffer, cryptQueryInfo->algoName, algoNameLength );
 			cryptlibToNativeString( cryptQueryInfo->algoName,
@@ -4485,6 +4563,8 @@ C_RET cryptCreateSession( C_OUT CRYPT_SESSION C_PTR session,
 #ifdef USE_EAP
   #include "io/eap.h"			/* For EAP_INFO */
 #endif /* USE_EAP */
+#include "kernel/objectfns.h"
+#include "misc/user.h"
 #include "session/session.h"
 #include "session/tls.h"
 
@@ -4548,7 +4628,14 @@ C_RET cryptFuzzInit( C_IN CRYPT_SESSION cryptSession,
 		}
 	if( cryptContext != CRYPT_UNUSED )
 		{
+		int privateKeyAlgo;		/* int vs. enum */
+		
+		status = krnlSendMessage( cryptContext, IMESSAGE_GETATTRIBUTE, 
+								  &privateKeyAlgo,CRYPT_CTXINFO_ALGO );
+		if( cryptStatusError( status ) )
+			return( status );
 		sessionInfoPtr->privateKey = cryptContext;
+		sessionInfoPtr->privateKeyAlgo = privateKeyAlgo;
 		krnlSendNotifier( sessionInfoPtr->privateKey, IMESSAGE_INCREFCOUNT );
 		}
 	switch( sessionInfoPtr->type )
@@ -4737,9 +4824,9 @@ static int transportDummyFunction( INOUT_PTR NET_STREAM_INFO *netStream )
 	return( CRYPT_OK );
 	}
 
-C_RET cryptFuzzSpecial( C_IN CRYPT_CONTEXT cryptContext, 
-						C_IN void *data, C_IN int dataLength, 
-						C_IN int isServer, C_IN int isHTTP )
+C_RET cryptFuzzNetworkSpecial( C_IN CRYPT_CONTEXT cryptContext, 
+							   C_IN void *data, C_IN int dataLength, 
+							   C_IN int isServer, C_IN int isHTTP )
 	{
 	ERROR_INFO localErrorInfo;
 #ifdef USE_EAP
@@ -4856,6 +4943,39 @@ C_RET cryptFuzzSpecial( C_IN CRYPT_CONTEXT cryptContext,
 		}
 	
 	return( CRYPT_OK );
+	}
+
+C_RET cryptFuzzSpecial( C_IN void *data, C_IN int dataLength )
+	{
+	MESSAGE_CREATEOBJECT_INFO createInfo;
+	USER_INFO *userInfoPtr;
+	int status;
+
+	/* Create a test user to read the fuzzed configuration data into */
+	setMessageCreateObjectInfo( &createInfo, 0 );
+	createInfo.strArg1 = "Fuzzing test user";
+	createInfo.strArgLen1 = 17;
+	createInfo.strArg2 = "Fuzzing test password";
+	createInfo.strArgLen2 = 21;
+	status = createUser( &createInfo, NULL, 0 );
+	assert( cryptStatusOK( status ) );
+
+	/* Get the user state information so that we can call directly into
+	   internal functions */
+	status = krnlAcquireObject( createInfo.cryptHandle, OBJECT_TYPE_USER, 
+								( MESSAGE_PTR_CAST ) &userInfoPtr,
+								CRYPT_ARGERROR_OBJECT );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* Read the configuration data into the test user object */
+	status = readConfig( userInfoPtr->objectHandle, data, 
+						 userInfoPtr->trustInfo );
+
+	krnlReleaseObject( createInfo.cryptHandle );
+	krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+
+	return( status );
 	}
 
 /* libfuzzer/honggfuzz requires additional functionality added to the 

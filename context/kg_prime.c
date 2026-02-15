@@ -878,7 +878,7 @@ int generateBignumEx( OUT_PTR BIGNUM *bignum,
 	status = getRandomFunction( getRandomState, buffer, noBytes );
 	if( cryptStatusError( status ) )
 		{
-		zeroise( buffer, CRYPT_MAX_PKCSIZE + DLP_OVERFLOW_SIZE );
+		zeroise( buffer, CRYPT_MAX_PKCSIZE );
 		return( status );
 		}
 

@@ -26,9 +26,9 @@
 	#pragma warning( disable: 4127 )
   #endif /* VC++ */
   #define getDescription( attributeInfoPtr ) \
-		  ( attributeInfoPtr != NULL && \
-		    attributeInfoPtr->description != NULL ) ? \
-			attributeInfoPtr->description : "(unknown blob attribute)"
+		  ( ( attributeInfoPtr ) != NULL && \
+		    ( attributeInfoPtr )->description != NULL ) ? \
+			( attributeInfoPtr )->description : "(unknown blob attribute)"
   #define TRACE_FIELDTYPE( attributeInfoPtr, stackPos ) \
 		  { \
 		  int i; \
@@ -706,7 +706,7 @@ static int readAttributeField( INOUT_PTR STREAM *stream,
 	BYTE buffer[ 512 + 8 ];
 	const void *dataPtr = NULL;
 	time_t timeVal;
-	int dataLength DUMMY_INIT, dataFlags = ATTR_FLAG_NONE;
+	int dataLength = 0, dataFlags = ATTR_FLAG_NONE;
 	int value DUMMY_INIT, status = CRYPT_OK;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -925,7 +925,21 @@ assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_CRITICAL | \
 			   Since these attributes are virtually never seen, there's no
 			   hash algorithm used by cryptlib that the attack would apply 
 			   to, and in any case the hash algorithms that are used aren't
-			   parameterised, we ignore the algorithm parameters field */
+			   parameterised, we ignore the algorithm parameters field.
+			   
+			   There is one thing that we don't check which is the annoying
+			   case of identical signature and hash algprithms but different 
+			   signature format types, specifically PKCS #1 vs. PSS, which 
+			   there's no way to record.  However this shouldn't be an issue 
+			   because swapping one for the other will cause an immediate
+			   signature check failure.  
+			   
+			   The one possible attack that's still available is one that
+			   takes advantage of the use of unauthenticated PSS parameters
+			   to attack the PSS signature format, but even that is 
+			   mitigated since we check the MGF and hash algorithm and the
+			   remaining PSS parameters are fixed and determined by the hash
+			   algorithm used */
 			{
 			CRYPT_ALGO_TYPE cryptAlgo;
 			ALGOID_PARAMS algoIDparams;
@@ -938,6 +952,7 @@ assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_CRITICAL | \
 			if( cryptStatusError( status ) )
 				break;
 			value = cryptAlgo;	/* int vs. enum */
+/*			valueExt = algoIDparams->encodingType converted to CRYPT_PKCFORMAT_TYPE */
 			break;
 			}
 
@@ -958,6 +973,7 @@ assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_CRITICAL | \
 								   value, flags, TRUE, errorInfo, 
 								   errorLocus, errorType ) );
 		}
+	ENSURES( isShortIntegerRangeNZ( dataLength ) );
 
 	/* It's binary data, add it as a string value */ 
 	status = addAttributeFieldString( attributePtrPtr, fieldID, subFieldID, 
@@ -1054,7 +1070,7 @@ int readAttribute( INOUT_PTR STREAM *stream,
 	BOOLEAN attributeContinues = TRUE;
 	int flags = criticalFlag ? ATTR_FLAG_CRITICAL : ATTR_FLAG_NONE;
 	LOOP_INDEX attributeFieldsProcessed;
-	int status = CRYPT_OK;
+	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( attributePtrPtr, sizeof( DATAPTR_ATTRIBUTE ) ) );
@@ -1147,6 +1163,7 @@ int readAttribute( INOUT_PTR STREAM *stream,
 				   the code flow to see this is sufficiently complex that we 
 				   clear it anyway for hygiene reasons */
 				status = CRYPT_OK;
+				ANALYSER_HINT_DEADSTORE_OK( status );
 				goto continueDecoding;
 				}
 
@@ -1175,6 +1192,7 @@ int readAttribute( INOUT_PTR STREAM *stream,
 						   from there.  As before, we reset the status even
 						   though it's techically not necessary */
 						status = CRYPT_OK;
+						ANALYSER_HINT_DEADSTORE_OK( status );
 						continue;
 						}
 					return( status );

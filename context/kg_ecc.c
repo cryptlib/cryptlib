@@ -212,9 +212,9 @@ static int generateECCPrivateValue( INOUT_PTR PKC_INFO *pkcInfo,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int generateECCPublicValue( INOUT_PTR PKC_INFO *pkcInfo )
 	{
-	BIGNUM *d = &pkcInfo->eccParam_d;
+	const BIGNUM *d = &pkcInfo->eccParam_d;
 	BIGNUM *qx = &pkcInfo->eccParam_qx, *qy = &pkcInfo->eccParam_qy;
-	EC_GROUP *ecCTX = pkcInfo->ecCTX;
+	const EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	EC_POINT *q = pkcInfo->tmpPoint;
 	int bnStatus = BN_STATUS;
 
@@ -339,7 +339,7 @@ static int checkECCDomainParameters( INOUT_PTR PKC_INFO *pkcInfo,
 	const BIGNUM *gx = &domainParams->gx, *gy = &domainParams->gy;
 	BIGNUM *tmp1 = &pkcInfo->tmp1, *tmp2 = &pkcInfo->tmp2;
 	BIGNUM *tmp3_h = &pkcInfo->tmp3;
-	EC_GROUP *ecCTX = pkcInfo->ecCTX;
+	const EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	EC_POINT *vp = pkcInfo->tmpPoint;
 	const BOOLEAN isStandardCurve = \
 			( pkcInfo->curveType != CRYPT_ECCCURVE_NONE ) ? TRUE : FALSE;
@@ -532,9 +532,9 @@ static int checkECCDomainParameters( INOUT_PTR PKC_INFO *pkcInfo,
 	if( bnStatusError( bnStatus ) )
 		return( getBnStatus( bnStatus ) );
 	tmp3hBits = BN_num_bits( tmp3_h );
-	nBits = BN_num_bits( n );
 	REQUIRES( tmp3hBits > 0 && \
-			  tmp3hBits < bytesToBits( CRYPT_MAX_PKCSIZE_ECC ) );
+			  tmp3hBits < bytesToBits(CRYPT_MAX_PKCSIZE_ECC ) );
+	nBits = BN_num_bits( n );
 	REQUIRES( nBits > 0 && \
 			  nBits < bytesToBits( CRYPT_MAX_PKCSIZE_ECC ) );
 	if( tmp3hBits * 14 > nBits )
@@ -631,7 +631,7 @@ int checkECCPublicValue( INOUT_PTR PKC_INFO *pkcInfo, const BIGNUM *qx,
 	{
 	const ECC_DOMAINPARAMS *domainParams = pkcInfo->domainParams;
 	const BIGNUM *p = &domainParams->p, *n = &domainParams->n;
-	EC_GROUP *ecCTX = pkcInfo->ecCTX;
+	const EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	EC_POINT *q = pkcInfo->tmpPoint;
 	int bnStatus = BN_STATUS;
 
@@ -673,7 +673,11 @@ int checkECCPublicValue( INOUT_PTR PKC_INFO *pkcInfo, const BIGNUM *qx,
 		return( CRYPT_ARGERROR_STR1 );
 		}
 
-	/* Verify that n * Q is the point at infinity */
+	/* Verify that n * Q is the point at infinity, i.e. that Q is in a 
+	   subgroup of order n.  For the NIST and Brainpool curves this 
+	   doesn't really matter much since the cofactor h = 1 so a small-
+	   subgroup attack isn't feasible, but we do it in any case for
+	   sanitary reasons */
 	CK( EC_POINT_mul( ecCTX, q, NULL, q, n, &pkcInfo->bnCTX ) );
 	if( bnStatusError( bnStatus ) )
 		return( getBnStatus( bnStatus ) );
@@ -695,9 +699,9 @@ static int checkECCPrivateKey( INOUT_PTR PKC_INFO *pkcInfo )
 	{
 	const ECC_DOMAINPARAMS *domainParams = pkcInfo->domainParams;
 	const BIGNUM *p = &domainParams->p;
-	BIGNUM *d = &pkcInfo->eccParam_d;
+	const BIGNUM *d = &pkcInfo->eccParam_d;
 	BIGNUM *tmp1 = &pkcInfo->tmp1, *tmp2 = &pkcInfo->tmp2;
-	EC_GROUP *ecCTX = pkcInfo->ecCTX;
+	const EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	EC_POINT *q = pkcInfo->tmpPoint;
 	int bnStatus = BN_STATUS;
 
@@ -866,8 +870,8 @@ int initCheckECCkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	const ECC_DOMAINPARAMS *domainParams;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	const EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	const BIGNUM *p;
-	EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	const BOOLEAN isPrivateKey = TEST_FLAG( contextInfoPtr->flags,
 											CONTEXT_FLAG_ISPUBLICKEY ) ? \
 								 FALSE : TRUE;

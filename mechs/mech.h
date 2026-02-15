@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  Signature/Keyex Mechanism Header File					*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2024					*
 *																			*
 ****************************************************************************/
 
@@ -39,7 +39,7 @@ enum { CTAG_RI_KEYAGREE = 1, CTAG_RI_KEK, CTAG_RI_PASSWORD, CTAG_RI_OTHER };
 
 /****************************************************************************
 *																			*
-*							Mechanism Function Prototypes					*
+*						Mechanism Data Types and Structures					*
 *																			*
 ****************************************************************************/
 
@@ -77,6 +77,24 @@ typedef enum {
 	SIGNATURE_TLS13,	/* As TLS but with RSA-PSS format */
 	SIGNATURE_LAST		/* Last possible signature type */
 	} SIGNATURE_TYPE;
+
+/* An extended form of setSigDataInfoHash() for when we have additional 
+   information available */
+
+#define setSigDataInfoHashEx( sigDataInfo, hash, algo, param ) \
+	{ \
+	memset( sigDataInfo, 0, sizeof( SIG_DATA_INFO ) ); \
+	( sigDataInfo )->hashContext = hash; \
+	( sigDataInfo )->hashAlgo = algo; \
+	( sigDataInfo )->hashParam = param; \
+	( sigDataInfo )->hashContext2 = CRYPT_UNUSED; \
+	}
+
+/****************************************************************************
+*																			*
+*								Mechanism Functions							*
+*																			*
+****************************************************************************/
 
 /* Signature read/write methods for the different format types.  Specifying
    input ranges gets a bit complicated because the functions are polymorphic 
@@ -148,7 +166,7 @@ CHECK_RETVAL_PTR \
 WRITEKEK_FUNCTION getWriteKekFunction( IN_ENUM( KEYEX ) \
 										const KEYEX_TYPE keyexType );
 
-/* Prototypes for keyex functions in keyex_int.c */
+/* Prototypes for functions in keyex_int.c */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 7 ) ) \
 int exportConventionalKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
@@ -194,79 +212,6 @@ int importPublicKey( IN_BUFFER( encryptedKeyLength ) const void *encryptedKey,
 					 IN_ENUM( KEYEX ) const KEYEX_TYPE keyexType,
 					 INOUT_PTR ERROR_INFO *errorInfo );
 
-/* Prototypes for signature functions in sign_cms.c */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 11 ) ) \
-int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
-							void *signature, 
-						IN_LENGTH_SHORT_Z const int sigMaxLength, 
-						OUT_LENGTH_BOUNDED_SHORT_Z( sigMaxLength ) \
-							int *signatureLength,
-						IN_HANDLE const CRYPT_CONTEXT signContext,
-						IN_HANDLE const CRYPT_CONTEXT iHashContext,
-						IN_BOOL const BOOLEAN useDefaultAuthAttr,
-						IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthAttr,
-						IN_HANDLE_OPT const CRYPT_SESSION iTspSession,
-						IN_ENUM( SIGNATURE ) \
-							const SIGNATURE_TYPE signatureType,
-						IN_BOOL const BOOLEAN useSmimeSig,
-						INOUT_PTR ERROR_INFO *errorInfo );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 7 ) ) \
-int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature, 
-					   IN_DATALENGTH const int signatureLength,
-					   IN_HANDLE const CRYPT_CONTEXT sigCheckContext,
-					   IN_HANDLE const CRYPT_CONTEXT iHashContext,
-					   OUT_OPT_HANDLE_OPT CRYPT_CERTIFICATE *iExtraData,
-					   IN_HANDLE const CRYPT_HANDLE iSigCheckKey,
-					   INOUT_PTR ERROR_INFO *errorInfo );
-
-/* Prototypes for signature functions in sign_pgp.c */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 9 ) ) \
-int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
-							void *signature, 
-						IN_LENGTH_SHORT_Z const int sigMaxLength, 
-						OUT_LENGTH_BOUNDED_SHORT_Z( sigMaxLength ) \
-							int *signatureLength, 
-						IN_HANDLE const CRYPT_CONTEXT iSignContext,
-						IN_HANDLE const CRYPT_CONTEXT iHashContext,
-						IN_BUFFER_OPT( sigAttributeLength ) \
-							const void *sigAttributes,
-						IN_LENGTH_SHORT_Z const int sigAttributeLength,
-						IN_RANGE( PGP_SIG_NONE, PGP_SIG_LAST - 1 ) \
-							const int sigType,
-						INOUT_PTR ERROR_INFO *errorInfo );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
-int checkSignaturePGP( IN_BUFFER( signatureLength ) const void *signature, 
-					   IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength,
-					   IN_HANDLE const CRYPT_CONTEXT sigCheckContext,
-					   IN_HANDLE const CRYPT_CONTEXT iHashContext,
-					   INOUT_PTR ERROR_INFO *errorInfo );
-
-/* Prototypes for common low-level signature functions in sign_int.c */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 8 ) ) \
-int createSignature( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
-						void *signature, 
-					 IN_LENGTH_SHORT_Z const int sigMaxLength, 
-					 OUT_LENGTH_BOUNDED_SHORT_Z( sigMaxLength ) \
-						int *signatureLength, 
-					 IN_HANDLE const CRYPT_CONTEXT iSignContext,
-					 IN_HANDLE const CRYPT_CONTEXT iHashContext,
-					 IN_HANDLE_OPT const CRYPT_CONTEXT iHashContext2,
-					 IN_ENUM( SIGNATURE ) \
-						const SIGNATURE_TYPE signatureType,
-					 INOUT_PTR ERROR_INFO *errorInfo );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 7 ) ) \
-int checkSignature( IN_BUFFER( signatureLength ) const void *signature, 
-					IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength,
-					IN_HANDLE const CRYPT_CONTEXT iSigCheckContext,
-					IN_HANDLE const CRYPT_CONTEXT iHashContext,
-					IN_HANDLE_OPT const CRYPT_CONTEXT iHashContext2,
-					IN_ENUM( SIGNATURE ) \
-						const SIGNATURE_TYPE signatureType,
-					INOUT_PTR ERROR_INFO *errorInfo );
-
 /* Prototypes for functions in keyex_rw.c */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2, 4 ) ) \
@@ -278,17 +223,97 @@ int getCmsKeyIdentifier( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 						 OUT_LENGTH_BOUNDED_Z( keyIDMaxLength ) \
 							int *keyIDlength );
 
-/* Prototypes for functions in sign_rw.c */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int readPgpOnepassSigPacket( INOUT_PTR STREAM *stream, 
-							 INOUT_PTR QUERY_INFO *queryInfo );
-
 /* Prototypes for functions in obj_qry.c */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int getPgpPacketInfo( INOUT_PTR STREAM *stream, 
 					  OUT_PTR QUERY_INFO *queryInfo,
 					  const QUERYOBJECT_TYPE objectTypeHint );
+
+/* Prototypes for signature functions in sign.c */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN sanityCheckSigDataInfo( IN_PTR \
+									const SIG_DATA_INFO *sigDataInfo,
+								IN_ENUM( SIGNATURE ) \
+									const SIGNATURE_TYPE signatureType,
+							    IN_BOOL const BOOLEAN isInternal );
+
+/* Prototypes for signature functions in sign_cms.c */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5, 11 ) ) \
+int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
+							void *signature, 
+						IN_LENGTH_SHORT_Z const int sigMaxLength, 
+						OUT_LENGTH_BOUNDED_SHORT_Z( sigMaxLength ) \
+							int *signatureLength,
+						IN_HANDLE const CRYPT_CONTEXT signContext,
+						IN_PTR const SIG_DATA_INFO *sigDataInfo,
+						IN_BOOL const BOOLEAN useDefaultAuthAttr,
+						IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthAttr,
+						IN_HANDLE_OPT const CRYPT_SESSION iTspSession,
+						IN_ENUM( SIGNATURE ) \
+							const SIGNATURE_TYPE signatureType,
+						IN_BOOL const BOOLEAN useSmimeSig,
+						INOUT_PTR ERROR_INFO *errorInfo );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4, 7 ) ) \
+int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature, 
+					   IN_DATALENGTH const int signatureLength,
+					   IN_HANDLE const CRYPT_CONTEXT sigCheckContext,
+					   IN_PTR const SIG_DATA_INFO *sigDataInfo,
+					   OUT_OPT_HANDLE_OPT CRYPT_CERTIFICATE *iExtraData,
+					   IN_HANDLE const CRYPT_HANDLE iSigCheckKey,
+					   INOUT_PTR ERROR_INFO *errorInfo );
+
+/* Prototypes for functions in sign_int.c */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5, 7 ) ) \
+int createSignature( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
+						void *signature, 
+					 IN_LENGTH_SHORT_Z const int sigMaxLength, 
+					 OUT_LENGTH_BOUNDED_SHORT_Z( sigMaxLength ) \
+						int *signatureLength, 
+					 IN_HANDLE const CRYPT_CONTEXT iSignContext,
+					 IN_PTR const SIG_DATA_INFO *sigDataInfo,
+					 IN_ENUM( SIGNATURE ) \
+						const SIGNATURE_TYPE signatureType,
+					 INOUT_PTR ERROR_INFO *errorInfo );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4, 6 ) ) \
+int checkSignature( IN_BUFFER( signatureLength ) const void *signature, 
+					IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength,
+					IN_HANDLE const CRYPT_CONTEXT iSigCheckContext,
+					IN_PTR const SIG_DATA_INFO *sigDataInfo,
+					IN_ENUM( SIGNATURE ) \
+						const SIGNATURE_TYPE signatureType,
+					INOUT_PTR ERROR_INFO *errorInfo );
+
+/* Prototypes for signature functions in sign_pgp.c */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5, 9 ) ) \
+int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
+							void *signature, 
+						IN_LENGTH_SHORT_Z const int sigMaxLength, 
+						OUT_LENGTH_BOUNDED_SHORT_Z( sigMaxLength ) \
+							int *signatureLength, 
+						IN_HANDLE const CRYPT_CONTEXT iSignContext,
+						IN_PTR const SIG_DATA_INFO *sigDataInfo,
+						IN_BUFFER_OPT( sigAttributeLength ) \
+							const void *sigAttributes,
+						IN_LENGTH_SHORT_Z const int sigAttributeLength,
+						IN_RANGE( PGP_SIG_NONE, PGP_SIG_LAST - 1 ) \
+							const int sigType,
+						INOUT_PTR ERROR_INFO *errorInfo );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4, 5 ) ) \
+int checkSignaturePGP( IN_BUFFER( signatureLength ) const void *signature, 
+					   IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength,
+					   IN_HANDLE const CRYPT_CONTEXT sigCheckContext,
+					   IN_PTR const SIG_DATA_INFO *sigDataInfo,
+					   INOUT_PTR ERROR_INFO *errorInfo );
+
+/* Prototypes for functions in sign_rw.c */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int readPgpOnepassSigPacket( INOUT_PTR STREAM *stream, 
+							 INOUT_PTR QUERY_INFO *queryInfo );
 
 #endif /* _MECHANISM_DEFINED */

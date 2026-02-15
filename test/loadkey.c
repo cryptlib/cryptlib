@@ -582,7 +582,7 @@ typedef struct {
 /* NIST curve P-256 */
 
 static const ECC_KEY eccP256TestKey = {
-#if 0
+#if 0	/* Explicit parameters for non-named curve */
 	CRYPT_ECCCURVE_NONE,
 	/* p */
 	256,
@@ -620,7 +620,7 @@ static const ECC_KEY eccP256TestKey = {
 	  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 
 	  0xBC, 0xE6, 0xFA, 0xAD, 0xA7, 0x17, 0x9E, 0x84, 
 	  0xF3, 0xB9, 0xCA, 0xC2, 0xFC, 0x63, 0x25, 0x51 },
-#else
+#else	/* Implicit parameters for named curve */
 	CRYPT_ECCCURVE_P256,
 	0, { 0 },	/* p */
 	0, { 0 },	/* a */
@@ -647,6 +647,28 @@ static const ECC_KEY eccP256TestKey = {
 	  0xD5, 0x7B, 0xA8, 0x13, 0x51, 0x0B, 0x50, 0x1C,
 	  0x7D, 0x8E, 0x14, 0x66, 0xE2, 0xF1, 0x49, 0x97,
 	  0x06, 0x49, 0x61, 0x67, 0xFA, 0xA3, 0xEA, 0x05 }
+	};
+
+/* Ed25519 */
+
+typedef struct {
+	const int pubLen; const BYTE pub[ 32 ];
+	const int privLen; const BYTE priv[ 32 ];
+	} ED25519_KEY;
+
+static const ED25519_KEY ed25519TestKey = {
+	/* pub */
+	256,
+	{ 0xD7, 0x5A, 0x98, 0x01, 0x82, 0xB1, 0x0A, 0xB7, 
+	  0xD5, 0x4B, 0xFE, 0xD3, 0xC9, 0x64, 0x07, 0x3A,
+	  0x0E, 0xE1, 0x72, 0xF3, 0xDA, 0xA6, 0x23, 0x25, 
+	  0xAF, 0x02, 0x1A, 0x68, 0xF7, 0x07, 0x51, 0x1A },
+	/* priv */
+	256,
+	{ 0x9D, 0x61, 0xB1, 0x9D, 0xEF, 0xFD, 0x5A, 0x60, 
+	  0xBA, 0x84, 0x4A, 0xF4, 0x92, 0xEC, 0x2C, 0xC4,
+	  0x44, 0x49, 0xC5, 0x69, 0x7B, 0x32, 0x69, 0x19, 
+	  0x70, 0x3B, 0xAC, 0x03, 0x1C, 0xAE, 0x7F, 0x60 }
 	};
 
 /****************************************************************************
@@ -848,13 +870,15 @@ BOOLEAN loadRSAContextsEx( const CRYPT_DEVICE cryptDevice,
 			free( rsaKey );
 			return( FALSE );
 			}
-		if( cryptQueryInfo.keySize != ( rsa1024TestKey.nLen >> 3 ) )
+		if( cryptQueryInfo.minKeySize == cryptQueryInfo.keySize && \
+			cryptQueryInfo.maxKeySize == cryptQueryInfo.keySize && \
+			cryptQueryInfo.keySize != ( rsa1024TestKey.nLen / 8 ) )
 			{
-			if( cryptQueryInfo.keySize != ( rsa2048TestKey.nLen >> 3 ) )
+			if( cryptQueryInfo.keySize != ( rsa2048TestKey.nLen / 8 ) )
 				{
 				printf( "Device requires a %d-bit key, which doesn't "
 						"correspond to any built-in\ncryptlib key.\n",
-						cryptQueryInfo.keySize );
+						cryptQueryInfo.keySize * 8 );
 				free( rsaKey );
 				return( FALSE );
 				}
@@ -1536,19 +1560,19 @@ BOOLEAN loadECDSAContexts( const CRYPT_DEVICE cryptDevice,
 								 ECDSA_PUBKEY_LABEL, ECDSA_PRIVKEY_LABEL ) );
 	}
 
-/* Load EDDSA encrytion contexts */
+/* Load 25519 encrytion contexts */
 
-BOOLEAN loadEDDSAContexts( const CRYPT_DEVICE cryptDevice,
+BOOLEAN load25519Contexts( const CRYPT_DEVICE cryptDevice,
 						   CRYPT_CONTEXT *sigCheckContext,
 						   CRYPT_CONTEXT *signContext )
 	{
-	CRYPT_PKCINFO_ECC *eccKey;
+	CRYPT_PKCINFO_DJB *ed25519Key;
 	const BOOLEAN isDevice = ( cryptDevice != CRYPT_UNUSED ) ? TRUE : FALSE;
-	const ECC_KEY *eccKeyData = &eccP256TestKey;
+	const ED25519_KEY *ed25519KeyData = &ed25519TestKey;
 	int status;
 
 	/* Allocate room for the public-key components */
-	if( ( eccKey = ( CRYPT_PKCINFO_ECC * ) malloc( sizeof( CRYPT_PKCINFO_ECC ) ) ) == NULL )
+	if( ( ed25519Key = ( CRYPT_PKCINFO_DJB * ) malloc( sizeof( CRYPT_PKCINFO_DJB ) ) ) == NULL )
 		return( FALSE );
 
 	/* Create the signature context */
@@ -1557,16 +1581,16 @@ BOOLEAN loadEDDSAContexts( const CRYPT_DEVICE cryptDevice,
 		if( isDevice )
 			{
 			status = cryptDeviceCreateContext( cryptDevice, signContext,
-											   CRYPT_ALGO_EDDSA );
+											   CRYPT_ALGO_ED25519 );
 			}
 		else
 			{
 			status = cryptCreateContext( signContext, CRYPT_UNUSED,
-										 CRYPT_ALGO_EDDSA );
+										 CRYPT_ALGO_ED25519 );
 			}
 		if( cryptStatusError( status ) )
 			{
-			free( eccKey );
+			free( ed25519Key );
 			if( status == CRYPT_ERROR_NOTAVAIL )
 				{
 				/* ECDSA support isn't always enabled, in which case we tell 
@@ -1577,33 +1601,22 @@ BOOLEAN loadEDDSAContexts( const CRYPT_DEVICE cryptDevice,
 					 "code %d, line %d.\n", status, __LINE__ );
 			return( FALSE );
 			}
-		if( !setLabel( *signContext, ECDSA_PRIVKEY_LABEL ) )
+		if( !setLabel( *signContext, ED25519_PRIVKEY_LABEL ) )
 			{
-			free( eccKey );
+			free( ed25519Key );
 			cryptDestroyContext( *signContext );
 			return( FALSE );
 			}
-		cryptInitComponents( eccKey, CRYPT_KEYTYPE_PRIVATE );
-		eccKey->curveType = CRYPT_ECCCURVE_25519;
-		if( eccKeyData->pLen > 0 )
-			{
-			cryptSetComponent( eccKey->p, eccKeyData->p, eccKeyData->pLen );
-			cryptSetComponent( eccKey->a, eccKeyData->a, eccKeyData->aLen );
-			cryptSetComponent( eccKey->b, eccKeyData->b, eccKeyData->bLen );
-			cryptSetComponent( eccKey->gx, eccKeyData->gx, eccKeyData->gxLen );
-			cryptSetComponent( eccKey->gy, eccKeyData->gy, eccKeyData->gyLen );
-			cryptSetComponent( eccKey->n, eccKeyData->n, eccKeyData->nLen );
-			}
-		cryptSetComponent( eccKey->qx, eccKeyData->qx, eccKeyData->qxLen );
-		cryptSetComponent( eccKey->qy, eccKeyData->qy, eccKeyData->qyLen );
-		cryptSetComponent( eccKey->d, eccKeyData->d, eccKeyData->dLen );
+		cryptInitComponents( ed25519Key, CRYPT_KEYTYPE_PRIVATE );
+		cryptSetComponent( ed25519Key->priv, ed25519KeyData->priv, ed25519KeyData->privLen );
+		cryptSetComponent( ed25519Key->pub, ed25519KeyData->pub, ed25519KeyData->pubLen );
 		status = cryptSetAttributeString( *signContext,
-									CRYPT_CTXINFO_KEY_COMPONENTS, eccKey,
-									sizeof( CRYPT_PKCINFO_ECC ) );
-		cryptDestroyComponents( eccKey );
+									CRYPT_CTXINFO_KEY_COMPONENTS, ed25519Key,
+									sizeof( CRYPT_PKCINFO_DJB ) );
+		cryptDestroyComponents( ed25519Key );
 		if( cryptStatusError( status ) )
 			{
-			free( eccKey );
+			free( ed25519Key );
 			cryptDestroyContext( *signContext );
 			printf( "Private key load failed with error code %d, line %d.\n", 
 					status, __LINE__ );
@@ -1611,7 +1624,7 @@ BOOLEAN loadEDDSAContexts( const CRYPT_DEVICE cryptDevice,
 			}
 		if( sigCheckContext == NULL )
 			{
-			free( eccKey );
+			free( ed25519Key );
 			return( TRUE );
 			}
 		}
@@ -1620,62 +1633,51 @@ BOOLEAN loadEDDSAContexts( const CRYPT_DEVICE cryptDevice,
 	if( isDevice )
 		{
 		status = cryptDeviceCreateContext( cryptDevice, sigCheckContext,
-										   CRYPT_ALGO_EDDSA );
+										   CRYPT_ALGO_ED25519 );
 		}
 	else
 		{
 		status = cryptCreateContext( sigCheckContext, CRYPT_UNUSED,
-									 CRYPT_ALGO_EDDSA );
+									 CRYPT_ALGO_ED25519 );
 		}
 	if( cryptStatusError( status ) )
 		{
-		free( eccKey );
+		free( ed25519Key );
 		if( signContext != NULL )
 			{
 			cryptDestroyContext( *signContext );
 			if( isDevice )
 				{
 				cryptDeleteKey( cryptDevice, CRYPT_KEYID_NAME,
-								ECDSA_PRIVKEY_LABEL );
+								ED25519_PRIVKEY_LABEL );
 				}
 			}
 		fprintf( outputStream, "cryptCreateContext() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		return( FALSE );
 		}
-	if( !setLabel( *sigCheckContext, ECDSA_PUBKEY_LABEL ) )
+	if( !setLabel( *sigCheckContext, ED25519_PUBKEY_LABEL ) )
 		{
-		free( eccKey );
+		free( ed25519Key );
 		if( signContext != NULL )
 			{
 			cryptDestroyContext( *signContext );
 			if( isDevice )
 				{
 				cryptDeleteKey( cryptDevice, CRYPT_KEYID_NAME,
-								ECDSA_PRIVKEY_LABEL );
+								ED25519_PRIVKEY_LABEL );
 				}
 			}
 		cryptDestroyContext( *sigCheckContext );
 		return( FALSE );
 		}
-	cryptInitComponents( eccKey, CRYPT_KEYTYPE_PUBLIC );
-	eccKey->curveType = CRYPT_ECCCURVE_25519;
-	if( eccKeyData->pLen > 0 )
-		{
-		cryptSetComponent( eccKey->p, eccKeyData->p, eccKeyData->pLen );
-		cryptSetComponent( eccKey->a, eccKeyData->a, eccKeyData->aLen );
-		cryptSetComponent( eccKey->b, eccKeyData->b, eccKeyData->bLen );
-		cryptSetComponent( eccKey->gx, eccKeyData->gx, eccKeyData->gxLen );
-		cryptSetComponent( eccKey->gy, eccKeyData->gy, eccKeyData->gyLen );
-		cryptSetComponent( eccKey->n, eccKeyData->n, eccKeyData->nLen );
-		}
-	cryptSetComponent( eccKey->qx, eccKeyData->qx, eccKeyData->qxLen );
-	cryptSetComponent( eccKey->qy, eccKeyData->qy, eccKeyData->qyLen );
+	cryptInitComponents( ed25519Key, CRYPT_KEYTYPE_PUBLIC );
+	cryptSetComponent( ed25519Key->pub, ed25519KeyData->pub, ed25519KeyData->pubLen );
 	status = cryptSetAttributeString( *sigCheckContext,
-									  CRYPT_CTXINFO_KEY_COMPONENTS, eccKey,
-									  sizeof( CRYPT_PKCINFO_ECC ) );
-	cryptDestroyComponents( eccKey );
-	free( eccKey );
+									  CRYPT_CTXINFO_KEY_COMPONENTS, ed25519Key,
+									  sizeof( CRYPT_PKCINFO_DJB ) );
+	cryptDestroyComponents( ed25519Key );
+	free( ed25519Key );
 	if( cryptStatusError( status ) )
 		{
 		if( signContext != NULL )

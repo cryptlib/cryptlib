@@ -303,7 +303,7 @@ static int connectRTCS( const CRYPT_SESSION_TYPE sessionType,
 #ifdef UNICODE_STRINGS
 	wchar_t wcBuffer[ FILENAME_BUFFER_SIZE ];
 #endif /* UNICODE_STRINGS */
-	void *fileNamePtr = filenameBuffer;
+	const void *fileNamePtr = filenameBuffer;
 	const BOOLEAN isServer = ( sessionType == CRYPT_SESSION_RTCS_SERVER ) ? \
 							   TRUE : FALSE;
 	int status;
@@ -670,7 +670,7 @@ static int connectSCVP( const CRYPT_SESSION_TYPE sessionType,
 #ifdef UNICODE_STRINGS
 	wchar_t wcBuffer[ FILENAME_BUFFER_SIZE ];
 #endif /* UNICODE_STRINGS */
-	void *fileNamePtr = filenameBuffer;
+	const void *fileNamePtr = filenameBuffer;
 	const BOOLEAN isServer = ( sessionType == CRYPT_SESSION_SCVP_SERVER ) ? \
 							   TRUE : FALSE;
 	int status;
@@ -1098,7 +1098,7 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 #ifdef UNICODE_STRINGS
 	wchar_t wcBuffer[ FILENAME_BUFFER_SIZE ];
 #endif /* UNICODE_STRINGS */
-	void *fileNamePtr = filenameBuffer;
+	const void *fileNamePtr = filenameBuffer;
 #if OCSP_SERVER_NO == 7
 	int complianceValue;
 #endif /* OCSP servers that return broken resposnes */
@@ -1638,13 +1638,14 @@ int testSessionOCSPMulticertClientServer( void )
 	#15 - OpenTSA 
 			Currently not active, info at http://opentsa.org/#service 
 	#16 - Sectigo
-			None, active as of 2022.
+			None, active as of 2025.  Occasionally returns random failures 
+			with no further information given.
 	#17 - Redwax test server, info at https://interop.redwax.eu/rs/timestamp/
 			None, active as of 2022.
 	#18 - Sectigo eIDAS server, documented at
 			https://www.sectigo.com/resource-library/time-stamping-server
 	#19 - Digicert
-			None.
+			None, active as of 2025.
 
    Note that this only tests the low-level raw TSP mechanism, timestamps are 
    usually used in conjunction with signed (enveloped) data, for which see 
@@ -1677,7 +1678,7 @@ static const struct {
 	{ NULL, NULL }
 	};
 
-#define TSP_SERVER_NO		16
+#define TSP_SERVER_NO		19
 
 /* Perform a timestamping test */
 

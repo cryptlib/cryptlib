@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							cryptlib SSH Test Routines						*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -64,10 +64,12 @@ typedef enum {
 	SSH_TEST_NORMAL,			/* Standard SSHv2 test */
 	SSH_TEST_DSAKEY,			/* DSA server key instead of RSA */
 	SSH_TEST_ECCKEY,			/* ECDSA server key instead of RSA */
+	SSH_TEST_ED25519KEY,		/* Ed25519 server key instead of RSA */
 	SSH_TEST_PUBKEYAUTH,		/* Use public key for auth */
 	SSH_TEST_PUBKEYAUTH_WRONGKEY, /* Use public key for auth but with wrong key */
 	SSH_TEST_PUBKEYAUTH_WRONGNAME, /* Use public key for auth but with wrong name */
 	SSH_TEST_PUBKEYAUTH_PASSWORD,/* Enable public key but use password */
+	SSH_TEST_PUBKEYAUTH_NOPUBKEY,/* Try public-key auth with it disabled in server */
 	SSH_TEST_PREAUTH,			/* Use pre-authentication before connect */
 	SSH_TEST_PREAUTH_MISSING,	/* Use pre-auth but client doesn't send it */
 	SSH_TEST_PREAUTH_WRONG,		/* Use pre-auth but auth with wrong value */
@@ -409,7 +411,7 @@ int testSessionAttributes( void )
 #if 0
 
 /* The difference between the NTP and Unix epoch, in seconds: 1970 - 1900,
-   from RFC 5905*/
+   from RFC 5905 */
 
 #define EPOCH_DIFF	2208988800UL
 
@@ -517,7 +519,8 @@ int testClockProblems( void )
 	Server 2: Sends extraneous lines of text before the SSH ID string
 			  (technically allowed by the RFC, but probably not in the way
 			  that it's being used here).
-	Server 3: Reference ssh.com implementation.
+	Server 3: Reference ssh.com implementation.  Started rejecting SSH 
+			  connections some time in 2022.
 	Server 4: Reference OpenSSH implementation.  As of early 2016 switched 
 			  to a bunch of oddball nonstandard suites that we don't support.
 	Server 5: OpenSSH with ECC support.  There are two aliases for the same 
@@ -639,7 +642,7 @@ static const struct {
 	{ NULL, NULL, NULL, FALSE }
 	};
 
-#define SSH2_SERVER_NO	3
+#define SSH2_SERVER_NO	16
 
 #ifdef TEST_SESSION_LOOPBACK
 
@@ -1105,6 +1108,7 @@ static int connectSSH( const CRYPT_SESSION_TYPE sessionType,
 			 localSession ? "local " : "",
 			 ( testType == SSH_TEST_DSAKEY ) ? " with DSA server key" : \
 			 ( testType == SSH_TEST_ECCKEY ) ? " with ECDSA server key" : \
+			 ( testType == SSH_TEST_ED25519KEY ) ? " with Ed25519 server key" : \
 			 ( testType == SSH_TEST_SUBSYSTEM ) ? " SFTP" : \
 			 ( testType == SSH_TEST_PORTFORWARDING ) ? " port-forwarding" : \
 			 ( testType == SSH_TEST_EXEC ) ? " remote exec" : \
@@ -1113,6 +1117,7 @@ static int connectSSH( const CRYPT_SESSION_TYPE sessionType,
 			 ( testType == SSH_TEST_PUBKEYAUTH_WRONGKEY ) ? " pubkey-auth with incorrect key" : \
 			 ( testType == SSH_TEST_PUBKEYAUTH_WRONGNAME ) ? " pubkey-auth with incorrect name" : \
 			 ( testType == SSH_TEST_PUBKEYAUTH_PASSWORD ) ? " pubkey-auth but using password" : \
+			 ( testType == SSH_TEST_PUBKEYAUTH_NOPUBKEY ) ? " pubkey-auth with it disabled on the servver" : \
 			 ( testType == SSH_TEST_TOTPAUTH ) ? " TOTP auth" : \
 			 ( testType == SSH_TEST_PREAUTH ) ? " pre-authentication" : \
 			 ( testType == SSH_TEST_PREAUTH_MISSING ) ? " pre-authentication absent" : \
@@ -1212,6 +1217,7 @@ static int connectSSH( const CRYPT_SESSION_TYPE sessionType,
 			return( FALSE );
 			}
 		filenameFromTemplate( filenameBuffer, SSH_PRIVKEY_FILE_TEMPLATE, 
+							  ( testType == SSH_TEST_ED25519KEY ) ? 4 : \
 							  ( testType == SSH_TEST_ECCKEY ) ? 3 : \
 							  ( testType == SSH_TEST_DSAKEY ) ? 2 : 1 );
 #ifdef UNICODE_STRINGS
@@ -1330,7 +1336,8 @@ static int connectSSH( const CRYPT_SESSION_TYPE sessionType,
 			const BOOLEAN usePubkeyAuth = \
 				( testType == SSH_TEST_PUBKEYAUTH || \
 				  testType == SSH_TEST_PUBKEYAUTH_WRONGKEY || \
-				  testType == SSH_TEST_PUBKEYAUTH_WRONGNAME ) ? TRUE : FALSE;
+				  testType == SSH_TEST_PUBKEYAUTH_WRONGNAME || \
+				  testType == SSH_TEST_PUBKEYAUTH_NOPUBKEY ) ? TRUE : FALSE;
 
 			if( usePubkeyAuth || useDualAuth )
 				{
@@ -1358,7 +1365,7 @@ static int connectSSH( const CRYPT_SESSION_TYPE sessionType,
 					if( useDualAuth || \
 						sshInfo[ SSH2_SERVER_NO ].overridePubkeyUsername )
 						{
-						const BYTE *userNamePtr = \
+						const char *userNamePtr = \
 										sshInfo[ SSH2_SERVER_NO ].userName;
 
 						status = cryptSetAttributeString( cryptSession,
@@ -1453,8 +1460,8 @@ static int connectSSH( const CRYPT_SESSION_TYPE sessionType,
 			   fail */
 			memset( fingerPrint, 0, CRYPT_MAX_HASHSIZE );
 			status = cryptSetAttributeString( cryptSession,
-											  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
-											  fingerPrint, 20 );
+										CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
+										fingerPrint, 32 );
 			}
 #ifdef USE_SSH_EXTENDED
 		if( cryptStatusOK( status ) && \
@@ -1636,6 +1643,7 @@ dualThreadContinue:
 		if( isErrorTest || testType == SSH_TEST_PUBKEYAUTH_WRONGKEY || \
 						   testType == SSH_TEST_PUBKEYAUTH_WRONGNAME || \
 						   testType == SSH_TEST_PUBKEYAUTH_PASSWORD || \
+						   testType == SSH_TEST_PUBKEYAUTH_NOPUBKEY || \
 						   testType == SSH_TEST_PREAUTH_MISSING || \
 						   testType == SSH_TEST_PREAUTH_WRONG )
 			{
@@ -1647,8 +1655,9 @@ dualThreadContinue:
 				  testType != SSH_TEST_PUBKEYAUTH_WRONGKEY && \
 				  testType != SSH_TEST_PUBKEYAUTH_WRONGNAME && \
 				  testType != SSH_TEST_PUBKEYAUTH_PASSWORD && \
+				  testType != SSH_TEST_PUBKEYAUTH_NOPUBKEY && \
 				  testType != SSH_TEST_PREAUTH_MISSING && \
-				  testType != SSH_TEST_PREAUTH_WRONG) && \
+				  testType != SSH_TEST_PREAUTH_WRONG ) && \
 				( status != CRYPT_ERROR_SIGNATURE && \
 				  status != CRYPT_ERROR_BADDATA && \
 				  status != CRYPT_ERROR_PERMISSION ) )
@@ -1699,7 +1708,8 @@ dualThreadContinue:
 			}
 		if( ( status == CRYPT_ERROR_NOTINITED || \
 			  status == CRYPT_ERROR_NOTAVAIL ) && \
-			!memcmp( sshInfo[ SSH2_SERVER_NO ].name, "www.gitlab", 10 ) )
+			( !memcmp( sshInfo[ SSH2_SERVER_NO ].name, "www.gitlab", 10 ) || 
+			  !memcmp( sshInfo[ SSH2_SERVER_NO ].name, "github.com", 10 ) ) )
 			{
 			/* Yet another soft-error condition, if we're using gitlab as our
 			   test server then as of 2023 it only allows pubkey auth so we
@@ -1724,6 +1734,7 @@ dualThreadContinue:
 		return( FALSE );
 		}
 	if( testType == SSH_TEST_PUBKEYAUTH_WRONGKEY || \
+		testType == SSH_TEST_PUBKEYAUTH_NOPUBKEY || \
 		testType == SSH_TEST_PUBKEYAUTH_WRONGNAME )
 		{
 		cryptDestroySession( cryptSession );
@@ -2127,6 +2138,12 @@ dualThreadContinue:
 	return( TRUE );
 	}
 
+/****************************************************************************
+*																			*
+*							SSH Client/Server Tests							*
+*																			*
+****************************************************************************/
+
 int testSessionSSH( void )
 	{
 	return( connectSSH( CRYPT_SESSION_SSH, SSH_TEST_NORMAL, FALSE ) );
@@ -2215,6 +2232,34 @@ int testSessionSSHServerTOTPAuth( void )
 
 	return( status );
 	}
+int testSessionSSHServerEccKey( void )
+	{
+#ifdef USE_ECDSA
+	int status;
+
+	createMutex();
+	status = connectSSH( CRYPT_SESSION_SSH_SERVER, SSH_TEST_ECCKEY, TRUE );
+	destroyMutex();
+
+	return( status );
+#else
+	return( TRUE );
+#endif /* USE_ECDSA */
+	}
+int testSessionSSHServerEd25519Key( void )
+	{
+#ifdef USE_ED25519
+	int status;
+
+	createMutex();
+	status = connectSSH( CRYPT_SESSION_SSH_SERVER, SSH_TEST_ED25519KEY, FALSE );
+	destroyMutex();
+
+	return( status );
+#else
+	return( TRUE );
+#endif /* USE_SSH_EXTENDED */
+	}
 int testSessionSSH_SFTPServer( void )
 	{
 #ifdef USE_SSH_EXTENDED
@@ -2302,6 +2347,16 @@ int testSessionSSHClientServerEccKey( void )
 
 	return( sshClientServer( SSH_TEST_ECCKEY ) );
 	}
+int testSessionSSHClientServerEd25519Key( void )
+	{
+	/* Ed25519 may not be available so we only run this test if it's 
+	   been enabled */
+	if( cryptQueryCapability( CRYPT_ALGO_ED25519, \
+							  NULL ) == CRYPT_ERROR_NOTAVAIL )
+		return( TRUE );
+
+	return( sshClientServer( SSH_TEST_ED25519KEY ) );
+	}
 int testSessionSSHClientServerPubkeyAuth( void )
 	{
 	return( sshClientServer( SSH_TEST_PUBKEYAUTH ) );
@@ -2317,6 +2372,10 @@ int testSessionSSHClientServerPubkeyAuthWrongName( void )
 int testSessionSSHClientServerPubkeyAuthPassword( void )
 	{
 	return( sshClientServer( SSH_TEST_PUBKEYAUTH_PASSWORD ) );
+	}
+int testSessionSSHClientServerPubkeyAuthNoPubkey( void )
+	{
+	return( sshClientServer( SSH_TEST_PUBKEYAUTH_NOPUBKEY ) );
 	}
 int testSessionSSHClientServerPreauth( void )
 	{

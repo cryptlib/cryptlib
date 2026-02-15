@@ -187,7 +187,9 @@ static const DN_COMPONENT_INFO certInfoOIDs[] = {
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN checkCountryCode( IN_BUFFER_C( 2 ) const BYTE *countryCode )
 	{
-	static const long countryCodes[] = {	/* ISO 3166 code table */
+	/* ISO 3166 code table, with an addition for 'UN' which isn't an ISO 
+	   country code but is used in certificates issued by the UN */
+	static const long countryCodes[] = {
 	/*	 A  B  C  D  E  F  G  H  I  J  K  L  M  N  O  P  Q  R  S  T  U  V  W  X  Y  Z */
   /*A*/			 xD|xE|xF|xG|	xI|		 xL|xM|	  xO|	xQ|xR|xS|xT|xU|	  xW|xX|   xZ, /*A*/
   /*B*/	xA|xB|	 xD|xE|xF|xG|xH|xI|xJ|	 xL|xM|xN|xO|	   xR|xS|xT|   xV|xW|	xY|xZ, /*B*/
@@ -209,7 +211,7 @@ static BOOLEAN checkCountryCode( IN_BUFFER_C( 2 ) const BYTE *countryCode )
   /*R*/				xE|							  xO|		  xS|xU|	  xW,		   /*R*/
   /*S*/	xA|xB|xC|xD|xE|	  xG|xH|xI|xJ|xK|xL|xM|xN|xO|	   xR|xS|xT|   xV|	 xX|xY|xZ, /*S*/
   /*T*/		  xC|xD|   xF|xG|xH|   xJ|xK|xL|xM|xN|xO|	   xR|	 xT|   xV|xW|	   xZ, /*T*/
-  /*U*/	xA|				  xG|				xM|				  xS|				xY|xZ, /*U*/
+  /*U*/	xA|				  xG|				xM|xN|			  xS|				xY|xZ, /*U*/
   /*V*/	xA|	  xC|	xE|	  xG|	xI|			   xN|					xU,				   /*V*/
   /*W*/				   xF|									  xS,					   /*W*/
   /*X*/	0,																			   /*X*/
@@ -637,7 +639,8 @@ int insertDNstring( INOUT_PTR DATAPTR_DN *dnListHeadPtr,
 	{
 	const DN_COMPONENT_INFO *dnComponentInfo = NULL;
 	DATAPTR_ATTRIBUTE listHead = *dnListHeadPtr;
-	DN_COMPONENT *newElement, *listHeadPtr, *insertPoint;
+	const DN_COMPONENT *listHeadPtr;
+	DN_COMPONENT *newElement, *insertPoint;
 	BYTE countryCode[ 8 + 8 ];
 
 	assert( isWritePtr( dnListHeadPtr, sizeof( DATAPTR_DN ) ) );
@@ -794,7 +797,7 @@ int insertDNstring( INOUT_PTR DATAPTR_DN *dnListHeadPtr,
 	DATAPTR_SET( newElement->prev, NULL );
 	DATAPTR_SET( newElement->next, NULL );
 
-	ENSURES( sanityCheckDNComponent( newElement ) );
+	ENSURES_PTR( sanityCheckDNComponent( newElement ), newElement );
 
 	/* Link it into the list */
 	insertDoubleListElement( dnListHeadPtr, insertPoint, newElement, 

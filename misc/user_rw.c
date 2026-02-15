@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					 cryptlib Configuration Read/Write Routines				*
-*						Copyright Peter Gutmann 1994-2008					*
+*						Copyright Peter Gutmann 1994-2024					*
 *																			*
 ****************************************************************************/
 
@@ -32,20 +32,19 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int readConfigOption( INOUT_PTR STREAM *stream, 
 							 IN_HANDLE CRYPT_USER iCryptUser )
 	{
-	CRYPT_ATTRIBUTE_TYPE attributeType;
 	const BUILTIN_OPTION_INFO *builtinOptionInfoPtr;
-	MESSAGE_DATA msgData;
 	void *dataPtr DUMMY_INIT_PTR;
 	long optionCode;
-	int value, tag, length, status;
+	int value, length DUMMY_INIT, status;
 
 	/* Read the wrapper and option index and map it to the actual option.  
 	   If we find an unknown index or one that shouldn't be writeable to 
 	   persistent storage, we skip it and continue.  This is done to handle 
 	   new options that may have been added after this version of cryptlib 
 	   was built (for unknown indices) and because the stored configuration 
-	   options are an untrusted source so we have to check for attempts to 
-	   feed in bogus values (for non-writeable options) */
+	   options are a possibly-untrusted source so we have to check for 
+	   attempts to feed in bogus values (for non-writeable options, denoted
+	   with an index value of CRYPT_UNUSED) */
 	readSequence( stream, NULL );
 	status = readShortInteger( stream, &optionCode );
 	if( cryptStatusError( status ) )
@@ -53,6 +52,8 @@ static int readConfigOption( INOUT_PTR STREAM *stream,
 	if( optionCode < 0 || optionCode > LAST_OPTION_INDEX )
 		{
 		/* Unknown option, ignore it */
+		DEBUG_DIAG(( "Skipping unknown configuration option %d", 
+					 optionCode ));
 		return( readUniversal( stream ) );
 		}
 	builtinOptionInfoPtr = getBuiltinOptionInfoByCode( optionCode );
@@ -61,57 +62,81 @@ static int readConfigOption( INOUT_PTR STREAM *stream,
 		builtinOptionInfoPtr->index > LAST_OPTION_INDEX || \
 		builtinOptionInfoPtr->index == CRYPT_UNUSED )
 		{
-		/* Unknown option, ignore it */
+		/* Disallowed option, ignore it */
+		DEBUG_DIAG(( "Skipping disallowed configuration option %ld", 
+					 optionCode ));
 		return( readUniversal( stream ) );
 		}
-	attributeType = builtinOptionInfoPtr->option;
 
-	/* Read the option value and set the option.  We don't treat a failure 
-	   to set the option as a problem since the user probably doesn't want 
-	   the entire system to fail because of a bad configuration option, and 
-	   in any case we'll fall back to a safe default value */
-	status = tag = peekTag( stream );
-	if( cryptStatusError( status ) )
-		return( status );
-	if( tag == BER_BOOLEAN || tag == BER_INTEGER )
+	/* Read the option value */
+	switch( builtinOptionInfoPtr->type )
 		{
-		/* It's a numeric value, read the appropriate type and try and set 
-		   the option */
-		if( tag == BER_BOOLEAN )
+		case OPTION_BOOLEAN:
 			status = readBoolean( stream, &value );
-		else
+			if( cryptStatusError( status ) )
+				return( status );
+			break;
+
+		case OPTION_NUMERIC:
 			{
 			long integer;
 
 			status = readShortInteger( stream, &integer );
-			if( cryptStatusOK( status ) )
-				{
-				if( !isIntegerRange( integer ) )
-					return( CRYPT_ERROR_BADDATA );
-				value = ( int ) integer;
-				}
+			if( cryptStatusError( status ) )
+				return( status );
+			if( !isIntegerRange( integer ) )
+				return( CRYPT_ERROR_BADDATA );
+			value = ( int ) integer;
+			break;
 			}
-		if( cryptStatusError( status ) )
-			return( status );
-		( void ) krnlSendMessage( iCryptUser, IMESSAGE_SETATTRIBUTE, 
-								  &value, attributeType );
-		return( CRYPT_OK );
+
+		case OPTION_STRING:
+			status = readGenericHole( stream, &length, 1, BER_STRING_UTF8 );
+			if( cryptStatusOK( status ) && \
+				( !isShortIntegerRangeNZ( length ) || \
+				  length > MAX_ATTRIBUTE_SIZE ) )
+				status = CRYPT_ERROR_BADDATA;
+			if( cryptStatusError( status ) )
+				return( status );
+
+			/* Get the string data in-place */
+			status = sMemGetDataBlock( stream, &dataPtr, length );
+			if( cryptStatusOK( status ) )
+				status = sSkip( stream, length, SSKIP_MAX );
+			if( cryptStatusError( status ) )
+				return( status );
+			break;
+
+		default:
+			retIntError();
 		}
 
-	/* It's a string value, set the option straight from the encoded data */
-	status = readGenericHole( stream, &length, 1, BER_STRING_UTF8 );
-	if( cryptStatusOK( status ) && !isShortIntegerRangeNZ( length ) )
-		status = CRYPT_ERROR_BADDATA;
-	if( cryptStatusOK( status ) )
-		status = sMemGetDataBlock( stream, &dataPtr, length );
-	if( cryptStatusOK( status ) )
-		status = sSkip( stream, length, SSKIP_MAX );
-	if( cryptStatusError( status ) )
-		return( status );
-	setMessageData( &msgData, dataPtr, length );
-	( void ) krnlSendMessage( iCryptUser, IMESSAGE_SETATTRIBUTE_S, 
-							  &msgData, attributeType );
+	/* Set the option.  Note that we make this an external message since 
+	   the data is coming from a technically-trusted-but-we-can't-guarantee-
+	   it source.
+	
+	   We don't treat a failure to set the option as a problem since the 
+	   user probably doesn't want the entire system to fail because of a bad 
+	   configuration option, and in any case we'll fall back to a safe default 
+	   value */
+	if( builtinOptionInfoPtr->type == OPTION_STRING )
+		{
+		MESSAGE_DATA msgData;
 
+		setMessageData( &msgData, dataPtr, length );
+		( void ) krnlSendMessage( iCryptUser, MESSAGE_SETATTRIBUTE_S, 
+								  &msgData, builtinOptionInfoPtr->option );
+		DEBUG_DIAG(( "Set configuration option %d to '%s'", 
+					 builtinOptionInfoPtr->option, dataPtr ));
+		}
+	else
+		{
+		( void ) krnlSendMessage( iCryptUser, MESSAGE_SETATTRIBUTE, 
+								  &value, builtinOptionInfoPtr->option );
+		DEBUG_DIAG(( "Set configuration option %d to %d", 
+					 builtinOptionInfoPtr->option, value ));
+		}
+	
 	return( CRYPT_OK );
 	}
 
@@ -352,14 +377,16 @@ int readConfig( IN_HANDLE const CRYPT_USER iCryptUser,
 	   with the built-in defaults */
 	status = fileBuildCryptlibPath( configFilePath, MAX_PATH_LENGTH, 
 									&configFilePathLen, fileName, 
-									strlen( fileName ), BUILDPATH_GETPATH );
+									strnlen_s( fileName, MAX_PATH_LENGTH ), 
+									BUILDPATH_GETPATH );
 	if( cryptStatusError( status ) )
 		return( CRYPT_OK );		/* Can't build configuration path */
 	setMessageCreateObjectInfo( &createInfo, CRYPT_KEYSET_FILE );
-	createInfo.arg2 = CRYPT_KEYOPT_READONLY;
+	createInfo.arg2 = CRYPT_IKEYOPT_SAFEREAD;
 	createInfo.strArg1 = configFilePath;
 	createInfo.strArgLen1 = configFilePathLen;
-	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_DEV_CREATEOBJECT,
+	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, 
+							  IMESSAGE_DEV_CREATEOBJECT,
 							  &createInfo, OBJECT_TYPE_KEYSET );
 	if( cryptStatusError( status ) )
 		return( CRYPT_OK );		/* No configuration data present */
@@ -573,7 +600,7 @@ int commitConfigData( IN_STRING const char *fileName,
 	/* Build the path to the configuration file and try and create it */
 	status = fileBuildCryptlibPath( configFilePath, MAX_PATH_LENGTH, 
 									&configFilePathLen, fileName, 
-									strlen( fileName ), 
+									strnlen_s( fileName, MAX_PATH_LENGTH ), 
 									BUILDPATH_CREATEPATH );
 	if( cryptStatusError( status ) )
 		{
@@ -653,7 +680,8 @@ int deleteConfig( IN_STRING const char *fileName )
 
 	status = fileBuildCryptlibPath( configFilePath, MAX_PATH_LENGTH, 
 									&configFilePathLen, fileName, 
-									strlen( fileName ), BUILDPATH_GETPATH );
+									strnlen_s( fileName, MAX_PATH_LENGTH ), 
+									BUILDPATH_GETPATH );
 	if( cryptStatusOK( status ) )
 		{
 		configFilePath[ configFilePathLen ] = '\0';

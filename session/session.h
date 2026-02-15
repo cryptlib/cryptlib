@@ -230,6 +230,7 @@ typedef enum {
 #ifdef USE_WEBSOCKETS
 
 #define TLS_WS_BUFSIZE		32
+#define TLS_WS_MASKSIZE		4
 
 typedef struct {
 	/* The WebSockets header */
@@ -239,7 +240,7 @@ typedef struct {
 	int headerBytesRequired;			/* Bytes required for header */
 
 	/* The mask value used to mask client -> server packets */
-	BYTE mask[ 4 + 8 ];
+	BYTE mask[ TLS_WS_MASKSIZE + 8 ];
 	int maskPos;						/* Position in mask buffer */
 
 	/* Payload information */
@@ -255,7 +256,7 @@ typedef struct {
 typedef struct {
 	/* Session state information */
 	int sessionCacheID;					/* Session cache ID for this session */
-	int minVersion;						/* Minimum acceptable protocol version */
+	int minVersion, maxVersion;			/* Min.and max.protocol versions */
 	int ivSize;							/* Explicit IV size for TLS 1.1+ */
 
 	/* The incoming and outgoing packet sequence number, for detecting 
@@ -697,8 +698,10 @@ typedef struct SI {
 	int cryptBlocksize, authBlocksize;	/* Block size of crypt, auth.algos */
 
 	/* The private key, which is required to authenticate the client or 
-	   server in some protocols */
+	   server in some protocols.  We also record the algorithm for it
+	   since it's required for various checks */
 	CRYPT_CONTEXT privateKey;			/* Authentication private key */
+	CRYPT_ALGO_TYPE privateKeyAlgo;		/* Private key algorithm */
 
 	/* Certificate store for certificate management protocols like OCSP and 
 	   CMP and private-key keyset for PnP PKI protocols */

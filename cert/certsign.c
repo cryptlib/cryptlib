@@ -950,6 +950,15 @@ static int initSignatureInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 		*hashParam = 20;
 		}
 #endif /* USE_DSA */
+#ifdef USE_ED25519
+	if( isBernsteinAlgo( signingAlgo ) )
+		{
+		/* The usual special-snowflake handling, in this case the algorithms
+		   implicitly hardcode SHA2-512 */
+		*hashAlgo = CRYPT_ALGO_SHA2;
+		*hashParam = 64;
+		}
+#endif /* USE_ED25519 */
 	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 		certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN || \
 		certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT )
@@ -1301,7 +1310,7 @@ static int createSignedObject( INOUT_PTR CERT_INFO *certInfoPtr,
 	REQUIRES( isEnumRangeOpt( signatureLevel, CRYPT_SIGNATURELEVEL ) );
 	REQUIRES( isShortIntegerRange( extraDataLength ) );
 	REQUIRES( isHashAlgo( hashAlgo ) );
-	REQUIRES( hashParam >= MIN_HASHSIZE && hashParam <= CRYPT_MAX_HASHSIZE );
+	REQUIRES( rangeCheck( hashParam, MIN_HASHSIZE, CRYPT_MAX_HASHSIZE ) );
 	REQUIRES( isBooleanValue( nonSigningKey ) );
 
 	/* Select the function to use to write the certificate object to be
@@ -1471,6 +1480,8 @@ int signCert( INOUT_PTR CERT_INFO *certInfoPtr,
 			certInfoPtr->type == CRYPT_CERTTYPE_OCSP_RESPONSE ) && \
 		  !nonSigningKey ) )
 		{
+		REQUIRES( isHandleRangeValid( iSignContext ) );
+
 		/* If it's a self-signed certificate then the issuer is also the 
 		   subject */
 		if( TEST_FLAG( certInfoPtr->flags, CERT_FLAG_SELFSIGNED ) )

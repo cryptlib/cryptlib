@@ -124,7 +124,22 @@
    and optional crypto object.  Since each object has subtype-specific 
    storage following it we also allocate a block of storage for the subtype 
    that follows the object storage which isn't accessed directly but 
-   implicitly follows the object storage */
+   implicitly follows the object storage.
+   
+   Some compilers will warn about this because the extra storage is usually
+   dynamically allocated at the end of the struct and don't know that the
+   statically-placed value replaces this, so we disable the warning for this
+   one instance.
+   
+   Non-clang versions of IBM's xlc also produce a warning, "1506-997 (W) 
+   Structure members cannot follow a flexible array member/zero extent 
+   array", but there's no way to disable it, "#pragma report( disable, 
+   "1506-995" )" is C++ only and "#pragma info( none )" has no effect 
+   because it doesn't apply to warnings */
+
+#ifdef __clang__
+  #pragma clang diagnostic ignored "-Wgnu-variable-sized-type-not-at-end"
+#endif /* __clang__ */
 
 typedef struct {
 	DEVICE_INFO deviceInfo;
@@ -228,72 +243,81 @@ typedef BYTE HMAC_SHA2_STORAGE[ MAC_STORAGE( SHA2_MAC_STATE_SIZE ) ];
    all co-located in a few constantly-accessed pages also greatly reduces 
    its chances of being paged out anyway */
 
+#ifdef _MSC_VER
+  #pragma warning( push )
+  #pragma warning( disable: 4324 )	/* Structure was padded to align */
+#endif /* _MSC_VER */
+
 typedef struct {
 	/* The kernel data */
-	ALIGN_STRUCT_FIELD \
-	KERNEL_DATA krnlData;
+	ALIGN_STRUCT_FIELD KERNEL_DATA krnlData;
 
 	/* The object table */
-	ALIGN_STRUCT_FIELD \
-	OBJECT_INFO objectTable[ MAX_NO_OBJECTS ];
+	ALIGN_STRUCT_FIELD OBJECT_INFO objectTable[ MAX_NO_OBJECTS ];
 
 	/* The randomness information */
-	ALIGN_STRUCT_FIELD \
-	RANDOM_INFO randomInfo;
+	ALIGN_STRUCT_FIELD RANDOM_INFO randomInfo;
 
 	/* The certificate trust information */
 #ifdef USE_CERTIFICATES
-	TRUST_INFO_CONTAINER trustInfoContainer;	
+	ALIGN_STRUCT_FIELD TRUST_INFO_CONTAINER trustInfoContainer;	
 #endif /* USE_CERTIFICATES */
 
 	/* The network socket pool */
 #ifdef USE_TCP
-	SOCKET_INFO socketInfo[ SOCKETPOOL_SIZE ];
+	ALIGN_STRUCT_FIELD SOCKET_INFO socketInfo[ SOCKETPOOL_SIZE ];
 #endif /* USE_TCP */
 
 	/* The session scoreboard */
 #ifdef USE_TLS
-	ALIGN_STRUCT_FIELD \
-	SCOREBOARD_INFO scoreboardInfo;
+	ALIGN_STRUCT_FIELD SCOREBOARD_INFO scoreboardInfo;
 #endif /* USE_TLS */
 
 	/* The config option information.  This has a size defined by a complex
 	   preprocessor expression (it's not a fixed struct) so we allocate it
 	   as a byte array and let the caller manage it */
-	BYTE optionInfo[ OPTION_INFO_SIZE ];
+	ALIGN_STRUCT_FIELD BYTE optionInfo[ OPTION_INFO_SIZE ];
 
-	/* Object-specific storage */
-	ALIGN_STRUCT_FIELD \
-	SYSTEM_DEVICE_STORAGE systemDeviceStorage[ 1 ];
-	BOOLEAN systemDeviceStorageUsed[ 1 ];
-	ALIGN_STRUCT_FIELD \
-	USER_OBJECT_STORAGE userObjectStorage[ 1 ];
-	BOOLEAN userObjectStorageUsed[ 1 ];
+	/* Object-specific storage.  We have to individually align each structure
+	   rather than just using 'X_STORAGE xStorage[ NO_ELEMENTS ]' because 
+	   some compilers on some architectures will only align the first element 
+	   of the array, not every element in it.  An example is older clang on 
+	   MIPS64 which 64-bit aligns the first element but only 32-bit aligns the
+	   successor ones */
+	ALIGN_STRUCT_FIELD SYSTEM_DEVICE_STORAGE systemDeviceStorage;
+	BOOLEAN systemDeviceStorageUsed;
+	ALIGN_STRUCT_FIELD USER_OBJECT_STORAGE userObjectStorage;
+	BOOLEAN userObjectStorageUsed;
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
 	ALIGN_STRUCT_FIELD \
-	CRYPTO_DEVICE_STORAGE cryptoDeviceStorage[ 1 ];
-	BOOLEAN cryptoDeviceStorageUsed[ 1 ];
+	CRYPTO_DEVICE_STORAGE cryptoDeviceStorage;
+	BOOLEAN cryptoDeviceStorageUsed;
 #endif /* CONFIG_CRYPTO_HW1 || CONFIG_CRYPTO_HW2 */
 #ifdef USE_KEYSETS
-	ALIGN_STRUCT_FIELD \
-	KEYSET_STORAGE keysetStorage[ NO_KEYSET_OBJECTS ];
+	ALIGN_STRUCT_FIELD KEYSET_STORAGE keysetStorage0;
+  #if NO_KEYSET_OBJECTS > 1
+	ALIGN_STRUCT_FIELDKEYSET_STORAGE keysetStorage1;
+  #endif /* NO_KEYSET_OBJECTS > 1 */
 	BOOLEAN keysetStorageUsed[ NO_KEYSET_OBJECTS ];
 #endif /* USE_KEYSETS */
-	ALIGN_STRUCT_FIELD \
-	AES_STORAGE aesStorage[ NO_AES_CONTEXTS ];
+	ALIGN_STRUCT_FIELD AES_STORAGE aesStorage0;
+	ALIGN_STRUCT_FIELD AES_STORAGE aesStorage1;
 	BOOLEAN aesStorageUsed[ NO_AES_CONTEXTS ];
-	ALIGN_STRUCT_FIELD \
-	SHA1_STORAGE sha1Storage[ NO_SHA1_CONTEXTS ];
+	ALIGN_STRUCT_FIELD SHA1_STORAGE sha1Storage;
 	BOOLEAN sha1StorageUsed[ NO_SHA1_CONTEXTS ];
-	ALIGN_STRUCT_FIELD \
-	SHA2_STORAGE sha2Storage[ NO_SHA2_CONTEXTS ];
+	ALIGN_STRUCT_FIELD SHA2_STORAGE sha2Storage0;
+	ALIGN_STRUCT_FIELD SHA2_STORAGE sha2Storage1;
 	BOOLEAN sha2StorageUsed[ NO_SHA2_CONTEXTS ];
-	ALIGN_STRUCT_FIELD \
-	HMAC_SHA2_STORAGE hmacSha2Storage[ NO_HMAC_SHA2_CONTEXTS ];
+	ALIGN_STRUCT_FIELD HMAC_SHA2_STORAGE hmacSha2Storage0;
+	ALIGN_STRUCT_FIELD HMAC_SHA2_STORAGE hmacSha2Storage1;
 	BOOLEAN hmacSha2StorageUsed[ NO_HMAC_SHA2_CONTEXTS ];
 	} STORAGE_STRUCT;
 
 static STORAGE_STRUCT systemStorage;
+
+#ifdef _MSC_VER
+  #pragma warning( pop )
+#endif /* _MSC_VER */
 
 /****************************************************************************
 *																			*
@@ -312,25 +336,25 @@ void initBuiltinStorage( void )
 	   need to be aligned to CPU-specific boundaries for CPUs that prefer
 	   aligned accesses.  This is handled through the ALIGN_STRUCT_FIELD 
 	   macro, in the debug build we perform a check that the fields are 
-	   indeed aligned.  If they're not this isn't fatal, it just leads to
-	   a slight inefficiency in access on some rare (possibly nonexistent) 
-	   systems that require alignment but for which ALIGN_STRUCT_FIELD has 
-	   no effect */
+	   indeed aligned */
 	assert( ALIGN_FIELD_CHECK( &systemStorage.krnlData ) );
 	assert( ALIGN_FIELD_CHECK( &systemStorage.objectTable ) );
 	assert( ALIGN_FIELD_CHECK( &systemStorage.randomInfo ) );
-	assert( ALIGN_FIELD_CHECK( &systemStorage.systemDeviceStorage[ 0 ] ) );
-	assert( ALIGN_FIELD_CHECK( &systemStorage.userObjectStorage[ 0 ] ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.systemDeviceStorage ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.userObjectStorage ) );
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
-	assert( ALIGN_FIELD_CHECK( &systemStorage.cryptoDeviceStorage[ 0 ] ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.cryptoDeviceStorage ) );
 #endif /* CONFIG_CRYPTO_HW1 || CONFIG_CRYPTO_HW2 */
 #ifdef USE_KEYSETS
-	assert( ALIGN_FIELD_CHECK( &systemStorage.keysetStorage[ 0 ] ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.keysetStorage0 ) );
 #endif /* USE_KEYSETS */
-	assert( ALIGN_FIELD_CHECK( &systemStorage.aesStorage[ 0 ] ) );
-	assert( ALIGN_FIELD_CHECK( &systemStorage.sha1Storage[ 0 ] ) );
-	assert( ALIGN_FIELD_CHECK( &systemStorage.sha2Storage[ 0 ] ) );
-	assert( ALIGN_FIELD_CHECK( &systemStorage.hmacSha2Storage[ 0 ] ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.aesStorage0 ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.aesStorage1 ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.sha1Storage ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.sha2Storage0 ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.sha2Storage1 ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.hmacSha2Storage0 ) );
+	assert( ALIGN_FIELD_CHECK( &systemStorage.hmacSha2Storage1 ) );
 	}
 
 void destroyBuiltinStorage( void )
@@ -429,8 +453,6 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 							   IN_ENUM( SUBTYPE ) const OBJECT_SUBTYPE subType,
 							   IN_LENGTH_MIN( 32 ) const int size )
 	{
-	LOOP_INDEX i;
-
 	REQUIRES_N( isValidType( type ) );
 	REQUIRES_N( subType > SUBTYPE_NONE && subType <= SUBTYPE_LAST );
 	REQUIRES_N( isBufsizeRangeMin( size, 32 ) );
@@ -446,19 +468,12 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 		case OBJECT_TYPE_DEVICE:
 			if( subType == SUBTYPE_DEV_SYSTEM )
 				{
-				LOOP_SMALL( i = 0, i < 1, i++ )
+				if( !systemStorage.systemDeviceStorageUsed )
 					{
-					ENSURES_N( LOOP_INVARIANT_SMALL( i, 0, 0 ) );
-
-					if( !systemStorage.systemDeviceStorageUsed[ i ] )
-						{
-						TRACE_DIAG(( "Allocated static system device "
-									 "object #%d", i ));
-						systemStorage.systemDeviceStorageUsed[ i ] = TRUE;
-						return( &systemStorage.systemDeviceStorage[ i ] );
-						}
+					TRACE_DIAG(( "Allocated static system device object" ));
+					systemStorage.systemDeviceStorageUsed = TRUE;
+					return( &systemStorage.systemDeviceStorage );
 					}
-				ENSURES_N( LOOP_BOUND_OK );
 
 				/* Since there should only be one system device, a failure 
 				   to create it, meaning that it already exists, is an 
@@ -468,19 +483,12 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
 			if( subType == SUBTYPE_DEV_HARDWARE )
 				{
-				LOOP_SMALL( i = 0, i < 1, i++ )
+				if( !systemStorage.cryptoDeviceStorageUsed )
 					{
-					ENSURES_N( LOOP_INVARIANT_SMALL( i, 0, 0 ) );
-
-					if( !systemStorage.cryptoDeviceStorageUsed[ i ] )
-						{
-						TRACE_DIAG(( "Allocated static crypto device "
-									 "object #%d", i ));
-						systemStorage.cryptoDeviceStorageUsed[ i ] = TRUE;
-						return( &systemStorage.cryptoDeviceStorage[ i ] );
-						}
+					TRACE_DIAG(( "Allocated static crypto device object" ));
+					systemStorage.cryptoDeviceStorageUsed = TRUE;
+					return( &systemStorage.cryptoDeviceStorage );
 					}
-				ENSURES_N( LOOP_BOUND_OK );
 
 				/* Since there should only be one crypto device, a failure 
 				   to create it, meaning that it already exists, is an 
@@ -493,19 +501,12 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 		case OBJECT_TYPE_USER:
 			if( subType == SUBTYPE_USER_SO )
 				{
-				LOOP_SMALL( i = 0, i < 1, i++ )
+				if( !systemStorage.userObjectStorageUsed )
 					{
-					ENSURES_N( LOOP_INVARIANT_SMALL( i, 0, 0 ) );
-
-					if( !systemStorage.userObjectStorageUsed[ i ] )
-						{
-						TRACE_DIAG(( "Allocated static user object "
-									 "#%d", i ));
-						systemStorage.userObjectStorageUsed[ i ] = TRUE;
-						return( &systemStorage.userObjectStorage[ i ] );
-						}
+					TRACE_DIAG(( "Allocated static user object" ));
+					systemStorage.userObjectStorageUsed = TRUE;
+					return( &systemStorage.userObjectStorage );
 					}
-				ENSURES_N( LOOP_BOUND_OK );
 				}
 			break;
 
@@ -513,20 +514,26 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 		case OBJECT_TYPE_KEYSET:
 			if( subType == SUBTYPE_KEYSET_FILE )
 				{
-				LOOP_SMALL( i = 0, i < NO_KEYSET_OBJECTS, i++ )
-					{
-					ENSURES_N( LOOP_INVARIANT_SMALL( i, 0, 
-													 NO_KEYSET_OBJECTS - 1 ) );
+  #if NO_KEYSET_OBJECTS > 1
+				const int index = \
+						!systemStorage.keysetStorageUsed[ 0 ] ? 0 : \
+						!systemStorage.keysetStorageUsed[ 1 ] ? 1 : \
+						CRYPT_ERROR;
 
-					if( !systemStorage.keysetStorageUsed[ i ] )
-						{
-						TRACE_DIAG(( "Allocated static file keyset object "
-									 "#%d", i ));
-						systemStorage.keysetStorageUsed[ i ] = TRUE;
-						return( &systemStorage.keysetStorage[ i ] );
-						}
-					}
-				ENSURES_N( LOOP_BOUND_OK );
+				if( index == CRYPT_ERROR )
+					break;
+				TRACE_DIAG(( "Allocated static file keyset object #%d", 
+							 index ));
+				systemStorage.keysetStorageUsed[ index ] = TRUE;
+				return( ( index == 0 ) ? &systemStorage.keysetStorage0 : \
+										 &systemStorage.keysetStorage1 );
+  #else
+				if( systemStorage.keysetStorageUsed[ 0 ] )
+					break;
+				systemStorage.keysetStorageUsed[ 0 ] = TRUE;
+				TRACE_DIAG(( "Allocated static file keyset object" ));
+				return( &systemStorage.keysetStorage0 );
+  #endif /* NO_KEYSET_OBJECTS > 1 */
 				}
 			break;
 #endif /* USE_KEYSETS */
@@ -536,20 +543,17 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 				{
 				if( size == CONV_STORAGE( AES_KEYDATA_SIZE ) )
 					{
-					LOOP_SMALL( i = 0, i < NO_AES_CONTEXTS, i++ )
-						{
-						ENSURES_N( LOOP_INVARIANT_SMALL( i, 0, 
-														 NO_AES_CONTEXTS - 1 ) );
-
-						if( !systemStorage.aesStorageUsed[ i ] )
-							{
-							TRACE_DIAG(( "Allocated static AES object "
-										 "#%d", i ));
-							systemStorage.aesStorageUsed[ i ] = TRUE;
-							return( &systemStorage.aesStorage[ i ] );
-							}
-						}
-					ENSURES_N( LOOP_BOUND_OK );
+					const int index = \
+						!systemStorage.aesStorageUsed[ 0 ] ? 0 : \
+						!systemStorage.aesStorageUsed[ 1 ] ? 1 : \
+						CRYPT_ERROR;
+					
+					if( index == CRYPT_ERROR )
+						break;
+					TRACE_DIAG(( "Allocated static AES object #%d", i ));
+					systemStorage.aesStorageUsed[ index ] = TRUE;
+					return( ( index == 0 ) ? &systemStorage.aesStorage0 : \
+											 &systemStorage.aesStorage1 );
 					}
 				break;
 				}
@@ -557,37 +561,26 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 				{
 				if( size == HASH_STORAGE( SHA1_STATE_SIZE ) )
 					{
-					LOOP_SMALL( i = 0, i < NO_SHA1_CONTEXTS, i++ )
+					if( !systemStorage.sha1StorageUsed[ 0 ] )
 						{
-						ENSURES_N( LOOP_INVARIANT_SMALL( i, 0, 
-														 NO_SHA1_CONTEXTS - 1 ) );
-	
-						if( !systemStorage.sha1StorageUsed[ i ] )
-							{
-							TRACE_DIAG(( "Allocated static SHA1 object "
-										 "#%d", i ));
-							systemStorage.sha1StorageUsed[ i ] = TRUE;
-							return( &systemStorage.sha1Storage[ i ] );
-							}
+						TRACE_DIAG(( "Allocated static SHA1 object" ));
+						systemStorage.sha1StorageUsed[ 0 ] = TRUE;
+						return( &systemStorage.sha1Storage );
 						}
-					ENSURES_N( LOOP_BOUND_OK );
 					}
 				if( size == HASH_STORAGE( SHA2_STATE_SIZE ) )
 					{
-					LOOP_SMALL( i = 0, i < NO_SHA2_CONTEXTS, i++ )
-						{
-						ENSURES_N( LOOP_INVARIANT_SMALL( i, 0, 
-														 NO_SHA2_CONTEXTS - 1 ) );
-
-						if( !systemStorage.sha2StorageUsed[ i ] )
-							{
-							TRACE_DIAG(( "Allocated static SHA2 object "
-										 "#%d", i ));
-							systemStorage.sha2StorageUsed[ i ] = TRUE;
-							return( &systemStorage.sha2Storage[ i ] );
-							}
-						}
-					ENSURES_N( LOOP_BOUND_OK );
+					const int index = \
+						!systemStorage.sha2StorageUsed[ 0 ] ? 0 : \
+						!systemStorage.sha2StorageUsed[ 1 ] ? 1 : \
+						CRYPT_ERROR;
+					
+					if( index == CRYPT_ERROR )
+						break;
+					TRACE_DIAG(( "Allocated static SHA2 object #%d", i ));
+					systemStorage.sha2StorageUsed[ index ] = TRUE;
+					return( ( index == 0 ) ? &systemStorage.sha2Storage0 : \
+											 &systemStorage.sha2Storage1 );
 					}
 				break;
 				}
@@ -595,20 +588,17 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 				{
 				if( size == MAC_STORAGE( SHA2_MAC_STATE_SIZE ) )
 					{
-					LOOP_SMALL( i = 0, i < NO_HMAC_SHA2_CONTEXTS, i++ )
-						{
-						ENSURES_N( LOOP_INVARIANT_SMALL( i, 0, 
-														 NO_HMAC_SHA2_CONTEXTS - 1 ) );
-
-						if( !systemStorage.hmacSha2StorageUsed[ i ] )
-							{
-							TRACE_DIAG(( "Allocated static HMAC-SHA2 object "
-										 "#%d", i ));
-							systemStorage.hmacSha2StorageUsed[ i ] = TRUE;
-							return( &systemStorage.hmacSha2Storage[ i ] );
-							}
-						}
-					ENSURES_N( LOOP_BOUND_OK );
+					const int index = \
+						!systemStorage.hmacSha2StorageUsed[ 0 ] ? 0 : \
+						!systemStorage.hmacSha2StorageUsed[ 1 ] ? 1 : \
+						CRYPT_ERROR;
+					
+					if( index == CRYPT_ERROR )
+						break;
+					TRACE_DIAG(( "Allocated static HMAC-SHA2 object #%d", i ));
+					systemStorage.hmacSha2StorageUsed[ index ] = TRUE;
+					return( ( index == 0 ) ? &systemStorage.hmacSha2Storage0 : \
+											 &systemStorage.hmacSha2Storage1 );
 					}
 				break;
 				}
@@ -631,8 +621,6 @@ int releaseBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 								 IN_ENUM( SUBTYPE ) const OBJECT_SUBTYPE subType,
 								 const void *address )
 	{
-	LOOP_INDEX i;
-
 	assert( isReadPtr( address, 16 ) );
 
 	REQUIRES( isValidType( type ) );
@@ -643,38 +631,24 @@ int releaseBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 		case OBJECT_TYPE_DEVICE:
 			if( subType == SUBTYPE_DEV_SYSTEM )
 				{
-				LOOP_SMALL( i = 0, i < 1, i++ )
+				if( address == &systemStorage.systemDeviceStorage )
 					{
-					ENSURES( LOOP_INVARIANT_SMALL( i, 0, 0 ) );
-
-					if( address == &systemStorage.systemDeviceStorage[ i ] )
-						{
-						ENSURES( systemStorage.systemDeviceStorageUsed[ i ] == TRUE );
-						TRACE_DIAG(( "Freed static system device object "
-									 "#%d", i ));
-						systemStorage.systemDeviceStorageUsed[ i ] = FALSE;
-						return( CRYPT_OK );
-						}
+					ENSURES( systemStorage.systemDeviceStorageUsed == TRUE );
+					TRACE_DIAG(( "Freed static system device object" ));
+					systemStorage.systemDeviceStorageUsed = FALSE;
+					return( CRYPT_OK );
 					}
-				ENSURES( LOOP_BOUND_OK );
 				}
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
 			if( subType == SUBTYPE_DEV_HARDWARE )
 				{
-				LOOP_SMALL( i = 0, i < 1, i++ )
+				if( address == &systemStorage.cryptoDeviceStorage )
 					{
-					ENSURES( LOOP_INVARIANT_SMALL( i, 0, 0 ) );
-
-					if( address == &systemStorage.cryptoDeviceStorage[ i ] )
-						{
-						ENSURES( systemStorage.cryptoDeviceStorageUsed[ i ] == TRUE );
-						TRACE_DIAG(( "Freed static crypto device object "
-									 "#%d", i ));
-						systemStorage.cryptoDeviceStorageUsed[ i ] = FALSE;
-						return( CRYPT_OK );
-						}
+					ENSURES( systemStorage.cryptoDeviceStorageUsed == TRUE );
+					TRACE_DIAG(( "Freed static crypto device object" ));
+					systemStorage.cryptoDeviceStorageUsed = FALSE;
+					return( CRYPT_OK );
 					}
-				ENSURES( LOOP_BOUND_OK );
 				}
 #endif /* CONFIG_CRYPTO_HW1 || CONFIG_CRYPTO_HW2 */
 			break;
@@ -682,19 +656,13 @@ int releaseBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 		case OBJECT_TYPE_USER:
 			if( subType == SUBTYPE_USER_SO )
 				{
-				LOOP_SMALL( i = 0, i < 1, i++ )
+				if( address == &systemStorage.userObjectStorage )
 					{
-					ENSURES( LOOP_INVARIANT_SMALL( i, 0, 0 ) );
-
-					if( address == &systemStorage.userObjectStorage[ i ] )
-						{
-						ENSURES( systemStorage.userObjectStorageUsed[ i ] == TRUE );
-						TRACE_DIAG(( "Freed static user object #%d", i ));
-						systemStorage.userObjectStorageUsed[ i ] = FALSE;
-						return( CRYPT_OK );
-						}
+					ENSURES( systemStorage.userObjectStorageUsed == TRUE );
+					TRACE_DIAG(( "Freed static user object" ));
+					systemStorage.userObjectStorageUsed = FALSE;
+					return( CRYPT_OK );
 					}
-				ENSURES( LOOP_BOUND_OK );
 				}
 			break;
 
@@ -702,21 +670,27 @@ int releaseBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 		case OBJECT_TYPE_KEYSET:
 			if( subType == SUBTYPE_KEYSET_FILE )
 				{
-				LOOP_SMALL( i = 0, i < NO_KEYSET_OBJECTS, i++ )
+  #if NO_KEYSET_OBJECTS > 1
+				const int index = \
+						( address == &systemStorage.keysetStorage0 ) ? 0 : \
+						( address == &systemStorage.keysetStorage1 ) ? 1 : \
+						CRYPT_ERROR;
+					
+				if( index == CRYPT_ERROR )
+					break;
+				ENSURES( systemStorage.keysetStorageUsed[ index ] == TRUE );
+				TRACE_DIAG(( "Freed static file keyset object #%d", index ));
+				systemStorage.keysetStorageUsed[ index ] = FALSE;
+				return( CRYPT_OK );
+  #else
+				if( address == &systemStorage.keysetStorage0 )
 					{
-					ENSURES( LOOP_INVARIANT_SMALL( i, 0, 
-												   NO_KEYSET_OBJECTS ) );
-
-					if( address == &systemStorage.keysetStorage[ i ] )
-						{
-						ENSURES( systemStorage.keysetStorageUsed[ i ] == TRUE );
-						TRACE_DIAG(( "Freed static file keyset object "
-									 "#%d", i ));
-						systemStorage.keysetStorageUsed[ i ] = FALSE;
-						return( CRYPT_OK );
-						}
+					ENSURES( systemStorage.keysetStorageUsed[ 0 ] == TRUE );
+					TRACE_DIAG(( "Freed static file keyset object" ));
+					systemStorage.keysetStorageUsed[ 0 ] = FALSE;
+					return( CRYPT_OK );
 					}
-				ENSURES( LOOP_BOUND_OK );
+  #endif /* NO_KEYSET_OBJECTS > 1 */
 				}
 			break;
 #endif /* USE_KEYSETS */
@@ -724,75 +698,55 @@ int releaseBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 		case OBJECT_TYPE_CONTEXT:
 			if( subType == SUBTYPE_CTX_CONV )
 				{
-				LOOP_SMALL( i = 0, i < NO_AES_CONTEXTS, i++ )
-					{
-					ENSURES( LOOP_INVARIANT_SMALL( i, 0, 
-												   NO_AES_CONTEXTS - 1 ) );
-
-					if( address == &systemStorage.aesStorage[ i ] )
-						{
-						ENSURES( systemStorage.aesStorageUsed[ i ] == TRUE );
-						TRACE_DIAG(( "Freed static AES object #%d", i ));
-						systemStorage.aesStorageUsed[ i ] = FALSE;
-						return( CRYPT_OK );
-						}
-					}
-				ENSURES( LOOP_BOUND_OK );
-				break;
+				const int index = \
+						( address == &systemStorage.aesStorage0 ) ? 0 : \
+						( address == &systemStorage.aesStorage1 ) ? 1 : \
+						CRYPT_ERROR;
+					
+				if( index == CRYPT_ERROR )
+					break;
+				ENSURES( systemStorage.aesStorageUsed[ index ] == TRUE );
+				TRACE_DIAG(( "Freed static AES object #%d", i ));
+				systemStorage.aesStorageUsed[ index ] = FALSE;
+				return( CRYPT_OK );
 				}
 			if( subType == SUBTYPE_CTX_HASH )
 				{
+				const int index = \
+						( address == &systemStorage.sha2Storage0 ) ? 0 : \
+						( address == &systemStorage.sha2Storage1 ) ? 1 : \
+						CRYPT_ERROR;
+
 				/* For the hash contexts we don't have any information beyond
 				   the subtype, but at this point we can identify what's what 
 				   based on the memory address */
-				LOOP_SMALL( i = 0, i < NO_SHA1_CONTEXTS, i++ )
+				if( address == &systemStorage.sha1Storage )
 					{
-					ENSURES( LOOP_INVARIANT_SMALL( i, 0, 
-												   NO_SHA1_CONTEXTS - 1 ) );
-
-					if( address == &systemStorage.sha1Storage[ i ] )
-						{
-						ENSURES( systemStorage.sha1StorageUsed[ i ] == TRUE );
-						TRACE_DIAG(( "Freed static SHA1 object #%d", i ));
-						systemStorage.sha1StorageUsed[ i ] = FALSE;
-						return( CRYPT_OK );
-						}
+					ENSURES( systemStorage.sha1StorageUsed[ 0 ] == TRUE );
+					TRACE_DIAG(( "Freed static SHA1 object" ));
+					systemStorage.sha1StorageUsed[ 0 ] = FALSE;
+					return( CRYPT_OK );
 					}
-				ENSURES( LOOP_BOUND_OK );
-				LOOP_SMALL( i = 0, i < NO_SHA2_CONTEXTS, i++ )
-					{
-					ENSURES( LOOP_INVARIANT_SMALL( i, 0, 
-												   NO_SHA2_CONTEXTS - 1 ) );
-
-					if( address == &systemStorage.sha2Storage[ i ] )
-						{
-						ENSURES( systemStorage.sha2StorageUsed[ i ] == TRUE );
-						TRACE_DIAG(( "Freed static SHA2 object #%d", i ));
-						systemStorage.sha2StorageUsed[ i ] = FALSE;
-						return( CRYPT_OK );
-						}
-					}
-				ENSURES( LOOP_BOUND_OK );
-				break;
+				if( index == CRYPT_ERROR )
+					break;
+				ENSURES( systemStorage.sha2StorageUsed[ index ] == TRUE );
+				TRACE_DIAG(( "Freed static SHA2 object #%d", i ));
+				systemStorage.sha2StorageUsed[ index ] = FALSE;
+				return( CRYPT_OK );
 				}
 			if( subType == SUBTYPE_CTX_MAC )
 				{
-				LOOP_SMALL( i = 0, i < NO_HMAC_SHA2_CONTEXTS, i++ )
-					{
-					ENSURES( LOOP_INVARIANT_SMALL( i, 0, 
-												   NO_HMAC_SHA2_CONTEXTS - 1 ) );
-
-					if( address == &systemStorage.hmacSha2Storage[ i ] )
-						{
-						ENSURES( systemStorage.hmacSha2StorageUsed[ i ] == TRUE );
-						TRACE_DIAG(( "Freed static HMAC-SHA2 object "
-									 "#%d", i ));
-						systemStorage.hmacSha2StorageUsed[ i ] = FALSE;
-						return( CRYPT_OK );
-						}
-					}
-				ENSURES( LOOP_BOUND_OK );
-				break;
+				const int index = \
+						( address == &systemStorage.hmacSha2Storage0 ) ? 0 : \
+						( address == &systemStorage.hmacSha2Storage1 ) ? 1 : \
+						CRYPT_ERROR;
+					
+				if( index == CRYPT_ERROR )
+					break;
+				ENSURES( systemStorage.hmacSha2StorageUsed[ index ] == TRUE );
+				TRACE_DIAG(( "Freed static HMAC-SHA2 object #%d", index ));
+				systemStorage.hmacSha2StorageUsed[ index ] = FALSE;
+				return( CRYPT_OK );
 				}
 			break;
 

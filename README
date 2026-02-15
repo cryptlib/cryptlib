@@ -1,3 +1,30 @@
+Changes in 3.4.9 release
+========================
+
+The TLS 1.3 code has received further updates based on deployment experience.
+
+The TPM device interface has been rewritten to make it more portable across
+different TPMs.
+
+Optional support for the X25519 and Ed25519 algorithms and corresponding
+cipher suites in TLS and SSH have been added.  These are disabled by default
+because of the very large amount of object code generated (the Curve25519
+module is the single largest one in all of cryptlib) and because the existing
+ECDH/ECDSA functionality does the same thing in a fraction of the space.
+
+The SSH server authentication handling has been locked down to restrict the
+free-for-all that the RFC allows for.
+
+The build process has been updated to take advantage of new capabilities and
+code security features added in newer compilers.
+
+Changes in 3.4.8 release
+========================
+
+The CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 attribute for secure sessions has
+been changed to CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 to reflect universal
+usage.
+
 Changes in 3.4.8 release
 ========================
 

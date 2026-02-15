@@ -588,9 +588,12 @@ const C_STR getKeyfileName( const KEYFILE_TYPE type,
 			return( isPrivKey ? NAIPGP_PRIVKEY_FILE : NAIPGP_PUBKEY_FILE );
 		case KEYFILE_OPENPGP_BOUNCYCASTLE:
 			return( OPENPGP_PRIVKEY_BC_FILE );
-		case KEYFILE_OPENPGP_ECC:
-			return( isPrivKey ? OPENPGP_PRIVKEY_ECC_FILE : \
-								OPENPGP_PUBKEY_ECC_FILE );
+		case KEYFILE_OPENPGP_ECC1:
+			return( isPrivKey ? OPENPGP_PRIVKEY_ECC1_FILE : \
+								OPENPGP_PUBKEY_ECC1_FILE );
+		case KEYFILE_OPENPGP_ECC2:
+			return( isPrivKey ? OPENPGP_PRIVKEY_ECC2_FILE : \
+								OPENPGP_PUBKEY_ECC2_FILE );
 		}
 	assert( 0 );
 	return( TEXT( "notfound" ) );
@@ -606,7 +609,8 @@ const C_STR getKeyfilePassword( const KEYFILE_TYPE type )
 		case KEYFILE_PGP:
 		case KEYFILE_OPENPGP_HASH:
 		case KEYFILE_OPENPGP_RSA:
-		case KEYFILE_OPENPGP_ECC:
+		case KEYFILE_OPENPGP_ECC1:
+		case KEYFILE_OPENPGP_ECC2:
 			return( TEXT( "test1" ) );
 		case KEYFILE_NAIPGP:
 			return( TEXT( "test10" ) );
@@ -643,7 +647,8 @@ const C_STR getKeyfileUserID( const KEYFILE_TYPE type,
 			return( isPrivKey ? TEXT( "test" ) : TEXT( "test cryptlib" ) );
 		case KEYFILE_OPENPGP_HASH:
 		case KEYFILE_OPENPGP_RSA:
-		case KEYFILE_OPENPGP_ECC:
+		case KEYFILE_OPENPGP_ECC1:
+		case KEYFILE_OPENPGP_ECC2:
 			return( TEXT( "test1" ) );
 		case KEYFILE_OPENPGP_MULT:
 			return( TEXT( "NXX2502" ) );

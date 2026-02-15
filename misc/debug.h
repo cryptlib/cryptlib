@@ -88,10 +88,11 @@
 #endif /* __COUNTER__ */
 #if defined( _MSC_VER ) 
   #if VC_GE_2010( _MSC_VER )	
-	/* Built into VC++ 2010 and up.  This is supposedly partially supported 
-	   in VS 2008 as '_STATIC_ASSERT( expr )' but the support isn't complete 
-	   enough to rely on it so we only enable it for VS 2010 and up, for 
-	   which it's definitely present */
+	/* Built into VS 2010 and up.  This was partially supported in VS 2008 
+	   as '_STATIC_ASSERT( expr )' when crtdbg.h was included but it was 
+	   done as a macro hack that's a lot worse than the one we use below so 
+	   we only enable it for VS 2010 and up, for which it's definitely 
+	   present */
   #else
 	#define static_assert( expr, string ) \
 			{ enum { ASSERT_CONCAT( static_assert_, __COUNTER__ ) = 1 / ( !!( expr ) ) }; }
@@ -163,16 +164,17 @@
 
 #define DEBUG_WARN				0
 
-/* Under VC++ 6 assert() can randomly stop working so that only the abort() 
-   portion still functions, making it impossible to find out what went wrong. 
-   Under VS 2019, assert() still functions but reports the location where the
-   assert was triggered as some random location somewhere in cryptlib, 
-   requiring tedious stepping through each line of code to find out where 
-   the actual assertion occurred.  To deal with this we redefine the 
-   assert() macro to call our own assertion handler */
+/* Under VC++ 6 to at least VS 2008, assert() can randomly stop working so 
+   that only the abort() portion still functions, making it impossible to 
+   find out what went wrong.  Under VS 2019, assert() still functions but 
+   reports the location where the assert was triggered as some random 
+   location somewhere in cryptlib, requiring tedious stepping through each 
+   line of code to find out where the actual assertion occurred.  To deal 
+   with this we redefine the assert() macro to call our own assertion 
+   handler */
 
 #if defined( _MSC_VER ) && !defined( NDEBUG ) && \
-	( VC_LE_VC6( _MSC_VER ) || VC_GE_2019( _MSC_VER ) ) 
+	( VC_LT_2010( _MSC_VER ) || VC_GE_2019( _MSC_VER ) ) 
 
 void vsAssert( const char *exprString, const char *fileName, 
 			   const int lineNo );
@@ -181,8 +183,7 @@ void vsAssert( const char *exprString, const char *fileName,
 #define assert( expr ) \
 		( void )( ( expr ) || ( vsAssert( #expr, \
 								debugGetBasePath( __FILE__ ), __LINE__ ), 0 ) )
-
-#endif /* VC++ 6.0 Debug */
+#endif /* VC++ 6.0...2008 */
 
 /* On EBCDIC systems assert() is problematic because we use ASCII strings 
    internally, which when displayed with assert() produces garbage.
@@ -202,6 +203,14 @@ void vsAssert( const char *exprString, const char *fileName,
 								__LINE__, #expr )), 0 ) )
 
 #endif /* EBCDIC systems debug */
+
+/* Some asserts exist to draw attention to unusual input data that needs 
+   human attention, testing and analysis options shouldn't be triggering
+   these so we no-op them out */
+
+#ifdef USE_ANALYSER
+  #define assert_notest( x )
+#endif /* USE_ANALYSER */
 
 /****************************************************************************
 *																			*
@@ -290,7 +299,7 @@ void vsAssert( const char *exprString, const char *fileName,
    DEBUG_DIAG() does */
 
 #if !defined( NDEBUG ) && defined( USE_ERRMSGS ) && \
-	( defined( _MSC_VER ) && VC_GE_2010( _MSC_VER ) )
+	( defined( _MSC_VER ) && VC_GE_2008( _MSC_VER ) )
   int debugPrintfAtomic( IN_STRING const char *file, 
 						 IN_STRING const char *function, 
 						 const int line, 
@@ -391,7 +400,7 @@ struct ST;
   #if defined( __WIN32__ )
 	#define DEBUG_DUMP_STACKTRACE	displayBacktrace
 	void displayBacktrace( void );
-  #elif defined( __UNIX__ ) && \
+  #elif defined( __UNIX__ ) && defined( __GLIBC__ ) && \
 		( defined( __APPLE__ ) || defined( __linux__ ) || defined( __sun ) )
 	#define DEBUG_DUMP_STACKTRACE	displayBacktrace
 	void displayBacktrace( void );

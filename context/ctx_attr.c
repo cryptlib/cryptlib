@@ -849,6 +849,11 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			return( status );
 #endif /* USE_ECDH || USE_ECDSA */
 
+#if defined( USE_25519 ) 
+		case CRYPT_IATTRIBUTE_KEY_IMPLICIT:
+			return( completeKeyLoad( contextInfoPtr, FALSE ) );
+#endif /* USE_25519 */
+
 		case CRYPT_IATTRIBUTE_DEVICEOBJECT:
 #ifdef USE_DEVICES
 			/* Setting the device object means that the crypto functionality 
@@ -1149,12 +1154,12 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #endif /* USE_PGP */
 
 		case CRYPT_IATTRIBUTE_KEY_SPKI:
+		case CRYPT_IATTRIBUTE_KEY_SPKI_PARTIAL:
 		case CRYPT_IATTRIBUTE_KEY_PGP:
+		case CRYPT_IATTRIBUTE_KEY_PGP_PARTIAL:
 		case CRYPT_IATTRIBUTE_KEY_SSH:
 		case CRYPT_IATTRIBUTE_KEY_TLS:
 		case CRYPT_IATTRIBUTE_KEY_TLS_EXT:
-		case CRYPT_IATTRIBUTE_KEY_SPKI_PARTIAL:
-		case CRYPT_IATTRIBUTE_KEY_PGP_PARTIAL:
 			REQUIRES( contextType == CONTEXT_PKC );
 
 			return( setEncodedKey( contextInfoPtr, attribute, data, 

@@ -213,7 +213,7 @@ coverage-guided, evolutionary fuzzing engine.
 [PREfast](https://visualstudio.microsoft.com/) - Code analysis tool for Visual
 Studio.
 
-[PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - Static 
+[PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - Static
 analyzer for C, C++, C#, and Java code.
 
 [valgrind](https://valgrind.org/) - Dynamic code analysis tool.

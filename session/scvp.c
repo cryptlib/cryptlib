@@ -244,6 +244,7 @@ int readValidationPolicy( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
+	clearErrorInfo( errorInfo );
 	return( readUniversal( stream ) );
 	}
 
@@ -345,6 +346,14 @@ int readCertRef( INOUT_PTR STREAM *stream,
 	status = getStreamObjectLength( stream, &length, MIN_CRYPT_OBJECTSIZE );
 	if( cryptStatusError( status ) )
 		return( status );
+
+	/* If we're fuzzing then we skip the certificate since otherwise it just
+	   turns into fuzzing certificates */
+#ifdef CONFIG_FUZZ
+	if( length >= MAX_INTLENGTH_SHORT )
+		return( CRYPT_ERROR_BADDATA );
+	return( sSkip( stream, length, MAX_INTLENGTH_SHORT ) );
+#endif /* CONFIG_FUZZ */
 
 	/* Importing the certificate is a pain because of the weird nonstandard 
 	   tagging used, and we can't rewrite the tag into the correct form 

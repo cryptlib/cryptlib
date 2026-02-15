@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				ASN.1 Encryption Algorithm Identifier Routines				*
-*						Copyright Peter Gutmann 1992-2018					*
+*						Copyright Peter Gutmann 1992-2022					*
 *																			*
 ****************************************************************************/
 
@@ -102,7 +102,9 @@ static int readGenericSecretParams( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	REQUIRES_S( isShortIntegerRange( startOffset ) );
+	REQUIRES_S( isShortIntegerRange( startOffset ) && \
+				startOffset < stell( stream ) );
+				/* Preceding algoID has already been read */
 
 	/* The caller needs a copy of the KFD, encryption and MAC parameters to 
 	   use when creating the encryption and MAC contexts, so we record the 
@@ -163,7 +165,10 @@ static int readGenericSecretParams( INOUT_PTR STREAM *stream,
 		return( sSetError( stream, CRYPT_ERROR_OVERFLOW ) );
 	status = sseek( stream, startOffset );
 	if( cryptStatusOK( status ) )
+		{
+		REQUIRES_S( rangeCheck( length, 1, AUTHENCPARAM_MAX_SIZE ) );
 		status = sread( stream, queryInfo->authEncParamData, length );
+		}
 	if( cryptStatusOK( status ) )
 		queryInfo->authEncParamLength = length;
 	return( status );
@@ -433,6 +438,8 @@ int getGenericSecretParams( IN_HANDLE const CRYPT_CONTEXT iGenericContext,
 			readUniversal( &stream );		/* pbkdf2 OID */
 			readSequence( &stream, NULL );
 			}
+		REQUIRES( rangeCheck( FIXEDPARAM_DATA_SIZE, 1, \
+							  FIXEDPARAM_DATA_SIZE ) );
 		status = sread( &stream, fixedParamBuffer, FIXEDPARAM_DATA_SIZE );
 		if( cryptStatusOK( status ) &&		/* OCTET STRING + INTEGER */
 			memcmp( fixedParamBuffer, FIXEDPARAM_DATA, \
@@ -600,7 +607,9 @@ int readCryptAlgoParams( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
 
-	REQUIRES_S( isShortIntegerRange( startOffset ) );
+	REQUIRES_S( isShortIntegerRange( startOffset ) && \
+				startOffset < stell( stream ) );
+				/* Preceding algoID has already been read */
 
 	/* Read the algorithm-specific parameters.  In theory we should do
 	   something with some of the values like the IV size parameter, but
@@ -788,7 +797,7 @@ int writeCryptContextAlgoID( INOUT_PTR STREAM *stream,
 
 #ifdef USE_CAST
 		case CRYPT_ALGO_CAST:
-			REQUIRES( ivSize == 8 );
+			REQUIRES_S( ivSize == 8 );
 
 			paramSize = sizeofIV + sizeofShortInteger( 128 );
 			writeSequence( stream, oidSize + \

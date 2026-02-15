@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TCP/IP Connection Routines					*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -312,6 +312,14 @@ static int newSocket( OUT_PTR SOCKET *newSocketPtr,
 						addrInfoPtr->ai_socktype, 0 );
 	if( isBadSocket( netSocket ) )
 		{
+		if( isInvalidSocket( netSocket ) )
+			{
+			status = closesocket( netSocket );
+			if( isSocketError( status ) )
+				{
+				DEBUG_DIAG(( "Error closing invalid socket %d", netSocket ));
+				}
+			}
 		krnlExitMutex( MUTEX_SOCKETPOOL );
 		return( CRYPT_ERROR_OPEN );
 		}
@@ -438,7 +446,8 @@ static void deleteSocket( const SOCKET netSocket )
 			socketInfo[ i ].addrChecksum = 0;
 			memset( socketInfo[ i ].addrHash, 0, ADDRHASH_SIZE );
 
-			DEBUG_DIAG(( "Couldn't close socket pool socket %d", i ));
+			DEBUG_DIAG(( "Couldn't close socket pool socket #%d, socket "
+						 "value %d", i, socketInfo[ i ].netSocket ));
 			assert( DEBUG_WARN );
 			}
 		else
@@ -494,7 +503,12 @@ void netSignalShutdown( void )
 
 		if( !isBadSocket( socketInfo[ i ].netSocket ) )
 			{
-			closesocket( socketInfo[ i ].netSocket );
+			status = closesocket( socketInfo[ i ].netSocket );
+			if( isSocketError( status ) )
+				{
+				DEBUG_DIAG(( "Error closing socket #%d, socket value %d on "
+							 "shutdown", i, socketInfo[ i ].netSocket ));
+				}
 			socketInfo[ i ] = SOCKET_INFO_TEMPLATE;
 			}
 		}
@@ -536,7 +550,7 @@ static int preOpenSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 	struct addrinfo *addrInfoPtr, *addrInfoCursor;
 	const BOOLEAN isDgramSocket = \
 			TEST_FLAG( netStream->nFlags, STREAM_NFLAG_DGRAM ) ? TRUE : FALSE;
-	BOOLEAN nonBlockWarning = FALSE;
+	BOOLEAN operationInProgress = FALSE;
 	LOOP_INDEX addressCount;
 	int status;
 
@@ -577,6 +591,8 @@ static int preOpenSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 				addrInfoCursor != NULL && addressCount < IP_ADDR_COUNT,
 				( addrInfoCursor = addrInfoCursor->ai_next, addressCount++ ) )
 		{
+		DEBUG_OP( char addressBuffer[ CRYPT_MAX_TEXTSIZE + 8 ] );
+		
 		ENSURES( LOOP_INVARIANT_SMALL( addressCount, 0, IP_ADDR_COUNT - 1 ) );
 
 		/* If it's not an IPv4 or IPv6 address, continue */
@@ -589,12 +605,22 @@ static int preOpenSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 			continue;
 		setSocketNonblocking( netSocket );
 		clearErrorState();
+		DEBUG_PRINT_COND( addrInfoCursor->ai_family == AF_INET,
+						  ( "Connecting to %s.\n", 
+							inet_ntoa( ( ( struct sockaddr_in * ) addrInfoCursor->ai_addr )->sin_addr ) ));
+		DEBUG_PRINT_COND( addrInfoCursor->ai_family == AF_INET6,
+						  ( "Connecting to %s.\n", 
+							inet_ntop( addrInfoCursor->ai_family, 
+									   &( ( struct sockaddr_in6 * ) addrInfoCursor->ai_addr )->sin6_addr,
+									   addressBuffer, CRYPT_MAX_TEXTSIZE ) ));
 		status = connect( netSocket, addrInfoCursor->ai_addr,
 						  addrInfoCursor->ai_addrlen );
-		nonBlockWarning = isNonblockWarning( netSocket );
-		if( status >= 0 || nonBlockWarning )
+		operationInProgress = isBlockWarning( netSocket );
+		if( status >= 0 || operationInProgress )
 			{
-			/* We've got a successfully-started connect, exit */
+			/* We've got a successfully-started connect (either it's 
+			   somehow completed or, more likely, the operation is in 
+			   progress), exit */
 			break;
 			}
 		deleteSocket( netSocket );
@@ -611,7 +637,7 @@ static int preOpenSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 		return( mapNetworkError( netStream, 0, FALSE, CRYPT_ERROR_OPEN ) );
 		}
 	freeAddressInfo( addrInfoPtr );
-	if( status < 0 && !nonBlockWarning )
+	if( status < 0 && !operationInProgress )
 		{
 		/* There was an error condition other than a notification that the
 		   operation hasn't completed yet */
@@ -1015,7 +1041,7 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 						&clientAddrLen );
 	if( isBadSocket( netSocket ) )
 		{
-		if( isNonblockWarning( listenSocket ) )
+		if( !isInvalidSocket( netSocket ) && isBlockWarning( listenSocket ) )
 			{
 			status = setSocketError( netStream, 
 									 "Remote system closed the connection "
@@ -1067,7 +1093,12 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 		/* There was a problem adding the new socket, close it and exit.
 		   We don't call deleteSocket() since it wasn't added to the pool,
 		   instead we call closesocket() directly */
-		closesocket( netSocket );
+		status = closesocket( netSocket );
+		if( isSocketError( status ) )
+			{
+			DEBUG_DIAG(( "Error closing socket %d after failed addSocket() "
+						 "call", netSocket ));
+			}
 		return( setSocketError( netStream, 
 								"Couldn't add socket to socket pool", 34,
 								status, FALSE ) );

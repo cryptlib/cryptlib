@@ -5,7 +5,7 @@ Option Explicit
 '*****************************************************************************
 '*                                                                           *
 '*                        cryptlib External API Interface                    *
-'*                       Copyright Peter Gutmann 1997-2023                   *
+'*                       Copyright Peter Gutmann 1997-2026                   *
 '*                                                                           *
 '*                 adapted for Visual Basic Version 6  by W. Gothier         *
 '*****************************************************************************
@@ -15,7 +15,7 @@ Option Explicit
 
 'This file has been created automatically by a perl script from the file:
 '
-'"cryptlib.h" dated Wed Jun 21 23:31:08 2023, filesize = 103765.
+'"cryptlib.h" dated Tue Feb 10 16:49:48 2026, filesize = 104843.
 '
 'Please check twice that the file matches the version of cryptlib.h
 'in your cryptlib source! If this is not the right version, try to download an
@@ -24,12 +24,12 @@ Option Explicit
 '
 'Examples using Visual Basic are available on the same web address.
 '
-'Published by W. Gothier, 
+'Published by W. Gothier,
 'mailto: problems@cryptlib.sogot.de if you find errors in this file.
 
 '-----------------------------------------------------------------------------
 
-  Public Const CRYPTLIB_VERSION As Long = 347
+  Public Const CRYPTLIB_VERSION As Long = 349
 
 '****************************************************************************
 '*                                                                           *
@@ -64,8 +64,8 @@ Public Enum CRYPT_ALGO_TYPE
     CRYPT_ALGO_RESERVED3            ' Formerly KEA 
     CRYPT_ALGO_ECDSA                ' ECDSA 
     CRYPT_ALGO_ECDH                 ' ECDH 
-    CRYPT_ALGO_EDDSA                ' EDDSA 
-    CRYPT_ALGO_25519                ' X25519/X448 
+    CRYPT_ALGO_25519                ' X25519 
+    CRYPT_ALGO_ED25519              ' Ed25519 
 
     ' Hash algorithms 
     CRYPT_ALGO_RESERVED4 = 200      ' Formerly MD2 
@@ -1049,7 +1049,7 @@ Public Enum CRYPT_ATTRIBUTE_TYPE
     ' Client/server information 
     CRYPT_SESSINFO_SERVER_NAME      ' Server name 
     CRYPT_SESSINFO_SERVER_PORT      ' Server port number 
-    CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 ' Server key fingerprint 
+    CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 ' Server key fingerprint 
     CRYPT_SESSINFO_CLIENT_NAME      ' Client name 
     CRYPT_SESSINFO_CLIENT_PORT      ' Client port number 
     CRYPT_SESSINFO_SESSION          ' Transport mechanism 
@@ -1432,6 +1432,7 @@ End Enum
   Public Const CRYPT_TLSOPTION_DISABLE_NAMEVERIFY As Long = &H010   ' Disable cert hostname check 
   Public Const CRYPT_TLSOPTION_DISABLE_CERTVERIFY As Long = &H020   ' Disable certificate check 
   Public Const CRYPT_TLSOPTION_SERVER_SNI As Long = &H040   ' Enable SNI-based key selection 
+  Public Const CRYPT_TLSOPTION_RESUMED As Long = &H080   ' TLS session is resumed 
   Public Const CRYPT_TLSOPTION_SUITEB_128 As Long = &H100   ' SuiteB security levels (will 
   Public Const CRYPT_TLSOPTION_SUITEB_256 As Long = &H200   '  vanish in future releases) 
 
@@ -1670,6 +1671,21 @@ Public Type CRYPT_PKCINFO_ECC
     ' Private components 
     d(CRYPT_MAX_PKCSIZE_ECC-1) As Byte' Private random integer 
     dLen As Long                   ' Length of integer in bits 
+    
+
+End Type
+
+Public Type CRYPT_PKCINFO_DJB 
+    ' Status information 
+    isPublicKey As Long            ' Whether this is a public or private key 
+
+    ' Public components 
+    pub(CRYPT_MAX_PKCSIZE-1) As Byte ' Public value 
+    pubLen As Long                 ' Length of public value in bits 
+
+    ' Private components 
+    priv(CRYPT_MAX_PKCSIZE-1) As Byte' Private value 
+    privLen As Long                ' Length of private value in bits 
     
 
 End Type

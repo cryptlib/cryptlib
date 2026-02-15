@@ -583,7 +583,7 @@ int setChannelAttribute( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE attribute,
 						 IN_INT_SHORT const int value )
 	{
-	SSH_CHANNEL_INFO *channelInfoPtr;
+	const SSH_CHANNEL_INFO *channelInfoPtr;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
@@ -698,7 +698,7 @@ CHECK_RETVAL_ENUM( CHANNEL ) STDC_NONNULL_ARG( ( 1 ) ) \
 CHANNEL_TYPE getChannelStatusByChannelNo( const SESSION_INFO *sessionInfoPtr,
 										  const long channelNo )
 	{
-	SSH_CHANNEL_INFO *channelInfoPtr;
+	const SSH_CHANNEL_INFO *channelInfoPtr;
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
@@ -746,7 +746,7 @@ int selectChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				   IN_ENUM_OPT( CHANNEL ) const CHANNEL_TYPE channelType )
 	{
 	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
-	SSH_CHANNEL_INFO *channelInfoPtr;
+	const SSH_CHANNEL_INFO *channelInfoPtr;
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 

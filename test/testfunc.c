@@ -136,7 +136,7 @@ static void reportSqlError( const ODBC_SOURCE_TYPE sourceType )
 						   &errorMessageLen ) != SQL_NO_DATA )
 		{
 		fprintf( outputStream, "SQLConfigDataSource() returned error "
-				 "code %d,\n  message '%s'.\n", dwErrorCode, errorMessage );
+				 "code %u,\n  message '%s'.\n", dwErrorCode, errorMessage );
 #if defined( _M_X64 )
 		if( sourceType == ODBC_SOURCE_ACCESS )
 			{
@@ -876,6 +876,7 @@ static const TEST_FUNCTION_INFO certTestInfo[] = {
 	MK_TESTFUNC_COND_EMULATED( testOCSPReqResp ),
 	MK_TESTFUNC_COND_EMULATED( testCertImport ),
 	MK_TESTFUNC_COND_EMULATED( testCertImportECC ),
+	MK_TESTFUNC_COND_EMULATED( testCertImport25519 ),
 	MK_TESTFUNC_COND_EMULATED( testCertReqImport ),
 	MK_TESTFUNC_COND_EMULATED( testCRLImport ),
 	MK_TESTFUNC_COND_EMULATED( testCertChainImport ),
@@ -1267,6 +1268,8 @@ BOOLEAN testSessionsLoopback( void )
 		checkCreateDatabaseKeysets();	/* Needed for PKI tests */
 		}
   #endif /* DATABASE_AUTOCONFIG */
+
+	/* SSH tests */
 	if( !testSessionSSHClientServer() )
 		return( FALSE );
 	if( !testSessionSSHClientServerDsaKey() )
@@ -1283,6 +1286,8 @@ BOOLEAN testSessionsLoopback( void )
 		return( FALSE );
 	if( !testSessionSSHClientServerPubkeyAuthPassword() )
 		return( FALSE );
+	if( !testSessionSSHClientServerPubkeyAuthNoPubkey() )
+		return( FALSE );
 	if( !testSessionSSHClientServerPreauth() )
 		return( FALSE );
 	if( !testSessionSSHClientServerPreauthMissing() )
@@ -1297,6 +1302,8 @@ BOOLEAN testSessionsLoopback( void )
 		return( FALSE );
 	if( !testSessionSSHClientServerDebugCheck() )
 		return( FALSE );
+
+	/* TLS tests */
 	if( !testSessionSSLClientServer() )
 		return( FALSE );
 	if( !testSessionSSLClientCertClientServer() )
@@ -1325,6 +1332,18 @@ BOOLEAN testSessionsLoopback( void )
 		return( FALSE );
 	if( !testSessionTLSClientServerDebugCheck() )
 		return( FALSE );
+	if( !testSessionTLS13ClientServer() )
+		return( FALSE );
+	if( !testSessionTLS13ClientServerEccKey() )
+		return( FALSE );
+	if( !testSessionTLS13ClientServerEd25519Key() )
+		return( FALSE );
+	if( !testSessionTLS13ClientCertClientServer() )
+		return( FALSE );
+	if( !testSessionTLS13ForceTLS13ClientServer() )
+		return( FALSE );
+
+	/* PKI protocol tests */
 	if( !testSessionHTTPCertstoreClientServer() )
 		return( FALSE );
 	if( !testSessionRTCSClientServer() )

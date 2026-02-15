@@ -183,6 +183,7 @@ void debugDumpSSH( IN_PTR const SESSION_INFO *sessionInfoPtr,
 		( !encryptionActive && length > 7 && \
 		  !memcmp( buffer, "SSH-2.0", 7 ) ) ? TRUE : FALSE;
 	char fileName[ 1024 + 8 ], *slashPtr;
+	int result;
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtrDynamic( buffer,  length ) );
@@ -196,8 +197,9 @@ void debugDumpSSH( IN_PTR const SESSION_INFO *sessionInfoPtr,
 	if( messageCount > 30 )
 		return;
 
-	sprintf_s( fileName, 1024, "ssh%02d%c_", messageCount++, 
-			   isRead ? 'r' : 'w' );
+	result = sprintf_s( fileName, 1024, "ssh%02d%c_", messageCount++, 
+						isRead ? 'r' : 'w' );
+	assert( rangeCheck( result, 1, 1023 ) );
 	if( isClientID || isServerID )
 		{
 		/* The initial server-ID messages don't have defined packet names */
@@ -275,14 +277,20 @@ static void destroyHandshakeInfo( INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo )
 	   case the session activation fails, so that a second activation attempt
 	   doesn't overwrite still-active contexts */
 	if( handshakeInfo->iExchangeHashContext != CRYPT_ERROR )
+		{
 		krnlSendNotifier( handshakeInfo->iExchangeHashContext,
 						  IMESSAGE_DECREFCOUNT );
+		}
 	if( handshakeInfo->iExchangeHashAltContext != CRYPT_ERROR )
+		{
 		krnlSendNotifier( handshakeInfo->iExchangeHashAltContext,
 						  IMESSAGE_DECREFCOUNT );
+		}
 	if( handshakeInfo->iServerCryptContext != CRYPT_ERROR )
+		{
 		krnlSendNotifier( handshakeInfo->iServerCryptContext,
 						  IMESSAGE_DECREFCOUNT );
+		}
 
 	/* Clear the handshake state information, then reset it to explicit non-
 	   initialised values */
@@ -523,7 +531,7 @@ static int completeStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
-								 OUT_PTR void *data, 
+								 INOUT_PTR void *data, 
 								 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
 	MESSAGE_DATA *msgData = ( MESSAGE_DATA * ) data;
@@ -722,7 +730,12 @@ static int checkAttributeFunction( SESSION_INFO *sessionInfoPtr,
 	if( !isServer( sessionInfoPtr ) )
 		return( CRYPT_OK );
 
-	getHashAtomicParameters( CRYPT_ALGO_MD5, 0, &hashFunctionAtomic, 
+	/* The original (1990s) specifications used MD5 for the key fingerprint
+	   but pretty much everything now uses the de facto standard SHA-256
+	   even though it's not required by any RFC.  We formerly reported the
+	   historic MD5 hash as a SHA-1 fingerprint (since MD5 fingerprints had
+	   been removed) until 3.4.8 but switched to SHA-256 after that */
+	getHashAtomicParameters( CRYPT_ALGO_SHA2, 32, &hashFunctionAtomic, 
 							 &hashSize );
 
 	/* The fingerprint is computed from the "key blob", which is different
@@ -759,7 +772,7 @@ static int checkAttributeFunction( SESSION_INFO *sessionInfoPtr,
 
 	/* Add the fingerprint */
 	return( addSessionInfoS( sessionInfoPtr,
-							 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
+							 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
 							 fingerPrint, hashSize ) );
 	}
 

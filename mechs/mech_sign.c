@@ -64,7 +64,7 @@ static int readRawObject( INOUT_PTR STREAM *stream,
 	REQUIRES_S( tag == BER_SEQUENCE );
 
 	/* Clear return values */
-	REQUIRES( isShortIntegerRangeNZ( bufferMaxLength ) ); 
+	REQUIRES_S( isShortIntegerRangeNZ( bufferMaxLength ) ); 
 	memset( buffer, 0, min( 16, bufferMaxLength ) );
 	*bufferLength = 0;
 
@@ -89,6 +89,7 @@ static int readRawObject( INOUT_PTR STREAM *stream,
 
 	/* Read in the rest of the data */
 	*bufferLength = offset + length;
+	REQUIRES_S( boundsCheck( offset, length, bufferMaxLength ) );
 	return( sread( stream, buffer + offset, length ) );
 	}
 
@@ -208,6 +209,7 @@ static int readMessageDigest( INOUT_PTR STREAM *stream,
 				}
 			OCTET STRING hash
 			} */
+	REQUIRES_S( rangeCheck( 8, 1, 8 ) );
 	status = sread( stream, buffer, 8 );
 	if( cryptStatusError( status ) ) 
 		return( status );
@@ -779,9 +781,13 @@ static int sigcheck( INOUT_PTR MECHANISM_SIGN_INFO *mechanismInfo,
 			status = decodePKCS1( &stream, length );
 			if( cryptStatusError( status ) )
 				break;
+			REQUIRES( rangeCheck( 16, 1, CRYPT_MAX_HASHSIZE ) );
 			status = sread( &stream, hash, 16 );
 			if( cryptStatusOK( status ) )
+				{
+				REQUIRES( rangeCheck( 20, 1, CRYPT_MAX_HASHSIZE ) );
 				status = sread( &stream, hash2, 20 );
+				}
 			if( cryptStatusError( status ) )
 				break;
 
@@ -1032,7 +1038,7 @@ static int generateMHash( OUT_BUFFER_FIXED( mHashMaxLen ) BYTE *mHash,
 							|						|
 							v						v
 			+-----------------------------------+------+---+
-	   EM =	|#				maskedDB			| mHash|xDB|
+	   EM =	|#				maskedDB			| mHash|xBC|
 			+-----------------------------------+------+---+
 							|						|
 							v						|
@@ -1220,7 +1226,7 @@ static int recoverPssDataBlock( OUT_BUFFER( mHashMaxLen, *mHashLen ) \
 
 	/* The block is now: 
 
-		[ 0x00 padding ][ 0x01 ][ salt ][ mHash ][ 0xDB ]
+		[ 0x00 padding ][ 0x01 ][ salt ][ mHash ][ 0xBC ]
 		 ------------- DB -------------  ---- data -----
 
 	   Check that the constant parts are as expected */

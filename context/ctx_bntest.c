@@ -35,7 +35,7 @@ typedef enum {
 	BN_OP_LSHIFT, BN_OP_RSHIFT,
 	BN_OP_ADDWORD, BN_OP_SUBWORD,
 	BN_OP_MULWORD, BN_OP_MODWORD,
-	BN_OP_SQR, 
+	BN_OP_SQR, BN_OP_ISQRT,
 	BN_OP_DIV, BN_OP_MONTMODMULT,
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
 	BN_OP_MODADD, BN_OP_MODSUB,
@@ -203,6 +203,8 @@ static const SELFTEST_VALUE sqrSelftestValues[] = {
 	/* a, result */
 	{ 1, MKDATA( "\x02" ), 0, NULL, 0,
 	  1, MKDATA( "\x04" ) },
+	{ 2, MKDATA( "\xFF\xFF" ), 0, NULL, 0, 
+	  4, MKDATA( "\xFF\xFE\x00\x01" ) },
 	{ 4, MKDATA( "\xFF\xFF\xFF\xFF" ), 0, NULL, 0, 
 	  8, MKDATA( "\xFF\xFF\xFF\xFE\x00\x00\x00\x01" ) },
 	{ 8, MKDATA( "\x55\x55\x55\x55\x55\x55\x55\x55" ), 0, NULL, 0, 
@@ -235,6 +237,48 @@ static const SELFTEST_VALUE sqrSelftestValues[] = {
 		  "\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71"
 		  "\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E"
 		  "\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x39" ) },
+		{ 0, NULL, 0, NULL, 0, 0, NULL }, { 0, NULL, 0, NULL, 0, 0, NULL }
+	};
+
+static const SELFTEST_VALUE isqrtSelftestValues[] = {
+	/* a, result */
+	{ 1, MKDATA( "\x10" ), 0, NULL, 0,
+	  1, MKDATA( "\x04" ) },
+	{ 4, MKDATA( "\xFF\xFE\x00\x01" ), 0, NULL, 0, 
+	  2, MKDATA( "\xFF\xFF" ) },
+	{ 8, MKDATA( "\xFF\xFF\xFF\xFE\x00\x00\x00\x01" ), 0, NULL, 0, 
+	  4, MKDATA( "\xFF\xFF\xFF\xFF" ) },
+	{ 16, MKDATA( "\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\x8E\x38\xE3\x8E\x38\xE3\x8E\x39" ),
+			0, NULL, 0, 
+	  8, MKDATA( "\x55\x55\x55\x55\x55\x55\x55\x55" ) },
+	{ 24, MKDATA( "\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC6\xE3\x8E\x38\xE3"
+		  "\x8E\x38\xE3\x8E\x38\xE3\x8E\x39" ), 0, NULL, 0, 
+	  12, MKDATA( "\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55" ) },
+	{ 40, MKDATA( "\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C"
+		  "\x71\xC7\x1C\x71\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3"
+		  "\x8E\x38\xE3\x8E\x38\xE3\x8E\x39" ), 0, NULL, 0,
+	  20, MKDATA( "\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55"
+		  "\x55\x55\x55\x55" ) },
+	{ 48, MKDATA( "\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C"
+		  "\x71\xC7\x1C\x71\xC7\x1C\x71\xC6\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E"
+		  "\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x39" ), 0, NULL, 0,
+	  24, MKDATA( "\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55"
+		  "\x55\x55\x55\x55\x55\x55\x55\x55" ) },
+	{ 56, MKDATA( "\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C"
+		  "\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x38\xE3\x8E\x38"
+		  "\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3"
+		  "\x8E\x38\xE3\x8E\x38\xE3\x8E\x39" ), 0, NULL, 0,
+	  28, MKDATA( "\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55"
+		  "\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55" ) },
+	{ 32, MKDATA( "\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C"
+		  "\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x39" ), 0, NULL, 0,
+	  16, MKDATA( "\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55" ) },
+	{ 64, MKDATA( "\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C"
+		  "\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71\xC7\x1C\x71"
+		  "\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E"
+		  "\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x38\xE3\x8E\x39" ), 0, NULL, 0,
+	  32, MKDATA( "\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55"
+		  "\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55\x55" ) },
 		{ 0, NULL, 0, NULL, 0, 0, NULL }, { 0, NULL, 0, NULL, 0, 0, NULL }
 	};
 
@@ -318,18 +362,26 @@ static const SELFTEST_VALUE montModMulSelftestValues[] = {
 
 static const SELFTEST_VALUE modAddSelftestValues[] = {
 	/* a, b, result, modulus */
-	{ 1, "\x03", 1, "\x04", 0,
-	  1, "\x02", 1, "\x05" },
-	{ 4, "\xFF\xFF\xFF\xFE", 1, "\x03", 0,
-	  1, "\x02", 4, "\xFF\xFF\xFF\xFF" },
-	{ 8, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFE", 8, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFE", 0,
-	  8, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFD", 8, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF" },
-	{ 12, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00\x00\x00\x03", 4, "\xFF\xFF\xFF\xFF", 0,
-	  1, "\x02", 13, "\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" },
-	{ 12, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00\x00\x00\x04", 4, "\xFF\xFF\xFF\xFF", 0,
-	  1, "\x03", 13, "\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" },
-	{ 12, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00\x00\x00\x05", 4, "\xFF\xFF\xFF\xFF", 0,
-	  1, "\x04", 13, "\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" },
+	{ 1, MKDATA( "\x03" ), 1, MKDATA( "\x04" ), 0,
+	  1, MKDATA( "\x02" ), 1, MKDATA( "\x05" ) },
+	{ 4, MKDATA( "\xFF\xFF\xFF\xFE" ), 1, MKDATA( "\x03" ), 0,
+	  1, MKDATA( "\x02" ), 4, MKDATA( "\xFF\xFF\xFF\xFF" ) },
+	{ 8, MKDATA( "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFE" ), 
+	  8, MKDATA( "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFE" ), 0,
+	  8, MKDATA( "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFD" ), 
+	  8, MKDATA( "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF" ) },
+	{ 12, MKDATA( "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00\x00\x00\x03" ), 
+	  4, MKDATA( "\xFF\xFF\xFF\xFF" ), 0,
+	  1, MKDATA( "\x02" ), 
+	  13, MKDATA( "\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" ) },
+	{ 12, MKDATA( "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00\x00\x00\x04" ), 
+	  4, MKDATA( "\xFF\xFF\xFF\xFF" ), 0,
+	  1, MKDATA( "\x03" ), 
+	  13, MKDATA( "\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" ) },
+	{ 12, MKDATA( "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00\x00\x00\x05" ), 
+	  4, MKDATA( "\xFF\xFF\xFF\xFF" ), 0,
+	  1, MKDATA( "\x04" ), 
+	  13, MKDATA( "\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" ) },
 		{ 0, NULL, 0, NULL, 0, 0, NULL }, { 0, NULL, 0, NULL, 0, 0, NULL }
 	};
 
@@ -441,7 +493,7 @@ static BOOLEAN selfTestBignumFields( void )
 		bignumExt->d[ 2 ] != TEST_D2_CONST )
 		{
 		DEBUG_DIAG(( "Check of BIGNUM/BIGNUM_EXT overlay failed" ));
-		DEBUG_DIAG(( "BN->top = %lX, BN->neg = %lX, BN->flags = %lX, "
+		DEBUG_DIAG(( "BN->top = %d, BN->neg = %d, BN->flags = %d, "
 					 "BN->d[0] = %lX, BN->d[1] = %lX, BN->d[2] = %lX", 
 					 bignumExt->top, bignumExt->neg, bignumExt->flags, 
 					 bignumExt->d[ 0 ], bignumExt->d[ 1 ], 
@@ -456,7 +508,7 @@ static BOOLEAN selfTestBignumFields( void )
 		bignumExt2->d[ 2 ] != TEST_D2_CONST )
 		{
 		DEBUG_DIAG(( "Check of BIGNUM/BIGNUM_EXT2 overlay failed" ));
-		DEBUG_DIAG(( "BN->top = %lX, BN->neg = %lX, BN->flags = %lX, "
+		DEBUG_DIAG(( "BN->top = %d, BN->neg = %d, BN->flags = %d, "
 					 "BN->d[0] = %lX, BN->d[1] = %lX, BN->d[2] = %lX", 
 					 bignumExt2->top, bignumExt2->neg, bignumExt2->flags, 
 					 bignumExt2->d[ 0 ], bignumExt2->d[ 1 ], 
@@ -482,7 +534,7 @@ static BOOLEAN selfTestBignumLinkage( void )
 		int top, dmax, neg, flags;
 		} BIGNUM_ALT;
 	BIGNUM bignum;
-	BIGNUM_ALT *bignumAlt = ( BIGNUM_ALT * ) &bignum;
+	const BIGNUM_ALT *bignumAlt = ( BIGNUM_ALT * ) &bignum;
 
 	/* Set the bignum to zero.  If we're being used with our own bignum 
 	   code, the fields should be set correctly */
@@ -547,7 +599,7 @@ static BOOLEAN selfTestGeneralOps1( void )
 		{
 		DEBUG_DIAG(( "Check of BN set to zero failed" ));
 		DEBUG_DIAG(( "BN.top = %d, BN.neg = %d, BN.flags = %0X, "
-					 "BN.d[0] = %0X, BN.d[1] = %0X, BN.d[2] = %0X", 
+					 "BN.d[0] = %0lX, BN.d[1] = %0lX, BN.d[2] = %0lX", 
 					 a.top, a.neg, a.flags, a.d[ 0 ], a.d[ 1 ], a.d[ 2 ] ));
 		return( FALSE );
 		}
@@ -873,6 +925,10 @@ static BOOLEAN selfTestOp( const SELFTEST_VALUE *selftestValue,
 			CK( BN_sqr( &result, &a, &bnCTX ) );
 			break;
 
+		case BN_OP_ISQRT:
+			CK( BN_isqrt( &result, &a, &bnCTX ) );
+			break;
+		
 		case BN_OP_DIV:
 			CK( BN_div( &result, &mod, &a, &b, &bnCTX ) );
 			break;
@@ -1058,6 +1114,9 @@ BOOLEAN bnmathSelfTest( void )
 		return( FALSE );
 	if( !selfTestOps( sqrSelftestValues, FS_SIZE( sqrSelftestValues ),
 					  BN_OP_SQR, "BN_OP_SQR" ) )
+		return( FALSE );
+	if( !selfTestOps( isqrtSelftestValues, FS_SIZE( isqrtSelftestValues ),
+					  BN_OP_ISQRT, "BN_OP_ISQRT" ) )
 		return( FALSE );
 	if( !selfTestOps( divSelftestValues, FS_SIZE( divSelftestValues ),
 					  BN_OP_DIV, "BN_OP_DIV" ) )

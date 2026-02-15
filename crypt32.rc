@@ -22,18 +22,19 @@
 
 #if defined( USE_CERT_DNSTRING ) || defined( USE_CHACHA20 ) || \
 	defined( USE_CRYPTOAPI ) || defined( USE_DES ) || \
-	defined( USE_DNSSRV ) || defined( USE_GCM ) || defined( USE_LDAP ) || \
-	defined( USE_OAEP ) || defined( USE_PKCS12 ) || \
-	defined( USE_POLY1305 ) || defined( USE_PSS ) || \
-	defined( USE_RSA_SUITES ) || defined( USE_SSH_EXTENDED ) || \
-	defined( USE_SSH_CTR ) || defined( USE_RC2 ) || defined( USE_RC4 )
+	defined( USE_ED25519 ) || defined( USE_DNSSRV ) || \
+	defined( USE_LDAP ) || defined( USE_OAEP ) || \
+	defined( USE_PKCS12 ) || defined( USE_POLY1305 ) || \
+	defined( USE_PSS ) || defined( USE_RSA_SUITES ) || \
+	defined( USE_SSH_EXTENDED ) || defined( USE_SSH_CTR ) || \
+	defined( USE_RC2 ) || defined( USE_RC4 )
   #define PRIVATE_BUILD
 #endif /* Nonstandard config.options */
 
 /* cryptlib version information, needed at various places in the resources */
 
-#define VERSION		3,4,8
-#define VERSION_STR	"3.4.8\0"
+#define VERSION		3,4,9
+#define VERSION_STR	"3.4.9\0"
 
 /* The version information resource */
 
@@ -78,7 +79,7 @@ BEGIN
 #endif /* Win32 vs. WinCE */
 	  VALUE "ProductName", "cryptlib security toolkit\0"
 	  VALUE "CompanyName", "Peter Gutmann\0"
-	  VALUE "LegalCopyright", "Copyright \251 1994 - 2024 Peter Gutmann, Eric Young, OpenSSL\0"
+	  VALUE "LegalCopyright", "Copyright \251 1994 - 2026 Peter Gutmann, OpenSSL\0"
 	  VALUE "FileVersion", VERSION_STR
 	  VALUE "ProductVersion", VERSION_STR
 #if defined( _DEBUG )

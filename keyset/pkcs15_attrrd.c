@@ -42,18 +42,19 @@ static const OID_INFO cryptlibDataOIDinfo[] = {
 
 typedef struct {
 	PKCS15_OBJECT_TYPE type;	/* Object type */
-	int subTypes[ 9 ];			/* Subtype tags */
+	int subTypes[ 10 ];			/* Subtype tags */
 	} ALLOWED_ATTRIBUTE_TYPES;
 
 static const ALLOWED_ATTRIBUTE_TYPES allowedTypesTbl[] = {
 	{ PKCS15_OBJECT_PUBKEY,
 	  { BER_SEQUENCE, MAKE_CTAG( CTAG_PK_ECC ), MAKE_CTAG( CTAG_PK_DH ), 
-	    MAKE_CTAG( CTAG_PK_DSA ), 
+	    MAKE_CTAG( CTAG_PK_DSA ), MAKE_CTAG( CTAG_PK_BERNSTEIN ), 
 		CRYPT_ERROR, CRYPT_ERROR } },
 	{ PKCS15_OBJECT_PRIVKEY,
-	  { BER_SEQUENCE, MAKE_CTAG( CTAG_PK_ECC ), MAKE_CTAG( CTAG_PK_DH ), 
-	    MAKE_CTAG( CTAG_PK_DSA ), MAKE_CTAG( CTAG_PK_RSA_EXT ),
-		MAKE_CTAG( CTAG_PK_ECC_EXT ), MAKE_CTAG( CTAG_PK_DLP_EXT ),
+	  { BER_SEQUENCE, MAKE_CTAG( CTAG_PR_ECC ), MAKE_CTAG( CTAG_PR_DH ), 
+	    MAKE_CTAG( CTAG_PR_DSA ), MAKE_CTAG( CTAG_PR_RSA_EXT ),
+		MAKE_CTAG( CTAG_PR_ECC_EXT ), MAKE_CTAG( CTAG_PR_DLP_EXT ),
+		MAKE_CTAG( CTAG_PR_BERNSTEIN_EXT ),
 		CRYPT_ERROR, CRYPT_ERROR } },
 	{ PKCS15_OBJECT_CERT,
 	  { BER_SEQUENCE, CRYPT_ERROR, CRYPT_ERROR } },
@@ -64,11 +65,6 @@ static const ALLOWED_ATTRIBUTE_TYPES allowedTypesTbl[] = {
 	{ PKCS15_OBJECT_NONE, { CRYPT_ERROR, CRYPT_ERROR } },
 		{ PKCS15_OBJECT_NONE, { CRYPT_ERROR, CRYPT_ERROR } }
 	};
-
-#define isPrivateKeyExt( tag ) \
-		( ( tag ) == MAKE_CTAG( CTAG_PK_RSA_EXT ) || \
-		  ( tag ) == MAKE_CTAG( CTAG_PK_ECC_EXT ) || \
-		  ( tag ) == MAKE_CTAG( CTAG_PK_DLP_EXT ) )
 
 /****************************************************************************
 *																			*
@@ -759,7 +755,7 @@ int readObjectAttributes( INOUT_PTR STREAM *stream,
 	   v1.2 form which cryptographically binds the public-key data to the
 	   private-key data.  To deal with this we have to remember whether 
 	   we're dealing with the original or updated form */
-	if( type == PKCS15_OBJECT_PRIVKEY && isPrivateKeyExt( tag ) )
+	if( type == PKCS15_OBJECT_PRIVKEY && isPKExt( EXTRACT_CTAG( tag ) ) )
 		{
 		/* Remember that we have to import the private key in extended 
 		   format when we instantiate it */

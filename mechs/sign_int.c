@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Internal Signature Routines						*
-*						Copyright Peter Gutmann 1993-2019					*
+*						Copyright Peter Gutmann 1993-2024					*
 *																			*
 ****************************************************************************/
 
@@ -67,7 +67,7 @@ static const char *getSigTypeName( IN_ENUM( SIGNATURE ) \
 
 /* Create a DLP signature */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5 ) ) \
 static int createDlpSignature( OUT_BUFFER_OPT( bufSize, *length ) \
 									void *buffer,
 							   IN_RANGE( 0, CRYPT_MAX_PKCSIZE ) \
@@ -75,11 +75,12 @@ static int createDlpSignature( OUT_BUFFER_OPT( bufSize, *length ) \
 							   OUT_LENGTH_BOUNDED_SHORT_Z( bufSize ) \
 									int *length, 
 							   IN_HANDLE const CRYPT_CONTEXT iSignContext,
-							   IN_HANDLE const CRYPT_CONTEXT iHashContext,
+							   IN_PTR const SIG_DATA_INFO *sigDataInfo,
+							   IN_ALGO const CRYPT_ALGO_TYPE signAlgo,
 							   IN_ENUM( SIGNATURE ) \
-									const SIGNATURE_TYPE signatureType,
-							   IN_BOOL const BOOLEAN isECC )
+									const SIGNATURE_TYPE signatureType )
 	{
+	CRYPT_CONTEXT iHashContext;
 	DLP_PARAMS dlpParams;
 	MESSAGE_DATA msgData;
 	BYTE hash[ CRYPT_MAX_HASHSIZE + 8 ];
@@ -89,19 +90,28 @@ static int createDlpSignature( OUT_BUFFER_OPT( bufSize, *length ) \
 	assert( ( buffer == NULL && bufSize == 0 ) || \
 			isWritePtrDynamic( buffer, bufSize ) );
 	assert( isWritePtr( length, sizeof( int ) ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
 
 	REQUIRES( ( buffer == NULL && bufSize == 0 ) || \
 			  ( buffer != NULL && \
 			    bufSize > MIN_CRYPT_OBJECTSIZE && \
 				bufSize <= CRYPT_MAX_PKCSIZE ) );
 	REQUIRES( isHandleRangeValid( iSignContext ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, signatureType, TRUE ) && \
+			  sigDataInfo->data == NULL );
+	REQUIRES( isEnumRange( signAlgo, CRYPT_ALGO ) );
 	REQUIRES( isEnumRange( signatureType, SIGNATURE ) );
-	REQUIRES( isBooleanValue( isECC ) );
 
 	/* Clear return value */
 	*length = 0;
 
+	/* We have to provide special handling for TLS signatures, which 
+	   normally sign a dual hash of MD5 and SHA-1 but for DLP only sign the 
+	   second SHA-1 hash */
+	iHashContext = ( signatureType == SIGNATURE_TLS ) ? \
+					 sigDataInfo->hashContext2 : \
+					 sigDataInfo->hashContext;
+					 
 	/* Extract the hash value from the context.  If we're doing a length 
 	   check then there's no hash value present yet, so we just fill in the 
 	   hash length value from the blocksize attribute */
@@ -126,7 +136,8 @@ static int createDlpSignature( OUT_BUFFER_OPT( bufSize, *length ) \
 	/* SSH hardcodes SHA-1 (or at least two fixed-length values of 20 bytes)
 	   into its signature format, so we can't create an SSH signature unless
 	   we're using a 20-byte hash */
-	if( !isECC && signatureType == SIGNATURE_SSH && hashSize != 20 )
+	if( signatureType == SIGNATURE_SSH && !isEccAlgo( signAlgo ) && \
+		hashSize != 20 )
 		{
 		/* The error reporting here is a bit complex, see the comment in 
 		   createSignature() for how this works */
@@ -146,7 +157,7 @@ static int createDlpSignature( OUT_BUFFER_OPT( bufSize, *length ) \
 		{
 		int sigComponentSize = hashSize;
 
-		if( isECC )
+		if( isEccAlgo( signAlgo ) )
 			{
 			/* For ECC signatures the reduction is done mod n, which is
 			   variable-length, but for standard curves is the same as the
@@ -215,27 +226,39 @@ static int createDlpSignature( OUT_BUFFER_OPT( bufSize, *length ) \
 
 /* Check a DLP signature */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
 static int checkDlpSignature( IN_BUFFER( signatureDataLength ) \
 									const void *signatureData, 
 							  IN_LENGTH_SHORT const int signatureDataLength,
 							  IN_HANDLE const CRYPT_CONTEXT iSigCheckContext,
-							  IN_HANDLE const CRYPT_CONTEXT iHashContext,
+							  IN_PTR const SIG_DATA_INFO *sigDataInfo,
 							  IN_ENUM( SIGNATURE ) \
 									const SIGNATURE_TYPE signatureType )
 	{
+	CRYPT_CONTEXT iHashContext;
 	DLP_PARAMS dlpParams;
 	MESSAGE_DATA msgData;
 	BYTE hash[ CRYPT_MAX_HASHSIZE + 8 ];
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 	int hashSize, status;
 
+	assert( isReadPtrDynamic( signatureData, signatureDataLength ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
+
 	REQUIRES( ( signatureType == SIGNATURE_SSH && \
 				signatureDataLength == 40 ) || \
 			  ( isShortIntegerRangeMin( signatureDataLength, 40 ) ) );
 	REQUIRES( isHandleRangeValid( iSigCheckContext ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, signatureType, TRUE ) && \
+			  sigDataInfo->data == NULL );
 	REQUIRES( isEnumRange( signatureType, SIGNATURE ) );
+
+	/* We have to provide special handling for TLS signatures, which 
+	   normally sign a dual hash of MD5 and SHA-1 but for DLP only sign the 
+	   second SHA-1 hash */
+	iHashContext = ( signatureType == SIGNATURE_TLS ) ? \
+					 sigDataInfo->hashContext2 : \
+					 sigDataInfo->hashContext;
 
 	/* Extract the hash value from the context */
 	setMessageData( &msgData, hash, CRYPT_MAX_HASHSIZE );
@@ -269,21 +292,150 @@ static int checkDlpSignature( IN_BUFFER( signatureDataLength ) \
 
 /****************************************************************************
 *																			*
+*							Bernstein Signature Handling					*
+*																			*
+****************************************************************************/
+
+/* The Bernstein algorithms want to sign the entire message by hashing it
+   twice with SHA-512, the slowest of the SHA-2 family, used because the
+   designer needed two 32-byte values and SHA-512 happened to provide that, 
+   which was then cargo-culted by the IETF.  Because of this we have to 
+   provide the usual special-snowflake handling required by any Bernstein 
+   design */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5 ) ) \
+static int createBernsteinSignature( OUT_BUFFER_OPT( bufSize, *length ) \
+										void *buffer,
+									 IN_RANGE( 0, CRYPT_MAX_PKCSIZE ) \
+										const int bufSize, 
+									 OUT_LENGTH_BOUNDED_SHORT_Z( bufSize ) \
+										int *length, 
+									 IN_HANDLE \
+										const CRYPT_CONTEXT iSignContext,
+									 IN_PTR \
+										const SIG_DATA_INFO *sigDataInfo,
+									 IN_ENUM( SIGNATURE ) \
+										const SIGNATURE_TYPE signatureType )
+	{
+	DLP_PARAMS dlpParams;
+	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
+	int sigComponentSize, status;
+
+	assert( ( buffer == NULL && bufSize == 0 ) || \
+			isWritePtrDynamic( buffer, bufSize ) );
+	assert( isWritePtr( length, sizeof( int ) ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
+
+	REQUIRES( ( buffer == NULL && bufSize == 0 ) || \
+			  ( buffer != NULL && \
+			    bufSize > MIN_CRYPT_OBJECTSIZE && \
+				bufSize <= CRYPT_MAX_PKCSIZE ) );
+	REQUIRES( isHandleRangeValid( iSignContext ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, signatureType, TRUE ) && \
+			  sigDataInfo->data != NULL );
+	REQUIRES( isEnumRange( signatureType, SIGNATURE ) );
+
+	/* Clear return value */
+	*length = 0;
+
+	/* Get the algorithm parameters */
+	status = krnlSendMessage( iSignContext, IMESSAGE_GETATTRIBUTE,
+							  &sigComponentSize, 
+							  CRYPT_CTXINFO_KEYSIZE );
+	if( cryptStatusError( status ) )
+		return( status );
+	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE" );
+
+	/* If we're just doing a length check, we're done */
+	if( buffer == NULL )
+		{
+		*length = 2 * sigComponentSize;
+		ENSURES( isShortIntegerRangeNZ( *length ) );
+
+		ENSURES( CFI_CHECK_SEQUENCE_1( "IMESSAGE_GETATTRIBUTE" ) );
+
+		return( CRYPT_OK );
+		}
+
+	/* Sign the data */
+	setDLPParams( &dlpParams, sigDataInfo->data, sigDataInfo->length, 
+				  buffer, bufSize );
+	if( signatureType == SIGNATURE_PGP )
+		dlpParams.formatType = CRYPT_FORMAT_PGP;
+	if( signatureType == SIGNATURE_SSH )
+		dlpParams.formatType = CRYPT_IFORMAT_SSH;
+	status = krnlSendMessage( iSignContext, IMESSAGE_CTX_SIGN, 
+							  &dlpParams, sizeof( DLP_PARAMS ) );
+	if( cryptStatusError( status ) )
+		return( status );
+	*length = dlpParams.outLen;
+	CFI_CHECK_UPDATE( "IMESSAGE_CTX_SIGN" );
+
+	ENSURES( CFI_CHECK_SEQUENCE_2( "IMESSAGE_GETATTRIBUTE", 
+								   "IMESSAGE_CTX_SIGN" ) );
+
+	ENSURES( isShortIntegerRangeNZ( *length ) );
+	
+	return( CRYPT_OK );
+	}
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
+static int checkBernsteinSignature( IN_BUFFER( signatureDataLength ) \
+										const void *signatureData, 
+									IN_LENGTH_SHORT \
+										const int signatureDataLength,
+									IN_HANDLE \
+										const CRYPT_CONTEXT iSigCheckContext,
+									IN_PTR \
+										const SIG_DATA_INFO *sigDataInfo,
+									IN_ENUM( SIGNATURE ) \
+										const SIGNATURE_TYPE signatureType )
+	{
+	DLP_PARAMS dlpParams;
+
+	assert( isReadPtrDynamic( signatureData, signatureDataLength ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
+
+	REQUIRES( ( signatureType == SIGNATURE_SSH && \
+				rangeCheck( signatureDataLength, MIN_PKCSIZE_BERNSTEIN * 2,
+							MAX_PKCSIZE_BERNSTEIN * 2 ) ) || \
+			  ( isShortIntegerRangeMin( signatureDataLength, \
+										MIN_PKCSIZE_BERNSTEIN * 2 ) ) );
+	REQUIRES( isHandleRangeValid( iSigCheckContext ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, signatureType, TRUE ) && \
+			  sigDataInfo->data != NULL );
+	REQUIRES( isEnumRange( signatureType, SIGNATURE ) );
+
+	/* Check the signature validity using the encoded message and signature 
+	   data */
+	setDLPParams( &dlpParams, sigDataInfo->data, sigDataInfo->length, 
+				  NULL, 0 );
+	dlpParams.inParam2 = signatureData;
+	dlpParams.inLen2 = signatureDataLength;
+	if( signatureType == SIGNATURE_PGP )
+		dlpParams.formatType = CRYPT_FORMAT_PGP;
+	if( signatureType == SIGNATURE_SSH )
+		dlpParams.formatType = CRYPT_IFORMAT_SSH;
+	return( krnlSendMessage( iSigCheckContext, IMESSAGE_CTX_SIGCHECK,
+							 &dlpParams, sizeof( DLP_PARAMS ) ) );
+	}
+
+/****************************************************************************
+*																			*
 *								Create a Signature							*
 *																			*
 ****************************************************************************/
 
 /* Common signature-creation routine, used by other sign_xxx.c modules */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 8 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5, 7 ) ) \
 int createSignature( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 						void *signature, 
 					 IN_LENGTH_SHORT_Z const int sigMaxLength, 
 					 OUT_LENGTH_BOUNDED_SHORT_Z( sigMaxLength ) \
 						int *signatureLength, 
 					 IN_HANDLE const CRYPT_CONTEXT iSignContext,
-					 IN_HANDLE const CRYPT_CONTEXT iHashContext,
-					 IN_HANDLE_OPT const CRYPT_CONTEXT iHashContext2,
+					 IN_PTR const SIG_DATA_INFO *sigDataInfo,
 					 IN_ENUM( SIGNATURE ) \
 						const SIGNATURE_TYPE signatureType,
 					 INOUT_PTR ERROR_INFO *errorInfo )
@@ -294,11 +446,12 @@ int createSignature( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	BYTE *bufPtr = ( signature == NULL ) ? NULL : buffer;
 	const int bufSize = ( signature == NULL ) ? 0 : CRYPT_MAX_PKCSIZE;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
-	int signAlgo, hashAlgo, length DUMMY_INIT, hashParam = 0, status;
+	int signAlgo, length DUMMY_INIT, status;
 
 	assert( ( signature == NULL && sigMaxLength == 0 ) || \
 			isWritePtrDynamic( signature, sigMaxLength ) );
 	assert( isWritePtr( signatureLength, sizeof( int ) ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( ( signature == NULL && sigMaxLength == 0 ) || \
@@ -306,19 +459,7 @@ int createSignature( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 			    isShortIntegerRangeMin( sigMaxLength, \
 										MIN_CRYPT_OBJECTSIZE ) ) );
 	REQUIRES( isHandleRangeValid( iSignContext ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
-	REQUIRES( ( signatureType == SIGNATURE_TLS && \
-				isHandleRangeValid( iHashContext2 ) ) || \
-			  ( ( signatureType == SIGNATURE_CMS || \
-				  signatureType == SIGNATURE_CMS_PSS || \
-				  signatureType == SIGNATURE_CRYPTLIB || \
-				  signatureType == SIGNATURE_PGP || \
-				  signatureType == SIGNATURE_RAW || \
-				  signatureType == SIGNATURE_SSH || \
-				  signatureType == SIGNATURE_TLS12 || \
-				  signatureType == SIGNATURE_TLS13 || \
-				  signatureType == SIGNATURE_X509 ) && \
-				iHashContext2 == CRYPT_UNUSED ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, signatureType, TRUE ) );
 
 	/* Clear return value */
 	if( signature != NULL )
@@ -337,30 +478,23 @@ int createSignature( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 							  CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
 		return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM1 : status );
-	status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
-							  &hashAlgo, CRYPT_CTXINFO_ALGO );
-	if( cryptStatusOK( status ) )
-		{
-		status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
-								  &hashParam, CRYPT_CTXINFO_BLOCKSIZE );
-		}
-	if( cryptStatusError( status ) )
-		return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM2 : status );
 	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE" );
 
 	/* DLP and ECDLP signatures are handled somewhat specially */
 	INJECT_FAULT( MECH_CORRUPT_HASH, MECH_CORRUPT_HASH_1 );
 	if( isDlpAlgo( signAlgo ) || isEccAlgo( signAlgo ) )
 		{
-		/* In addition to the special-case processing for DLP/ECDLP 
-		   signatures, we have to provide even further special handling for 
-		   TLS signatures, which normally sign a dual hash of MD5 and SHA-1 
-		   but for DLP only sign the second SHA-1 hash */
-		status = createDlpSignature( bufPtr, bufSize, &length, iSignContext, 
-									 ( signatureType == SIGNATURE_TLS ) ? \
-									   iHashContext2 : iHashContext, 
-									 signatureType, 
-									 isEccAlgo( signAlgo ) ? TRUE : FALSE );
+		if( isBernsteinAlgo( signAlgo ) )
+			{
+			status = createBernsteinSignature( bufPtr, bufSize, &length, 
+							iSignContext, sigDataInfo, signatureType );
+			}
+		else
+			{
+			status = createDlpSignature( bufPtr, bufSize, &length, 
+							iSignContext, sigDataInfo, signAlgo, 
+							signatureType );
+			}
 		CFI_CHECK_UPDATE( "IMESSAGE_DEV_SIGN" );
 		}
 	else
@@ -368,9 +502,11 @@ int createSignature( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 		MECHANISM_SIGN_INFO mechanismInfo;
 
 		/* It's a standard signature, process it as normal */
-		setMechanismSignInfo( &mechanismInfo, bufPtr, bufSize, iHashContext, 
-							  iHashContext2, iSignContext );
-		status = krnlSendMessage( iSignContext, IMESSAGE_DEV_SIGN, &mechanismInfo,
+		setMechanismSignInfo( &mechanismInfo, bufPtr, bufSize, 
+							  sigDataInfo->hashContext, 
+							  sigDataInfo->hashContext2, iSignContext );
+		status = krnlSendMessage( iSignContext, IMESSAGE_DEV_SIGN, 
+								  &mechanismInfo,
 								  ( signatureType == SIGNATURE_TLS ) ? \
 									MECHANISM_SIG_TLS : \
 								  ( signatureType == SIGNATURE_CMS_PSS || \
@@ -412,8 +548,9 @@ int createSignature( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 
 	/* Write the signature record to the output */
 	sMemOpenOpt( &stream, signature, sigMaxLength );
-	status = writeSigFunction( &stream, iSignContext, hashAlgo, hashParam, 
-							   signAlgo, buffer, length );
+	status = writeSigFunction( &stream, iSignContext, sigDataInfo->hashAlgo, 
+							   sigDataInfo->hashParam, signAlgo, buffer, 
+							   length );
 	if( cryptStatusOK( status ) )
 		*signatureLength = stell( &stream );
 	sMemDisconnect( &stream );
@@ -447,12 +584,11 @@ int createSignature( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 
 /* Common signature-checking routine, used by other sign_xxx.c modules */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 7 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4, 6 ) ) \
 int checkSignature( IN_BUFFER( signatureLength ) const void *signature, 
 					IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength,
 					IN_HANDLE const CRYPT_CONTEXT iSigCheckContext,
-					IN_HANDLE const CRYPT_CONTEXT iHashContext,
-					IN_HANDLE_OPT const CRYPT_CONTEXT iHashContext2,
+					IN_PTR const SIG_DATA_INFO *sigDataInfo,
 					IN_ENUM( SIGNATURE ) \
 						const SIGNATURE_TYPE signatureType,
 					INOUT_PTR ERROR_INFO *errorInfo )
@@ -467,27 +603,16 @@ int checkSignature( IN_BUFFER( signatureLength ) const void *signature,
 	void *signatureData;
 	BOOLEAN isCertificate = FALSE;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
-	int signAlgo, hashAlgo, hashParam = 0, sigFormat, value;
+	int signAlgo, sigFormat, value;
 	int signatureDataLength, compareType = MESSAGE_COMPARE_NONE, status;
 
 	assert( isReadPtrDynamic( signature, signatureLength ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 	
 	REQUIRES( isShortIntegerRangeMin( signatureLength, 40 ) );
 	REQUIRES( isHandleRangeValid( iSigCheckContext ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
-	REQUIRES( ( signatureType == SIGNATURE_TLS && \
-				isHandleRangeValid( iHashContext2 ) ) || \
-			  ( ( signatureType == SIGNATURE_CMS || \
-				  signatureType == SIGNATURE_CMS_PSS || \
-				  signatureType == SIGNATURE_CRYPTLIB || \
-				  signatureType == SIGNATURE_PGP || \
-				  signatureType == SIGNATURE_RAW || \
-				  signatureType == SIGNATURE_SSH || \
-				  signatureType == SIGNATURE_TLS12 || \
-				  signatureType == SIGNATURE_TLS13 || \
-				  signatureType == SIGNATURE_X509 ) && \
-				iHashContext2 == CRYPT_UNUSED ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, signatureType, TRUE ) );
 
 	/* Make sure that the requested signature format is available */
 	if( readSigFunction == NULL )
@@ -501,15 +626,6 @@ int checkSignature( IN_BUFFER( signatureLength ) const void *signature,
 							  &signAlgo, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
 		return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM1 : status );
-	status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
-							  &hashAlgo, CRYPT_CTXINFO_ALGO );
-	if( cryptStatusOK( status ) && isParameterisedHashAlgo( hashAlgo ) )
-		{
-		status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
-								  &hashParam, CRYPT_CTXINFO_BLOCKSIZE );
-		}
-	if( cryptStatusError( status ) )
-		return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM2 : status );
 	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE" );
 
 	/* Check whether we're dealing with a certificate.  This is used to 
@@ -537,14 +653,14 @@ int checkSignature( IN_BUFFER( signatureLength ) const void *signature,
 	if( signatureType != SIGNATURE_RAW && signatureType != SIGNATURE_TLS )
 		{
 		if( signAlgo != queryInfo.cryptAlgo || \
-			hashAlgo != queryInfo.hashAlgo )
+			sigDataInfo->hashAlgo != queryInfo.hashAlgo )
 			status = CRYPT_ERROR_SIGNATURE;
 		if( signatureType != SIGNATURE_SSH )
 			{
 			/* SSH requires complex string-parsing to determine the optional
 			   parameters, so the check is done elsewhere */
-			if( isParameterisedHashAlgo( hashAlgo ) && \
-				hashParam != queryInfo.hashParam )
+			if( isParameterisedHashAlgo( sigDataInfo->hashAlgo ) && \
+				sigDataInfo->hashParam != queryInfo.hashParam )
 				status = CRYPT_ERROR_SIGNATURE;
 			}
 		if( cryptStatusError( status ) )
@@ -559,7 +675,8 @@ int checkSignature( IN_BUFFER( signatureLength ) const void *signature,
 									 queryInfo.hashParam ), 
 					  getSigTypeName( signatureType ),
 					  getAlgoName( signAlgo ), 
-					  getAlgoNameEx( hashAlgo, hashParam ) ) );
+					  getAlgoNameEx( sigDataInfo->hashAlgo, 
+									 sigDataInfo->hashParam ) ) );
 			}
 		}
 
@@ -656,15 +773,18 @@ int checkSignature( IN_BUFFER( signatureLength ) const void *signature,
 	/* DLP and ECDLP signatures are handled somewhat specially */
 	if( isDlpAlgo( signAlgo ) || isEccAlgo( signAlgo ) )
 		{
-		/* In addition to the special-case processing for DLP/ECDLP 
-		   signatures, we have to provide even further special handling for 
-		   TLS signatures, which normally sign a dual hash of MD5 and SHA-1 
-		   but for DLP only sign the second SHA-1 hash */
-		status = checkDlpSignature( signatureData, signatureDataLength, 
-									iSigCheckContext, 
-									( signatureType == SIGNATURE_TLS ) ? \
-									  iHashContext2 : iHashContext,
-									signatureType );
+		if( isBernsteinAlgo( signAlgo ) )
+			{
+			status = checkBernsteinSignature( signatureData, 
+								signatureDataLength, iSigCheckContext, 
+								sigDataInfo, signatureType );
+			}
+		else
+			{
+			status = checkDlpSignature( signatureData, signatureDataLength, 
+								iSigCheckContext, sigDataInfo, 
+								signatureType );
+			}
 		if( cryptStatusError( status ) )
 			{
 			if( isCertificate )
@@ -694,7 +814,8 @@ int checkSignature( IN_BUFFER( signatureLength ) const void *signature,
 
 	/* It's a standard signature, process it as normal */
 	setMechanismSignInfo( &mechanismInfo, signatureData, signatureDataLength, 
-						  iHashContext, iHashContext2, iSigCheckContext );
+						  sigDataInfo->hashContext, 
+						  sigDataInfo->hashContext2, iSigCheckContext );
 	status = krnlSendMessage( MECHANISM_OBJECT_HANDLE, IMESSAGE_DEV_SIGCHECK, 
 							  &mechanismInfo, sigFormat );
 	clearMechanismInfo( &mechanismInfo );

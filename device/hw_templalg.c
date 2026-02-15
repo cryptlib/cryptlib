@@ -737,7 +737,7 @@ static int rsaSigCheck( CONTEXT_INFO *contextInfoPtr, BYTE *buffer,
 *																			*
 ****************************************************************************/
 
-#if defined( USE_ECDSA ) || defined( USE_EDDSA )
+#if defined( USE_ECDSA ) || defined( USE_ED25519 )
 
 /* Perform a self-test */
 
@@ -1013,7 +1013,7 @@ static int ecdsaSigCheck( CONTEXT_INFO *contextInfoPtr, BYTE *buffer,
 
 	return( status );
 	}
-#endif /* USE_ECDSA || USE_EDDSA */
+#endif /* USE_ECDSA || USE_ED25519 */
 
 /****************************************************************************
 *																			*
@@ -1442,17 +1442,15 @@ static const CAPABILITY_INFO capabilities[] = {
 		ecdsaSign, ecdsaSigCheck, readPublicKeyEccFunction, writePublicKeyEccFunction,
 		writeDLValues, readDLValues },
 #endif /* USE_ECDSA */
-#ifdef USE_EDDSA
-	/* This is actually EDDSA with keysize either 256 for Ed25519 or 448 for 
-	   Ed448, but we hardcode it to 25519 for now */
-	{ CRYPT_ALGO_EDDSA, bitsToBytes( 0 ), "Ed25519", 7,
+#ifdef USE_ED25519
+	{ CRYPT_ALGO_ED25519, bitsToBytes( 0 ), "Ed25519", 7,
 		bitsToBytes( 256 ), bitsToBytes( 256 ), bitsToBytes( 256 ),
 		ecdsaSelfTest, getDefaultInfo, cleanupHardwareContext, NULL, 
 		ecdsaInitKey, ecdsaGenerateKey,
 		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
-		ecdsaSign, ecdsaSigCheck, readPublicKeyEddsaFunction, writePublicKeyEddsaFunction,
+		ecdsaSign, ecdsaSigCheck, readPublicKey25519Function, writePublicKey25519Function,
 		writeDLValues, readDLValues },
-#endif /* USE_EDDSA */
+#endif /* USE_ED25519 */
 
 	/* The AES capabilities */
 	{ CRYPT_ALGO_AES, bitsToBytes( 128 ), "AES", 3,

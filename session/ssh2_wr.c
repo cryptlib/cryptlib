@@ -101,7 +101,8 @@ int openPacketStreamSSHEx( OUT_PTR STREAM *stream,
 	REQUIRES( isBufsizeRangeNZ( bufferSize ) );
 	REQUIRES( packetType >= SSH_MSG_DISCONNECT && \
 			  packetType <= SSH_MSG_CHANNEL_FAILURE );
-	REQUIRES( streamSize > SSH2_HEADER_SIZE && \
+	REQUIRES( !checkOverflowAdd( bufferSize, SSH2_HEADER_SIZE ) && \
+			  streamSize > SSH2_HEADER_SIZE && \
 			  streamSize <= sessionInfoPtr->sendBufSize - EXTRA_PACKET_SIZE );
 
 	sMemOpen( stream, sessionInfoPtr->sendBuffer, streamSize );
@@ -210,18 +211,22 @@ int wrapPlaintextPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = calculateStreamObjectLength( stream, offset, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( length, SSH2_MIN_PADLENGTH_SIZE ) );
 	padLength = getPaddedSize( length + SSH2_MIN_PADLENGTH_SIZE ) - length;
+	REQUIRES( !checkOverflowSub( length, SSH2_HEADER_SIZE ) );
 	payloadLength = length - SSH2_HEADER_SIZE;
 
 	/* Continue the previous checks on the calculated length values */
 	REQUIRES( isBufsizeRangeMin( length, SSH2_HEADER_SIZE ) );
 	REQUIRES( padLength >= SSH2_MIN_PADLENGTH_SIZE && padLength < 128 );
 	REQUIRES( payloadLength >= 0 && payloadLength < length );
-	REQUIRES( offset + length <= sessionInfoPtr->sendBufSize );
+	REQUIRES( !checkOverflowAdd( offset, length ) && \
+			  offset + length <= sessionInfoPtr->sendBufSize );
 
 	/* Adjust the length by the padding, which is required even when there's 
 	   no encryption being applied(?), although we set the padding to all 
 	   zeroes in this case */
+	REQUIRES( !checkOverflowAdd( length, padLength ) );
 	length += padLength;
 
 	/* Make sure that there's enough room for the padding */
@@ -239,6 +244,7 @@ int wrapPlaintextPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		byte		padLen
 	  [	byte[]		data ]
 		byte[]		padding */
+	REQUIRES( !checkOverflowAdd3( 1, payloadLength, padLength ) );
 	sMemOpen( &metadataStream, bufStartPtr, SSH2_HEADER_SIZE );
 	writeUint32( &metadataStream, 1 + payloadLength + padLength );
 	status = sputc( &metadataStream, padLength );
@@ -292,19 +298,24 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = calculateStreamObjectLength( stream, offset, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowSub( length, SSH2_HEADER_SIZE ) );
 	payloadLength = length - SSH2_HEADER_SIZE;
 
 	/* Continue the previous checks on the calculated length values */
 	REQUIRES( isBufsizeRangeMin( length, SSH2_HEADER_SIZE ) );
 	REQUIRES( payloadLength >= 0 && payloadLength < length );
-	REQUIRES( offset + length + extraLength <= sessionInfoPtr->sendBufSize );
+	REQUIRES( !checkOverflowAdd3( offset, length, extraLength ) && \
+			  offset + length + extraLength <= sessionInfoPtr->sendBufSize );
 
 	/* Evaluate the number of padding bytes that we need to add to a packet
 	   to make it a multiple of the cipher block size long, with a minimum
 	   padding size of SSH2_MIN_PADLENGTH_SIZE bytes */
 #ifdef USE_SSH_OPENSSH
 	if( useETM )
+		{
+		REQUIRES( !checkOverflowSub( length, LENGTH_SIZE ) );
 		length -= LENGTH_SIZE;	/* EtM doesn't encrypt the length */
+		}
 #endif /* USE_SSH_OPENSSH */
 	if( useQuantisedPadding )
 		{
@@ -323,6 +334,7 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											 length + SSH2_MIN_PADLENGTH_SIZE ) );
 			}
 		ENSURES( LOOP_BOUND_OK );
+		REQUIRES( !checkOverflowSub( padLength, length ) );
 		padLength -= length;
 		}
 	else
@@ -330,19 +342,26 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		const int paddedLength = \
 						getPaddedSize( length + SSH2_MIN_PADLENGTH_SIZE );
 		
-		ENSURES( isBufsizeRangeMin( paddedLength, 16 ) ); 
+		ENSURES( isBufsizeRangeMin( paddedLength, 16 ) );
+		REQUIRES( !checkOverflowSub( paddedLength, length ) );
 		padLength = paddedLength - length;
 		}
 	ENSURES( padLength >= SSH2_MIN_PADLENGTH_SIZE && padLength < 256 );
 #ifdef USE_SSH_OPENSSH
 	if( useETM )
+		{
+		/* This can't overflow because we're just correcting for the 
+		   adjustment by LENGTH_SIZE that we did earlier */
 		length += LENGTH_SIZE;
+		}
 #endif /* USE_SSH_OPENSSH */
+	REQUIRES( !checkOverflowAdd( length, padLength ) );
 	length += padLength;
 
 	/* Make sure that there's enough room for the padding and MAC.  At this
 	   point the length value is the overall data length, from the length
 	   value at the start to the end of the padding */
+	REQUIRES( !checkOverflowAdd( length, extraLength ) );
 	status = sMemGetDataBlockAbs( stream, offset, &bufStartPtr, 
 								  length + extraLength );
 	if( cryptStatusError( status ) )
@@ -363,6 +382,7 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	  [	byte[]		data ]
 		byte[]		padding
 		byte[]		MAC */
+	REQUIRES( !checkOverflowAdd3( 1, payloadLength, padLength ) );
 	sMemOpen( &metadataStream, bufStartPtr, SSH2_HEADER_SIZE );
 	writeUint32( &metadataStream, 1 + payloadLength + padLength );
 	status = sputc( &metadataStream, padLength );
@@ -376,6 +396,7 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 paddedPayloadLength - ( 1 + ID_SIZE + padLength ) );
 
 	/* Append the padding */
+	REQUIRES( !checkOverflowSub( length, padLength ) );
 	setMessageData( &msgData, padding, padLength );
 	krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_GETATTRIBUTE_S,
 					 &msgData, CRYPT_IATTRIBUTE_RANDOM_NONCE );
@@ -406,6 +427,7 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* MAC the data and append the MAC to the stream.  We skip MAC'ing 
 		   the length value at the start of the data since the length is 
 		   implicitly added to the MAC calculation by the MAC'ing code */
+		REQUIRES( !checkOverflowAdd( paddedPayloadLength, extraLength ) );
 		status = createMacSSH( sessionInfoPtr->iAuthOutContext,
 							   sshInfo->writeSeqNo, paddedPayloadStartPtr,
 							   paddedPayloadLength + extraLength, 
@@ -437,6 +459,7 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   code.  Note that this leads to a call to createMacSSH() that
 		   appears identical to the non-EtM version because of the explicit
 		   length handling */
+		REQUIRES( !checkOverflowAdd( paddedPayloadLength, extraLength ) );
 		status = createMacSSH( sessionInfoPtr->iAuthOutContext,
 							   sshInfo->writeSeqNo, paddedPayloadStartPtr,
 							   paddedPayloadLength + extraLength, 

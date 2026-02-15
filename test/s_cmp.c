@@ -974,7 +974,7 @@ static int revokeCert( const char *description, const CA_INFO *caInfoPtr,
 		status = cryptKeysetOpen( &cryptKeyset, CRYPT_UNUSED,
 								  CRYPT_KEYSET_FILE, keysetName,
 								  CRYPT_KEYOPT_READONLY );
-		if( cryptStatusOK( status ) && signRequest )
+		if( cryptStatusOK( status ) )
 			{
 			status = getPrivateKey( &privateKey, keysetName,
 									USER_PRIVKEY_LABEL,
@@ -1226,8 +1226,8 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 		}
 	if( usePKIBoot )
 		{
-		/* If we're testing the PKIBoot capability there's only a single
-		   request to process and we're done */
+		/* If we're testing the PKIBoot capability then there's only a 
+		   single request to process and we're done */
 		return( TRUE );
 		}
 	delayThread( 2 );	/* Wait for server to recycle */
@@ -1235,15 +1235,14 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 							 issuePW, revPW );
 	if( status != TRUE )
 		{
-		if( !usePKIBoot )
-			cryptDestroyCert( cryptCACert );
+		cryptDestroyCert( cryptCACert );
 		return( FALSE );
 		}
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
 	status = requestCert( "certificate init.request (ir)", &caInfo, NULL, 
-						  usePKIBoot ? NULL : writeFileName,
-						  cmpCryptlibRequestData, cryptAlgo, cryptCACert, 
-						  FALSE, FALSE, CRYPT_CMPOPTION_NONE, &cryptCert );
+						  writeFileName, cmpCryptlibRequestData, cryptAlgo, 
+						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 
+						  &cryptCert );
 	if( status != TRUE )
 		return( FALSE );
 #ifdef TEST_DUP_IR

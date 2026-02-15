@@ -53,6 +53,12 @@
 			indicate that they should be deleted when the keyset object is
 			destroyed if no data has been written to them yet.
 
+	FLAG_INCOMPLETE: The keyset operation is multi-part, for example writing
+			a PGP encryption-only key that then needs to be followed by a
+			signature key for the binding signatures.  If the keyset is 
+			closed with this flag set then it's regarded as if FLAG_EMPTY
+			was set since a flush would write incomplete/invalid data.
+			
 	FLAG_MEMMAPPED:	The keyset is memory-mapped rather than being tied to an
 			underlying file.
 
@@ -69,10 +75,11 @@
 #define KEYSET_FLAG_OPEN		0x01	/* Keyset is open */
 #define KEYSET_FLAG_EMPTY		0x02	/* Keyset is empty */
 #define KEYSET_FLAG_DIRTY		0x04	/* Keyset data has been changed */
-#define KEYSET_FLAG_READONLY	0x08	/* Keyset is read-only */
-#define KEYSET_FLAG_STREAM_OPEN	0x10	/* Underlying file stream is open */
-#define KEYSET_FLAG_MEMMAPPED	0x20	/* Keyset stream is memory-mapped */
-#define KEYSET_FLAG_MAX			0x3F	/* Maximum possible flag value */
+#define KEYSET_FLAG_INCOMPLETE	0x08	/* Keyset data is incomplete */
+#define KEYSET_FLAG_READONLY	0x10	/* Keyset is read-only */
+#define KEYSET_FLAG_STREAM_OPEN	0x20	/* Underlying file stream is open */
+#define KEYSET_FLAG_MEMMAPPED	0x40	/* Keyset stream is memory-mapped */
+#define KEYSET_FLAG_MAX			0x7F	/* Maximum possible flag value */
 
 /* The precise type of the key file that we're working with.  This is used 
    for type checking to make sure we don't try to find private keys in a
@@ -85,7 +92,7 @@ typedef enum {
 	KEYSET_SUBTYPE_PKCS12,				/* PKCS #12 key mess */
 	KEYSET_SUBTYPE_PKCS15,				/* PKCS #15 keys */
 	KEYSET_SUBTYPE_LAST					/* Last valid keyset subtype */
-	} KEYSET_SUBTYPE;
+	} KEYSET_SUBTYPE_TYPE;
 
 /****************************************************************************
 *																			*
@@ -398,7 +405,7 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 typedef struct KI {
 	/* General keyset information */
 	KEYSET_TYPE type;				/* Keyset type (file, DBMS, HTTP, etc) */
-	KEYSET_SUBTYPE subType;			/* File keyset subtype (PGP, P12, P15, etc) */
+	KEYSET_SUBTYPE_TYPE subType;	/* File keyset subtype (PGP, P12, P15, etc) */
 	SAFE_FLAGS flags;				/* Keyset information flags */
 
 	/* Keyset type-specific information */

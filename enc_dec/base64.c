@@ -170,6 +170,7 @@ static BOOLEAN checkBase64( INOUT_PTR STREAM *stream,
 
 	/* Make sure that there's enough data present to perform a reliable
 	   check */
+	REQUIRES( rangeCheck( BASE64_MIN_LINESIZE, 1, BASE64_MIN_LINESIZE ) );
 	status = sread( stream, buffer, BASE64_MIN_LINESIZE );
 	if( cryptStatusError( status ) )
 		return( FALSE );
@@ -205,6 +206,9 @@ static BOOLEAN checkBase64( INOUT_PTR STREAM *stream,
 		BOOLEAN hasLineBreak = FALSE;
 		LOOP_INDEX i;
 
+		REQUIRES_B( rangeCheck( ( BASE64_MAX_LINESIZE - \
+								  BASE64_MIN_LINESIZE ) + 1, 
+								1, BASE64_MAX_LINESIZE ) );
 		status = sread( stream, buffer, 
 						( BASE64_MAX_LINESIZE - BASE64_MIN_LINESIZE ) + 1 );
 		if( cryptStatusError( status ) )
@@ -715,7 +719,7 @@ int base64decode( OUT_BUFFER( destMaxLen, *destLen ) void *dest,
 	STREAM stream;
 	unsigned long accumulator = 0;
 	LOOP_INDEX srcIndex;
-	int byteCount = 0, status DUMMY_INIT;
+	int byteCount = 0, status;
 
 	assert( destMaxLen >= 10 && isWritePtrDynamic( dest, destMaxLen ) );
 	assert( isWritePtr( destLen, sizeof( int ) ) );

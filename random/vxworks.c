@@ -96,6 +96,8 @@ void slowPoll( void )
 			addRandomData( randomState, string, strlen( string ) );
 		value = sysProcNumGet();	/* Usually 0 */
 		addRandomLong( randomState, value );
+
+		addedFixedItems = TRUE;
 		}
 
 	/* Add the current task ID and task options.  The task options are 

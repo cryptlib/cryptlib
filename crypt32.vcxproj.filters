@@ -534,9 +534,6 @@
     <ClCompile Include="kernel\sec_mem.c">
       <Filter>Source Files\Kernel</Filter>
     </ClCompile>
-    <ClCompile Include="kernel\semaphore.c">
-      <Filter>Source Files\Kernel</Filter>
-    </ClCompile>
     <ClCompile Include="kernel\sendmsg.c">
       <Filter>Source Files\Kernel</Filter>
     </ClCompile>
@@ -1100,6 +1097,24 @@
     </ClCompile>
     <ClCompile Include="session\tls_ext_rw.c">
       <Filter>Source Files\Sessions - TLS</Filter>
+    </ClCompile>
+    <ClCompile Include="context\ctx_x25519.c">
+      <Filter>Source Files\Contexts</Filter>
+    </ClCompile>
+    <ClCompile Include="crypt\curve25519.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="context\kg_25519.c">
+      <Filter>Source Files\Contexts</Filter>
+    </ClCompile>
+    <ClCompile Include="context\ctx_ed25519.c">
+      <Filter>Source Files\Contexts</Filter>
+    </ClCompile>
+    <ClCompile Include="device\dev_getset.c">
+      <Filter>Source Files\Devices</Filter>
+    </ClCompile>
+    <ClCompile Include="kernel\sync.c">
+      <Filter>Source Files\Kernel</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib TLS Extension Management						*
-*					Copyright Peter Gutmann 1998-2022						*
+*					Copyright Peter Gutmann 1998-2024						*
 *																			*
 ****************************************************************************/
 
@@ -35,6 +35,21 @@
 
 #define RENEG_EXT_SIZE	5
 #define RENEG_EXT_DATA	"\xFF\x01\x00\x01\x00"
+
+/* More handling of non-vulnerabilities, many security scanners will report
+   everthing they've ever heard of as a vulnerability whether it really is
+   one or not.  The following are extensions sent by some scanners, which we
+   detect and disable things that are reported as vulnerabilities when we're
+   scanned.
+
+	sslscan: Scan fails with the scanner closing the connetion.
+
+	sslyze: Scan fails, cryptlib reports 'No encryption mechanism compatible 
+			with the remote system could be found'
+
+	testssl: Sends an extension ID 13172 length 0 on connect */
+
+#define SCANNER_FINGERPRINT_TESTSSL		13172
 
 /****************************************************************************
 *																			*
@@ -101,11 +116,9 @@ static int readExtension( INOUT_PTR STREAM *stream,
 
 		case TLS_EXT_SUPPORTED_GROUPS:
 			{
-			CRYPT_ECCCURVE_TYPE preferredCurveID;
-
 			/* If we're using pure PSK then there's no ECC information 
 			   (or a private key in general) available.  In theory we could
-			   be using PSK + ECDH but that's unlikely so we assume the
+			   be using PSK + ECDH but that's unlikely so we assume that the
 			   absence of a private key means no ECC */
 			if( sessionInfoPtr->privateKey == CRYPT_ERROR )
 				{
@@ -113,28 +126,10 @@ static int readExtension( INOUT_PTR STREAM *stream,
 				return( sSkip( stream, extLength, MAX_INTLENGTH_SHORT ) );
 				}
 
-			/* Read and process the list of preferred curves */
-			status = readSupportedGroups( stream, sessionInfoPtr, 
-										  extLength, &preferredCurveID,
-										  extErrorInfoSet );
-			if( cryptStatusError( status ) )
-				return( status );
-
-			/* If we couldn't find a curve that we have in common with the 
-			   other side, disable the use of ECC algorithms.  This is a 
-			   somewhat nasty failure mode because it means that something 
-			   like a buggy implementation that sends the wrong hello 
-			   extension (which is rather more likely than, say, an 
-			   implementation not supporting the de facto universal-standard 
-			   NIST curves) means that the crypto is quietly switched to 
-			   non-ECC with the user being none the wiser, but there's no 
-			   way for an implementation to negotiate ECC-only encryption */
-			if( preferredCurveID == CRYPT_ECCCURVE_NONE )
-				handshakeInfo->disableECC = TRUE;
-			else
-				handshakeInfo->eccCurveID = preferredCurveID;
-
-			return( CRYPT_OK );
+			/* Read and process the list of supported groups */
+			return( readSupportedGroups( stream, sessionInfoPtr, 
+										 handshakeInfo, extLength, 
+										 extErrorInfoSet ) );
 			}
 
 		case TLS_EXT_EC_POINT_FORMATS:
@@ -222,7 +217,7 @@ static int readExtension( INOUT_PTR STREAM *stream,
 		case TLS_EXT_SUPPORTED_VERSIONS:
 			/* Read and process the version information */
 			return( readSupportedVersions( stream, sessionInfoPtr, 
-										   extLength ) );
+										   handshakeInfo, extLength ) );
 
 #ifdef USE_TLS13
 		case TLS_EXT_KEY_SHARE:
@@ -237,6 +232,11 @@ static int readExtension( INOUT_PTR STREAM *stream,
 				return( sSkip( stream, extLength, MAX_INTLENGTH_SHORT ) );
 				}
 
+			/* If the peer didn't offer any TLS 1.3 suites then we can't do 
+			   anything with a TLS 1.3 keyex that goes with them */
+			if( !handshakeInfo->tls13OK ) 
+				return( sSkip( stream, extLength, MAX_INTLENGTH_SHORT ) );
+			
 			/* Read and process the keyex information */
 			status = readKeyexTLS13( sessionInfoPtr, handshakeInfo, stream, 
 									 extLength, extErrorInfoSet );
@@ -252,6 +252,16 @@ static int readExtension( INOUT_PTR STREAM *stream,
 				}
 			return( status );
 #endif /* USE_TLS13 */
+
+		case SCANNER_FINGERPRINT_TESTSSL:
+			/* Value sent by the testssl scanner */
+			if( isServer( sessionInfoPtr ) && extLength == 0 )
+				{
+				DEBUG_PRINT(( "Scanning attempt by testssl detected.\n" ));
+				handshakeInfo->flags |= HANDSHAKE_FLAG_ISSCANNER;
+				return( CRYPT_OK );
+				}
+			/* Fall through */
 
 		default:
 			/* If it's an RFC 8701 / GREASE value, skip it */
@@ -412,7 +422,7 @@ int readExtensions( INOUT_PTR STREAM *stream,
 						  ( "Read extension TLS %s (%d), length %d.\n",
 							description, type, extLen ) );
 		DEBUG_PRINT_COND( description == NULL,
-						  ( "Read unknown extension %d / %X, length %d.\n",
+						  ( "Read unknown extension %d / 0x%X, length %d.\n",
 							type, type, extLen ) );
 		DEBUG_DUMP_STREAM( stream, stell( stream ), extLen );
 		DEBUG_PRINT_END();
@@ -553,7 +563,13 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 			return( status );
 		}
 
-	/* TLS 1.3 supported versions */
+	/* Anything beyond this point is TLS 1.2+ so we don't go any further if 
+	   we're on an earlier version */
+	if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 )
+		return( CRYPT_OK );
+
+	/* TLS 1.3 supported versions.  We write this even for TLS 1.2 because 
+	   of the overlap between the two */
 	extSizeInfo->supportedVersionsHdrLen = UINT16_SIZE + UINT16_SIZE;
 	sMemNullOpen( &nullStream );
 	status = writeSupportedVersions( &nullStream, sessionInfoPtr, 
@@ -568,26 +584,25 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* Signature and hash algorithms.  These are only used with TLS 1.2+ so 
-	   we only write them if we're using these versions of the protocol */
-	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS12 )
+	/* Signature and hash algorithms */
+	extSizeInfo->sigHashHdrLen = UINT16_SIZE + UINT16_SIZE;
+	sMemNullOpen( &nullStream );
+	status = writeSignatureAlgos( &nullStream );
+	if( cryptStatusOK( status ) )
 		{
-		extSizeInfo->sigHashHdrLen = UINT16_SIZE + UINT16_SIZE;
-		sMemNullOpen( &nullStream );
-		status = writeSignatureAlgos( &nullStream );
-		if( cryptStatusOK( status ) )
-			{
-			extSizeInfo->sigHashExtLen = stell( &nullStream );
-			REQUIRES( isShortIntegerRangeNZ( extSizeInfo->sigHashExtLen ) );
-			}
-		sMemClose( &nullStream );
-		if( cryptStatusError( status ) )
-			return( status );
+		extSizeInfo->sigHashExtLen = stell( &nullStream );
+		REQUIRES( isShortIntegerRangeNZ( extSizeInfo->sigHashExtLen ) );
 		}
+	sMemClose( &nullStream );
+	if( cryptStatusError( status ) )
+		return( status );
 
-	/* ECC information.  This is only sent if we're proposing ECC suites in
-	   the client hello */
-	if( algoAvailable( CRYPT_ALGO_ECDH ) )
+	/* ECC information.  This is only sent if we're proposing ECC suites in 
+	   the client hello, in theory we could also write it for TLS 1.3 with 
+	   only DHE groups but that has ECC as MTI so we'll always have ECC 
+	   suites enabled */
+	if( algoAvailable( CRYPT_ALGO_ECDH ) || \
+		algoAvailable( CRYPT_ALGO_25519 ) )
 		{
 		extSizeInfo->supportedGroupsHdrLen = UINT16_SIZE + UINT16_SIZE;
 		sMemNullOpen( &nullStream );
@@ -608,31 +623,29 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 		extSizeInfo->pointFormatExtLen = 1 + 1;
 		}
 
-	/* TLS 1.3-only extensions */
+	/* Anything beyond this point is TLS 1.3+ so we don't go any further if 
+	   we're on an earlier version */
+	if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS13 )
+		return( CRYPT_OK );
+
 #ifdef USE_TLS13
 	/* PSK modes, TLS 1.3's version of session resumption */
-	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
-		{
-		extSizeInfo->pskModeHdrLen = UINT16_SIZE + UINT16_SIZE;
-		extSizeInfo->pskModeExtLen = 1 + 1;
-		}
+	extSizeInfo->pskModeHdrLen = UINT16_SIZE + UINT16_SIZE;
+	extSizeInfo->pskModeExtLen = 1 + 1;
 
 	/* Keyex inforation, which in TLS 1.3 is stuffed into an extension in 
 	   the client hello rather than being sent as an actual keyex */
-	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
+	extSizeInfo->keyexHdrLen = UINT16_SIZE + UINT16_SIZE;
+	sMemNullOpen( &nullStream );
+	status = writeKeyexTLS13( &nullStream, handshakeInfo, FALSE );
+	if( cryptStatusOK( status ) )
 		{
-		extSizeInfo->keyexHdrLen = UINT16_SIZE + UINT16_SIZE;
-		sMemNullOpen( &nullStream );
-		status = writeKeyexTLS13( &nullStream, handshakeInfo, FALSE );
-		if( cryptStatusOK( status ) )
-			{
-			extSizeInfo->keyexExtLen = stell( &nullStream );
-			REQUIRES( isShortIntegerRangeNZ( extSizeInfo->keyexExtLen ) );
-			}
-		sMemClose( &nullStream );
-		if( cryptStatusError( status ) )
-			return( status );
+		extSizeInfo->keyexExtLen = stell( &nullStream );
+		REQUIRES( isShortIntegerRangeNZ( extSizeInfo->keyexExtLen ) );
 		}
+	sMemClose( &nullStream );
+	if( cryptStatusError( status ) )
+		return( status );
 #endif /* USE_TLS13 */
 
 	return( CRYPT_OK );
@@ -1001,7 +1014,7 @@ int writeServerExtensions( INOUT_PTR STREAM *stream,
 		if( cryptStatusError( status ) )
 			return( status );
 		DEBUG_PRINT(( "Wrote extension TLS 1.2 LTS (%d), length 0.\n", 
-					  TLS_EXT_TLS12LTS, 0 ));
+					  TLS_EXT_TLS12LTS ));
 		}
 #ifdef USE_TLS13
 	if( isTLS13 )

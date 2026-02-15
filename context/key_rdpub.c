@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Public Key Read Routines						*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2024					*
 *																			*
 ****************************************************************************/
 
@@ -330,6 +330,7 @@ static int readEccSubjectPublicKey( INOUT_PTR STREAM *stream,
 	if( length < MIN_PKCSIZE_ECCPOINT_THRESHOLD || \
 		length > MAX_PKCSIZE_ECCPOINT )
 		return( CRYPT_ERROR_BADDATA );
+	REQUIRES( rangeCheck( length, 1, MAX_PKCSIZE_ECCPOINT ) );
 	status = sread( stream, buffer, length );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -347,26 +348,26 @@ static int readEccSubjectPublicKey( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_EDDSA ) || defined( USE_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
-static int readEddsaSubjectPublicKey( INOUT_PTR STREAM *stream, 
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
+static int read25519SubjectPublicKey( INOUT_PTR STREAM *stream, 
 									  INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 									  IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 									  OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
 	CRYPT_ALGO_TYPE readCryptAlgo DUMMY_INIT;
 	PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
-	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
-	int length, fieldSize, status;
+	BYTE buffer[ MAX_PKCSIZE_BERNSTEIN + 8 ];
+	int length, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( actionFlags, sizeof( int ) ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
-	REQUIRES( cryptAlgo == CRYPT_ALGO_EDDSA || \
-			  cryptAlgo == CRYPT_ALGO_25519 );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_25519 || \
+			  cryptAlgo == CRYPT_ALGO_ED25519 );
 
 	/* Clear return value */
 	*actionFlags = ACTION_PERM_NONE;
@@ -383,30 +384,23 @@ static int readEddsaSubjectPublicKey( INOUT_PTR STREAM *stream,
 	if( readCryptAlgo != cryptAlgo )
 		return( CRYPT_ERROR_BADDATA );
 
-	/* Get the ECC field size.  For now we assume EDDSA == 25519 */
-	eccKey->curveType = CRYPT_ECCCURVE_25519;
-	status = getECCFieldSize( eccKey->curveType, &fieldSize, FALSE );
-	if( cryptStatusError( status ) )
-		return( status );
-
 	/* Set the maximum permitted actions.  Because of the special-case data 
-	   formatting requirements for ECC algorithms (which are a part of the 
-	   DLP algorithm family) we make the usage internal-only.  If the key is 
-	   a pure public key rather than merely the public portions of a private 
-	   key then the actions will be restricted by higher-level code to 
-	   encrypt/signature-check only */
-	if( cryptAlgo == CRYPT_ALGO_EDDSA )
-		{
-		*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_SIGN, \
-									   ACTION_PERM_NONE_EXTERNAL ) | \
-					   MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, \
-									   ACTION_PERM_NONE_EXTERNAL );
-		}
-	else
+	   formatting requirements for the Bernstein algorithms we make the 
+	   usage internal-only.  If the key is a pure public key rather than 
+	   merely the public portions of a private key then the actions will be 
+	   restricted by higher-level code to encrypt/signature-check only */
+	if( cryptAlgo == CRYPT_ALGO_25519 )
 		{
 		*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_ENCRYPT, \
 									   ACTION_PERM_NONE_EXTERNAL ) | \
 					   MK_ACTION_PERM( MESSAGE_CTX_DECRYPT, \
+									   ACTION_PERM_NONE_EXTERNAL );
+		}
+	else
+		{
+		*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_SIGN, \
+									   ACTION_PERM_NONE_EXTERNAL ) | \
+					   MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, \
 									   ACTION_PERM_NONE_EXTERNAL );
 		}
 
@@ -416,22 +410,19 @@ static int readEddsaSubjectPublicKey( INOUT_PTR STREAM *stream,
 	   STRING that we have to pick apart manually.  Note that we can't use 
 	   the ECC p value for a range check because it hasn't been set yet, all 
 	   that we have at this point is a curve ID */
-	status = readBitStringHole( stream, &length, 
-								MIN_PKCSIZE_ECCPOINT_THRESHOLD, 
+	status = readBitStringHole( stream, &length, MIN_PKCSIZE_BERNSTEIN, 
 								DEFAULT_TAG );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( length < MIN_PKCSIZE_ECCPOINT_THRESHOLD || \
-		length > MAX_PKCSIZE_ECCPOINT )
+	if( length != 32 )
 		return( CRYPT_ERROR_BADDATA );
+	REQUIRES( rangeCheck( length, 1, MAX_PKCSIZE_BERNSTEIN ) );
 	status = sread( stream, buffer, length );
 	if( cryptStatusError( status ) )
 		return( status );
-	status = importECCPoint( &eccKey->eccParam_qx, &eccKey->eccParam_qy,
-							 buffer, length, MIN_PKCSIZE_ECC_THRESHOLD, 
-							 CRYPT_MAX_PKCSIZE_ECC, fieldSize, NULL, 
-							 BIGNUM_CHECK_VALUE_ECC );
-	zeroise( buffer, MAX_PKCSIZE_ECCPOINT );
+	status = import25519ByteString( &eccKey->curve25519Param_pub, 
+									buffer, length );
+	zeroise( buffer, MAX_PKCSIZE_BERNSTEIN );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -439,7 +430,7 @@ static int readEddsaSubjectPublicKey( INOUT_PTR STREAM *stream,
 
 	return( CRYPT_OK );
 	}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 #endif /* USE_INT_ASN1 */
 
 /****************************************************************************
@@ -466,7 +457,12 @@ static int readEddsaSubjectPublicKey( INOUT_PTR STREAM *stream,
 	string		[ server key/certificate ]
 		string	"ecdsa-sha2-*"
 		string	"*"				-- The "*" portion from the above field
-		string	Q */
+		string	Q 
+
+   Ed25519:		
+	string		[ server key/certificate ]
+		string	"ssh-ed25519"
+		string	key */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int readSshRsaPublicKey( INOUT_PTR STREAM *stream, 
@@ -629,9 +625,6 @@ static int readSshEccPublicKey( INOUT_PTR STREAM *stream,
 	{
 	PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
 	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
-#if 0
-	const BOOLEAN isECDH = ( cryptAlgo == CRYPT_ALGO_ECDH ) ? TRUE : FALSE;
-#endif /* 0 */
 	int length, fieldSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -649,23 +642,9 @@ static int readSshEccPublicKey( INOUT_PTR STREAM *stream,
 	   about unused assignments */
 
 	/* Set the maximum permitted actions.  SSH keys are only used 
-	   internally so we restrict the usage to internal-only.  Since ECDH 
-	   keys can be both public and private keys we allow both usage 
-	   types even though technically it's a public key */
-#if 0
-	if( isECDH )
-		{
-		*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_ENCRYPT, \
-									   ACTION_PERM_NONE_EXTERNAL ) | \
-					   MK_ACTION_PERM( MESSAGE_CTX_DECRYPT, \
-									   ACTION_PERM_NONE_EXTERNAL );
-		}
-	else
-#endif /* 0 */
-		{
-		*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, \
-									   ACTION_PERM_NONE_EXTERNAL );
-		}
+	   internally so we restrict the usage to internal-only */
+	*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, \
+								   ACTION_PERM_NONE_EXTERNAL );
 
 	/* Read the wrapper and make sure that it's OK.  The key parameter
 	   information is repeated twice, so for the overall wrapper we only
@@ -678,18 +657,8 @@ static int readSshEccPublicKey( INOUT_PTR STREAM *stream,
 		return( status );
 	if( length < 18 )		/* "ecdh-sha2-nistXXXX" */
 		return( CRYPT_ERROR_BADDATA );
-#if 0
-	if( isECDH )
-		{
-		if( memcmp( buffer, "ecdh-sha2-", 10 ) )
-			return( CRYPT_ERROR_BADDATA );
-		}
-	else
-#endif /* 0 */
-		{
-		if( memcmp( buffer, "ecdsa-sha2-", 11 ) )
-			return( CRYPT_ERROR_BADDATA );
-		}
+	if( memcmp( buffer, "ecdsa-sha2-", 11 ) )
+		return( CRYPT_ERROR_BADDATA );
 
 	/* Read and process the parameter information.  At this point we know 
 	   that we've got valid ECC key data, so if we find anything unexpected 
@@ -719,7 +688,9 @@ static int readSshEccPublicKey( INOUT_PTR STREAM *stream,
 
 	/* Read the ECC public key.  See the comments in 
 	   readEccSubjectPublicKey() for why the checks are done the way they 
-	   are */
+	   are, and in particular we can't use readInteger32() which would 
+	   include the ability to check the value read because what's stored is
+	   an encoded point and not a (potentially signed) integer */
 	status = readString32( stream, buffer, MAX_PKCSIZE_ECCPOINT, &length );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -739,6 +710,56 @@ static int readSshEccPublicKey( INOUT_PTR STREAM *stream,
 	return( CRYPT_OK );
 	}
 #endif /* USE_ECDH || USE_ECDSA */
+
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
+static int readSsh25519PublicKey( INOUT_PTR STREAM *stream, 
+								  INOUT_PTR CONTEXT_INFO *contextInfoPtr,
+								  IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
+								  OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
+	{
+	PKC_INFO *ed25519Key = contextInfoPtr->ctxPKC;
+	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
+	int length, status;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+	assert( isWritePtr( actionFlags, sizeof( int ) ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_ED25519 );
+
+	/* No need to clear return value as usual since it's set in the 
+	   following line of code, and clearing it leads to compiler warnings
+	   about unused assignments */
+
+	/* Set the maximum permitted actions.  SSH keys are only used 
+	   internally so we restrict the usage to internal-only */
+	*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, \
+								   ACTION_PERM_NONE_EXTERNAL );
+
+	/* Read the wrapper and make sure that it's OK */
+	readUint32( stream );
+	status = readString32( stream, buffer, CRYPT_MAX_TEXTSIZE, &length );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( length != 11 || memcmp( buffer, "ssh-ed25519", 11 ) )
+		return( CRYPT_ERROR_BADDATA );
+
+	/* Read the Ed25519 public key */
+	status = readBignumInteger32( stream, &ed25519Key->curve25519Param_pub, 
+								  MIN_PKCSIZE_BERNSTEIN, 
+								  MAX_PKCSIZE_BERNSTEIN, 
+								  NULL, BIGNUM_CHECK_VALUE_FIXEDLEN );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	ENSURES( sanityCheckPKCInfo( ed25519Key ) );
+
+	return( CRYPT_OK );
+	}
+#endif /* USE_25519 || USE_ED25519 */
 #endif /* USE_SSH */
 
 /****************************************************************************
@@ -1182,7 +1203,8 @@ static int readPgpEccPublicKey( INOUT_PTR STREAM *stream,
 	CRYPT_ECCCURVE_TYPE curveType;
 	PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
 	STREAM oidStream;
-	BYTE oidBuffer[ 2 + MAX_OID_SIZE + 8 ];
+	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
+	BYTE oidBuffer[ MAX_OID_SIZE + 8 ];
 	int value, length, fieldSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -1234,14 +1256,16 @@ static int readPgpEccPublicKey( INOUT_PTR STREAM *stream,
 	   (probably a coding error that was made part of the spec), the PGP
 	   format omits the first two bytes of the OID, so we have to read the
 	   value into an intermediate buffer and recreate the full OID from 
-	   it */
+	   it.  Because of this the length checks are all adjusted by -2 to
+	   account for the two-byte header that we need to insert */
 	status = length = sgetc( stream );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( length < MIN_OID_SIZE || length >= MAX_OID_SIZE )
+	if( length < MIN_OID_SIZE - 2 || length >= MAX_OID_SIZE - 2 )
 		return( CRYPT_ERROR_BADDATA );
 	oidBuffer[ 0 ] = 0x06;		/* OID tag */
 	oidBuffer[ 1 ] = intToByte( length );
+	REQUIRES( rangeCheck( length, 1, MAX_OID_SIZE - 2 ) );
 	status = sread( stream, oidBuffer + 2, length );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1252,11 +1276,25 @@ static int readPgpEccPublicKey( INOUT_PTR STREAM *stream,
 		return( status );
 	eccKey->curveType = curveType;
 
+	/* Read the ECC public key.  Since the encoded ECC point is stored 
+	   (incorrectly) as an MPI, for once we can use a checked-read function */
+	status = readInteger16Ubits( stream, buffer, &length, 
+								 MIN_PKCSIZE_ECCPOINT_THRESHOLD, 
+								 MAX_PKCSIZE_ECCPOINT, 
+								 BIGNUM_CHECK_VALUE_ECC );
+	if( cryptStatusError( status ) )
+		return( status );
+	status = importECCPoint( &eccKey->eccParam_qx, &eccKey->eccParam_qy,
+							 buffer, length, MIN_PKCSIZE_ECC_THRESHOLD, 
+							 CRYPT_MAX_PKCSIZE_ECC, fieldSize, NULL, 
+							 BIGNUM_CHECK_VALUE_ECC );
+	zeroise( buffer, MAX_PKCSIZE_ECCPOINT );
+	if( cryptStatusError( status ) )
+		return( status );
+
 	ENSURES( sanityCheckPKCInfo( eccKey ) );
 
-	/* We don't do PGP ECC yet since there's barely any use of it to test
-	   against */
-	return( CRYPT_ERROR_BADDATA );
+	return( CRYPT_OK );
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 #endif /* USE_PGP */
@@ -1291,30 +1329,44 @@ static int completePubkeyRead( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   explicitly set the key size information at this point */
 	if( pkcInfo->keySizeBits <= 0 )
 		{
-		if( cryptAlgo == CRYPT_ALGO_RSA )
-			pkcInfo->keySizeBits = BN_num_bits( &pkcInfo->rsaParam_n );
-		else
+		switch( cryptAlgo )
 			{
-			if( isDlpAlgo( cryptAlgo ) )
-				pkcInfo->keySizeBits = BN_num_bits( &pkcInfo->dlpParam_p );
-			else
-				{
-  #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	  defined( USE_EDDSA ) || defined( USE_25519 )
-				if( isEccAlgo( cryptAlgo ) )
-					{
-					int keySizeBits, status;
+			case CRYPT_ALGO_RSA:
+				pkcInfo->keySizeBits = BN_num_bits( &pkcInfo->rsaParam_n );
+				break;
 
-					status = getECCFieldSize( pkcInfo->curveType, 
-											  &keySizeBits, TRUE );
-					if( cryptStatusError( status ) )
-						return( status );
-					pkcInfo->keySizeBits = keySizeBits;
-					}
-				else
-  #endif /* USE_ECDSA || USE_ECDH || USE_EDDSA || USE_25519 */
-					retIntError();
+			case CRYPT_ALGO_DH:
+#if defined( USE_DSA ) || defined( USE_ELGAMAL )
+			case CRYPT_ALGO_DSA:
+			case CRYPT_ALGO_ELGAMAL:
+#endif /* USE_DSA || USE_ELGAMAL */
+				pkcInfo->keySizeBits = BN_num_bits( &pkcInfo->dlpParam_p );
+				break;
+			
+#if defined( USE_ECDSA ) || defined( USE_ECDH )
+			case CRYPT_ALGO_ECDSA:
+			case CRYPT_ALGO_ECDH:
+				{
+				int keySizeBits, status;
+
+				status = getECCFieldSize( pkcInfo->curveType, 
+										  &keySizeBits, TRUE );
+				if( cryptStatusError( status ) )
+					return( status );
+				pkcInfo->keySizeBits = keySizeBits;
+				break;
 				}
+#endif /* USE_ECDSA || USE_ECDH */
+
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+			case CRYPT_ALGO_25519:
+			case CRYPT_ALGO_ED25519:
+				pkcInfo->keySizeBits = bytesToBits( 32 );
+				break;
+#endif /* USE_25519 || USE_ED25519 */
+
+				default:
+					retIntError();
 			}
 		ENSURES( pkcInfo->keySizeBits >= bytesToBits( MIN_PKCSIZE_ECC ) && \
 				 pkcInfo->keySizeBits <= bytesToBits( CRYPT_MAX_PKCSIZE ) );
@@ -1511,10 +1563,10 @@ int readPublicKeyEccFunction( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_EDDSA ) || defined( USE_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int readPublicKeyEddsaFunction( INOUT_PTR STREAM *stream, 
+int readPublicKey25519Function( INOUT_PTR STREAM *stream, 
 								INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 								IN_ENUM( KEYFORMAT )  \
@@ -1527,19 +1579,26 @@ int readPublicKeyEddsaFunction( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
-	REQUIRES( cryptAlgo == CRYPT_ALGO_EDDSA || \
-			  cryptAlgo == CRYPT_ALGO_25519 );
-	REQUIRES( formatType == KEYFORMAT_CERT );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_25519 || \
+			  cryptAlgo == CRYPT_ALGO_ED25519 );
+	REQUIRES( formatType == KEYFORMAT_CERT || formatType == KEYFORMAT_SSH );
 	REQUIRES( checkRead == FALSE );
 
 	switch( formatType )
 		{
 #ifdef USE_INT_ASN1
 		case KEYFORMAT_CERT:
-			status = readEddsaSubjectPublicKey( stream, contextInfoPtr, 
+			status = read25519SubjectPublicKey( stream, contextInfoPtr, 
 												cryptAlgo, &actionFlags );
 			break;
 #endif /* USE_INT_ASN1 */
+
+#ifdef USE_SSH
+		case KEYFORMAT_SSH:
+			status = readSsh25519PublicKey( stream, contextInfoPtr, 
+											cryptAlgo, &actionFlags );
+			break;
+#endif /* USE_SSH */
 
 		default:
 			retIntError();
@@ -1549,7 +1608,7 @@ int readPublicKeyEddsaFunction( INOUT_PTR STREAM *stream,
 	return( completePubkeyRead( contextInfoPtr, cryptAlgo, 
 								actionFlags ) );
 	}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 
 /****************************************************************************
 *																			*
@@ -1561,7 +1620,10 @@ int readPublicKeyEddsaFunction( INOUT_PTR STREAM *stream,
    need to be encoded as structured data.  The following two functions 
    decode the encoded forms from various formats.  SSH assumes that DLP 
    values are two fixed-size blocks of 20 bytes so we can't use the normal 
-   read/write routines to handle these values */
+   read/write routines to handle these values.
+   
+   In the ECC case, the format is a pair of values rather than an X9.62 ECC
+   point, which would be read by importECCPoint() */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4, 5 ) ) \
 int decodeDLValuesFunction( IN_BUFFER( bufSize ) const BYTE *buffer, 

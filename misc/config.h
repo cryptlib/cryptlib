@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Configuration Settings  					*
-*					   Copyright Peter Gutmann 1992-2022					*
+*					   Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -20,12 +20,17 @@
    $(VAR_NAME) just defines VAR_NAME, as does %VAR_NAME%.  
    VAR_NAME=%VAR_NAME%, VAR_NAME=(%VAR_NAME%), and VAR_NAME=$(VAR_NAME) 
    produce a 'C1017: invalid integer constant expression' error.  So the 
-   best that we can do is manually enable it as required */
+   best that we can do is manually enable it as required, with the value
+   defined in os_detect.h (cryptlib) and test.h (test code) */
 
+#if !defined( NDEBUG ) && \
+	defined( _MSC_VER ) && ( _MSC_VER == 1500 )
+	#define CRYPTLIB_TEST_BUILD
+#endif /* VS 2008 development build */
 #if !defined( NDEBUG ) && \
 	defined( _MSC_VER ) && ( _MSC_VER == VS_LATEST_VERSION ) && 0
 	#define CRYPTLIB_TEST_BUILD
-#endif /* VS 2019 development build */
+#endif /* VS 2026 development build */
 
 /* Defines for testing various custom build options.  Some of these define
    CONFIG_NO_xxx options at the start to trigger the disabling of certain 
@@ -243,13 +248,21 @@
   #define USE_TCP
 #endif /* Systems with TCP/IP networking available */
 
-/* If sessions are disabled then we don't need TCP/IP so we remove any auto-
-   enabled USE_TCP.  The apparently redundant check is because, while 
-   CONFIG_NO_SESSIONS disables use of all sessions, the pattern for enabling
-   just one session type is CONFIG_NO_SESSIONS / USE_SESSIONS / 
+/* If TCP/IP networking isn't available then we can't use any sessions.
+   Conversely, if sessions are disabled then we don't need TCP/IP so we 
+   remove any auto-enabled USE_TCP.  
+   
+   The apparently redundant check used with the latter because, while 
+   CONFIG_NO_SESSIONS disables use of all sessions, the pattern for 
+   enabling just one session type is CONFIG_NO_SESSIONS / USE_SESSIONS / 
    USE_sessionType */
 
-#if defined( CONFIG_NO_SESSIONS ) && !defined( USE_SESSIONS ) && defined( USE_TCP )
+#ifndef USE_TCP
+  /* CONFIG_NO_SESSIONS may have already been defined by the build script */
+  #ifndef CONFIG_NO_SESSIONS
+	#define CONFIG_NO_SESSIONS
+  #endif /* CONFIG_NO_SESSIONS */
+#elif defined( CONFIG_NO_SESSIONS ) && !defined( USE_SESSIONS ) 
   #undef USE_TCP
 #endif /* CONFIG_NO_SESSIONS && USE_TCP */
 
@@ -289,7 +302,9 @@
 #endif /* CONFIG_USE_PSEUDOCERTIFICATES */
 
 /* If we're running a custom configuration we turn off some capabilities
-   that aren't relevant */
+   that aren't relevant.  Note that we don't have to turn off USE_ERRMSGS in
+   order to avoid printing lots of diagnostic output because this is turned
+   off in debug.h by turning the printing macros into no-ops */
 
 #ifdef CONFIG_FUZZ
   #define CONFIG_NO_SELFTEST	/* Not needed / slows down fuzzing */
@@ -862,13 +877,13 @@
 #if defined( __AMX__  ) || defined( __ARINC653__ ) || defined( __BEOS__ ) || \
 	defined( __CHORUS__ ) || defined( __CMSIS__ ) || defined( __ECOS__ ) || \
 	defined( __embOS__ ) || defined( __FreeRTOS__ ) || defined( __ITRON__ ) || \
-	defined( __MGOS__ ) || defined( __MQXRTOS__ ) || defined( __Nucleus__ ) || \
-	defined( __OS2__ ) || defined( __OSEK__ ) || defined( __Quadros__ ) || \
-	defined( __PALMOS__ ) || defined( __RiotOS__ ) || defined( __RTEMS__ ) || \
-	defined( __SMX__ ) || defined( __Telit__ ) || defined( __ThreadX__ ) || \
-	defined( __TKernel__ ) || defined( __UCOS__ ) || defined( __VDK__ ) || \
-	defined( __VxWorks__ ) || defined( __WIN32__ ) || defined( __WINCE__ ) || \
-	defined( __XMK__ ) || defined( __ZEPHYR__ )
+	defined( __MGOS__ ) || defined( __MQXRTOS__ ) || defined( __NORTi__ ) || \
+	defined( __Nucleus__ ) || defined( __OS2__ ) || defined( __OSEK__ ) || \
+	defined( __Quadros__ ) || defined( __PALMOS__ ) || defined( __RiotOS__ ) || \
+	defined( __RTEMS__ ) || defined( __SMX__ ) || defined( __Telit__ ) || \
+	defined( __ThreadX__ ) || defined( __TKernel__ ) || defined( __UCOS__ ) || \
+	defined( __VDK__ ) || defined( __VxWorks__ ) || defined( __WIN32__ ) || \
+	defined( __WINCE__ ) || defined( __XMK__ ) || defined( __ZEPHYR__ )
   #define USE_THREADS
 #endif /* Non-Unix systems with threads */
 
@@ -903,11 +918,12 @@
 #if defined( __AMX__ ) || defined( __Android__ ) || defined( __ARINC653__ ) || \
 	defined( __CHORUS__ ) || defined( __CMSIS__ ) || defined( __ECOS__ ) || \
 	defined( __embOS__ ) || defined( __FreeRTOS__ ) || defined( __ITRON__ ) || \
-	defined( __MGOS__ ) || defined( __MQXRTOS__ ) || defined( __OSEK__ ) || \
-	defined( __Quadros__ ) || defined( __RiotOS__ ) || defined( __RTEMS__ ) || \
-	defined( __Telit__ ) || defined( __ThreadX__ ) || defined( __TKernel__ ) || \
-	defined( __UCOS__ ) || defined( __VDK__ ) || defined( __VxWorks__ ) || \
-	defined( __XMK__ ) || defined( __ZEPHYR__ )
+	defined( __NORTi__ ) || defined( __Nucleus__ ) || defined( __MGOS__ ) || \
+	defined( __MQXRTOS__ ) || defined( __OSEK__ ) || defined( __Quadros__ ) || \
+	defined( __RiotOS__ ) || defined( __RTEMS__ ) || defined( __Telit__ ) || \
+	defined( __ThreadX__ ) || defined( __TKernel__ ) || defined( __UCOS__ ) || \
+	defined( __VDK__ ) || defined( __VxWorks__ ) || defined( __XMK__ ) || \
+	defined( __ZEPHYR__ )
   #define USE_EMBEDDED_OS
 #endif /* Embedded OSes */
 
@@ -949,7 +965,8 @@
 
 #if defined( __Android__ ) || defined( __clang__ ) || \
 	defined( __GNUC__ ) || defined( __UNIX__ ) || \
-	defined( USE_EMBEDDED_OS )
+	( defined( USE_EMBEDDED_OS ) && \
+	  !( defined( __ITRON__ ) || defined( __NORTi__ ) ) )
   #define USE_UTF8
 #endif /* Systems with UTF-8 support */
 
@@ -971,7 +988,7 @@
    enabled by default because the high level of complexity of DNS packet 
    parsing combined with the primitiveness of some of the APIs (specifically
    the Unix ones) make it a bit risky to leave enabled by default, so we
-   disabled it by default for attack surface reduction */
+   disable it by default for attack surface reduction */
 
 #if defined( USE_TCP ) && \
 	( defined( __WINDOWS__ ) || defined( __UNIX__ ) ) && 0
@@ -1166,7 +1183,7 @@
 	/* Contexts */
 	#define USE_ECDH
 	#define USE_ECDSA
-	#define USE_EDDSA
+	#define USE_ED25519
 	#undef USE_DES
 	#undef USE_3DES
 	#undef USE_IDEA
@@ -1258,11 +1275,11 @@
 *																			*
 ****************************************************************************/
 
-/* Unsafe or obsolete facilities that are disabled by default, except in the 
-   Win32 debug build under VC++ 6.0 or the Win64 debug build under VS 2019.  
-   We have to be careful with the preprocessor checks because the high-level 
-   feature-checking defines and macros are only available if osspec.h is 
-   included, which it won't be at this level */
+/* Unsafe or obsolete facilities that are disabled by default except in the 
+   two specific Win32 test environments.  We have to be careful with the 
+   preprocessor checks because the high-level feature-checking defines and 
+   macros are only available if osspec.h is included, which it won't be at 
+   this level */
 
 #ifdef CONFIG_FUZZ
   #if defined( CONFIG_PROFILE_SMIME ) || defined( CONFIG_PROFILE_PGP ) || \
@@ -1279,13 +1296,10 @@
 	#define CONFIG_ALL_OPTIONS
   #endif /* CONFIG_FUZZ */
 
-  /* Enable all options for VC++ 6.0 and VS 2019 Win32/Win64 */
-  #if defined( _MSC_VER ) && \
-	  ( ( _MSC_VER == 1200 ) || \
-		( _MSC_VER == VS_LATEST_VERSION && \
-		  defined( CRYPTLIB_TEST_BUILD ) ) )
+  /* Enable all options if CRYPTLIB_TEST_BUILD is requested */
+  #ifdef CRYPTLIB_TEST_BUILD 
 	#define CONFIG_ALL_OPTIONS
-  #endif /* VC++ 6.0 || VS 2019 with CRYPTLIB_TEST_BUILD environment variable set */
+  #endif /* cryptlib test build requested */
 
   /* Don't enable all options if custom build options have been selected */
   #if defined( CONFIG_ALL_OPTIONS ) && \
@@ -1298,17 +1312,13 @@
 
 #ifdef CONFIG_ALL_OPTIONS 
   #define USE_CERT_DNSTRING
-  #if defined( _MSC_VER  ) && \
-	  ( ( _MSC_VER == 1200 ) || \
-		( _MSC_VER == VS_LATEST_VERSION && \
-		  defined( CRYPTLIB_TEST_BUILD ) ) ) && \
-	  !defined( CONFIG_CONSERVE_MEMORY ) 
+  #if defined( CRYPTLIB_TEST_BUILD ) && !defined( CONFIG_CONSERVE_MEMORY ) 
 	/* If CONFIG_CONSERVE_MEMORY is defined then we're using a custom build
 	   profile for e.g. embedded SSH or TLS and don't want to enable full
 	   certificate handling */
 	#define USE_CERTLEVEL_PKIX_PARTIAL
 	#define USE_CERTLEVEL_PKIX_FULL
-  #endif /* VC++ 6.0 and VS 2019 debug builds only */
+  #endif /* cryptlib test build requested */
   #define USE_CHACHA20
   #if defined( USE_DEVICES ) && defined( _MSC_VER  ) && ( _MSC_VER < 1920 )
 	/* As of VS 2019 some conflicting define in the Windows headers, turned up 
@@ -1321,16 +1331,19 @@
   #define USE_DEVICES	/* Needed if USE_HARDWARE is defined */
   #define USE_ECDH
   #define USE_ECDSA
-  #define USE_EDDSA
+  #define USE_ED25519
   #define USE_25519
   #define USE_GCM
   #ifndef CONFIG_FUZZ
 	#define USE_HARDWARE
   #endif /* CONFIG_FUZZ */
   #define USE_SHA2_EXT
-  #if defined( USE_KEYSETS ) && !defined( CONFIG_FUZZ )
+  #if defined( USE_KEYSETS ) && defined( _MSC_VER  ) 
+	/* We only enable this unconditionally under Windows where it's always
+	   present, for other systems it has to be explicitly enabled via the 
+	   build script autodetection */
 	#define USE_LDAP
-  #endif /* USE_KEYSETS && !CONFIG_FUZZ */
+  #endif /* USE_KEYSETS && Windows */
   #define USE_OAEP
   #if defined( USE_KEYSETS ) 
 	#define USE_PKCS12
@@ -1348,16 +1361,21 @@
 	#endif /* VS 2005 and newer */
 	#define USE_EAP
 	#define USE_DES		/* Needed for MSCHAPv2 in PEAP */
-	#define USE_RSA_SUITES 
-	#define USE_SSH_EXTENDED
+	#define USE_RSA_SUITES	/* RSA suites in TLS, unsafe */ 
+	#define USE_SSH_EXTENDED/* SSH extensions */
 	#define USE_SSH_CTR
-	#define USE_SSH_OPENSSH
+	#define USE_SSH_OPENSSH	/* SSH EtM, unsafe */
 	#define USE_TLS13
 	#define USE_WEBSOCKETS
   #endif /* USE_TCP */
   #define USE_PGP2
-  #define USE_TPM
-#endif /* Win32 debug build */
+  #if defined( _MSC_VER ) || defined( HAS_TPM )
+	/* We only enable this unconditionally under Windows where it's always
+	   present, for other systems it has to be explicitly enabled via the 
+	   build script autodetection */
+	#define USE_TPM
+  #endif /* Windows || TMP support detected */
+#endif /* All-options build */
 
 /* If we're using a static analyser then we also enable some additional 
    functionality to allow the analyser to check it */
@@ -1374,9 +1392,13 @@
   #define USE_EAP
   #define USE_ECDH
   #define USE_ECDSA
+  #define USE_ED25519
+  #define USE_25519
   #define USE_GCM
   #define USE_SHA2_EXT
-  #if defined( _PREFAST_ ) || defined( __clang_analyzer__ )
+  #if defined( _PREFAST_ )
+	/* We can't define this for Unix analysers because it depends on ldap.h
+	   being present, which is handled by ccopts.sh */
 	#define USE_LDAP
   #endif /* Analysers on development machines */
   #define USE_OAEP
@@ -1391,6 +1413,7 @@
   #define USE_SSH_EXTENDED
   #define USE_SSH_CTR
   #define USE_SSH_OPENSSH
+  #define USE_TLS13
   #define USE_WEBSOCKETS
 #endif /* Static analyser builds */
 
@@ -1406,6 +1429,23 @@
   #define USE_GCM
   #define USE_SHA2_EXT
 #endif /* Suite B */
+
+/* Check whether any known-unsafe build options have been enabled.  This is
+   used to print a warning to stderr if possible when cryptlib is run, to
+   try and prevent someone from shipping a debug build or one with 
+   testing-only options enabled.
+   
+   We can't unconditionally warn for use of RC2 because this needs to be 
+   enabled for PKCS #12's (and specifically Microsoft's) use of RC2/40.  
+   Similarly we still need MD5 for TLS < 1.2 */
+
+#if defined( CONFIG_ALL_OPTIONS ) || defined( CONFIG_FUZZ ) || \
+	defined( USE_DES ) || ( defined( USE_MD5 ) && !defined( USE_TLS ) ) || \
+	( defined( USE_RC2 ) && !defined( USE_PKCS12 ) ) || \
+	defined( USE_RSA_SUITES ) || defined( USE_SSH_OPENSSH ) || \
+	defined( USE_ANALYSER )
+  #define USE_UNSAFE_BUILD_OPTIONS
+#endif /* Unsafe build options */
 
 /* For the custom build options test some options are handled by undefining
    particular build settings rather than defining NO_xxx options.  These 

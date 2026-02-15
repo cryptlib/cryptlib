@@ -35,6 +35,10 @@
 		standard { open, configure, close } cycle is interrupted, so that it
 		becomes { open, close }, with non- or partially-initialised objects
 		being left from the open phase.
+		
+	PASSTHROUGH: The device doesn't perform any operations itself but passes
+		actions through to native software contexts and keyset get/put 
+		operations through to an underlying storage keyset.
 
 	REMOVABLE: Whether the device is removable.
 	
@@ -48,7 +52,8 @@
 #define DEVICE_FLAG_LOGGEDIN	0x0010	/* User is logged into device */
 #define DEVICE_FLAG_TIME		0x0020	/* Device has on-board time source */
 #define DEVICE_FLAG_NEEDSCLEANUP 0x0040	/* Device partially initialised */
-#define DEVICE_FLAG_MAX			0x007F	/* Maximum possible flag value */
+#define DEVICE_FLAG_PASSTHROUGH	0x0080	/* Passthrough device */
+#define DEVICE_FLAG_MAX			0x00FF	/* Maximum possible flag value */
 
 /* Devices can be used to create further objects.  Most can only create 
    contexts, but the system object can create any kind of object */
@@ -150,7 +155,9 @@ typedef struct {
 typedef struct {
 	/* General device information.  The labelBuffer provides storage for the
 	   label data pointed to from the DEVICE_INFO */
+	BUFFER_FIXED( labelLen ) \
 	BYTE labelBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];	/* Device label */
+	int labelLen;
 
 	/* Authentication information, used when initialising the TPM */
 	BUFFER_FIXED( authValueEhLen ) \
@@ -158,6 +165,13 @@ typedef struct {
 	BUFFER_FIXED( authValueLockoutLen ) \
 	BYTE authValueLockout[ CRYPT_MAX_TEXTSIZE + 8 ];
 	int authValueEhLen, authValueLockoutLen;
+
+	/* The storage encryption key used to protect objects in the PKCS #15 
+	   backing store.  This is sealed to the TPM along the lines of the 
+	   BitLocker VMK */
+	BUFFER_FIXED( 16 ) \
+	BYTE storageKey[ 16 + 8 ];
+	int storageKeyLen;
 	} TPM_INFO;
 #endif /* USE_TPM */
 
@@ -218,7 +232,9 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 		int ( *DEV_SETITEMFUNCTION )( INOUT_PTR struct DI *deviceInfo,
 									  IN_HANDLE \
-										const CRYPT_HANDLE iCryptHandle );
+										const CRYPT_HANDLE iCryptHandle,
+									  IN_ENUM( KEYMGMT_ITEM ) \
+										const KEYMGMT_ITEM_TYPE itemType );
 typedef RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
 		int ( *DEV_DELETEITEMFUNCTION )( INOUT_PTR struct DI *deviceInfo,
 										 IN_ENUM( KEYMGMT_ITEM ) \
@@ -329,6 +345,14 @@ typedef struct DI {
 	BOOLEAN noPubkeyOps;			/* Whether device does pubkey ops.*/
 #endif /* USE_HARDWARE || USE_TPM */
 
+	/* For passthrough devices we record a storage encryption key that's 
+	   used to protect objects in the PKCS #15 backing store.  For example 
+	   for TPMs this will be a key sealed to the TPM along the lines of
+	   the BitLocker VMK */
+	BUFFER_FIXED( 16 ) \
+	const BYTE *storageKey;
+	int storageKeyLen;
+
 	/* Error information */
 	CRYPT_ATTRIBUTE_TYPE errorLocus;/* Error locus */
 	CRYPT_ERRTYPE_TYPE errorType;	/* Error type */
@@ -429,6 +453,14 @@ int openDeviceStorageObject( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 							 IN_PTR_OPT void *contextHandle,
 							 IN_BOOL const BOOLEAN allowFileStorage,
 							 INOUT_PTR ERROR_INFO *errorInfo );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int openDeviceFileStorageObject( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
+								 IN_BUFFER( fileNameLen ) \
+									const char *fileName,
+								 IN_LENGTH_SHORT_MIN( 3 ) \
+									const int fileNameLen,
+								 IN_ENUM_OPT( CRYPT_KEYOPT ) \
+									const CRYPT_KEYOPT_TYPE options );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int deleteDeviceStorageObject( IN_BOOL const BOOLEAN updateBackingStore,
 							   IN_BOOL const BOOLEAN isFileKeyset,
@@ -499,7 +531,7 @@ int selftestDevice( INOUT_PTR DEVICE_INFO *deviceInfo,
 #endif /* USE_HARDWARE */
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
   CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-  int deviceInitStorage( INOUT_PTR DEVICE_INFO *deviceInfoPtr );
+  int deviceInitGetSet( INOUT_PTR DEVICE_INFO *deviceInfoPtr );
 #endif /* USE_HARDWARE || USE_TPM */
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int setDeviceSystem( INOUT_PTR DEVICE_INFO *deviceInfo );

@@ -137,7 +137,7 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #ifndef CONFIG_NO_SELFTEST
 
 /* Test the Elgamal implementation using a sample key.  Because a lot of the 
-   high-level encryption routines don't exist yet, we cheat a bit and set up 
+   high-level encryption routines don't exist yet we cheat a bit and set up 
    a dummy encryption context with just enough information for the following 
    code to work */
 
@@ -372,8 +372,8 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 	DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) buffer;
-	BIGNUM *p = &pkcInfo->dlpParam_p, *g = &pkcInfo->dlpParam_g;
-	BIGNUM *y = &pkcInfo->dlpParam_y;
+	const BIGNUM *p = &pkcInfo->dlpParam_p, *g = &pkcInfo->dlpParam_g;
+	const BIGNUM *y = &pkcInfo->dlpParam_y;
 	BIGNUM *tmp = &pkcInfo->tmp1, *k = &pkcInfo->tmp2;
 	BIGNUM *r = &pkcInfo->tmp3, *s = &pkcInfo->dlpTmp1;
 	BIGNUM *phi_p = &pkcInfo->dlpTmp2;
@@ -520,7 +520,8 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 	DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) buffer;
-	BIGNUM *p = &pkcInfo->dlpParam_p, *x = &pkcInfo->dlpParam_x;
+	const BIGNUM *x = &pkcInfo->dlpParam_x;
+	BIGNUM *p = &pkcInfo->dlpParam_p;
 	BIGNUM *r = &pkcInfo->tmp1, *s = &pkcInfo->tmp2, *tmp = &pkcInfo->tmp3;
 	const int length = bitsToBytes( pkcInfo->keySizeBits );
 	int offset, dummy, bnStatus = BN_STATUS, status;

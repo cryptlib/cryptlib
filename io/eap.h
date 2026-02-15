@@ -482,6 +482,9 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readRADIUSMessage( INOUT_PTR STREAM *stream,
 					   INOUT_PTR EAP_INFO *eapInfo,
 					   IN_BOOL const BOOLEAN isRequest );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int readRADIUSPingResponse( INOUT_PTR STREAM *stream,
+							INOUT_PTR EAP_INFO *eapInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5, 6 ) ) \
 int processRADIUSTLVs( INOUT_PTR STREAM *stream,
 					   INOUT_PTR EAP_INFO *eapInfo,
@@ -501,6 +504,9 @@ int writeRADIUSMessage( INOUT_PTR STREAM *stream,
 						const EAP_PARAMS *eapParams,
 						IN_BUFFER( dataLength ) const void *data,
 						IN_LENGTH_SHORT const int dataLength );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int writeRADIUSPing( INOUT_PTR STREAM *stream,
+					 INOUT_PTR EAP_INFO *eapInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int sendEAPACK( INOUT_PTR STREAM *stream, 
 				INOUT_PTR EAP_INFO *eapInfo );

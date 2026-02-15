@@ -766,6 +766,7 @@ static int getSignatureKey( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							   CRYPT_ERRTYPE_ATTR_VALUE, status ) );
 			}
 		}
+	ENSURES( isHandleRangeValid( sigInfo->iSigCheckKey ) );
 
 	/* If we instantiated the signature-check key ourselves (either from a 
 	   keyset or from envelope data) rather than having it supplied 
@@ -843,10 +844,6 @@ static int checkOtherAttribute( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			return( CRYPT_OK );
 
 		case CRYPT_OPTION_ENCR_HASH:
-			if( !checkAlgoFunction( value, CRYPT_MODE_NONE ) )
-				return( CRYPT_ARGERROR_VALUE );
-			return( CRYPT_OK );
-
 		case CRYPT_OPTION_ENCR_MAC:
 			if( !checkAlgoFunction( value, CRYPT_MODE_NONE ) )
 				return( CRYPT_ARGERROR_VALUE );
@@ -1335,7 +1332,7 @@ int getEnvelopeAttributeS( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 						   INOUT_PTR MESSAGE_DATA *msgData, 
 						   IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE attribute )
 	{
-	CONTENT_LIST *contentListItem;
+	const CONTENT_LIST *contentListItem;
 	int status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
@@ -1369,7 +1366,7 @@ int getEnvelopeAttributeS( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	if( attribute == CRYPT_ATTRIBUTE_ERRORMESSAGE )
 		{
 #ifdef USE_ERRMSGS
-		ERROR_INFO *errorInfo = &envelopeInfoPtr->errorInfo;
+		const ERROR_INFO *errorInfo = &envelopeInfoPtr->errorInfo;
 
 		if( errorInfo->errorStringLength > 0 )
 			{

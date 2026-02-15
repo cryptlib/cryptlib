@@ -155,7 +155,7 @@ static int rsaGenerateComponents( OUT_PTR CRYPT_PKCINFO_RSA *rsaKeyInfo,
 	{
 	CONTEXT_INFO staticContextInfo;
 	PKC_INFO contextData, *pkcInfo = &contextData;
-	int length, status;
+	int dummy, status;
 
 	assert( isWritePtr( rsaKeyInfo, sizeof( CRYPT_PKCINFO_RSA ) ) );
 	assert( isReadPtr( capabilityInfoPtr, sizeof( CAPABILITY_INFO ) ) );
@@ -174,27 +174,33 @@ static int rsaGenerateComponents( OUT_PTR CRYPT_PKCINFO_RSA *rsaKeyInfo,
 
 	/* Extract the newly-generated key components for the caller to use */
 	rsaKeyInfo->nLen = BN_num_bits( &pkcInfo->rsaParam_n );
-	length = BN_bn2bin( &pkcInfo->rsaParam_n, rsaKeyInfo->n );
-	ENSURES( length == bitsToBytes( rsaKeyInfo->nLen ) );
+	status = exportBignum( rsaKeyInfo->n, CRYPT_MAX_PKCSIZE, &dummy, 
+						   &pkcInfo->rsaParam_n );
+	ENSURES( cryptStatusOK( status ) );
 	rsaKeyInfo->eLen = BN_num_bits( &pkcInfo->rsaParam_e );
-	length = BN_bn2bin( &pkcInfo->rsaParam_e, rsaKeyInfo->e );
-	ENSURES( length == bitsToBytes( rsaKeyInfo->eLen ) );
+	status = exportBignum( rsaKeyInfo->e, CRYPT_MAX_PKCSIZE, &dummy, 
+						   &pkcInfo->rsaParam_e );
+	ENSURES( cryptStatusOK( status ) );
 	rsaKeyInfo->pLen = BN_num_bits( &pkcInfo->rsaParam_p );
-	length = BN_bn2bin( &pkcInfo->rsaParam_p, rsaKeyInfo->p );
-	ENSURES( length == bitsToBytes( rsaKeyInfo->pLen ) );
+	status = exportBignum( rsaKeyInfo->p, CRYPT_MAX_PKCSIZE, &dummy, 
+						   &pkcInfo->rsaParam_p );
+	ENSURES( cryptStatusOK( status ) );
 	rsaKeyInfo->qLen = BN_num_bits( &pkcInfo->rsaParam_q );
-	length = BN_bn2bin( &pkcInfo->rsaParam_q, rsaKeyInfo->q );
-	ENSURES( length == bitsToBytes( rsaKeyInfo->qLen ) );
+	status = exportBignum( rsaKeyInfo->q, CRYPT_MAX_PKCSIZE, &dummy, 
+						   &pkcInfo->rsaParam_q );
+	ENSURES( cryptStatusOK( status ) );
 	rsaKeyInfo->e1Len = BN_num_bits( &pkcInfo->rsaParam_exponent1 );
-	length = BN_bn2bin( &pkcInfo->rsaParam_exponent1, rsaKeyInfo->e1 );
-	ENSURES( length == bitsToBytes( rsaKeyInfo->e1Len ) );
+	status = exportBignum( rsaKeyInfo->e1, CRYPT_MAX_PKCSIZE, &dummy, 
+						   &pkcInfo->rsaParam_exponent1 );
+	ENSURES( cryptStatusOK( status ) );
 	rsaKeyInfo->e2Len = BN_num_bits( &pkcInfo->rsaParam_exponent2 );
-	length = BN_bn2bin( &pkcInfo->rsaParam_exponent2, rsaKeyInfo->e2 );
-	ENSURES( length == bitsToBytes( rsaKeyInfo->e2Len ) );
+	status = exportBignum( rsaKeyInfo->e2, CRYPT_MAX_PKCSIZE, &dummy,
+						   &pkcInfo->rsaParam_exponent2 );
+	ENSURES( cryptStatusOK( status ) );
 	rsaKeyInfo->uLen = BN_num_bits( &pkcInfo->rsaParam_u );
-	length = BN_bn2bin( &pkcInfo->rsaParam_u, rsaKeyInfo->u );
-	ENSURES( length == bitsToBytes( rsaKeyInfo->uLen ) );
-
+	status = exportBignum( rsaKeyInfo->u, CRYPT_MAX_PKCSIZE, &dummy,
+						   &pkcInfo->rsaParam_u );
+	ENSURES( cryptStatusOK( status ) );
 	staticDestroyContext( &staticContextInfo );
 
 	return( status );
@@ -210,7 +216,7 @@ static int dlpGenerateComponents( OUT_PTR CRYPT_PKCINFO_DLP *dlpKeyInfo,
 	{
 	CONTEXT_INFO staticContextInfo;
 	PKC_INFO contextData, *pkcInfo = &contextData;
-	int length, status;
+	int dummy, status;
 
 	assert( isWritePtr( dlpKeyInfo, sizeof( CRYPT_PKCINFO_DLP ) ) );
 	assert( isReadPtr( capabilityInfoPtr, sizeof( CAPABILITY_INFO ) ) );
@@ -229,20 +235,25 @@ static int dlpGenerateComponents( OUT_PTR CRYPT_PKCINFO_DLP *dlpKeyInfo,
 
 	/* Extract the newly-generated key components for the caller to use */
 	dlpKeyInfo->pLen = BN_num_bits( &pkcInfo->dlpParam_p );
-	length = BN_bn2bin( &pkcInfo->dlpParam_p, dlpKeyInfo->p );
-	ENSURES( length == bitsToBytes( dlpKeyInfo->pLen ) );
+	status = exportBignum( dlpKeyInfo->p, CRYPT_MAX_PKCSIZE, &dummy,
+						   &pkcInfo->dlpParam_p );
+	ENSURES( cryptStatusOK( status ) );
 	dlpKeyInfo->gLen = BN_num_bits( &pkcInfo->dlpParam_g );
-	length = BN_bn2bin( &pkcInfo->dlpParam_g, dlpKeyInfo->g );
-	ENSURES( length == bitsToBytes( dlpKeyInfo->gLen ) );
+	status = exportBignum( dlpKeyInfo->g, CRYPT_MAX_PKCSIZE, &dummy, 
+						   &pkcInfo->dlpParam_g );
+	ENSURES( cryptStatusOK( status ) );
 	dlpKeyInfo->qLen = BN_num_bits( &pkcInfo->dlpParam_q );
-	length = BN_bn2bin( &pkcInfo->dlpParam_q, dlpKeyInfo->q );
-	ENSURES( length == bitsToBytes( dlpKeyInfo->qLen ) );
+	status = exportBignum( dlpKeyInfo->q, CRYPT_MAX_PKCSIZE, &dummy,
+						   &pkcInfo->dlpParam_q );
+	ENSURES( cryptStatusOK( status ) );
 	dlpKeyInfo->yLen = BN_num_bits( &pkcInfo->dlpParam_y );
-	length = BN_bn2bin( &pkcInfo->dlpParam_y, dlpKeyInfo->y );
-	ENSURES( length == bitsToBytes( dlpKeyInfo->yLen ) );
+	status = exportBignum( dlpKeyInfo->y, CRYPT_MAX_PKCSIZE, &dummy,
+						   &pkcInfo->dlpParam_y );
+	ENSURES( cryptStatusOK( status ) );
 	dlpKeyInfo->xLen = BN_num_bits( &pkcInfo->dlpParam_x );
-	length = BN_bn2bin( &pkcInfo->dlpParam_x, dlpKeyInfo->x );
-	ENSURES( length == bitsToBytes( dlpKeyInfo->xLen ) );
+	status = exportBignum( dlpKeyInfo->x, CRYPT_MAX_PKCSIZE, &dummy,
+						   &pkcInfo->dlpParam_x );
+	ENSURES( cryptStatusOK( status ) );
 
 	staticDestroyContext( &staticContextInfo );
 
@@ -251,7 +262,7 @@ static int dlpGenerateComponents( OUT_PTR CRYPT_PKCINFO_DLP *dlpKeyInfo,
 #endif /* USE_DH || USE_DSA || USE_ELGAMAL */
 
 #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	defined( USE_EDDSA ) || defined( USE_25519 )
+	defined( USE_25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int eccGenerateComponents( OUT_PTR CRYPT_PKCINFO_ECC *eccKeyInfo,
@@ -260,7 +271,7 @@ static int eccGenerateComponents( OUT_PTR CRYPT_PKCINFO_ECC *eccKeyInfo,
 	{
 	CONTEXT_INFO staticContextInfo;
 	PKC_INFO contextData, *pkcInfo = &contextData;
-	int length, status;
+	int dummy, status;
 
 	assert( isWritePtr( eccKeyInfo, sizeof( CRYPT_PKCINFO_ECC ) ) );
 	assert( isReadPtr( capabilityInfoPtr, sizeof( CAPABILITY_INFO ) ) );
@@ -280,20 +291,23 @@ static int eccGenerateComponents( OUT_PTR CRYPT_PKCINFO_ECC *eccKeyInfo,
 	/* Extract the newly-generated key components for the caller to use */
 	eccKeyInfo->curveType = pkcInfo->curveType;
 	eccKeyInfo->qxLen = BN_num_bits( &pkcInfo->eccParam_qx );
-	length = BN_bn2bin( &pkcInfo->eccParam_qx, eccKeyInfo->qx );
-	ENSURES( length == bitsToBytes( eccKeyInfo->qxLen ) );
+	status = exportBignum( eccKeyInfo->qx, CRYPT_MAX_PKCSIZE, &dummy,
+						   &pkcInfo->eccParam_qx );
+	ENSURES( cryptStatusOK( status ) );
 	eccKeyInfo->qyLen = BN_num_bits( &pkcInfo->eccParam_qy );
-	length = BN_bn2bin( &pkcInfo->eccParam_qy, eccKeyInfo->qy );
-	ENSURES( length == bitsToBytes( eccKeyInfo->qyLen ) );
+	status = exportBignum( eccKeyInfo->qy, CRYPT_MAX_PKCSIZE, &dummy,
+						   &pkcInfo->eccParam_qy );
+	ENSURES( cryptStatusOK( status ) );
 	eccKeyInfo->dLen = BN_num_bits( &pkcInfo->eccParam_d );
-	length = BN_bn2bin( &pkcInfo->eccParam_d, eccKeyInfo->d );
-	ENSURES( length == bitsToBytes( eccKeyInfo->dLen ) );
+	status = exportBignum( eccKeyInfo->d, CRYPT_MAX_PKCSIZE, &dummy,
+						   &pkcInfo->eccParam_d );
+	ENSURES( cryptStatusOK( status ) );
 
 	staticDestroyContext( &staticContextInfo );
 
 	return( status );
 	}
-#endif /* USE_ECDSA || USE_ECDH || USE_EDDSA || USE_25519 */
+#endif /* USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int generatePKCcomponents( INOUT_PTR CONTEXT_INFO *contextInfoPtr, 
@@ -331,11 +345,11 @@ int generatePKCcomponents( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	defined( USE_ECDSA ) || defined( USE_25519 )
 		case CRYPT_ALGO_ECDSA:
 		case CRYPT_ALGO_ECDH:
-		case CRYPT_ALGO_EDDSA:
 		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
 			return( eccGenerateComponents( keyInfo, capabilityInfoPtr, 
 										   keySizeBits ) );
-#endif /* USE_ECDSA || USE_ECDH || USE_EDDSA || USE_25519  */
+#endif /* USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 */
 
 		default:
 			return( CRYPT_ERROR_NOTAVAIL );
@@ -379,8 +393,8 @@ int setPKCinfo( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			  isReadPtr( keyInfo, sizeof( CRYPT_PKCINFO_DLP ) ) ) || \
 			( ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ECDSA || \
 				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ECDH || \
-				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_EDDSA || \
-				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 ) && \
+				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 || \
+				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ED25519 ) && \
 			  isReadPtr( keyInfo, sizeof( CRYPT_PKCINFO_ECC ) ) ) );
 
 	/* Send the public key data to the context.  We send the keying 
@@ -434,11 +448,11 @@ int setPKCinfo( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #endif /* USE_DH || USE_DSA || USE_ELGAMAL */
 
 #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	defined( USE_EDDSA ) || defined( USE_25519 )
+	defined( USE_25519 ) || defined( USE_ED25519 )
 		case CRYPT_ALGO_ECDSA:
 		case CRYPT_ALGO_ECDH:
-		case CRYPT_ALGO_EDDSA:
 		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
 			{
 			const CRYPT_PKCINFO_ECC *eccKeyInfo = \
 						( CRYPT_PKCINFO_ECC * ) keyInfo;
@@ -460,7 +474,7 @@ int setPKCinfo( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 						NULL, 0, NULL, 0 );
 			break;
 			}
-#endif /* USE_ECDSA || USE_ECDH || USE_EDDSA || USE_25519 */
+#endif /* USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 */
 
 		default:
 			retIntError();
@@ -649,10 +663,10 @@ static int eccGetComponents( const CONTEXT_INFO *contextInfoPtr,
 	}
 #endif /* USE_ECDSA || USE_ECDH */
 
-#if defined( USE_EDDSA ) || defined( USE_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int curveEddsaGetComponents( const CONTEXT_INFO *contextInfoPtr, 
+static int curve25519GetComponents( const CONTEXT_INFO *contextInfoPtr, 
 									CRYPT_PKCINFO_ECC *eccKeyInfo )
 	{
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -663,7 +677,7 @@ static int curveEddsaGetComponents( const CONTEXT_INFO *contextInfoPtr,
 		eccKeyInfo->isPublicKey = TRUE; 
 	retIntError();
 	}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int getPKCinfo( const CONTEXT_INFO *contextInfoPtr, 
@@ -684,8 +698,8 @@ int getPKCinfo( const CONTEXT_INFO *contextInfoPtr,
 			  isWritePtr( keyInfo, sizeof( CRYPT_PKCINFO_DLP ) ) ) || \
 			( ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ECDSA || \
 				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ECDH || \
-				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_EDDSA || \
-				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 ) && \
+				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 || \
+				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ED25519 ) && \
 			  isWritePtr( keyInfo, sizeof( CRYPT_PKCINFO_ECC ) ) ) );
 
 	/* Get the public key data from the context */
@@ -721,15 +735,15 @@ int getPKCinfo( const CONTEXT_INFO *contextInfoPtr,
 			}
 #endif /* USE_ECDSA || USE_ECDH */
 
-#if defined( USE_EDDSA ) || defined( USE_25519 )
-		case CRYPT_ALGO_EDDSA:
+#if defined( USE_25519 ) || defined( USE_ED25519 )
 		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
 			{
 			CRYPT_PKCINFO_ECC *eccKeyInfo = ( CRYPT_PKCINFO_ECC * ) keyInfo;
 
-			return( curveEddsaGetComponents( contextInfoPtr, eccKeyInfo ) );
+			return( curve25519GetComponents( contextInfoPtr, eccKeyInfo ) );
 			}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 
 		default:
 			retIntError();

@@ -64,6 +64,8 @@ typedef struct {
 
 #define OID_ESS_CERTID		MKOID( "\x06\x0B\x2A\x86\x48\x86\xF7\x0D\x01\x09\x10\x02\x0C" )
 							/* 1 2 840 113549 1 9 16 2 12 */
+#define OID_ESS_CERTIDv2	MKOID( "\x06\x0B\x2A\x86\x48\x86\xF7\x0D\x01\x09\x10\x02\x2F" )
+							/* 1 2 840 113549 1 9 16 2 47 */
 #define OID_TSP_TSTOKEN		MKOID( "\x06\x0B\x2A\x86\x48\x86\xF7\x0D\x01\x09\x10\x02\x0E" )
 							/* 1 2 840 113549 1 9 16 2 14 */
 #define OID_PKCS9_FRIENDLYNAME MKOID( "\x06\x09\x2A\x86\x48\x86\xF7\x0D\x01\x09\x14" )
@@ -246,6 +248,18 @@ typedef struct {
 		memset( ( params ), 0, sizeof( ALGOID_PARAMS ) ); \
 		( params )->cryptMode = mode; \
 		( params )->cryptKeySize = size
+
+/* Check whether an ASN.1 encoding operation, expressed as:
+
+	sizeofObject*( sizeofObject*( length ) + extraLen );
+	
+   would overflow */
+
+CHECK_RETVAL_BOOL \
+BOOLEAN checkEncodeOverflow( IN_LENGTH const long length,
+							 IN_RANGE( 0, 5 ) const int lengthNestingLevel,
+							 IN_LENGTH_SHORT_Z const int extraLen,
+							 IN_RANGE( 0, 5 ) const int extraLenNestingLevel );
 
 /* AlgorithmIdentifier routines */
 

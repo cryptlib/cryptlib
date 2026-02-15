@@ -654,17 +654,32 @@ PROCESS_ID_TYPE threadSelf( void );
 
 /****************************************************************************
 *																			*
-*									CMSIS									*
+*								CMSIS v1/v2									*
 *																			*
 ****************************************************************************/
 
 #elif defined( __CMSIS__ )
 
+/* CMSIS comes in two versions, v1 from the early 2010s and v2 from the late 
+   2010s, where v2 is an incremental change over v1, details at
+   https://arm-software.github.io/CMSIS_5/RTOS2/html//os2MigrationFunctions.html.
+   v1 defines an osCMSIS but v2 doesn't so we have to use defines added for 
+   the new v2 functions osThreadFlagsXXX() to detect whether we're using v1 
+   or v2 */
+
 #include <cmsis_os.h>
+/* #include <cmsis_os2.h> */
+#ifdef osFlagsError
+  #define USE_CMSIS2
+#endif /* CMSIS v2 API detection */
 
 /* Object handles */
 
-#define THREAD_HANDLE			osThreadId
+#ifdef USE_CMSIS2
+  #define THREAD_HANDLE			osThreadId_t
+#else
+  #define THREAD_HANDLE			osThreadId
+#endif /* USE_CMSIS2 */
 #define MUTEX_HANDLE			osMutexId
 
 /* Mutex management functions.  CMSIS mutexes are re-entrant so we don't 
@@ -674,7 +689,31 @@ PROCESS_ID_TYPE threadSelf( void );
 #define MUTEX_DECLARE_STORAGE( name ) \
 		MUTEX_HANDLE name##Mutex; \
 		BOOLEAN name##MutexInitialised
-#define MUTEX_CREATE( name, status ) \
+#ifdef USE_CMSIS2
+  #define MUTEX_CREATE( name, status ) \
+		status = CRYPT_OK; \
+		if( !krnlData->name##MutexInitialised ) \
+			{ \
+			krnlData->name##Mutex = osMutexNew( NULL ); \
+			if( krnlData->name##Mutex != NULL ) \
+				krnlData->name##MutexInitialised = TRUE; \
+			else \
+				status = CRYPT_ERROR; \
+			}
+  #define MUTEX_DESTROY( name ) \
+		if( krnlData->name##MutexInitialised ) \
+			{ \
+			osMutexAcquire( krnlData->name##Mutex, osWaitForever ); \
+			osMutexRelease( krnlData->name##Mutex ); \
+			osMutexDelete( krnlData->name##Mutex ); \
+			krnlData->name##MutexInitialised = FALSE; \
+			}
+  #define MUTEX_LOCK( name ) \
+		osMutexAcquire( krnlData->name##Mutex, osWaitForever )
+  #define MUTEX_UNLOCK( name ) \
+		osMutexRelease( krnlData->name##Mutex )
+#else
+  #define MUTEX_CREATE( name, status ) \
 		status = CRYPT_OK; \
 		if( !krnlData->name##MutexInitialised ) \
 			{ \
@@ -686,7 +725,7 @@ PROCESS_ID_TYPE threadSelf( void );
 			else \
 				status = CRYPT_ERROR; \
 			}
-#define MUTEX_DESTROY( name ) \
+  #define MUTEX_DESTROY( name ) \
 		if( krnlData->name##MutexInitialised ) \
 			{ \
 			osMutexWait( krnlData->name##Mutex, osWaitForever ); \
@@ -694,22 +733,40 @@ PROCESS_ID_TYPE threadSelf( void );
 			osMutexDelete( krnlData->name##Mutex ); \
 			krnlData->name##MutexInitialised = FALSE; \
 			}
-#define MUTEX_LOCK( name ) \
+  #define MUTEX_LOCK( name ) \
 		osMutexWait( krnlData->name##Mutex, osWaitForever )
-#define MUTEX_UNLOCK( name ) \
+  #define MUTEX_UNLOCK( name ) \
 		osMutexRelease( krnlData->name##Mutex )
+#endif /* USE_CMSIS2 */
 
 /* Thread management functions */
 
 #define THREADFUNC_DEFINE( name, arg )	void name( void const *arg )
-#define THREAD_CREATE( function, arg, threadHandle, syncHandle, status ) \
+#ifdef USE_CMSIS2
+  #define THREAD_CREATE( function, arg, threadHandle, syncHandle, status ) \
+			{ \
+			syncHandle = osMutexNew( NULL ); \
+			threadHandle = osThreadNew( function, arg, NULL ); \
+			if( syncHandle == NULL || threadHandle == NULL ) \
+				status = CRYPT_ERROR; \
+			else \
+				{ \
+				osMutexAcquire( syncHandle, osWaitForever ); \
+				status = CRYPT_OK; \
+				} \
+			}
+  #define THREAD_EXIT( sync )	osThreadExit(); \
+								osMutexRelease( sync ); \
+								return
+#else
+  #define THREAD_CREATE( function, arg, threadHandle, syncHandle, status ) \
 			{ \
 			osMutexDef( mutexDef ); \
 			osThreadDef( function, osPriorityNormal, 1, 0 ); \
 			\
 			syncHandle = osMutexCreate( osMutex( mutexDef ) ); \
 			threadHandle = osThreadCreate( osThread( function ), NULL ); \
-			if( threadHandle == NULL ) \
+			if( syncHandle == NULL || threadHandle == NULL ) \
 				status = CRYPT_ERROR; \
 			else \
 				{ \
@@ -717,19 +774,27 @@ PROCESS_ID_TYPE threadSelf( void );
 				status = CRYPT_OK; \
 				} \
 			}
-#define THREAD_EXIT( sync )		osThreadTerminate( osThreadGetId() ); \
+  #define THREAD_EXIT( sync )	osThreadTerminate( osThreadGetId() ); \
 								osMutexRelease( sync ); \
 								return
+#endif /* USE_CMSIS2 */
 #define THREAD_INITIALISER		NULL
 #define THREAD_SELF()			osThreadGetId()
 #define THREAD_IS_CURRENT( thread )	\
 								( ( thread ) == osThreadGetId() )
 #define THREAD_SLEEP( ms )		osDelay( ms )
 #define THREAD_YIELD()			osThreadYield()
-#define THREAD_WAIT( thread, sync, status )	\
+#ifdef USE_CMSIS2
+  #define THREAD_WAIT( thread, sync, status )	\
+								if( osMutexAcquire( sync, osWaitForever ) != osOK ) \
+									status = CRYPT_ERROR; \
+								osMutexDelete( sync )
+#else
+  #define THREAD_WAIT( thread, sync, status )	\
 								if( osMutexWait( sync, osWaitForever ) != osOK ) \
 									status = CRYPT_ERROR; \
 								osMutexDelete( sync )
+#endif /* USE_CMSIS2 */
 #define THREAD_CLOSE( thread )
 
 /****************************************************************************
@@ -1166,17 +1231,21 @@ PROCESS_ID_TYPE threadSelf( void );
 
 /****************************************************************************
 *																			*
-*									uITRON									*
+*								uITRON/NORTi								*
 *																			*
 ****************************************************************************/
 
-#elif defined( __ITRON__ )
+#elif defined( __ITRON__ ) || defined( __NORTi__ )
 
 /* In the following includes, kernel.h is the uITRON kernel.h, not the
    cryptlib one */
 
-#include <itron.h>
-#include <kernel.h>
+#ifdef __ITRON__ 
+  #include <itron.h>
+  #include <kernel.h>
+#else
+  #include <norti4.h>
+#endif /* __ITRON__ */
 
 /* Object handles */
 
@@ -1627,7 +1696,7 @@ ID threadSelf( void );
 #define THREAD_SELF()			NU_Current_Task_Pointer()
 #define THREAD_IS_CURRENT( thread )	\
 								( ( thread ) == NU_Current_Task_Pointer() )
-#define THREAD_SLEEP( ms )		NU_Sleep( ms / 10 )
+#define THREAD_SLEEP( ms )		NU_Sleep( ( ms ) / 10 )
 #define THREAD_YIELD()			NU_Relinquish()
 #define THREAD_WAIT( thread, sync, status ) \
 								if( NU_Obtain_Semaphore( sync, \
@@ -3929,7 +3998,8 @@ typedef struct {
    can't use one handle type for both.
    
    There's no easy way to deal with this without introducing a third handle
-   type throughout all of the code, for now we  */
+   type throughout all of the code, for now we opt out of internal threads,
+   see the note at the end of this section */
 
 #define THREAD_HANDLE			k_tid_t
 #define MUTEX_HANDLE			struct k_mutex
@@ -3938,9 +4008,7 @@ typedef struct {
 
 #define NONSCALAR_HANDLES
 
-/* Mutex management functions.  VxWorks mutual exclusion semaphores (and
-   only mutex semaphores) are re-entrant, so we don't have to jump through
-   the hoops that are necessary with most other OSes */
+/* Mutex management functions */
 
 #define MUTEX_LOCKNAME( name )	krnlData->name##Mutex
 #define MUTEX_DECLARE_STORAGE( name ) \
@@ -4013,8 +4081,8 @@ typedef struct {
 
 /* Because of the problematic conflict between semaphore and mutex handles 
    we no-op out the use of internal threads.  Note that cryptlib itself is 
-   still thread-safe, it just can't do its init in an internal background 
-   thread */
+   still thread-safe Zephyr mutexes, it just can't do its init in an 
+   internal background thread */
 
 #ifndef ZEPHYR_USE_THREADS
   #undef USE_THREAD_FUNCTIONS

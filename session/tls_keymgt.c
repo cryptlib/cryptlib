@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib TLS Key Management Routines					*
-*					 Copyright Peter Gutmann 1998-2022						*
+*					 Copyright Peter Gutmann 1998-2024						*
 *																			*
 ****************************************************************************/
 
@@ -49,10 +49,13 @@ int initHandshakeCryptInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef CONFIG_SUITEB
 	handshakeInfo->sha384context = CRYPT_ERROR;
 #endif /* CONFIG_SUITEB */
-	handshakeInfo->dhContext = \
+	handshakeInfo->keyexContext = \
 		handshakeInfo->sessionHashContext = CRYPT_ERROR;
 #ifdef USE_TLS13
-	handshakeInfo->dhContextAlt = CRYPT_ERROR;
+	handshakeInfo->keyexEcdhContext = CRYPT_ERROR;
+  #ifdef USE_25519
+	handshakeInfo->keyex25519Context = CRYPT_ERROR;
+  #endif /* USE_25519 */
 #endif /* USE_TLS13 */
 
 	/* If we're fuzzing then the crypto isn't used so we can skip the
@@ -107,7 +110,7 @@ int initHandshakeCryptInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #endif /* CONFIG_SUITEB */
 	if( cryptStatusOK( status ) )
 		{
-		/* Create additional contexts needed for TLS 1.2 */
+		/* Create additional contexts needed for TLS 1.2+ */
 		setMessageCreateObjectInfo( &createInfo, CRYPT_ALGO_SHA2 );
 		status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,
 								  IMESSAGE_DEV_CREATEOBJECT, &createInfo,
@@ -160,18 +163,27 @@ void destroyHandshakeCryptInfo( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo )
 		handshakeInfo->sha384context = CRYPT_ERROR;
 		}
 #endif /* CONFIG_SUITEB */
-	if( handshakeInfo->dhContext != CRYPT_ERROR )
+	if( handshakeInfo->keyexContext != CRYPT_ERROR )
 		{
-		krnlSendNotifier( handshakeInfo->dhContext, IMESSAGE_DECREFCOUNT );
-		handshakeInfo->dhContext = CRYPT_ERROR;
+		krnlSendNotifier( handshakeInfo->keyexContext, 
+						  IMESSAGE_DECREFCOUNT );
+		handshakeInfo->keyexContext = CRYPT_ERROR;
 		}
 #ifdef USE_TLS13
-	if( handshakeInfo->dhContextAlt != CRYPT_ERROR )
+	if( handshakeInfo->keyexEcdhContext != CRYPT_ERROR )
 		{
-		krnlSendNotifier( handshakeInfo->dhContextAlt, 
+		krnlSendNotifier( handshakeInfo->keyexEcdhContext, 
 						  IMESSAGE_DECREFCOUNT );
-		handshakeInfo->dhContextAlt = CRYPT_ERROR;
+		handshakeInfo->keyexEcdhContext = CRYPT_ERROR;
 		}
+  #ifdef USE_25519
+	if( handshakeInfo->keyex25519Context != CRYPT_ERROR )
+		{
+		krnlSendNotifier( handshakeInfo->keyex25519Context, 
+						  IMESSAGE_DECREFCOUNT );
+		handshakeInfo->keyex25519Context = CRYPT_ERROR;
+		}
+  #endif /* USE_25519 */
 #endif /* USE_TLS13 */
 	if( handshakeInfo->sessionHashContext != CRYPT_ERROR )
 		{
@@ -363,6 +375,7 @@ int cloneHashContext( IN_HANDLE const CRYPT_CONTEXT hashContext,
 							  &hashAlgo, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
 		return( status );
+	ENSURES( isHashAlgo( hashAlgo ) );
 
 	/* Create a new hash context and clone the existing one's state into 
 	   it */
@@ -390,11 +403,14 @@ int cloneHashContext( IN_HANDLE const CRYPT_CONTEXT hashContext,
 *																			*
 ****************************************************************************/
 
-/* Load a DH/ECDH key into a context */
+/* Load a DH/ECDH/25519 key into a context.  Note that initDHcontextTLS()
+   doesn't handle 25519 since this is a TLS 1.3 algorithm and that handles 
+   its keyex by stuffing the data into the client/server hello rather than
+   sending a proper client/server keyex message */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int createDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
-						IN_ALGO const CRYPT_ALGO_TYPE dhAlgo )
+int createKeyexContextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
+						   IN_ALGO const CRYPT_ALGO_TYPE keyexAlgo )
 	{
 	MESSAGE_CREATEOBJECT_INFO createInfo;
 	MESSAGE_DATA msgData;
@@ -402,24 +418,39 @@ int createDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 
 	assert( isWritePtr( iCryptContext, sizeof( CRYPT_CONTEXT ) ) );
 
-	REQUIRES( dhAlgo == CRYPT_ALGO_DH || dhAlgo == CRYPT_ALGO_ECDH );
+	REQUIRES( keyexAlgo == CRYPT_ALGO_DH || keyexAlgo == CRYPT_ALGO_ECDH || \
+			  keyexAlgo == CRYPT_ALGO_25519 );
 
 	/* Clear return value */
 	*iCryptContext = CRYPT_ERROR;
 
-	/* Create the (EC)DH context.  We have to use distinct algorithm-specific
-	   labels because for TLS 1.3 we need to create multiple contexts when
-	   we're guessing at what algorithm the other side might want */
-	setMessageCreateObjectInfo( &createInfo, dhAlgo );
+	/* Create the DH/ECDH/25519 context.  We have to use distinct algorithm-
+	   specific labels because for TLS 1.3 we need to create multiple 
+	   contexts when we're guessing at what algorithm the other side might 
+	   want */
+	setMessageCreateObjectInfo( &createInfo, keyexAlgo );
 	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE, 
 							  IMESSAGE_DEV_CREATEOBJECT, &createInfo, 
 							  OBJECT_TYPE_CONTEXT );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( dhAlgo == CRYPT_ALGO_DH )
-		{ setMessageData( &msgData, "TLS DH key agreement key", 24 ); }
-	else
-		{ setMessageData( &msgData, "TLS ECDH key agreement key", 26 ); }
+	switch( keyexAlgo )
+		{
+		case CRYPT_ALGO_DH:
+			setMessageData( &msgData, "TLS DH key agreement key", 24 );
+			break;
+		
+		case CRYPT_ALGO_ECDH:
+			setMessageData( &msgData, "TLS ECDH key agreement key", 26 );
+			break;
+		
+		case CRYPT_ALGO_25519:
+			setMessageData( &msgData, "TLS 25519 key agreement key", 27 );
+			break;
+
+		default:
+			retIntError();
+		}
 	status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_SETATTRIBUTE_S,
 							  &msgData, CRYPT_CTXINFO_LABEL );
 	if( cryptStatusError( status ) )
@@ -433,15 +464,16 @@ int createDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int initDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
-					  IN_BUFFER_OPT( keyDataLength ) const void *keyData, 
-					  IN_LENGTH_SHORT_Z const int keyDataLength,
-					  IN_HANDLE_OPT const CRYPT_CONTEXT iServerKeyTemplate,
-					  IN_ENUM_OPT( CRYPT_ECCCURVE ) \
+int initKeyexContextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
+						 IN_BUFFER_OPT( keyDataLength ) const void *keyData, 
+						 IN_LENGTH_SHORT_Z const int keyDataLength,
+						 IN_HANDLE_OPT \
+							const CRYPT_CONTEXT iServerKeyTemplate,
+						 IN_ENUM_OPT( CRYPT_ECCCURVE ) \
 							const CRYPT_ECCCURVE_TYPE eccCurve,
-					  IN_BOOL const BOOLEAN isTLSLTS )
+						 IN_BOOL const BOOLEAN isTLSLTS )
 	{
-	CRYPT_CONTEXT dhContext;
+	CRYPT_CONTEXT keyexContext;
 	int keySize = TLS_DH_KEYSIZE, status;
 
 	assert( isWritePtr( iCryptContext, sizeof( CRYPT_CONTEXT ) ) );
@@ -465,8 +497,9 @@ int initDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 
 	/* If we're loading a built-in DH key, match the key size to the server 
 	   authentication key size.  If there's no server key present then we 
-	   default to the TLS_DH_KEYSIZE-byte key because we don't know how much 
-	   processing power the client has */
+	   default to the TLS_DH_KEYSIZE-byte key (the default value set earlier 
+	   for the keySize variable) because we don't know how much processing 
+	   power the client has */
 	if( keyData == NULL && iServerKeyTemplate != CRYPT_UNUSED && \
 		eccCurve == CRYPT_ECCCURVE_NONE )
 		{
@@ -476,10 +509,11 @@ int initDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 			return( status );
 		}
 
-	/* Create the (EC)DH context */
-	status = createDHcontextTLS( &dhContext, 
-								 ( eccCurve != CRYPT_ECCCURVE_NONE ) ? \
-									CRYPT_ALGO_ECDH : CRYPT_ALGO_DH );
+	/* Create the DH/ECDH context.  This is never 25519 for the reason given
+	   in the comment at the start of this section */
+	status = createKeyexContextTLS( &keyexContext, 
+									( eccCurve != CRYPT_ECCCURVE_NONE ) ? \
+									  CRYPT_ALGO_ECDH : CRYPT_ALGO_DH );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -493,7 +527,7 @@ int initDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 		/* If we're the client we'll have been sent DH/ECDH key components 
 		   by the server */
 		setMessageData( &msgData, ( MESSAGE_CAST ) keyData, keyDataLength ); 
-		status = krnlSendMessage( dhContext, IMESSAGE_SETATTRIBUTE_S, 
+		status = krnlSendMessage( keyexContext, IMESSAGE_SETATTRIBUTE_S, 
 								  &msgData, 
 								  isTLSLTS ? CRYPT_IATTRIBUTE_KEY_TLS_EXT : \
 											 CRYPT_IATTRIBUTE_KEY_TLS );
@@ -507,7 +541,7 @@ int initDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 			{
 			const int eccParams = eccCurve;	/* int vs. enum */
 
-			status = krnlSendMessage( dhContext, IMESSAGE_SETATTRIBUTE, 
+			status = krnlSendMessage( keyexContext, IMESSAGE_SETATTRIBUTE, 
 									  ( MESSAGE_CAST ) &eccParams, 
 									  CRYPT_IATTRIBUTE_KEY_ECCPARAM );
 			}
@@ -515,14 +549,14 @@ int initDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 #endif /* USE_ECDH */
 			{
 			/* We're loading a standard DH key of the appropriate size */
-			status = krnlSendMessage( dhContext, IMESSAGE_SETATTRIBUTE, 
+			status = krnlSendMessage( keyexContext, IMESSAGE_SETATTRIBUTE, 
 									  ( MESSAGE_CAST ) &keySize, 
 									  CRYPT_IATTRIBUTE_KEY_DLPPARAM );
 			}
 		}
 	if( cryptStatusError( status ) )
 		{
-		krnlSendNotifier( dhContext, IMESSAGE_DECREFCOUNT );
+		krnlSendNotifier( keyexContext, IMESSAGE_DECREFCOUNT );
 		if( keyData == NULL )
 			{
 			/* If we got an error loading a known-good, fixed-format key 
@@ -532,21 +566,22 @@ int initDHcontextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 			}
 		return( status );
 		}
-	*iCryptContext = dhContext;
+	*iCryptContext = keyexContext;
 
 	return( CRYPT_OK );
 	}
 
-/* Complete the (ECD)DH keyex */
+/* Complete the (EC)DH keyex */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
 int completeTLSKeyex( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 					  INOUT_PTR STREAM *stream, 
-					  IN_BOOL const BOOLEAN isECC,
 					  IN_BOOL const BOOLEAN isTLSLTS,
+					  IN_BOOL const BOOLEAN isTLS13,
 					  INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	KEYAGREE_PARAMS keyAgreeParams;
+	const char *keyTypeName;
 	int status;
 
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
@@ -554,25 +589,73 @@ int completeTLSKeyex( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( sanityCheckTLSHandshakeInfo( handshakeInfo ) );
-	REQUIRES( isBooleanValue( isECC ) );
 	REQUIRES( isBooleanValue( isTLSLTS ) );
+	REQUIRES( isBooleanValue( isTLS13 ) );
 
-	/* Read the (EC)DH key agreement parameters */
+	/* Read the DH/ECDH/25519 key agreement parameters:
+
+		DH:
+			uint16	yLen
+			byte[]	y
+		ECDH, TLS 1.2
+			uint8	ecPointLen	-- NB uint8 not uint16
+			byte[]	ecPoint
+		ECDH, TLS 1.3
+			uint16	ecPointLen	
+			byte[]	ecPoint 
+		25519:
+			uint16	x25519PubValueLen
+			byte[]	x25519PubValue
+
+	   Note the anomalous use of of an 8-bit length for ECDH, this is from
+	   classic TLS which used this for no known reason.  TLS 1.3 went to a
+	   standard 16-bit length */
 	memset( &keyAgreeParams, 0, sizeof( KEYAGREE_PARAMS ) );
-	if( isECC )
+	switch( handshakeInfo->keyexAlgo )
 		{
-		status = readEcdhValue( stream, keyAgreeParams.publicValue,
-								CRYPT_MAX_PKCSIZE, 
-								&keyAgreeParams.publicValueLen );
-		}
-	else
-		{
-		status = readInteger16U( stream, keyAgreeParams.publicValue,
-								 &keyAgreeParams.publicValueLen,
-								 MIN_PKCSIZE, CRYPT_MAX_PKCSIZE, 
-								 BIGNUM_CHECK_VALUE_PKC );
-		}
+		case CRYPT_ALGO_DH:
+			keyTypeName = "DH";
+			status = readInteger16U( stream, keyAgreeParams.publicValue,
+									 &keyAgreeParams.publicValueLen,
+									 MIN_PKCSIZE, CRYPT_MAX_PKCSIZE, 
+									 BIGNUM_CHECK_VALUE_PKC );
+			break;
 
+		case CRYPT_ALGO_ECDH:
+			keyTypeName = "ECDH";
+#ifdef USE_TLS13
+			if( isTLS13 )
+				{
+				status = readInteger16U( stream, keyAgreeParams.publicValue,
+										 &keyAgreeParams.publicValueLen,
+										 MIN_PKCSIZE_ECCPOINT, 
+										 MAX_PKCSIZE_ECCPOINT, 
+										 BIGNUM_CHECK_VALUE_ECC );
+				if( cryptStatusOK( status ) && \
+					isShortECCKey( keyAgreeParams.publicValueLen / 2 ) )
+					status = CRYPT_ERROR_NOSECURE;
+				}
+			else
+#endif /* USE_TLS13 */
+			status = readEcdhValue( stream, keyAgreeParams.publicValue,
+									CRYPT_MAX_PKCSIZE, 
+									&keyAgreeParams.publicValueLen );
+			break;
+
+#ifdef USE_25519
+		case CRYPT_ALGO_25519:
+			keyTypeName = "25519";
+			status = readInteger16U( stream, keyAgreeParams.publicValue,
+									 &keyAgreeParams.publicValueLen,
+									 MIN_PKCSIZE_BERNSTEIN, 
+									 MAX_PKCSIZE_BERNSTEIN, 
+									 BIGNUM_CHECK_VALUE_FIXEDLEN );
+			break;
+#endif /* USE_25519 */
+
+		default: 
+			retIntError();		
+		}
 	if( cryptStatusError( status ) )
 		{
 		/* Some misconfigured clients may use very short keys, we perform a 
@@ -582,14 +665,14 @@ int completeTLSKeyex( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 			{
 			retExt( CRYPT_ERROR_NOSECURE,
 					( CRYPT_ERROR_NOSECURE, errorInfo, 
-					  "Insecure %sDH key used in key exchange",
-					  isECC ? "EC" : "" ) );
+					  "Insecure %s key used in key exchange",
+					  keyTypeName ) );
 			}
 
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, errorInfo, 
-				  "Invalid %sDH phase 2 key agreement data",
-				  isECC ? "EC" : "" ) );
+				  "Invalid %s phase 2 key agreement data",
+				  keyTypeName ) );
 		}
 
 	/* If we're fuzzing the input then we don't need to go through any of 
@@ -599,28 +682,31 @@ int completeTLSKeyex( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 	FUZZ_EXIT();
 
 	/* Perform phase 2 of the (EC)DH key agreement */
-	status = krnlSendMessage( handshakeInfo->dhContext, IMESSAGE_CTX_DECRYPT, 
-							  &keyAgreeParams, sizeof( KEYAGREE_PARAMS ) );
+	status = krnlSendMessage( handshakeInfo->keyexContext, 
+							  IMESSAGE_CTX_DECRYPT, &keyAgreeParams, 
+							  sizeof( KEYAGREE_PARAMS ) );
 	if( cryptStatusError( status ) )
 		{
 		zeroise( &keyAgreeParams, sizeof( KEYAGREE_PARAMS ) );
 		retExt( status,
 				( status, errorInfo, 
-				  "Invalid %sDH phase 2 key agreement value",
-				  isECC ? "EC" : "" ) );
+				  "Invalid %s phase 2 key agreement value",
+				  keyTypeName ) );
 		}
 
 	/* The output of the ECDH operation is an ECC point, but for some 
-	   unknown reason standard TLS only uses the x coordinate and not the 
-	   full point.  To work around this we have to rewrite the point as a 
-	   standalone x coordinate, which is relatively easy because we're  
-	   using the uncompressed point format: 
+	   unknown reason TLS only uses the x coordinate and not the full point
+	   in its crypto computations (RFC 4492 section 5.10 / RFC 8446 section 
+	   7.4.2) even though it transmits the full point in the handshake.  To 
+	   work around this we have to rewrite the point as a standalone x 
+	   coordinate, which is relatively easy because we're using the 
+	   uncompressed point format: 
 
 		+---+---------------+---------------+
 		|04	|		qx		|		qy		|
 		+---+---------------+---------------+
 			|<- fldSize --> |<- fldSize --> | */
-	if( isECC && !isTLSLTS )
+	if( handshakeInfo->keyexAlgo == CRYPT_ALGO_ECDH && !isTLSLTS )
 		{
 		const int xCoordLen = ( keyAgreeParams.wrappedKeyLen - 1 ) / 2;
 
@@ -641,6 +727,9 @@ int completeTLSKeyex( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 			keyAgreeParams.wrappedKeyLen );
 	handshakeInfo->premasterSecretSize = keyAgreeParams.wrappedKeyLen;
 	zeroise( &keyAgreeParams, sizeof( KEYAGREE_PARAMS ) );
+	DEBUG_DUMP_DATA_LABEL( "Keyex output:",
+						   handshakeInfo->premasterSecret, 
+						   handshakeInfo->premasterSecretSize );
 
 	return( CRYPT_OK );
 	}
@@ -1003,9 +1092,10 @@ static int masterToKeys( const SESSION_INFO *sessionInfoPtr,
 						   masterSecret, masterSecretLength );
 
 	/* If we're running in debug mode, output information needed by 
-	   Wireshark to decrypt the captured TLS traffic in NSS key log format, 
-	   see 
-	   https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/Key_Log_Format */
+	   Wireshark to decrypt the captured TLS traffic in NSS key log format
+	   (a.k.a. SSLKEYLOGFILE), see 
+	   https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/Key_Log_Format and
+	   https://nss-crypto.org/reference/security/nss/legacy/key_log_format/index.html */
 	DEBUG_PRINT_BEGIN();
 	DEBUG_PUTS(( "NSS Key Log:" ));
 	DEBUG_PRINT(( "CLIENT_RANDOM " ));
@@ -1361,6 +1451,7 @@ int loadExplicitIV( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	*ivLength = 0;
 
 	/* Read and load the IV */
+	REQUIRES( rangeCheck( tlsInfo->ivSize, 1, CRYPT_MAX_IVSIZE ) );
 	status = sread( stream, iv, tlsInfo->ivSize );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1440,14 +1531,14 @@ int addDerivedKeydata( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 #if 0
 		case CRYPT_SUBPROTOCOL_EAPTLS:
-			// EAP-TLS also generates an IV using the same keyDiversifier 
-			// but with an empty master secret value (so all of the 
-			// randomness comes from the client and server random), this 
-			// doesn't seem to be useful for anything and would require 
-			// special-case handling for the empty master secret so we omit 
-			// it.  It's OK to drop through to the internal-error return 
-			// at the 'default' case since we should never be called for 
-			// EAP-TLS.
+			/* EAP-TLS also generates an IV using the same keyDiversifier 
+			   but with an empty master secret value (so all of the 
+			   randomness comes from the client and server random), this 
+			   doesn't seem to be useful for anything and would require 
+			   special-case handling for the empty master secret so we omit 
+			   it.  It's OK to drop through to the internal-error return at 
+			   the 'default' case since we should never be called for 
+			   EAP-TLS */
 			keyDiversifier = "client EAP encryption";
 			keyDiversifierLength = 21;
 			break;

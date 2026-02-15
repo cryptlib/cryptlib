@@ -47,9 +47,11 @@
    Specifically, instead of using SSH's "I'd like a DH value of this size or
    in this range", 7919 only allows one single DH value to be specified and 
    if the other side doesn't support this the implementation is required to
-   fall back to RSA keyex (!!!).  Undeterred by this failure to launch, they 
-   were specified as the only allowed parameters for TLS 1.3, so we have to 
-   support them here.
+   fall back to RSA keyex (the wording is "if none of the client-proposed 
+   FFDHE groups are known and acceptable to the server, then the server MUST 
+   NOT select an FFDHE cipher suite").  Undeterred by this failure to 
+   launch, they were specified as the only allowed parameters for TLS 1.3, 
+   so we have to support them here.
 
    Safely converting these values to pre-encoded bignum values is a multi-
    stage process, first we encode the original values as TLS-format values, 
@@ -1845,13 +1847,20 @@ int loadECCparamsFixed( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		BN_init( &bignums[ i ] );
 		}
 	ENSURES( LOOP_BOUND_OK );
-	CKPTR( BN_bin2bn( eccParams->p, curveSize, &bignums[ 0 ] ) );
-	CKPTR( BN_bin2bn( eccParams->a, curveSize, &bignums[ 1 ] ) );
-	CKPTR( BN_bin2bn( eccParams->b, curveSize, &bignums[ 2 ] ) );
-	CKPTR( BN_bin2bn( eccParams->gx, curveSize, &bignums[ 3 ] ) );
-	CKPTR( BN_bin2bn( eccParams->gy, curveSize, &bignums[ 4 ] ) );
-	CKPTR( BN_bin2bn( eccParams->n, curveSize, &bignums[ 5 ] ) );
-	CKPTR( BN_bin2bn( eccParams->h, 1, &bignums[ 6 ] ) );
+	CKPTR( importBignum( eccParams->p, &bignums[ 0 ], curveSize, curveSize, 
+						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
+	CKPTR( importBignum( eccParams->a, &bignums[ 1 ], curveSize, curveSize, 
+						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
+	CKPTR( importBignum( eccParams->b, &bignums[ 2 ], curveSize, curveSize, 
+						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
+	CKPTR( importBignum( eccParams->gx, &bignums[ 3 ], curveSize, curveSize, 
+						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
+	CKPTR( importBignum( eccParams->gy, &bignums[ 4 ], curveSize, curveSize, 
+						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
+	CKPTR( importBignum( eccParams->n, &bignums[ 5 ], curveSize, curveSize, 
+						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
+	CKPTR( importBignum( eccParams->h, &bignums[ 6 ], 1, 1, 1, NULL, 
+						 BIGNUM_CHECK_NONE ) );
 	if( bnStatusError( bnStatus ) )
 		return( getBnStatus( bnStatus ) );
 

@@ -1,10 +1,15 @@
-#!/bin/sh
+#!/bin/bash
 # Move all OpenSSL symbols into their own namespace to avoid conflicts if
 # linking with both cryptlib and OpenSSL.  The Mac version of sed is somewhat
-# special and needs its own custom invocation.  In addition since a few of
-# the test files have non-ASCII character sets and that also upsets the Mac
-# sed, we have to switch to 8859-1 for those.  We use en_US because it's
-# likely to be present on most systems.
+# special and needs its own custom invocation.
+#
+# Alongside updating the function names, the patterns file also disables
+# HAS_ZLIB since the system zlib.h function names will no longer match the
+# renamed local ones.
+#
+# In addition since a few of the test files have non-ASCII character sets
+# and that also upsets the Mac sed, we have to switch to 8859-1 for those.
+# We use en_US because it's likely to be present on most systems.
 
 replace_patterns() {
     echo $1

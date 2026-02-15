@@ -80,7 +80,8 @@ static int performUpdate( INOUT_PTR DBMS_INFO *dbmsInfo,
 							const DBMS_UPDATE_TYPE updateType )
 	{
 	DBMS_STATE_INFO *dbmsStateInfo = dbmsInfo->stateInfo;
-	const int commandLength = ( command != NULL ) ? strlen( command ) : 0;
+	const int commandLength = ( command != NULL ) ? \
+							  strnlen_s( command, MAX_INTLENGTH_SHORT ) : 0;
 	int status;
 
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
@@ -150,7 +151,8 @@ static int performQuery( INOUT_PTR DBMS_INFO *dbmsInfo,
 						 IN_ENUM( DBMS_QUERY ) const DBMS_QUERY_TYPE queryType )
 	{
 	DBMS_STATE_INFO *dbmsStateInfo = dbmsInfo->stateInfo;
-	const int commandLength = ( command != NULL ) ? strlen( command ) : 0;
+	const int commandLength = ( command != NULL ) ? \
+							  strnlen_s( command, MAX_INTLENGTH_SHORT ) : 0;
 	int status;
 
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
@@ -291,15 +293,11 @@ static int copyChar( OUT_BUFFER( bufMaxLen, *bufPos ) char *buffer,
 	assert( isWritePtr( bufPos, sizeof( int ) ) );
 
 	REQUIRES( isShortIntegerRangeNZ( bufMaxLen ) );
-	REQUIRES( ch >= 0 && ch <= 0xFF );
+	REQUIRES( isPrint( ch ) );
 	REQUIRES( isBooleanValue( escapeQuotes ) );
 
 	/* Clear return value */
 	*bufPos = 0;
-
-	/* If it's a control character, skip it */
-	if( ( ch & 0x7F ) < ' ' )
-		return( CRYPT_OK );
 
 	/* Escape metacharacters that could be misused in queries.  We catch the 
 	   obvious ' and ; as well as the less obvious %, which could be used to 
@@ -394,7 +392,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
 int dbmsFormatQuery( OUT_BUFFER( outMaxLength, *outLength ) char *output, 
 					 IN_LENGTH_SHORT const int outMaxLength, 
 					 OUT_LENGTH_BOUNDED_Z( outMaxLength ) int *outLength,
-					 IN_BUFFER( inputLength ) const char *input, 
+					 IN_BUFFER( inputLength ) const BYTE *input, 
 					 IN_LENGTH_SHORT const int inputLength )
 	{
 	LOOP_INDEX inPos;
@@ -412,6 +410,19 @@ int dbmsFormatQuery( OUT_BUFFER( outMaxLength, *outLength ) char *output,
 	memset( output, 0, min( 16, outMaxLength ) );
 	*outLength = 0;
 
+	/* Perform an initial check to make sure that the string contains only 
+	   valid text characters.  This verifies that our BYTE (suspected char) 
+	   string is really a valid char string */
+	LOOP_MAX( inPos = 0, inPos < inputLength, inPos++ )
+		{
+		ENSURES( LOOP_INVARIANT_MAX( inPos, 0, inputLength - 1 ) );
+
+		if( !isPrint( input[ inPos ] ) )
+			return( CRYPT_ERROR_BADDATA );
+		}
+	ENSURES( LOOP_BOUND_OK );
+
+	/* The query string is valid text, format it */
 	LOOP_MAX_INITCHECK( inPos = 0, inPos < inputLength )
 		{
 		int length;

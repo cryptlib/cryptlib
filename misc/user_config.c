@@ -74,10 +74,10 @@ static const BUILTIN_OPTION_INFO builtinOptionInfo[] = {
 #else
 	MK_OPTION_S( CRYPT_OPTION_INFO_DESCRIPTION, "cryptlib security toolkit (debug build)", 39, CRYPT_UNUSED ),
 #endif /* NDEBUG */
-	MK_OPTION_S( CRYPT_OPTION_INFO_COPYRIGHT, "Copyright Peter Gutmann, Eric Young, OpenSSL, 1994-2024", 55, CRYPT_UNUSED ),
+	MK_OPTION_S( CRYPT_OPTION_INFO_COPYRIGHT, "Copyright Peter Gutmann, OpenSSL, 1994-2026", 43, CRYPT_UNUSED ),
 	MK_OPTION( CRYPT_OPTION_INFO_MAJORVERSION, 3, CRYPT_UNUSED ),
 	MK_OPTION( CRYPT_OPTION_INFO_MINORVERSION, 4, CRYPT_UNUSED ),
-	MK_OPTION( CRYPT_OPTION_INFO_STEPPING, 8, CRYPT_UNUSED ),
+	MK_OPTION( CRYPT_OPTION_INFO_STEPPING, 9, CRYPT_UNUSED ),
 
 	/* Context options, base = 0 */
 	/* Algorithm = Conventional encryption/hash/MAC options */
@@ -440,9 +440,15 @@ int setOption( INOUT_ARRAY( configOptionsCount ) OPTION_INFO *configOptions,
 		/* Make sure that there's something to write.  We do this to avoid
 		   problems with programs that always try to update the 
 		   configuration whether it's necessary or not, which can cause 
-		   problems with media with limited writeability */
-		if( !optionInfoPtr->intValue )
-			return( CRYPT_OK );
+		   problems with media with limited writeability.
+		   
+		   We can't actually get to this point with 
+		   optionInfoPtr->intValue == FALSE because if value == FALSE and
+		   optionInfoPtr->intValue == FALSE then the check earlier would 
+		   have caused us to exit and if value == !FALSE then the check on
+		   the line above would have caused us to exit, therefore at this
+		   point optionInfoPtr->intValue must be !FALSE */
+		ENSURES( optionInfoPtr->intValue );
 
 		/* We don't do anything to write the configuration data at this 
 		   level since we currently have the user object locked and don't 

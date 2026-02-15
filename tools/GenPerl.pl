@@ -8,11 +8,11 @@
 #       Based upon GenVB.pl by Wolfgang Gothier
 #
 #       PERL script for translation of the cryptlib header file
-#            into a Perl header file used by Perl interface package 
+#            into a Perl header file used by Perl interface package
 #            for Cryptlib (PerlCryptLib.pm).
 #
 #            This script does the translation of C-statements into
-#            Perl code. (But only as much as is needed in 
+#            Perl code. (But only as much as is needed in
 #            cryptlib.h, -NOT- usable as general translation utility)
 #
 #       --------------------------------------------------------------------
@@ -25,7 +25,7 @@
 #               PerlCryptLib.ph ... (optional) Pathname of PerlCrytLib header file
 #                                              default is "PerlCryptLib.ph"
 #
-#               creates the Perl interface file with same basic name 
+#               creates the Perl interface file with same basic name
 #               and extension ".ph" in the same directory as the source file
 #               default is "PerlCryptLib.ph"
 #
@@ -46,7 +46,7 @@ my $DEBUG = grep /^--debug$/, @ARGV;			# print debug info on STDERR
 my $inFileName  = shift @ARGV || 'cryptlib.h';	# default filename is "cryptlib.h"
 my %DEFINED = ( 1, 1,                     		# ifdef 1 is to be included
                 "USE_VENDOR_ALGOS", 0 );		# set to 1 to include #IFDEF USE_VENDOR_ALGOS
-my $Startline = qr{^#define C_INOUT};			# ignore all lines before this one
+my $Startline = qr{^\/\* END_OF_PREAMBLE \*\/};    # ignore all lines before this one
 
 my ($inFileBase, $inPath, $inExt) = fileparse($inFileName, qr{\.[^.]*$});
 die("\"usage: $0 cryptlib.h\"\nParameter must be a C header file\nStop") unless ($inExt =~ m/^\.h$/i) && -r $inFileName;
@@ -94,7 +94,7 @@ my $INACTIVE = 0;
 my $LEVEL = 0;
 my $COMMENT = 0;
 # handle conditionals, include conditional code only if definition agrees with %DEFINED
-while (<INFILE>) { 
+while (<INFILE>) {
 
 		# remove tabs
 		1 while s/\t/' ' x (length($&)*4 - length($`)%4)/e;
@@ -153,25 +153,25 @@ while ($_ = shift @source) {
         $_ = shift @source  while (!(/#endif/));
         $_ = shift @source;
     }
-    
+
     # continued lines
     if (s/\\$//) {
         $_ .= shift @source;
         redo if @source;
     }
-    
+
     # continued function declaration
     if (s/\,s*?$/,/) {
         $_ .= shift @source;
         redo if @source;
     }
-    
+
     # incomplete typedef / enum lines
     if (/^\s*(typedef\s+enum|typedef\s+struct|enum)\s*\{[^}]*$/) {
         $_ .= shift @source;
         redo if @source;
     }
-    
+
     # incomplete procedure calls
     if (/^\s*C_RET\s+\w+\s*\([^)]*$/) {
         $_ .= shift @source;
@@ -181,7 +181,7 @@ while ($_ = shift @source) {
 
     # hex values
     #s{0x([0-9a-fA-F]+)}{&H$1}g;
-    
+
 	# constant definitions
 	#s/^\s*#define\s+(\w+)\s+(\w+|[+\-0-9]+|&H[0-9a-fA-F]+)/  Public Const $1 As Long = $2/;
 	#s/^\s*#define\s+(\w+)\s+(\w+|[+\-0-9]+|&H[0-9a-fA-F]+)/\tsub $1 { $2 }/;
@@ -212,7 +212,7 @@ while ($_ = shift @source) {
 	if ( s/(\bC_RET\s*\w+\s*\(\s*[^)]+\s*\)\s*;)/#$1/ ) {
 		s/\n/\n#/g;
 	}
-	
+
 	if ( s/^(\s*?)(C_CHECK_RETVAL|C_NONNULL_ARG)(.*?)/# $1$2$3/ ) {
 		s/\n/\n#/g;
 	}
@@ -273,7 +273,7 @@ return <<ENDOFHEADER;
 # update from CPAN web site. If the filesize or file creation date do not match,
 # then please do not complain about problems.
 #
-# Published by Alvaro Livraghi, 
+# Published by Alvaro Livraghi,
 # mailto: perlcryptlib\@gmail.com if you find errors in this file.
 #
 # -----------------------------------------------------------------------------
@@ -356,7 +356,7 @@ sub enumt {
 					#$lastValue = $value + 1;
 				} else {
 					#$rem .= ' ==> ' . $value;
-					#$lastValue = 
+					#$lastValue =
 					$value = eval( join(' ', map { exists($values{$_}) ? $values{$_} : $_ } split(/\s+/,$value)) );
 				}
 				$lastValue = $value + 1;

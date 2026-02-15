@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								cryptlib SSHv2 Client						*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -25,8 +25,8 @@
 *																			*
 ****************************************************************************/
 
-/* Generate/check an SSH key fingerprint.  This is simply an MD5 hash of the 
-   server's key/certificate data */
+/* Generate/check an SSH key fingerprint.  This is simply a hash (formerly MD5,
+   now SHA-256) of the server's key/certificate data */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int processKeyFingerprint( INOUT_PTR SESSION_INFO *sessionInfoPtr,
@@ -36,7 +36,7 @@ static int processKeyFingerprint( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	HASH_FUNCTION_ATOMIC hashFunctionAtomic;
 	const ATTRIBUTE_LIST *attributeListPtr = \
 				findSessionInfo( sessionInfoPtr,
-								 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 );
+								 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 );
 	BYTE fingerPrint[ CRYPT_MAX_HASHSIZE + 8 ];
 	int hashSize;
 
@@ -45,32 +45,21 @@ static int processKeyFingerprint( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( isShortIntegerRangeNZ( keyDataLength ) );
 
-	getHashAtomicParameters( CRYPT_ALGO_MD5, 0, &hashFunctionAtomic, 
+	/* The original (1990s) specifications used MD5 for the key fingerprint
+	   but pretty much everything now uses the de facto standard SHA-256
+	   even though it's not specified in any RFC.  We formerly reported the
+	   historic MD5 hash as a SHA-1 fingerprint (since MD5 fingerprints had
+	   been removed) until 3.4.8 but switched to SHA-256 after that */
+	getHashAtomicParameters( CRYPT_ALGO_SHA2, 32, &hashFunctionAtomic, 
 							 &hashSize );
 	hashFunctionAtomic( fingerPrint, CRYPT_MAX_HASHSIZE, 
 						keyData, keyDataLength );
 	if( attributeListPtr == NULL )
 		{
-		/* Remember the value for the caller.  Recording it as a "SHA1" hash
-		   is a bit odd since it's an MD5 hash, but the use of MD5 hashes 
-		   has been deprecated everywhere else so there's no other way to
-		   convey it */
+		/* Remember the value for the caller */
 		return( addSessionInfoS( sessionInfoPtr,
-								 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
+								 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
 								 fingerPrint, hashSize ) );
-		}
-
-	/* In the unlikely event that the user has passed us a SHA-1 
-	   fingerprint, which isn't allowed by the spec but no doubt someone out 
-	   there's using it based on the fact that the SSH architecture draft 
-	   suggested a SHA-1 fingerprint while the SSH fingerprint draft 
-	   required an MD5 one, calculate that instead */
-	if( attributeListPtr->valueLength == 20 )
-		{
-		getHashAtomicParameters( CRYPT_ALGO_SHA1, 0, &hashFunctionAtomic, 
-								 &hashSize );
-		hashFunctionAtomic( fingerPrint, CRYPT_MAX_HASHSIZE, 
-							keyData, keyDataLength );
 		}
 
 	/* There's an existing fingerprint value, make sure that it matches what
@@ -78,8 +67,8 @@ static int processKeyFingerprint( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( attributeListPtr->valueLength != hashSize || \
 		memcmp( attributeListPtr->value, fingerPrint, hashSize ) )
 		{
-		/* If there's enough fingerprint data present we can be a bit more
-		   specific in our error message */
+		/* If there's enough fingerprint data present then we can be a bit 
+		   more specific in our error message */
 		if( attributeListPtr->valueLength >= 8 )
 			{
 #ifdef USE_ERRMSGS
@@ -107,7 +96,7 @@ static int processKeyFingerprint( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	return( CRYPT_OK );
 	}
 
-/* Handle an ephemeral DH key exchange */
+/* Handle a negotiated-parameters DH key exchange */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
@@ -145,7 +134,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   the older form if the preferred key size that's given doesn't match 
 	   their configured key size.  Since more servers handle the new form 
 	   and will reject the old form if the key size doesn't match, we 
-	   default to sending the new form by optionally send the old form if we
+	   default to sending the new form but optionally send the old form if we
 	   detect a server that can't handle the new one */
 	if( TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_OLDGEX ) )
 		{
@@ -191,7 +180,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			keyexInfoLength );
 	handshakeInfo->encodedReqKeySizesLength = keyexInfoLength;
 
-	/* Process the ephemeral DH key:
+	/* Process the negotiated DH key:
 
 		byte	type = SSH_MSG_KEXDH_GEX_GROUP
 		mpint	p
@@ -246,7 +235,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid DH ephemeral key data packet" ) );
+				  "Invalid DH negotiated key data packet" ) );
 		}
 	ANALYSER_HINT( keyexInfoPtr != NULL );
 
@@ -337,11 +326,11 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 	CFI_CHECK_UPDATE( "processHelloSSH" );
 
-	/* Build the client hello and DH/ECDH phase 1 keyex packet:
+	/* Build the client hello and DH/DHE/ECDH/25519 phase 1 keyex packet:
 
 		byte		type = SSH_MSG_KEXINIT
 		byte[16]	cookie
-		string		keyex algorithms = DH/DHE/ECDH
+		string		keyex algorithms = DH/DHE/ECDH/25519
 		string		pubkey algorithms
 		string		client_crypto algorithms
 		string		server_crypto algorithms
@@ -460,7 +449,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Hash the client and server hello messages.  We have to do this now
 	   rather than deferring it until we're waiting on network traffic from
 	   the server because they may get overwritten by the keyex negotiation
-	   data if we're using a non-builtin DH key value.  In addition since the
+	   data if we're using a negotiated DH key value.  In addition since the
 	   entire encoded packet (including the type value) is hashed we have to
 	   reconstruct this at the start of the packet */
 	status = hashAsString( handshakeInfo->iExchangeHashContext, 
@@ -502,19 +491,19 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	else
 		{
-#ifdef USE_ECDH 
-		/* A second possibility is when we're using ECDH rather than DH, for 
-		   which we have to use ECDH contexts and values */
+#if defined( USE_ECDH ) || defined( USE_25519 )
+		/* A second possibility is when we're using ECDH/25519 rather than 
+		   DH, for which we have to use ECDH/25519 contexts and values */
 		if( handshakeInfo->isECDH )
 			{
-			/* Set up the ECDH context from the server's parameters and 
-			   perform phase 1 of the ECDH key agreement process */
+			/* Set up the ECDH/25519 context from the server's parameters and 
+			   perform phase 1 of the ECDH/25519 key agreement process */
 			status = initECDHcontextSSH( &handshakeInfo->iServerCryptContext,
 										 &handshakeInfo->serverKeySize, 
 										 handshakeInfo->keyexAlgo );
 			}
 		else
-#endif /* USE_ECDH */
+#endif /* USE_ECDH || USE_25519 */
 			{
 			status = processDHE( sessionInfoPtr, handshakeInfo, &stream );
 			if( cryptStatusError( status ) )
@@ -538,7 +527,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		retExt( status,
 				( status, SESSION_ERRINFO, 
 				  "Couldn't create %s ephemeral key data",
-				  handshakeInfo->isECDH ? "ECDH" : "DH" ) );
+				  getAlgoName( handshakeInfo->keyexAlgo ) ) );
 		}
 	CFI_CHECK_UPDATE( "processDHE" );
 
@@ -555,12 +544,15 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   ECDH:
 		byte	type = SSH_MSG_KEX_ECDH_INIT
 		string	q_c 
+	   25519:
+		byte	type = SSH_MSG_KEX_ECDH_INIT
+		string	pubValue_c 
 
 	   SSH_MSG_KEXDH_INIT (isFixedDH) and SSH_MSG_KEX_ECDH_INIT (isECDH) 
 	   have the same value so they're handled with the same code */
 	if( handshakeInfo->isFixedDH || handshakeInfo->isECDH )
 		{
-		/* It's a DH/ECDH exchange with static keys */
+		/* It's a DH/ECDH/25519 exchange with static keys */
 		status = continuePacketStreamSSH( &stream, SSH_MSG_KEXDH_INIT,
 										  &packetOffset );
 		}
@@ -617,7 +609,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	CFI_CHECK_UPDATE( "SSH_MSG_KEXDH_INIT" );
 
 	/* Save the MPI-encoded client DH keyex value/octet string-encoded client 
-	   ECDH keyex value for later, when we need to hash it */
+	   ECDH/25519 keyex value for later when we need to hash it */
 	REQUIRES( rangeCheck( keyexLength, 1, MAX_ENCODED_KEYEXSIZE ) );
 	memcpy( handshakeInfo->clientKeyexValue, keyexPtr, keyexLength );
 	handshakeInfo->clientKeyexValueLength = keyexLength;
@@ -648,12 +640,13 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	CRYPT_ALGO_TYPE pubkeyAlgo;
 	STREAM stream;
 	MESSAGE_DATA msgData;
+	SIG_DATA_INFO sigDataInfo;
 	ERROR_INFO localErrorInfo;
 	void *keyPtr DUMMY_INIT_PTR, *keyBlobPtr DUMMY_INIT_PTR;
 	void *sigPtr DUMMY_INIT_PTR;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 	int keyLength DUMMY_INIT, keyBlobLength, sigLength, length;
-	int status;
+	int minPacketSize, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
@@ -666,11 +659,11 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	  DH + RSA/DSA
 		byte		type = SSH_MSG_KEXDH_REPLY / SSH_MSG_KEXDH_GEX_REPLY 
 		string		[ server key/certificate ]
-			string	"ssh-rsa"	"ssh-dss"
-			mpint	e			p			
-			mpint	n			q
-			mpint				g
-			mpint				y
+			string	"ssh-rsa"					"ssh-dss"
+			mpint	e							p			
+			mpint	n							q
+			mpint								g
+			mpint								y
 		mpint		y'
 		string		[ signature of handshake data ]
 			string	"ssh-rsa"	"rsa-sha2-*"	"ssh-dss"
@@ -687,6 +680,16 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			string	"ecdsa-sha2-*"
 			string	signature
 
+	   25519 + Ed25519
+		byte		SSH_MSG_KEX_ECDH_REPLY
+		string		[ server key/certificate ]
+			string	"ssh-ed25519"
+			string	key
+		string		public_value
+		string		[ signature of handshake data ]
+			string	"ssh-ed25519"
+			string	signature
+
 	   SSH_MSG_KEXDH_REPLY (isFixedDH) and SSH_MSG_KEX_ECDH_REPLY (isECDH) 
 	   have the same value so they're handled with the same code.
 
@@ -694,23 +697,52 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   already encoded as an SSH string we can hash it directly.
 
 	   The two bookmarks are for the key as a whole and the "key blob" as
-	   the raw key components that are hashed to create the key fingerprint.
-	   
-	   When we read the packet header we set the minimum key size to 512 
-	   bits instead of MIN_PKCSIZE in order to provide better diagnostics if 
-	   the server is using weak keys since otherwise the data will be 
-	   rejected in the header read long before it gets to the keysize 
-	   check */
+	   the raw key components that are hashed to create the key 
+	   fingerprint */
+	minPacketSize = ID_SIZE + LENGTH_SIZE + sizeofString32( 6 );
+	switch( handshakeInfo->pubkeyAlgo )
+		{
+		case CRYPT_ALGO_RSA:
+			minPacketSize += sizeofString32( MIN_PKCSIZE ) + \
+					sizeofString32( MIN_PKCSIZE ) + LENGTH_SIZE + \
+					sizeofString32( 6 ) + sizeofString32( MIN_PKCSIZE );
+			break;
+
+#ifdef USE_DSA
+		case CRYPT_ALGO_DSA:
+			minPacketSize += sizeofString32( MIN_PKCSIZE ) + \
+					sizeofString32( MIN_PKCSIZE ) + 
+					sizeofString32( MIN_PKCSIZE ) + LENGTH_SIZE + \
+					sizeofString32( 6 ) + sizeofString32( 40 );
+			break;
+#endif /* USE_DSA */
+	
+#ifdef USE_ECDSA	
+		case CRYPT_ALGO_ECDSA:
+			minPacketSize += sizeofString32( MIN_PKCSIZE_ECCPOINT ) + \
+					sizeofString32( MIN_PKCSIZE_ECCPOINT ) + LENGTH_SIZE + \
+					sizeofString32( 6 ) + \
+					sizeofString32( MIN_PKCSIZE_ECCPOINT );
+			break;
+#endif /* USE_ECDSA */
+
+#ifdef USE_ED25519
+		case CRYPT_ALGO_ED25519:
+			minPacketSize += sizeofString32( MIN_PKCSIZE_BERNSTEIN ) + \
+					sizeofString32( MIN_PKCSIZE_BERNSTEIN ) + LENGTH_SIZE + \
+					sizeofString32( 6 ) + \
+					sizeofString32( MIN_PKCSIZE_BERNSTEIN * 2 );
+			break;
+#endif /* USE_ED25519 */
+		
+		default: retIntError();
+		}
 	status = length = \
 		readHSPacketSSH2( sessionInfoPtr, 
 						  ( handshakeInfo->isFixedDH || \
 						    handshakeInfo->isECDH ) ? \
 							SSH_MSG_KEXDH_REPLY : SSH_MSG_KEX_DH_GEX_REPLY,
-						  ID_SIZE + LENGTH_SIZE + sizeofString32( 6 ) + \
-							sizeofString32( 1 ) + \
-							sizeofString32( bitsToBytes( 512 ) - 4 ) + \
-							sizeofString32( bitsToBytes( 512 ) - 4 ) + \
-							LENGTH_SIZE + sizeofString32( 6 ) + 40 );
+						  minPacketSize );
 	if( cryptStatusError( status ) )
 		return( status );
 	sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
@@ -747,7 +779,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid %s phase 2 %s public key data",
-				  handshakeInfo->isECDH ? "ECDH" : "DH",
+				  getAlgoName( handshakeInfo->keyexAlgo ),
 				  getAlgoName( handshakeInfo->pubkeyAlgo ) ) );
 		}
 	if( pubkeyAlgo != handshakeInfo->pubkeyAlgo )
@@ -756,7 +788,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid %s phase 2 public key algorithm %s, expected %s",
-				  handshakeInfo->isECDH ? "ECDH" : "DH", 
+				  getAlgoName( handshakeInfo->keyexAlgo ), 
 				  getAlgoName( pubkeyAlgo ), 
 				  getAlgoName( handshakeInfo->pubkeyAlgo ) ) );
 		}
@@ -773,7 +805,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				( cryptArgError( status ) ? \
 				  CRYPT_ERROR_BADDATA : status, SESSION_ERRINFO, 
 				  "Invalid %s phase 2 %s public key value",
-				  handshakeInfo->isECDH ? "ECDH" : "DH",
+				  getAlgoName( handshakeInfo->keyexAlgo ),
 				  getAlgoName( handshakeInfo->pubkeyAlgo ) ) );
 		}
 	ANALYSER_HINT( keyBlobPtr != NULL );
@@ -785,10 +817,11 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* The fingerprint is computed from the "key blob" which is
 		   different from the server key.  The server key is the full key
 		   while the "key blob" is only the raw key components (e, n for
-		   RSA, p, q, g, y for DSA).  Note that, as with the old PGP 2.x key
-		   hash mechanism, this allows key spoofing (although it isn't quite
-		   as bad as the PGP 2.x key fingerprint mechanism) since it doesn't
-		   hash an indication of the key type or format */
+		   RSA, p, q, g, y for DSA, Q for ECDSA, pubKey for Ed25519).  Note 
+		   that, as with the old PGP 2.x key hash mechanism, this allows key 
+		   spoofing (although it isn't quite as bad as the PGP 2.x key 
+		   fingerprint mechanism) since it doesn't hash an indication of the 
+		   key type or format */
 		status = processKeyFingerprint( sessionInfoPtr,
 										keyBlobPtr, keyBlobLength );
 		}
@@ -799,8 +832,8 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	CFI_CHECK_UPDATE( "SSH_MSG_KEXDH_REPLY" );
 
-	/* Read the server DH/ECDH keyex value and complete the DH/ECDH key 
-	   agreement */
+	/* Read the server DH/ECDH/25519 keyex value and complete the 
+	   DH/ECDH/25519 key agreement */
 	status = readRawObject32( &stream, handshakeInfo->serverKeyexValue,
 							  MAX_ENCODED_KEYEXSIZE,
 							  &handshakeInfo->serverKeyexValueLength );
@@ -810,38 +843,14 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid %s phase 2 keyex value",
-				  handshakeInfo->isECDH ? "ECDH" : "DH" ) );
+				  getAlgoName( handshakeInfo->keyexAlgo ) ) );
 		}
-	if( handshakeInfo->isECDH )
-		{
-		if( !isValidECDHsize( handshakeInfo->serverKeyexValueLength,
-							  handshakeInfo->serverKeySize, 
-							  LENGTH_SIZE ) )
-			status = CRYPT_ERROR_BADDATA;
-		}
-	else
-		{
-		if( !isValidDHsize( handshakeInfo->serverKeyexValueLength,
-							handshakeInfo->serverKeySize, 
-							LENGTH_SIZE ) )
-			status = CRYPT_ERROR_BADDATA;
-		}
+	status = checkKeyexValueLength( handshakeInfo, NULL, KEYEX_CHECK_PHASE2, 
+									SESSION_ERRINFO );
 	if( cryptStatusError( status ) )
 		{
-#ifdef USE_ERRMSGS
-		const int serverKeyexSize = handshakeInfo->isECDH ? \
-			extractECDHsize( handshakeInfo->serverKeyexValueLength, LENGTH_SIZE ) : \
-			extractDHsize( handshakeInfo->serverKeyexValueLength, LENGTH_SIZE );
-#endif /* USE_ERRMSGS */
-
 		sMemDisconnect( &stream );
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid %s phase 2 keyex size, expected %d (%d), "
-				  "got %d (%d)", handshakeInfo->isECDH ? "ECDH" : "DH",
-				  handshakeInfo->serverKeySize, 
-				  handshakeInfo->serverKeySize * 8, 
-				  serverKeyexSize, serverKeyexSize * 8 ) );
+		return( status );
 		}
 	status = completeSSHKeyex( sessionInfoPtr, handshakeInfo, FALSE );
 	if( cryptStatusError( status ) )
@@ -870,7 +879,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid %s phase 2 %s packet signature data",
-				  handshakeInfo->isECDH ? "ECDH" : "DH",
+				  getAlgoName( handshakeInfo->keyexAlgo ),
 				  getAlgoName( handshakeInfo->pubkeyAlgo ) ) );
 		}
 	ANALYSER_HINT( sigPtr != NULL );
@@ -880,9 +889,9 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	FUZZ_EXIT();
 
 	/* Some implementations incorrectly format the signature packet,
-	   omitting the algorithm name and signature blob length for DSA sigs
-	   (that is, they just encode two 20-byte values instead of a properly-
-	   formatted signature):
+	   omitting the algorithm name and signature blob length for DSA 
+	   signatures (that is, they just encode two 20-byte values instead of 
+	   a properly-formatted signature):
 
 				Right							Wrong
 		string		[ signature data ]		string	[ nothing ]
@@ -939,12 +948,26 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 #endif /* USE_DSA */
 
-	/* Finally, verify the server's signature on the exchange hash */
+	/* Finally, verify the server's signature on the exchange hash, with the
+	   usual special-snowflake handling for the Bernstein algorithms */
 	clearErrorInfo( &localErrorInfo );
+#ifdef USE_ED25519
+	if( handshakeInfo->pubkeyAlgo == CRYPT_ALGO_ED25519 )
+		{
+		setSigDataInfoMessage( &sigDataInfo, handshakeInfo->preExchangeHash, 
+							   handshakeInfo->preExchangeHashLength );
+		status = iCryptCheckSignature( sigPtr, sigLength, CRYPT_IFORMAT_SSH,
+									   sessionInfoPtr->iKeyexAuthContext,
+									   &sigDataInfo, NULL, &localErrorInfo );
+		}
+	else
+#endif /* USE_ED25519 */
+	{
+	setSigDataInfoHash( &sigDataInfo, handshakeInfo->iExchangeHashContext );
 	status = iCryptCheckSignature( sigPtr, sigLength, CRYPT_IFORMAT_SSH,
 								   sessionInfoPtr->iKeyexAuthContext,
-								   handshakeInfo->iExchangeHashContext, 
-								   CRYPT_UNUSED, NULL, &localErrorInfo );
+								   &sigDataInfo, NULL, &localErrorInfo );
+	}
 	if( cryptStatusError( status ) )
 		{
 		retExtErr( status, 

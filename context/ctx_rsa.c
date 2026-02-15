@@ -89,7 +89,7 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
 #ifndef CONFIG_NO_SELFTEST
 
 /* Test the RSA implementation using a sample key.  Because a lot of the
-   high-level encryption routines don't exist yet, we cheat a bit and set
+   high-level encryption routines don't exist yet we cheat a bit and set
    up a dummy encryption context with just enough information for the
    following code to work */
 
@@ -410,7 +410,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					  IN_LENGTH_SHORT int noBytes )
 	{
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
-	BIGNUM *n = &pkcInfo->rsaParam_n, *e = &pkcInfo->rsaParam_e;
+	const BIGNUM *n = &pkcInfo->rsaParam_n, *e = &pkcInfo->rsaParam_e;
 	BIGNUM *data = &pkcInfo->tmp1;
 	const int length = bitsToBytes( pkcInfo->keySizeBits );
 	int offset, dummy, bnStatus = BN_STATUS, status;
@@ -534,9 +534,9 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					  IN_LENGTH_SHORT int noBytes )
 	{
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
-	BIGNUM *p = &pkcInfo->rsaParam_p, *q = &pkcInfo->rsaParam_q;
-	BIGNUM *u = &pkcInfo->rsaParam_u, *e1 = &pkcInfo->rsaParam_exponent1;
-	BIGNUM *e2 = &pkcInfo->rsaParam_exponent2;
+	const BIGNUM *p = &pkcInfo->rsaParam_p, *q = &pkcInfo->rsaParam_q;
+	const BIGNUM *u = &pkcInfo->rsaParam_u, *e1 = &pkcInfo->rsaParam_exponent1;
+	const BIGNUM *e2 = &pkcInfo->rsaParam_exponent2;
 	BIGNUM *data = &pkcInfo->tmp1, *p2 = &pkcInfo->tmp2, *q2 = &pkcInfo->tmp3;
 	BOOLEAN dummyAdd = TRUE;
 	const int length = bitsToBytes( pkcInfo->keySizeBits );
@@ -581,7 +581,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( TEST_FLAG( contextInfoPtr->flags, 
 				   CONTEXT_FLAG_SIDECHANNELPROTECTION ) )
 		{
-		BIGNUM *k = &pkcInfo->rsaParam_blind_k;
+		const BIGNUM *k = &pkcInfo->rsaParam_blind_k;
 
 		CK( BN_mod_mul( data, data, k, &pkcInfo->rsaParam_n, 
 						&pkcInfo->bnCTX ) );
@@ -644,7 +644,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( TEST_FLAG( contextInfoPtr->flags, 
 				   CONTEXT_FLAG_SIDECHANNELPROTECTION ) )
 		{
-		BIGNUM *n = &pkcInfo->rsaParam_n;
+		const BIGNUM *n = &pkcInfo->rsaParam_n;
 		BIGNUM *k = &pkcInfo->rsaParam_blind_k;
 		BIGNUM *kInv = &pkcInfo->rsaParam_blind_kInv;
 

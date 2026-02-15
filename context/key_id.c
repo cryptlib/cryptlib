@@ -161,11 +161,12 @@ static int createStaticContext( OUT_PTR CONTEXT_INFO *staticContextInfo,
 			break;
 #endif /* USE_ECDSA */
 
-#ifdef USE_EDDSA
-		case CRYPT_ALGO_EDDSA:
-			readPublicKeyFunction = readPublicKeyEddsaFunction;
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
+			readPublicKeyFunction = readPublicKey25519Function;
 			break;
-#endif /* USE_ECDSA */
+#endif /* USE_25519 || USE_ED25519 */
 
 		default:
 			retIntError();
@@ -389,7 +390,7 @@ static int calculateOpenPGPKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		return( status );
 		}
 	length = stell( &stream );
-	REQUIRES( isIntegerRangeNZ( length ) );
+	REQUIRES_SC( isIntegerRangeNZ( length ) );
 	packetHeader[ 0 ] = 0x99;
 	packetHeader[ 1 ] = intToByte( length >> 8 );
 	packetHeader[ 2 ] = intToByte( length );
@@ -448,7 +449,7 @@ static int calculatePGPKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* If it's a non-PGP algorithm then we can't do anything with it */
 	if( cryptAlgo != CRYPT_ALGO_RSA && cryptAlgo != CRYPT_ALGO_DSA && \
-		cryptAlgo != CRYPT_ALGO_ELGAMAL )
+		cryptAlgo != CRYPT_ALGO_ELGAMAL && cryptAlgo != CRYPT_ALGO_ECDSA )
 		return( CRYPT_OK );
 
 	/* Finally, set the OpenPGP key ID */

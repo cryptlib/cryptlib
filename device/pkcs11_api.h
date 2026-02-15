@@ -11,29 +11,16 @@
    specific things that are required by the headers */
 
 #ifdef __WINDOWS__
-  #ifdef __WIN16__
-	#pragma pack( 1 )					/* Struct packing */
-	#define CK_PTR	far *				/* Pointer type */
-	#define CK_DEFINE_FUNCTION( returnType, name ) \
-								returnType __export _far _pascal name
-	#define CK_DECLARE_FUNCTION( returnType, name ) \
-								 returnType __export _far _pascal name
-	#define CK_DECLARE_FUNCTION_POINTER( returnType, name ) \
-								returnType __export _far _pascal (* name)
-	#define CK_CALLBACK_FUNCTION( returnType, name ) \
-								  returnType (_far _pascal * name)
-  #else
-	#pragma pack( push, cryptoki, 1 )	/* Struct packing */
-	#define CK_PTR	*					/* Pointer type */
-	#define CK_DEFINE_FUNCTION( returnType, name ) \
-								returnType __declspec( dllexport ) name
-	#define CK_DECLARE_FUNCTION( returnType, name ) \
-								 returnType __declspec( dllimport ) name
-	#define CK_DECLARE_FUNCTION_POINTER( returnType, name ) \
+  #pragma pack( push, cryptoki, 1 )		/* Struct packing */
+  #define CK_PTR	*					/* Pointer type */
+  #define CK_DEFINE_FUNCTION( returnType, name ) \
+							  returnType __declspec( dllexport ) name
+  #define CK_DECLARE_FUNCTION( returnType, name ) \
+							   returnType __declspec( dllimport ) name
+  #define CK_DECLARE_FUNCTION_POINTER( returnType, name ) \
 								returnType __declspec( dllimport ) (* name)
-	#define CK_CALLBACK_FUNCTION( returnType, name ) \
-								  returnType (* name)
-  #endif /* Win16 vs.Win32 */
+  #define CK_CALLBACK_FUNCTION( returnType, name ) \
+								returnType (* name)
 #else
   #define CK_PTR	*					/* Pointer type */
   #define CK_DEFINE_FUNCTION( returnType, name ) \
@@ -56,6 +43,12 @@
 #else
   #include "device/pkcs11.h"
 #endif /* Compiler-specific includes */
+
+/* Reset the structure packing if required */
+
+#ifdef __WINDOWS__
+  #pragma pack( pop, cryptoki )	/* Struct packing */
+#endif /* __WINDOWS__ */
 
 /* The use of dynamically bound function pointers vs.statically linked
    functions requires a bit of sleight of hand since we can't give the

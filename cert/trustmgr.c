@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  Certificate Trust Management Routines					*
-*						Copyright Peter Gutmann 1998-2015					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -30,6 +30,13 @@
   #include "cert/trustmgr_int.h"
   #include "cert/trustmgr.h"
 #endif /* Compiler-specific includes */
+
+/* The maximum number of entries in each hash table chain.  This is somewhat
+   arbitrary and is designed to allow a reasonable number of trusted certs
+   while disallowing complexity attacks, the typical user will have one or
+   two trusted CAs rather than every CA on the planet like web browsers do */
+
+#define MAX_TRUSTLIST_ENTRIES	16
 
 #ifdef USE_CERTIFICATES
 
@@ -103,9 +110,9 @@ static BOOLEAN sanityCheckTrustInfo( const TRUST_INFO *trustInfo )
    checking that it's valid */
 
 CHECK_RETVAL_PTR \
-static DATAPTR *getCheckTrustInfo( IN_PTR const DATAPTR trustInfo )
+static const DATAPTR *getCheckTrustInfo( IN_PTR const DATAPTR trustInfo )
 	{
-	TRUST_INFO_CONTAINER *trustInfoContainer;
+	const TRUST_INFO_CONTAINER *trustInfoContainer;
 
 	/* Get a pointer to the trust information */
 	trustInfoContainer = DATAPTR_GET( trustInfo );
@@ -136,130 +143,6 @@ static void updateTrustInfoChecksum( IN_DATAPTR const DATAPTR trustInfo )
 	trustInfoContainer->trustInfoChecksum = \
 					checksumData( trustInfoContainer->trustInfo, 
 								  sizeof( DATAPTR ) * TRUSTINFO_SIZE );
-	}
-
-/* Extract ID fields from an encoded certificate.  Since this isn't a
-   certificate object we have to parse the encoded data to locate the fields
-   that we're interested in */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
-static int getCertIdInfo( IN_BUFFER( certObjectLength ) const void *certObject, 
-						  IN_LENGTH_SHORT_MIN( MIN_CRYPT_OBJECTSIZE ) \
-								const int certObjectLength,
-						  OUT_PTR_PTR_COND void **subjectDNptrPtr,
-						  OUT_LENGTH_SHORT_Z int *subjectDNsizePtr )
-	{
-	STREAM stream;
-	void *subjectDNptr DUMMY_INIT_PTR;
-	int subjectDNsize DUMMY_INIT, status;
-
-	assert( isReadPtrDynamic( certObject, certObjectLength ) );
-	assert( isWritePtr( subjectDNptrPtr, sizeof( void * ) ) );
-	assert( isWritePtr( subjectDNsizePtr, sizeof( int ) ) );
-
-	REQUIRES( isShortIntegerRangeMin( certObjectLength, 
-									  MIN_CRYPT_OBJECTSIZE ) );
-
-	/* Clear return values */
-	*subjectDNptrPtr = NULL;
-	*subjectDNsizePtr = 0;
-
-	/* Parse the certificate to locate the start of the encoded subject DN 
-	   and certificate extensions (if present) */
-	sMemConnect( &stream, certObject, certObjectLength );
-	readSequence( &stream, NULL );			/* Outer wrapper */
-	readSequence( &stream, NULL );			/* Inner wrapper */
-	if( peekTag( &stream ) == MAKE_CTAG( 0 ) )
-		readUniversal( &stream );			/* Version */
-	readUniversal( &stream );				/* Serial number */
-	readUniversal( &stream );				/* Signature algo */
-	readUniversal( &stream );				/* Issuer DN */
-	status = readUniversal( &stream );		/* Validity */
-	if( cryptStatusOK( status ) )
-		{
-		status = getStreamObjectLength( &stream, &subjectDNsize, 
-										MIN_DN_SIZE );
-		}
-	if( cryptStatusOK( status ) && !isShortIntegerRangeNZ( subjectDNsize ) )
-		status = CRYPT_ERROR_BADDATA;
-	if( cryptStatusOK( status ) )
-		status = sMemGetDataBlock( &stream, &subjectDNptr, subjectDNsize );
-	if( cryptStatusError( status ) )
-		{
-		sMemDisconnect( &stream );
-		return( status );
-		}
-	*subjectDNptrPtr = subjectDNptr;
-	*subjectDNsizePtr = subjectDNsize;
-	status = sSkip( &stream, subjectDNsize, MAX_INTLENGTH_SHORT );/* Subject DN */
-#if 0	/* sKID lookup isn't used at present.  Also this code should use the 
-		   parsing mechanism from dbx_rd.c to provide better checking */
-	const BYTE *extensionPtr;
-	int extensionSize = 0;
-	status = readUniversal( &stream );		/* Public key */
-	if( checkStatusPeekTag( stream, status, tag ) && \
-		tag == MAKE_CTAG( 3 ) )
-		{
-		status = readConstructed( &stream, &extensionSize, 3 );
-		if( cryptStatusOK( status ) && \
-			!isShortIntegerRangeNZ( extensionSize ) )
-			status = CRYPT_ERROR_BADDATA;
-		if( cryptStatusOK( status ) )
-			{
-			extensionPtr = sMemBufPtr( &stream );
-			sSkip( &stream, extensionSize, MAX_INTLENGTH_SHORT );
-			}
-		}
-	if( !cryptStatusError( status ) )		/* Signature */
-		status = readUniversal( &stream );
-#endif /* 0 */
-	sMemDisconnect( &stream );
-	if( cryptStatusError( status ) )
-		return( status );
-
-#if 0	/* sKID lookup isn't used at present.  Also this code should use the 
-		   parsing mechanism from dbx_rd.c to provide better checking */
-	/* Look for the subjectKeyID in the extensions.  It's easier to do a 
-	   pattern match than to try and parse the extensions */
-	subjectKeyIDptr = NULL;
-	subjectKeyIDsize = 0;
-	if( extensionSize <= 64 )
-		return( CRYPT_OK );
-	LOOP_LARGE( i = 0, i < extensionSize - 64, i++ )
-		{
-		ENSURES( LOOP_INVARIANT_LARGE( i, 0, extensionSize - 65 ) );
-
-		/* Look for the OID.  This potentially skips two bytes at a time, 
-		   but this is safe since the preceding bytes can never contain 
-		   either of these two values (they're 0x30, len) */
-		if( extensionPtr[ i++ ] != BER_OBJECT_IDENTIFIER || \
-			extensionPtr[ i++ ] != 3 )
-			continue;
-		if( memcmp( extensionPtr + i, "\x55\x1D\x0E", 3 ) )
-			continue;
-		i += 3;
-
-		/* We've found the OID (with 1.1e-12 error probability), skip the 
-		   critical flag if necessary */
-		if( extensionPtr[ i ] == BER_BOOLEAN )
-			i += 3;
-
-		/* Check for the OCTET STRING and a reasonable length */
-		if( extensionPtr[ i++ ] != BER_OCTETSTRING || \
-			extensionPtr[ i ] & 0x80 )
-			continue;
-
-		/* Extract the key ID */
-		if( i + extensionPtr[ i ] <= extensionSize )
-			{
-			subjectKeyIDsize = extensionPtr[ i++ ];
-			subjectKeyIDptr = extensionPtr + i;
-			}
-		}
-	ENSURES( LOOP_BOUND_OK );
-#endif /* 0 */
-
-	return( CRYPT_OK );
 	}
 
 /****************************************************************************
@@ -520,6 +403,73 @@ int enumTrustedCerts( IN_DATAPTR const DATAPTR trustInfo,
 *																			*
 ****************************************************************************/
 
+/* Find the insertion point for a new trusted certificate */
+
+CHECK_RETVAL \
+static int findInsertionPoint( IN_DATAPTR const DATAPTR *trustInfoIndex, 
+							   const int sCheck, 
+							   IN_BUFFER( sHashLen ) \
+									const void *sHash, 
+							   IN_LENGTH_FIXED( HASH_DATA_SIZE ) \
+									const int sHashLen,
+							   OUT_DATAPTR DATAPTR **trustInfoEntryPtr,
+							   TRUST_INFO **trustInfoEndPtrPtr )
+	{
+	TRUST_INFO *trustInfoCursor, *trustInfoLast DUMMY_INIT_PTR;
+	LOOP_INDEX noEntries;
+	int trustInfoIndexPos;
+
+	assert( isReadPtr( trustInfoIndex, sizeof( DATAPTR * ) ) );
+	assert( isReadPtr( sHash, sHashLen ) );
+	assert( isWritePtr( trustInfoEndPtrPtr, sizeof( TRUST_INFO * ) ) );
+
+	REQUIRES( sHash != NULL && sHashLen == HASH_DATA_SIZE );
+
+	/* Clear return values */
+	*trustInfoEntryPtr = NULL;
+	*trustInfoEndPtrPtr = NULL;
+
+	/* Find the hash table entry for this chain.  We cast the returned 
+	   pointer to non-const because the caller will be modifying it */
+	trustInfoIndexPos = sCheck & ( TRUSTINFO_SIZE - 1 );
+	ENSURES( trustInfoIndexPos >= 0 && trustInfoIndexPos < TRUSTINFO_SIZE );
+	*trustInfoEntryPtr = ( DATAPTR * ) &trustInfoIndex[ trustInfoIndexPos ];
+
+	/* If there's nothing there yet, we're done */
+	trustInfoCursor = DATAPTR_GET( trustInfoIndex[ trustInfoIndexPos ] );
+	if( trustInfoCursor == NULL )
+		{
+		/* Nothing present yet, we're done */
+		return( CRYPT_OK );
+		}
+
+	/* Walk the chain making sure that this entry isn't already present */
+	LOOP_MED( noEntries = 0, noEntries < MAX_TRUSTLIST_ENTRIES, noEntries++ )
+		{
+		REQUIRES( sanityCheckTrustInfo( trustInfoCursor ) );
+
+		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+
+		/* Perform a quick check using a checksum of the name to weed out
+		   most entries */
+		if( trustInfoCursor->sCheck == sCheck && \
+			!memcmp( trustInfoCursor->sHash, sHash, HASH_DATA_SIZE ) )
+			return( CRYPT_ERROR_DUPLICATE );
+		trustInfoLast = trustInfoCursor;
+
+		/* Move on to the next entry */
+		trustInfoCursor = DATAPTR_GET( trustInfoCursor->next );
+		if( trustInfoCursor == NULL )
+			break;
+		}
+	ENSURES( LOOP_BOUND_OK );
+	if( noEntries >= MAX_TRUSTLIST_ENTRIES )
+		return( CRYPT_ERROR_OVERFLOW );
+	*trustInfoEndPtrPtr = trustInfoLast;
+
+	return( CRYPT_OK );
+	}
+
 /* Add and delete a trust entry */
 
 CHECK_RETVAL \
@@ -528,12 +478,14 @@ static int addEntry( IN_DATAPTR const DATAPTR trustInfo,
 					 IN_BUFFER_OPT( certObjectLength ) const void *certObject, 
 					 IN_LENGTH_SHORT_Z const int certObjectLength )
 	{
-	DATAPTR *trustInfoIndex;
-	TRUST_INFO *newElement, *trustInfoLast;
-	LOOP_INDEX_PTR TRUST_INFO *trustInfoCursor;
+	CRYPT_CERTIFICATE iLocalCert;
+	DYNBUF subjectDB;
+	const DATAPTR *trustInfoIndex;
+	DATAPTR *trustInfoIndexEntryPtr;
+	TRUST_INFO *trustInfoListEnd, *newElement;
 	BYTE sHash[ HASH_DATA_SIZE + 8 ];
 	BOOLEAN recreateCert = FALSE;
-	int sCheck, trustInfoEntry, status;
+	int sCheck, status;
 
 	assert( ( certObject == NULL && certObjectLength == 0 && \
 			  isHandleRangeValid( iCryptCert ) ) || \
@@ -547,24 +499,57 @@ static int addEntry( IN_DATAPTR const DATAPTR trustInfo,
 										MIN_CRYPT_OBJECTSIZE ) && \
 				iCryptCert == CRYPT_UNUSED ) );
 
+	/* If we're fuzzing then we exit now since all the following will end up
+	   doing is fuzzing certificates by proxy */
+#ifdef CONFIG_FUZZ
+	return( CRYPT_OK );
+#endif /* CONFIG_FUZZ */
+
 	/* Check that the trust information is valid and get a pointer to the
 	   trust information index */
 	trustInfoIndex = getCheckTrustInfo( trustInfo );
 	ENSURES( trustInfoIndex != NULL );
 
-	/* If we're adding a certificate, check whether it has a context 
-	   attached and if it does, whether it's a public-key context.  If 
-	   there's no context attached (it's a data-only certificate) or the 
-	   attached context is a private-key context (which we don't want to 
-	   leave hanging around in memory, or which could be in a removable 
-	   crypto device) we don't try and use the certificate but instead add 
-	   the certificate data and then later re-instantiate a new certificate 
-	   with attached public-key context if required */
-	if( certObject == NULL )
+	/* If we're being fed certificate data, make sure that it's valid as a
+	   certificate.  We could in theory just parse out the subject DN but 
+	   this means that when we later try and instantiate it we'll get an
+	   error if it's not valid certificate data, so this serves as both a
+	   check that it at least looks like a certificate and a means of 
+	   getting at the identification information without using a lot of 
+	   custom code */
+	if( certObject != NULL )
+		{
+		MESSAGE_CREATEOBJECT_INFO createInfo;
+		ERROR_INFO localErrorInfo;
+
+		clearErrorInfo( &localErrorInfo );
+		setMessageCreateObjectIndirectInfoEx( &createInfo, certObject,
+											  certObjectLength,
+											  CRYPT_CERTTYPE_CERTIFICATE,
+											  KEYMGMT_FLAG_DATAONLY_CERT, 
+											  &localErrorInfo );
+		status = krnlSendMessage( SYSTEM_OBJECT_HANDLE,
+								  IMESSAGE_DEV_CREATEOBJECT_INDIRECT, 
+								  &createInfo, OBJECT_TYPE_CERTIFICATE );
+		if( cryptStatusError( status ) )
+			{
+			DEBUG_DIAG(( "Trusted certificate data is invalid" ));
+			return( status );
+			}
+		iLocalCert = createInfo.cryptHandle;
+		}
+	else
 		{
 		CRYPT_CONTEXT iCryptContext;
-		DYNBUF subjectDB;
 
+		/* We're adding a certificate, check whether it has a context 
+		   attached and if it does, whether it's a public-key context.  
+		   If there's no context attached (it's a data-only certificate) or 
+		   the attached context is a private-key context (which we don't 
+		   want to leave hanging around in memory, or which could be in a 
+		   removable crypto device) we don't try and use the certificate but 
+		   instead add the certificate data and then later re-instantiate a 
+		   new certificate with attached public-key context if required */
 		status = krnlSendMessage( iCryptCert, IMESSAGE_GETDEPENDENT,
 								  &iCryptContext, OBJECT_TYPE_CONTEXT );
 		if( cryptStatusError( status ) )
@@ -583,76 +568,45 @@ static int addEntry( IN_DATAPTR const DATAPTR trustInfo,
 				recreateCert = TRUE;
 				}
 			}
-
-		/* Get the ID information for the certificate by generating the 
-		   checksum and hash of the certificate object's subject name and 
-		   key ID */
-		status = dynCreate( &subjectDB, iCryptCert, 
-							CRYPT_IATTRIBUTE_SUBJECT );
-		if( cryptStatusError( status ) )
-			return( status );
-		sCheck = checksumData( dynData( subjectDB ), 
-							   dynLength( subjectDB ) );
-		hashData( sHash, HASH_DATA_SIZE, dynData( subjectDB ), 
-				  dynLength( subjectDB ) );
-#if 0	/* sKID lookup isn't used at present */
-		DYNBUF subjectKeyDB;
-		status = dynCreate( &subjectKeyDB, iCryptCert, 
-							CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER );
-		if( cryptStatusOK( status ) )
-			{
-			kCheck = checksumData( dynData( subjectKeyDB ), 
-								   dynLength( subjectKeyDB ) );
-			hashData( kHash, HASH_DATA_SIZE, dynData( subjectKeyDB ), 
-					  dynLength( subjectKeyDB ) );
-			dynDestroy( &subjectKeyDB );
-			}
-#endif /* 0 */
-		dynDestroy( &subjectDB );
+		iLocalCert = iCryptCert;
 		}
-	else
+
+	/* Get the ID information for the certificate by generating the checksum 
+	   and hash of the certificate object's subject name and key ID */
+	status = dynCreate( &subjectDB, iLocalCert, CRYPT_IATTRIBUTE_SUBJECT );
+	if( cryptStatusError( status ) )
 		{
-		void *subjectDNptr;
-		int subjectDNsize;
-
-		/* Get the ID information from the encoded certificate */
-		status = getCertIdInfo( certObject, certObjectLength, 
-								&subjectDNptr, &subjectDNsize );
-		ENSURES( cryptStatusOK( status ) );
-		ANALYSER_HINT( subjectDNptr != NULL );
-
-		/* Generate the checksum and hash of the encoded certificate's 
-		   subject name and key ID */
-		sCheck = checksumData( subjectDNptr, subjectDNsize );
-		hashData( sHash, HASH_DATA_SIZE, subjectDNptr, subjectDNsize );
+		if( certObject != NULL )
+			krnlSendNotifier( iLocalCert, IMESSAGE_DECREFCOUNT );
+		return( status );
+		}
+	sCheck = checksumData( dynData( subjectDB ), dynLength( subjectDB ) );
+	hashData( sHash, HASH_DATA_SIZE, dynData( subjectDB ), 
+			  dynLength( subjectDB ) );
+	dynDestroy( &subjectDB );
 #if 0	/* sKID lookup isn't used at present */
-		kCheck = checksumData( subjectKeyIDptr, subjectKeyIDsize );
-		hashData( kHash, HASH_DATA_SIZE, subjectKeyIDptr, subjectKeyIDsize );
-#endif /* 0 */
-		}
-
-	/* Find the insertion point and make sure that this entry isn't already 
-	   present */
-	trustInfoEntry = sCheck & ( TRUSTINFO_SIZE - 1 );
-	ENSURES( trustInfoEntry >= 0 && trustInfoEntry < TRUSTINFO_SIZE );
-	LOOP_MED( trustInfoCursor = trustInfoLast = \
-					DATAPTR_GET( trustInfoIndex[ trustInfoEntry ] ), 
-			  trustInfoCursor != NULL,
-			  trustInfoCursor = DATAPTR_GET( trustInfoCursor->next ) )
+	DYNBUF subjectKeyDB;
+	status = dynCreate( &subjectKeyDB, iLocalCert, 
+						CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER );
+	if( cryptStatusOK( status ) )
 		{
-		REQUIRES( sanityCheckTrustInfo( trustInfoCursor ) );
-
-		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
-
-		/* Perform a quick check using a checksum of the name to weed out
-		   most entries */
-		if( trustInfoCursor->sCheck == sCheck && \
-			!memcmp( trustInfoCursor->sHash, sHash, HASH_DATA_SIZE ) )
-			return( CRYPT_ERROR_DUPLICATE );
-		trustInfoLast = trustInfoCursor;
+		kCheck = checksumData( dynData( subjectKeyDB ), 
+							   dynLength( subjectKeyDB ) );
+		hashData( kHash, HASH_DATA_SIZE, dynData( subjectKeyDB ), 
+				  dynLength( subjectKeyDB ) );
+		dynDestroy( &subjectKeyDB );
 		}
-	ENSURES( LOOP_BOUND_OK );
-	trustInfoCursor = trustInfoLast;
+#endif /* 0 */
+	if( certObject != NULL )
+		krnlSendNotifier( iLocalCert, IMESSAGE_DECREFCOUNT );
+
+	/* Find the insertion point */
+	status = findInsertionPoint( trustInfoIndex, sCheck, 
+								 sHash, HASH_DATA_SIZE, 
+								 &trustInfoIndexEntryPtr, 
+								 &trustInfoListEnd );
+	if( cryptStatusError( status ) )
+		return( status );
 
 	/* Allocate memory for the new element and copy the information across */
 	REQUIRES( isShortIntegerRangeNZ( sizeof( TRUST_INFO ) ) );
@@ -676,7 +630,7 @@ static int addEntry( IN_DATAPTR const DATAPTR trustInfo,
 		if( recreateCert )
 			{
 			/* Get the encoded certificate */
-			status = dynCreateCert( &certDB, iCryptCert, 
+			status = dynCreateCert( &certDB, iLocalCert, 
 									CRYPT_CERTFORMAT_CERTIFICATE );
 			if( cryptStatusError( status ) )
 				{
@@ -711,15 +665,15 @@ static int addEntry( IN_DATAPTR const DATAPTR trustInfo,
 		{
 		/* The trusted key exists as a standard certificate with a public-
 		   key context attached, remember it for later */
-		krnlSendNotifier( iCryptCert, IMESSAGE_INCREFCOUNT );
-		newElement->iCryptCert = iCryptCert;
+		krnlSendNotifier( iLocalCert, IMESSAGE_INCREFCOUNT );
+		newElement->iCryptCert = iLocalCert;
 		}
 	ENSURES_PTR( sanityCheckTrustInfo( newElement ),
 				 newElement );
 
 	/* Add the new entry to the list */
-	insertDoubleListElement( &trustInfoIndex[ trustInfoEntry ], 
-							 trustInfoCursor, newElement, TRUST_INFO );
+	insertDoubleListElement( trustInfoIndexEntryPtr, trustInfoListEnd, 
+							 newElement, TRUST_INFO );
 	updateTrustInfoChecksum( trustInfo );
 
 	return( CRYPT_OK );
@@ -839,7 +793,7 @@ int deleteTrustEntry( IN_DATAPTR const DATAPTR trustInfo,
 
 	/* Check that the trust information is valid and get a pointer to the
 	   trust information index */
-	trustInfoIndex = getCheckTrustInfo( trustInfo );
+	trustInfoIndex = ( DATAPTR * ) getCheckTrustInfo( trustInfo );
 	ENSURES( trustInfoIndex != NULL );
 
 	trustInfoEntry = entryToDelete->sCheck & ( TRUSTINFO_SIZE - 1 );
@@ -917,7 +871,7 @@ void endTrustInfo( IN_DATAPTR const DATAPTR trustInfo )
 
 	/* Check that the trust information is valid and get a pointer to the
 	   trust information index */
-	trustInfoIndex = getCheckTrustInfo( trustInfo );
+	trustInfoIndex = ( DATAPTR * ) getCheckTrustInfo( trustInfo );
 	ENSURES_V( trustInfoIndex != NULL );
 
 	/* Destroy the chain of items at each table position */

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Internal Memory Management API					*
-*						Copyright Peter Gutmann 1992-2016					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -21,7 +21,7 @@
 /* Add cookies around a buffer, used to check for overwrites.  This converts
    a memory buffer:
 
-	| bufPtr
+	| buffer
 	v
 	+---------------+
 	|	Buffer		|
@@ -30,24 +30,61 @@
 
    into:
 
-			| bufPtr
-			v
+	|bufPtr	| buffer
+	v		v
 	+-------+---------------+-------+
 	|Cookie |	Buffer		|Cookie	|
 	+-------+---------------+-------+
 			|<-- bufSize -->|
 
-   To do this we need to convert an allocation of of bufSize bytes into one
-   of COOKIE_SIZE + bufSize + COOKIE_SIZE bytes, and then return a pointer 
-   to the actual buffer data inside the cookie'd buffer */
+   To do this we need to convert a request for an allocation of bufSize 
+   bytes into one of COOKIE_SIZE + bufSize + COOKIE_SIZE bytes and then 
+   return a pointer to the actual buffer data inside the cookie'd buffer */
 
-/* A buffer cookie, used as a canary to check for overwrites */
+/* A buffer cookie, used as a canary to check for overwrites, being the XOR 
+   of the low 64 bits of the address and a random value */
 
 #ifdef FIXED_SEED
-  #define SAFEBUFFER_COOKIE		( ( uintptr_t ) FIXED_SEED )
+static const BYTE canarySeed[ SAFEBUFFER_COOKIE_SIZE ] = { FIXED_SEED };
 #else
-  #define SAFEBUFFER_COOKIE		0xAAFFAAFF
+static const BYTE canarySeed[ SAFEBUFFER_COOKIE_SIZE ] = \
+					{ 0xAA, 0x55, 0xAA, 0xFF, 0xAA, 0xFF, 0xAA, 0xFF };
 #endif /* FIXED_SEED */
+
+STDC_NONNULL_ARG( ( 1 ) ) \
+static void makeCanary( OUT_BUFFER_FIXED( COOKIE_SIZE ) BYTE *canary,
+						const void *address )
+	{
+	uintptr_t addressValue = ( uintptr_t ) address;
+	const int shiftCountMod = ( sizeof( uintptr_t ) == 4 ) ? 32 : 64;
+	LOOP_INDEX i;
+
+	/* The following works for both 32 and 64-bit values because for 32 bits 
+	   it stores two copies of the address in the 64-bit cookie if uintptr_t 
+	   is 32 bits since the shift count is taken mod the register size, for 
+	   a full breakdown see 
+	   https://devblogs.microsoft.com/oldnewthing/20230904-00/?p=108704.
+	   We don't actually rely on this for anything, it just happens to be
+	   a convenient side-effect of how shifts work.
+	   
+	   However at this point we run into yet more gcc braindamage: Even 
+	   though this works just fine, gcc knows that shifting by more than
+	   the word size is UB and so goes out of its way to silently emit code 
+	   that breaks, stopping the loop once 32 bits have been output and 
+	   leaving the remaining 32 bits uninitialised (!!).  Because of this we 
+	   have to perform an explicit reduction of the shift amount in order to
+	   achieve the same effect that the hardware would produce anyway if gcc
+	   didn't go out of its way to make things break */
+	LOOP_SMALL( i = 0, i < SAFEBUFFER_COOKIE_SIZE, i++ )
+		{
+		const int shiftCount = ( i * 8 ) % shiftCountMod;
+		
+		ENSURES_V( LOOP_INVARIANT_SMALL( i, 0, SAFEBUFFER_COOKIE_SIZE - 1 ) );
+		
+		canary[ i ] = intToByte( addressValue >> shiftCount ) ^ canarySeed[ i ];
+		}
+	ENSURES_V( LOOP_BOUND_OK );
+	}
 
 /* Initialise a safe buffer with canaries and check that the canaries 
    are still valid.  The annotations here aren't quite correct since 
@@ -58,18 +95,18 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 void safeBufferInit( INOUT_BUFFER_FIXED( bufSize ) void *buffer, 
 					 IN_DATALENGTH const int bufSize )
 	{
-	BYTE *bufPtr = ( ( BYTE * ) buffer ) - SAFEBUFFER_COOKIE_SIZE;
-	const uintptr_t startCookie = ( uintptr_t ) buffer ^ SAFEBUFFER_COOKIE;
-	const uintptr_t endCookie = \
-						( ( uintptr_t ) bufPtr + SAFEBUFFER_COOKIE_SIZE + \
-										bufSize ) ^ SAFEBUFFER_COOKIE;
+	BYTE *startCookiePtr = ( ( BYTE * ) buffer ) - SAFEBUFFER_COOKIE_SIZE;
+	BYTE *endCookiePtr = ( ( BYTE * ) buffer ) + bufSize;
+	BYTE cookie[ SAFEBUFFER_COOKIE_SIZE + 16 ];
 
 	REQUIRES_V( isBufsizeRangeMin( bufSize, 256 ) );
 
 	/* Insert the cookies, which correspond to the address at which they're
 	   stored XOR'd with a fixed magic value */
-	*( ( uintptr_t * ) bufPtr ) = startCookie;
-	*( ( uintptr_t * ) ( bufPtr + SAFEBUFFER_COOKIE_SIZE + bufSize ) ) = endCookie;
+	makeCanary( cookie, startCookiePtr );
+	memcpy( startCookiePtr, cookie, SAFEBUFFER_COOKIE_SIZE );
+	makeCanary( cookie, endCookiePtr );
+	memcpy( endCookiePtr, cookie, SAFEBUFFER_COOKIE_SIZE );
 	}
 
 CHECK_RETVAL_PTR \
@@ -95,32 +132,40 @@ void *safeBufferAlloc( IN_DATALENGTH const int bufSize )
 
 void safeBufferFree( const void *buffer )
 	{
-	void *bufPtr = ( ( BYTE * ) buffer ) - SAFEBUFFER_COOKIE_SIZE;
+	void *startCookiePtr = ( ( BYTE * ) buffer ) - SAFEBUFFER_COOKIE_SIZE;
+	BYTE cookie[ SAFEBUFFER_COOKIE_SIZE + 16 ];
 
-	/* We can't check the overall buffer state since we don't know its size, 
-	   but we can check at least the start cookie for validity */
-	if( *( ( uintptr_t * ) bufPtr ) != ( ( uintptr_t ) buffer ^ SAFEBUFFER_COOKIE ) )
+	/* We can't check the overall buffer state since we don't know its size
+	   in order to locate the end cookie, but we can check at least the 
+	   start cookie for validity */
+	makeCanary( cookie, startCookiePtr );
+	if( memcmp( cookie, startCookiePtr, SAFEBUFFER_COOKIE_SIZE ) )
 		{
 		assert( DEBUG_WARN );
 		return;
 		}
 
-	clFree( "safeBufferFree", bufPtr );
+	clFree( "safeBufferFree", startCookiePtr );
 	}
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN safeBufferCheck( IN_BUFFER( bufSize ) const void *buffer, 
 						 IN_DATALENGTH const int bufSize )
 	{
-	const BYTE *bufPtr = ( ( const BYTE * ) buffer ) - SAFEBUFFER_COOKIE_SIZE;
+	const BYTE *startCookiePtr = ( ( const BYTE * ) buffer ) - SAFEBUFFER_COOKIE_SIZE;
+	const BYTE *endCookiePtr = ( ( const BYTE * ) buffer ) + bufSize;
+	BYTE cookie[ SAFEBUFFER_COOKIE_SIZE + 16 ];
 
-	REQUIRES_B( isBufsizeRangeMin( bufSize, 4 ) );
+	REQUIRES_B( isBufsizeRangeMin( bufSize, 256 ) );
 
-	/* Check that the cookies haven't been disturbed */
-	if( *( ( uintptr_t * ) bufPtr ) != ( ( uintptr_t ) buffer ^ SAFEBUFFER_COOKIE ) )
+	/* Check that the cookies haven't been disturbed.  We don't DEBUG_WARN on
+	   these because they're used in the self-test, relying on actual checks 
+	   being wrapped in REQUIRES()/ENSURES() */
+	makeCanary( cookie, startCookiePtr );
+	if( memcmp( cookie, startCookiePtr, SAFEBUFFER_COOKIE_SIZE ) )
 		return( FALSE );
-	if( *( ( uintptr_t * ) ( bufPtr + SAFEBUFFER_COOKIE_SIZE + bufSize ) ) != \
-		( ( ( uintptr_t ) bufPtr + SAFEBUFFER_COOKIE_SIZE + bufSize ) ^ SAFEBUFFER_COOKIE ) )
+	makeCanary( cookie, endCookiePtr );
+	if( memcmp( cookie, endCookiePtr, SAFEBUFFER_COOKIE_SIZE ) )
 		return( FALSE );
 
 	return( TRUE );
@@ -416,7 +461,7 @@ static int wcPrintf( FORMAT_STRING const char *format, ... )
 	va_start( argPtr, format );
 	length = vsprintf_s( buffer, 1024, format, argPtr );
 	va_end( argPtr );
-	if( length < 1 )
+	if( !rangeCheck( length, 1, 1024 ) )
 		return( length );
 	mbstowcs( wcBuffer, buffer, length + 1 );
 	NKDbgPrintfW( wcBuffer );

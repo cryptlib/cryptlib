@@ -116,7 +116,7 @@ static int createActionContext( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int createEnvelopeContexts( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	{
-	ACTION_LIST *actionListPtr;
+	const ACTION_LIST *actionListPtr;
 	int status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
@@ -414,7 +414,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
 int cmsInitSigParams( const ACTION_LIST *actionListPtr,
 					  IN_ENUM( CRYPT_FORMAT ) const CRYPT_FORMAT_TYPE formatType,
 					  IN_HANDLE const CRYPT_USER iCryptOwner,
-					  OUT_PTR SIGPARAMS *sigParams )
+					  OUT_PTR SIG_PARAMS *sigParams )
 	{
 	BOOLEAN_INT useDefaultAttributes;
 	int status;
@@ -427,7 +427,7 @@ int cmsInitSigParams( const ACTION_LIST *actionListPtr,
 			  isHandleRangeValid( iCryptOwner ) );
 
 	assert( isReadPtr( actionListPtr, sizeof( ACTION_LIST ) ) );
-	assert( isWritePtr( sigParams, sizeof( SIGPARAMS ) ) );
+	assert( isWritePtr( sigParams, sizeof( SIG_PARAMS ) ) );
 
 	initSigParams( sigParams );
 
@@ -544,7 +544,8 @@ static int processSignatureAction( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 								   INOUT_PTR ACTION_LIST *actionListPtr )
 	{
 	const ACTION_LIST *associatedActionPtr;
-	SIGPARAMS sigParams;
+	SIG_DATA_INFO sigDataInfo;
+	SIG_PARAMS sigParams;
 	ERROR_INFO localErrorInfo;
 	int signatureAlgo DUMMY_INIT, signatureSize, status;
 
@@ -577,9 +578,10 @@ static int processSignatureAction( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	clearErrorInfo( &localErrorInfo );
 	associatedActionPtr = DATAPTR_GET( actionListPtr->associatedAction );
 	REQUIRES( associatedActionPtr != NULL );
+	setSigDataInfoHash( &sigDataInfo, associatedActionPtr->iCryptHandle );
 	status = iCryptCreateSignature( NULL, 0, &signatureSize, 
 						envelopeInfoPtr->type, actionListPtr->iCryptHandle,
-						associatedActionPtr->iCryptHandle,
+						&sigDataInfo,
 						( envelopeInfoPtr->type == CRYPT_FORMAT_CRYPTLIB ) ? \
 							NULL : &sigParams, &localErrorInfo );
 	if( cryptStatusOK( status ) )

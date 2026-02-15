@@ -380,7 +380,7 @@ static int checkMissingInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	   or a TSA session present) there must be a signing key also present */
 	if( DATAPTR_ISSET( envelopeInfoPtr->postActionList ) )
 		{
-		ACTION_LIST *postActionListPtr = \
+		const ACTION_LIST *postActionListPtr = \
 						DATAPTR_GET( envelopeInfoPtr->postActionList );
 		int status;
 

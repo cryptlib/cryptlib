@@ -388,11 +388,11 @@ int createUser( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 				STDC_UNUSED const int auxValue )
 	{
 	CRYPT_USER iCryptUser;
-	USER_INFO *userInfoPtr;
+	const USER_INFO *userInfoPtr;
 #ifdef USE_KEYSETS
 	char userFileName[ 16 + 8 ];
 #endif /* USE_KEYSETS */
-	int fileRef, initStatus, status;
+	int fileRef, result, initStatus, status;
 
 	assert( isWritePtr( createInfo, sizeof( MESSAGE_CREATEOBJECT_INFO ) ) );
 
@@ -468,14 +468,34 @@ int createUser( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 							   &userFileInfo, &userInfoPtr );
 		zeroise( &userFileInfo, sizeof( USER_FILE_INFO ) );
 		}
-#endif
+#endif /* 0 */
 /*!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!*/
+#ifdef CONFIG_FUZZ
+	{
+	USER_FILE_INFO userInfoTemplate;
+
+	/* Create a dummy user to allow for fuzzing of the configuration data */
+	memset( &userInfoTemplate, 0, sizeof( USER_FILE_INFO ) );
+	userInfoTemplate.type = CRYPT_USER_NORMAL;
+	userInfoTemplate.state = USER_STATE_USERINITED;
+	userInfoTemplate.fileRef = CRYPT_UNUSED;
+	memcpy( userInfoTemplate.userName, createInfo->strArg1, 
+			createInfo->strArgLen1 );
+	userInfoTemplate.userNameLength = createInfo->strArgLen1;
+	memcpy( userInfoTemplate.userID, "<<<<FUZZING_USER>>>>", KEYID_SIZE );
+	memcpy( userInfoTemplate.creatorID, "<<<<FUZZING_USER>>>>", 
+			KEYID_SIZE );
+	initStatus = openUser( &iCryptUser, DEFAULTUSER_OBJECT_HANDLE,
+						   &userInfoTemplate, &userInfoPtr );
+	}
+#else
 {	/* Get rid of compiler warnings */
 userInfoPtr = NULL;
 initStatus = CRYPT_ERROR_FAILED;
 iCryptUser = CRYPT_UNUSED;
 fileRef = 0;
 }
+#endif /* CONFIG_FUZZ */
 	if( cryptStatusError( initStatus ) )
 		{
 		/* If the create object failed, return immediately */
@@ -494,7 +514,7 @@ fileRef = 0;
 	if( cryptStatusError( initStatus ) || cryptStatusError( status ) )
 		return( cryptStatusError( initStatus ) ? initStatus : status );
 
-#ifdef USE_KEYSETS
+#if defined( USE_KEYSETS ) && !defined( CONFIG_FUZZ )
 	/* If the user object has a corresponding user info file, read any
 	   stored config options into the object.  We have to do this after
 	   it's initialised because the config data, coming from an external
@@ -505,7 +525,8 @@ fileRef = 0;
 {
 ENSURES( userInfoPtr != NULL );	/* Due to test code above */
 }
-		sprintf_s( userFileName, 16, "u%06x", fileRef );
+		result = sprintf_s( userFileName, 16, "u%06x", fileRef );
+		ENSURES( rangeCheck( result, 1, 15 ) );
 		status = readConfig( iCryptUser, userFileName, 
 							 userInfoPtr->trustInfo );
 		if( cryptStatusError( status ) )
@@ -516,7 +537,7 @@ ENSURES( userInfoPtr != NULL );	/* Due to test code above */
 			return( status );
 			}
 		}
-#endif /* USE_KEYSETS */
+#endif /* USE_KEYSETS && !CONFIG_FUZZ */
 	createInfo->cryptHandle = iCryptUser;
 	return( CRYPT_OK );
 	}

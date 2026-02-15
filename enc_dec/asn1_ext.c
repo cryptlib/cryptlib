@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					ASN.1 Supplemental Read/Write Routines					*
-*						Copyright Peter Gutmann 1992-2014					*
+*						Copyright Peter Gutmann 1992-2022					*
 *																			*
 ****************************************************************************/
 
@@ -38,8 +38,8 @@ int sizeofMessageDigest( IN_ALGO const CRYPT_ALGO_TYPE hashAlgo,
 	initAlgoIDparamsHash( &algoIDparams, hashAlgo, hashSize );
 	status = algoInfoSize = sizeofAlgoIDex( hashAlgo, &algoIDparams );
 	ENSURES( !cryptStatusError( status ) );
-	hashInfoSize = sizeofObject( hashSize );
 	ENSURES( isShortIntegerRangeMin( algoInfoSize, 8 ) );
+	hashInfoSize = sizeofObject( hashSize );
 	ENSURES( isShortIntegerRangeMin( hashInfoSize, hashSize ) );
 
 	return( sizeofObject( algoInfoSize + hashInfoSize ) );
@@ -85,7 +85,8 @@ int readMessageDigest( INOUT_PTR STREAM *stream,
 	assert( isWritePtrDynamic( hash, hashMaxLen ) );
 	assert( isWritePtr( hashSize, sizeof( int ) ) );
 
-	REQUIRES_S( hashMaxLen >= MIN_HASHSIZE && hashMaxLen <= 8192 );
+	REQUIRES_S( rangeCheck( hashMaxLen, MIN_HASHSIZE, 
+							CRYPT_MAX_HASHSIZE ) );
 
 	/* Clear the return values */
 	REQUIRES_S( isShortIntegerRangeNZ( hashMaxLen ) ); 
@@ -300,8 +301,11 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 		else
 			{
 			/* The content length is the originally read length minus the
-			   data read since that point */
-			status = calculateStreamObjectLength( stream, savedLengthDataStart, 
+			   data read since that point.  This can't overflow because
+			   objectSize, the data that we've read since 
+			   savedLengthDataStart, is only a dozen bytes or so */
+			status = calculateStreamObjectLength( stream, 
+												  savedLengthDataStart, 
 												  &objectSize );
 			if( cryptStatusError( status ) )
 				return( sSetError( stream, status ) );
@@ -330,7 +334,8 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 			}
 		
 		/* Adjust the length value for the additional content that we've 
-		   read if necessary */
+		   read if necessary.  As before, this can't overflow because it's
+		   only a few bytes */
 		if( length != CRYPT_UNUSED )
 			{
 			status = calculateStreamObjectLength( stream, startPos, 
@@ -413,11 +418,15 @@ int writeCMSheader( INOUT_PTR STREAM *stream,
 		!memcmp( contentOID, OID_MS_SPCINDIRECTDATACONTEXT, 12 ) )
 		isOctetString = FALSE;
 
-	/* If a size is given, write the definite form */
+	/* If a size is given, write the definite form.  The overflow check is
+	   unnecessary because dataSize < MAX_INTLENGTH so we never get close
+	   to INT_MAX, but  */
 	if( dataSize != CRYPT_UNUSED )
 		{
 		int status;
 
+		if( checkEncodeOverflow( dataSize, 2, contentOIDlength, 0 ) )
+			return( CRYPT_ERROR_OVERFLOW );
 		writeSequence( stream, contentOIDlength + ( ( dataSize > 0 ) ? \
 					   sizeofObject( sizeofObject( dataSize ) ) : 0 ) );
 		status = swrite( stream, contentOID, contentOIDlength );
@@ -453,8 +462,7 @@ int sizeofCMSencrHeader( IN_BUFFER( contentOIDlength ) const BYTE *contentOID,
 			contentOIDlength == sizeofOID( contentOID ) );
 
 	REQUIRES( contentOID[ 0 ] == BER_OBJECT_IDENTIFIER );
-	REQUIRES( contentOIDlength >= MIN_OID_SIZE && \
-			  contentOIDlength <= MAX_OID_SIZE );
+	REQUIRES( rangeCheck( contentOIDlength, MIN_OID_SIZE, MAX_OID_SIZE ) );
 	REQUIRES( dataSize == CRYPT_UNUSED || isIntegerRangeNZ( dataSize ) );
 	REQUIRES( isHandleRangeValid( iCryptContext ) );
 
@@ -476,9 +484,12 @@ int sizeofCMSencrHeader( IN_BUFFER( contentOIDlength ) const BYTE *contentOID,
 		   the EOC octets at the end */
 		return( 2 + contentOIDlength + cryptInfoSize + 2 );
 		}
+	if( checkEncodeOverflow( dataSize, 1, 
+							 contentOIDlength + cryptInfoSize, 0 ) )
+		return( CRYPT_ERROR_OVERFLOW );
 	length = sizeofObject( contentOIDlength + cryptInfoSize + \
 						   sizeofObject( dataSize ) ) - dataSize;
-	ENSURES( isIntegerRange( length ) );
+	ENSURES( isIntegerRangeNZ( length ) );
 	return( length );
 	}
 
@@ -603,7 +614,7 @@ int writeCMSencrHeader( INOUT_PTR STREAM *stream,
 	sMemClose( &nullStream );
 	if( cryptStatusError( status ) )
 		return( status );
-	ENSURES( isIntegerRangeNZ( cryptInfoSize ) );
+	ENSURES_S( isIntegerRangeNZ( cryptInfoSize ) );
 
 	/* If a size is given, write the definite form */
 	if( dataSize != CRYPT_UNUSED )

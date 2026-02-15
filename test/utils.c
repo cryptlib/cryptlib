@@ -49,7 +49,8 @@
 
 char *getTimeString( const time_t theTime, const int bufNo )
 	{
-	static char timeString[ 2 ][ 64 ], *timeStringPtr;
+	static char timeString[ 2 ][ 64 ];
+	const char *timeStringPtr;
 
 	assert( bufNo == 0 || bufNo == 1 );
 
@@ -142,7 +143,7 @@ int checkDatabaseKeysetAvailable( void )
 							  CRYPT_KEYOPT_READONLY );
 	if( cryptStatusOK( status ) )
 		{
-		cryptKeysetClose( status );
+		cryptKeysetClose( cryptKeyset );
 		keysetAvailable = TRUE;
 		return( TRUE );
 		}
@@ -325,7 +326,7 @@ const char *algoName( const CRYPT_ALGO_TYPE algorithm )
 		"NULL", "ChaCha20", "NULL", "NULL"
 		};
 	static const char *pkcNames[] = {
-		"DH", "RSA", "DSA", "ElGamal", "NULL", "ECDSA", "ECDH", "EDDSA", "Curve25519", 
+		"DH", "RSA", "DSA", "ElGamal", "NULL", "ECDSA", "ECDH", "Curve25519", "Ed25519",  
 		"NULL", "NULL"
 		};
 	static const char *hashNames[] = { 	
@@ -710,7 +711,7 @@ int printFingerprint( const CRYPT_SESSION cryptSession,
 
 	/* Print the server key fingerprint */
 	status = cryptGetAttributeString( cryptSession,
-									  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1,
+									  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
 									  fingerPrint, &length );
 	if( cryptStatusError( status ) )
 		{
@@ -920,7 +921,7 @@ BOOLEAN isServerDown( const CRYPT_SESSION cryptSession,
 
 static void printOperationType( const CRYPT_SESSION cryptSession )
 	{
-	struct {
+	const struct {
 		const int operation; 
 		const char *name;
 		} operationTypeTbl[] = {

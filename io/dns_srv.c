@@ -53,7 +53,7 @@ static int convertToSrv( OUT_BUFFER_FIXED( srvNameMaxLen ) char *srvName,
 						 IN_LENGTH_DNS const int srvNameMaxLen, 
 						 IN_STRING const char *hostName )
 	{
-	const int hostNameLength = strlen( hostName ) + 1;
+	const int hostNameLength = strnlen_s( hostName, MAX_DNS_SIZE ) + 1;
 	LOOP_INDEX i;				/* For trailing '\0' */
 
 	assert( isReadPtrDynamic( srvName, srvNameMaxLen ) );
@@ -149,6 +149,7 @@ static int getSrvFQDN( INOUT_PTR NET_STREAM_INFO *netStream,
 	if( gethostname( cachedFQDN, MAX_DNS_SIZE ) == 0 && \
 		( hostInfo = gethostbyname( cachedFQDN ) ) != NULL )
 		{
+		int result;
 		LOOP_INDEX i;
 
 		LOOP_MED( i = 0, i < IP_ADDR_COUNT && \
@@ -162,8 +163,9 @@ static int getSrvFQDN( INOUT_PTR NET_STREAM_INFO *netStream,
 			   convert the address to dotted-decimal notation */
 			inet_ntop( hostInfo->h_addrtype, &hostInfo->h_addr_list[ i ], 
 					   addressBuffer, 64 );
-			sprintf_s( cachedFQDN, MAX_DNS_SIZE, "%s.in-addr.arpa",
-					   addressBuffer );
+			result = sprintf_s( cachedFQDN, MAX_DNS_SIZE, "%s.in-addr.arpa",
+								addressBuffer );
+			ENSURES( rangeCheck( result, 14, MAX_DNS_SIZE - 1 ) );
 
 			/* Check for a name */
 			if( DnsQuery( cachedFQDN, DNS_TYPE_PTR, DNS_QUERY_BYPASS_CACHE,
@@ -277,7 +279,8 @@ int findHostInfo( INOUT_PTR NET_STREAM_INFO *netStream,
 		wcslen( pDnsInfo->Data.SRV.pNameTarget ) + 1 > hostNameMaxLen )
 #else
 	if( pDnsInfo == NULL || \
-		strlen( pDnsInfo->Data.SRV.pNameTarget ) + 1 > hostNameMaxLen )
+		strnlen_s( pDnsInfo->Data.SRV.pNameTarget, 
+				   MAX_DNS_SIZE ) + 1 > hostNameMaxLen )
 #endif /* Win32 vs. WinCE */
 		{
 		DnsFree( pDns, DnsFreeRecordList );
@@ -395,7 +398,7 @@ static int getFQDN( STDC_UNUSED INOUT_PTR NET_STREAM_INFO *netStream,
 		return( CRYPT_ERROR_NOTFOUND );
 
 	/* We found the FQDN, return it to the caller */
-	if( strlen( hostNamePtr ) + 1 > fqdnMaxLen )
+	if( strnlen_s( hostNamePtr, MAX_DNS_SIZE ) + 1 > fqdnMaxLen )
 		return( CRYPT_ERROR_OVERFLOW );
 	strlcpy_s( fqdn, fqdnMaxLen, hostNamePtr );
 	return( CRYPT_OK );
@@ -565,7 +568,7 @@ int findHostInfo( INOUT_PTR NET_STREAM_INFO *netStream,
 		}
 	ENSURES( LOOP_BOUND_OK );
 #ifdef EBCDIC_CHARS
-	ebcdicToAscii( hostName, strlen( hostName ) );
+	ebcdicToAscii( hostName, strnlen_s( hostName, MAX_DNS_SIZE ) );
 #endif /* EBCDIC_CHARS */
 
 	return( CRYPT_OK );

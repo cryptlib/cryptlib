@@ -270,7 +270,16 @@ typedef struct {
    example for a DSA sig we pass in a 20-byte hash and get back a ~50-byte
    sig, for sig.checking we pass in a 20-byte hash and ~50-byte sig and get
    back nothing.  Because of this we have to use the following structure to
-   pass data to the DLP-based PKCs */
+   pass data to the DLP-based PKCs, with the parameters being:
+
+	Sign	inParam1 = hash
+			outParam = signature
+	Verify	inParam1 = hash
+			inParam2 = signature
+	Encr	inParam1 = plaintext
+			outParam = ciphertext
+	Decr	inParam1 = ciphertext
+			outParam = plaintext */
 
 typedef struct {
 	BUFFER_FIXED( inLen1 ) \
@@ -371,36 +380,6 @@ typedef struct {
 #define roundUp( size, roundSize ) \
 	( ( ( size ) + ( ( roundSize ) - 1 ) ) & ~( ( roundSize ) - 1 ) )
 
-/* A macro to clear sensitive data from memory.  This is somewhat easier to
-   use than calling memset with the second parameter set to 0 all the time,
-   and makes it obvious where sensitive data is being erased.  In addition
-   some systems, recognising the problem of compilers removing what they see
-   as dead stores, have distinct memory zeroisation support, so if available 
-   we use that */
-
-#if defined( _MSC_VER ) && VC_GE_2005( _MSC_VER )
-  /* This is just a mapping to RtlSecureZeroMemory() (via WinBase.h) which 
-     is implemented as inline code implementing a loop on a pointer declared 
-	 volatile, but unlike the corresponding RtlZeroMemory() there's a 
-	 contract that this will always zeroise memory even in the face of 
-	 compiler changes that would otherwise optimise away the access */
-  #define zeroise( memory, size )	SecureZeroMemory( memory, size )
-#elif defined( __STDC_LIB_EXT1__ )
-  /* C11 defines a function memset_s() that guarantees that it won't be
-	 optimised away, although this is quite well obfuscated in the spec,
-	 "the memory indicated by [the memset parameters] may be accessible in 
-	 the future and therefore must contain the values indicated by [the
-	 value to set]", hopefully the implementers will know that this equates
-	 to "the memset_s() call can't be optimised away" */
-  #define zeroise( memory, size )	memset_s( memory, size, 0, size )
-#elif defined( __OpenBSD__ )
-  /* The OpenBSD folks defined their own won't-be-optimised-away bzero()
-	 function */
-  #define zeroise( memory, size )	explicit_bzero( memory, size )
-#else
-  #define zeroise( memory, size )	memset( memory, 0, size )
-#endif /* Systems with distinct zeroise functions */
-
 /* A macro to check that a value is a possibly valid handle.  This doesn't
    check that the handle refers to a valid object, merely that the value is
    in the range for valid handles.  The full function isValidHandle() used
@@ -471,11 +450,14 @@ typedef struct {
    used in various places to distinguish DLP-based PKCs from non-DLP-based
    PKCs, while ECDLP-based-PKCs are in a separate class.  This means that
    when checking for the extended class { DLP | ECDLP } it's necessary to
-   explicitly include isEccAlgo() alongside isDlpAlgo() */
+   explicitly include isEccAlgo() alongside isDlpAlgo().  The special-
+   snowflake Bernstein algorithms are included in the ECC algorithms (which
+   they are) but require special-case handling so there's an explicit check
+   for them */
 
 #define isSigAlgo( algorithm ) \
 	( ( algorithm ) == CRYPT_ALGO_RSA || ( algorithm ) == CRYPT_ALGO_DSA || \
-	  ( algorithm ) == CRYPT_ALGO_ECDSA || ( algorithm ) == CRYPT_ALGO_EDDSA )
+	  ( algorithm ) == CRYPT_ALGO_ECDSA || ( algorithm ) == CRYPT_ALGO_ED25519 )
 #define isCryptAlgo( algorithm ) \
 	( ( algorithm ) == CRYPT_ALGO_RSA || ( algorithm ) == CRYPT_ALGO_ELGAMAL )
 #define isKeyexAlgo( algorithm ) \
@@ -486,7 +468,9 @@ typedef struct {
 	  ( algorithm ) == CRYPT_ALGO_DH )
 #define isEccAlgo( algorithm ) \
 	( ( algorithm ) == CRYPT_ALGO_ECDSA || ( algorithm ) == CRYPT_ALGO_ECDH || \
-	  ( algorithm ) == CRYPT_ALGO_EDDSA || ( algorithm ) == CRYPT_ALGO_25519 )
+	  ( algorithm ) == CRYPT_ALGO_25519 || ( algorithm ) == CRYPT_ALGO_ED25519 )
+#define isBernsteinAlgo( algorithm ) \
+	( ( algorithm ) == CRYPT_ALGO_25519 || ( algorithm ) == CRYPT_ALGO_ED25519 )
 
 /* Macros to check whether an algorithm has additional parameters that need 
    to be handled explicitly */
@@ -542,14 +526,13 @@ typedef struct {
    For Visual Studio we explicitly mask some values to avoid runtime traps 
    in debug builds */
 
-#define byteToInt( x )				( ( int ) ( ( unsigned char ) ( x ) ) )
+#define byteToInt( x )				( ( int ) ( ( BYTE ) ( x ) ) )
 #define intToLong( x )				( ( unsigned int ) ( x ) )
 
-#define sizeToInt( x )				( ( unsigned int ) ( x ) )
 #if defined( _MSC_VER ) && VC_GE_2010( _MSC_VER )
-  #define intToByte( x )			( ( unsigned char ) ( ( x ) & 0xFF ) )
+  #define intToByte( x )			( ( BYTE ) ( ( x ) & 0xFF ) )
 #else
-  #define intToByte( x )			( ( unsigned char ) ( x ) )
+  #define intToByte( x )			( ( BYTE ) ( x ) )
 #endif /* VS 2010 or newer */
 
 /* Clear/set object error information */

@@ -213,7 +213,7 @@ static int initClientInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int clientStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
-	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	const CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
 	NET_CONNECT_INFO connectInfo;
 	int status;
 

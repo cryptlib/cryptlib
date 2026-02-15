@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib TLS Client/Server Hello Management				*
-*					  Copyright Peter Gutmann 1998-2022						*
+*					  Copyright Peter Gutmann 1998-2024						*
 *																			*
 ****************************************************************************/
 
@@ -61,6 +61,7 @@ static int processSessionID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  sessionIDlength, MIN_SESSIONID_SIZE, 
 				  MAX_SESSIONID_SIZE ) );
 		}
+	REQUIRES( rangeCheck( sessionIDlength, 1, MAX_SESSIONID_SIZE ) );
 	status = sread( stream, sessionID, sessionIDlength );
 	if( cryptStatusError( status ) )
 		{
@@ -191,13 +192,15 @@ static int setSuiteInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* TLS 1.3 cipher suites only specify symmetric algorithms with the 
 	   details of PKC algorithms stuffed into extensions so we only set the 
 	   PKC information if it's present.  In particular the keyexAlgo is set
-	   when we read the other side's keyex and the authAlgo is set when we
-	   receive the other side's certificate chain.
+	   when we read the other side's keyex and the authAlgo is set either 
+	   when we receive the other side's certificate chain if we're the client
+	   or based on our private key if we're the server.
 	   
 	   See the enormous comment in tls_ext_rw.c:readSignatureAlgos() for why 
 	   we hardcode SHA-256 as the keyex signature hash algorithm for TLS 1.2 
 	   and above */
 	handshakeInfo->cipherSuite = cipherSuiteInfoPtr->cipherSuite;
+	handshakeInfo->cipherSuiteFlags = cipherSuiteInfoPtr->flags;
 	if( cipherSuiteInfoPtr->keyexAlgo != CRYPT_ALGO_NONE )
 		{
 		handshakeInfo->keyexAlgo = cipherSuiteInfoPtr->keyexAlgo;
@@ -219,33 +222,22 @@ static int setSuiteInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   appropriate fashion statement */
 #ifdef USE_SHA2_EXT
 		if( isServer( sessionInfoPtr ) && \
-			sessionInfoPtr->privateKey != CRYPT_ERROR )
+			sessionInfoPtr->privateKeyAlgo == CRYPT_ALGO_ECDSA )
 			{
-			int privateKeyAlgo;
+			int privateKeySize;
 
 			status = krnlSendMessage( sessionInfoPtr->privateKey, 
 									  IMESSAGE_GETATTRIBUTE, 
-									  &privateKeyAlgo,
-									  CRYPT_CTXINFO_ALGO );
+									  &privateKeySize, 
+									  CRYPT_CTXINFO_KEYSIZE );
 			if( cryptStatusError( status ) )
 				return( status );
-			if( privateKeyAlgo == CRYPT_ALGO_ECDSA )
+			if( privateKeySize == bitsToBytes( 521 ) )
+				handshakeInfo->keyexSigHashAlgoParam = bitsToBytes( 512 );
+			else
 				{
-				int privateKeySize;
-
-				status = krnlSendMessage( sessionInfoPtr->privateKey, 
-										  IMESSAGE_GETATTRIBUTE, 
-										  &privateKeySize, 
-										  CRYPT_CTXINFO_KEYSIZE );
-				if( cryptStatusError( status ) )
-					return( status );
-				if( privateKeySize == bitsToBytes( 521 ) )
-					handshakeInfo->keyexSigHashAlgoParam = bitsToBytes( 512 );
-				else
-					{
-					if( privateKeySize == bitsToBytes( 384 ) )
-						handshakeInfo->keyexSigHashAlgoParam = bitsToBytes( 384 );
-					}
+				if( privateKeySize == bitsToBytes( 384 ) )
+					handshakeInfo->keyexSigHashAlgoParam = bitsToBytes( 384 );
 				}
 			}
 #endif /* USE_SHA2_EXT */
@@ -345,15 +337,16 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	const BOOLEAN isServer = isServer( sessionInfoPtr ) ? TRUE : FALSE;
 	BOOLEAN allowDH = algoAvailable( CRYPT_ALGO_DH ) ? TRUE : FALSE;
 	BOOLEAN allowECDH = algoAvailable( CRYPT_ALGO_ECDH ) ? TRUE : FALSE;
-	BOOLEAN allowECC = ( allowECDH && algoAvailable( CRYPT_ALGO_ECDSA ) ) ? \
-						 TRUE : FALSE;
+	BOOLEAN allowECDSA = ( allowECDH && algoAvailable( CRYPT_ALGO_ECDSA ) ) ? \
+						   TRUE : FALSE;
 	BOOLEAN allowRSA = algoAvailable( CRYPT_ALGO_RSA ) ? TRUE : FALSE;
 	const BOOLEAN allowTLS12 = \
 		( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS12 ) ? TRUE : FALSE;
 	BOOLEAN allowTLS13 = FALSE;
 	const int tlsMinVersion = sessionInfoPtr->sessionTLS->minVersion;
 	int suiteIndex = 999, eccSuiteIndex = 999, tls13SuiteIndex = 999;
-	int cipherSuiteInfoSize, status;
+	int suiteRunSuite = 999, suiteRunCount DUMMY_INIT;
+	int cipherSuiteInfoSize, invalidSuiteCount = 0, status;
 	LOOP_INDEX i;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -388,33 +381,27 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( sessionInfoPtr->privateKey == CRYPT_ERROR )
 			{
 			/* There's no server private key present, we're limited to PSK
-			   suites */
-			allowECC = allowRSA = FALSE;
+			   suites.  Note that we still allow DH because alongside the
+			   pure PSK suites we also allow DH + PSK ones */
+			allowECDSA = allowRSA = FALSE;
 			}
 		else
 			{
-			int pkcAlgo;
-
-			/* To be usable for DH/ECC the server key has to be signature-
-			   capable */
+			/* To be usable for DH/ECDH/25519 the server key has to be 
+			   signature-capable */
 			if( !checkContextCapability( sessionInfoPtr->privateKey,
 										 MESSAGE_CHECK_PKC_SIGN ) )
-				allowDH = allowECC = FALSE;
+				allowDH = allowECDH = FALSE;
 
 			/* To be usable for ECC or RSA the server key has to itself be 
-			   an ECC or RSA key */
-			status = krnlSendMessage( sessionInfoPtr->privateKey, 
-									  IMESSAGE_GETATTRIBUTE, &pkcAlgo,
-									  CRYPT_CTXINFO_ALGO );
-			if( cryptStatusError( status ) )
-				allowECC = allowRSA = FALSE;
-			else
-				{
-				if( !isEccAlgo( pkcAlgo ) )
-					allowECC = FALSE;
-				if( pkcAlgo != CRYPT_ALGO_RSA )
-					allowRSA = FALSE;
-				}
+			   an ECC or RSA key.  Note that we can't extend this check to
+			   TLS 1.3 suites or TLS 1.3-only algorithms like Ed25519 for 
+			   the reason given in the comment for the long set of allowXYZ 
+			   checks below */
+			if( sessionInfoPtr->privateKeyAlgo != CRYPT_ALGO_ECDSA )
+				allowECDSA = FALSE;
+			if( sessionInfoPtr->privateKeyAlgo != CRYPT_ALGO_RSA )
+				allowRSA = FALSE;
 			}
 		}
 
@@ -450,7 +437,52 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 			/* Signalling suites aren't standard cipher suites so we don't 
 			   try and process them as such */
+			DEBUG_PRINT(( "  Skipping SCSV signalling cipher suite %d "
+						  "(%X).\n", newSuite, newSuite ));
 			continue;
+			}
+
+		/* Check for a run of consecutive suites, a sign that we're being
+		   scanned */
+		if( suiteRunSuite == 999 )
+			{
+			suiteRunSuite = newSuite;
+			suiteRunCount = 0;
+			}
+		else
+			{
+			/* Check whether we're in a run */
+			if( newSuite == suiteRunSuite + 1 )
+				{
+				suiteRunCount++;
+
+				/* If we've seen more than 20 consecutive suites, assume
+				   we're being scanned, there should never be that many 
+				   sensible suites next to each other.  Suites listed at
+				   https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-4,
+				   suites that we should never really see are 0x03, 0x06, 
+				   0x08, 0x0E, 0x11, 0x14, 0x17-2E, 0x34, 0x3A-3B, 
+				   0x46-66, 0x6C-6D, 0x72-83, 0x89-8A, 0x9B, 0xA2-A7,
+				   0xB0-B1, 0xB4-B5, 0xB8-B9, 0xBB-BC, 0xBF, 0xC5, 0xC8-FE,
+				   0xC001-C002, 0xC006-C007, C00B-C00C, 0xC010-C011, 
+				   0xC015-C019, 0xC033, 0xC039-0xC03B, 0xC046-C047,
+				   (0xC03C-0xC09B = Aria+Camellia suites, 0xC09C-0xC0AF = 
+				   CCM suites), 0xC0B4-C0FF, 0xCC00-CCA7, 0xCCAF-CCFF.
+				   The longest run of plausible suites is 0xC023-0xC032 =
+				   15 suites (and even seeing that as a run would be very
+				   strange) so 20 is a good margin */
+				if( isServer && suiteRunCount > 20 && \
+					!( handshakeInfo->flags & HANDSHAKE_FLAG_ISSCANNER ) )
+					{
+					DEBUG_PRINT(( "  More than %d consecutive suites seen "
+								  "in client handshake, enabling scanner "
+								  "mode.\n", suiteRunCount - 1 ));
+					handshakeInfo->flags |= HANDSHAKE_FLAG_ISSCANNER;
+					}
+				}
+			else
+				suiteRunCount = 0;
+			suiteRunSuite = newSuite;
 			}
 
 		/* When resuming a cached session the client is required to offer
@@ -494,7 +526,37 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 #endif /* CONFIG_SUITEB */
 		if( cipherSuiteInfoPtr == NULL )
+			{
+			/* It's an unrecognised suite, perform an additional check 
+			   whether it's in an unassigned/reserved position, which 
+			   typically indicates that we're being scanned.  Suites
+			   listed at
+			   https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-4 */
+			if( ( newSuite >= 0x47 && newSuite <= 0x4F ) || \
+				( newSuite >= 0x50 && newSuite <= 0x66 ) || \
+				( newSuite >= 0x72 && newSuite <= 0x83 ) || \
+				( newSuite >= 0xCC00 && newSuite <= 0xCCA7 ) )
+				{
+				invalidSuiteCount++;
+
+				/* If we've seen more than a certain number of these then 
+				   we're probably being scanned since a legitimate client is
+				   unlikely to be requesting a large number of reserved
+				   suites, enable scanner mode */
+				if( isServer && invalidSuiteCount > 8 && \
+					!( handshakeInfo->flags & HANDSHAKE_FLAG_ISSCANNER ) )
+					{
+					DEBUG_PRINT(( "  More than %d invalid suites seen in "
+								  "client handshake, enabling scanner "
+								  "mode.\n", invalidSuiteCount - 1 ));
+					handshakeInfo->flags |= HANDSHAKE_FLAG_ISSCANNER;
+					}
+				}
+
+			DEBUG_PRINT(( "  Skipping unknown cipher suite %d (%X).\n", 
+						  newSuite, newSuite ));
 			continue;
+			}
 		DEBUG_PRINT(( "Offered suite: %s.\n", 
 					  cipherSuiteInfoPtr->debugText ));
 
@@ -564,16 +626,19 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 
 		/* If it's a suite that's disabled because of external constraints 
-		   then we can't use it */
-		if( !allowDH && \
-			( cipherSuiteInfoPtr->flags & CIPHERSUITE_FLAG_DH ) )
+		   then we can't use it.  Note that this only applies to TLS classic
+		   suites, since TLS 1.3 switched to an IPsec-style a la carte mess
+		   we don't know whether something like TLS_AES_128_GCM_SHA256 comes
+		   with ECDSA or not as we would with 
+		   TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 */
+		if( !allowDH && cipherSuiteInfoPtr->keyexAlgo == CRYPT_ALGO_DH )
 			{
 			/* We can't do DH */
 			DEBUG_PRINT(( "  Rejected DH suite %s.\n", 
 						  cipherSuiteInfoPtr->debugText ));
 			continue;
 			}
-		if( !allowECDH && isEccAlgo( cipherSuiteInfoPtr->keyexAlgo ) )
+		if( !allowECDH && cipherSuiteInfoPtr->keyexAlgo == CRYPT_ALGO_ECDH )
 			{
 			/* We can't do ECDH */
 			DEBUG_PRINT(( "  Rejected ECDH suite %s.\n", 
@@ -589,27 +654,27 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  "non-RSA.\n", cipherSuiteInfoPtr->debugText ));
 			continue;
 			}
-		if( !allowECC && isEccAlgo( cipherSuiteInfoPtr->authAlgo ) )
+		if( !allowECDSA && cipherSuiteInfoPtr->authAlgo == CRYPT_ALGO_ECDSA )
 			{
-			/* The server doesn't have an ECC private key */
+			/* The server doesn't have an ECDSA private key */
 			DEBUG_PRINT(( "  Rejected ECC suite %s as server key is "
-						  "non-ECC.\n", cipherSuiteInfoPtr->debugText ));
+						  "non-ECDSA.\n", cipherSuiteInfoPtr->debugText ));
 			continue;
 			}
 		if( !allowTLS12 && \
 			( cipherSuiteInfoPtr->flags & CIPHERSUITE_FLAG_TLS12 ) )
 			{
 			/* We can't do TLS 1.2 */
-			DEBUG_PRINT(( "  Rejected TLS 1.2 suite %s.\n", 
-						  cipherSuiteInfoPtr->debugText ));
+			DEBUG_PRINT(( "  Rejected TLS 1.2 suite %s as we don't do "
+						  "TLS 1.2.\n", cipherSuiteInfoPtr->debugText ));
 			continue;
 			}
 		if( !allowTLS13 && \
 			( cipherSuiteInfoPtr->flags & CIPHERSUITE_FLAG_TLS13 ) )
 			{
 			/* We can't do TLS 1.3 */
-			DEBUG_PRINT(( "  Rejected TLS 1.3 suite %s.\n", 
-						  cipherSuiteInfoPtr->debugText ));
+			DEBUG_PRINT(( "  Rejected TLS 1.3 suite %s as we don't to "
+						  "TLS 1.3.\n", cipherSuiteInfoPtr->debugText ));
 			continue;
 			}
 		if( tlsMinVersion >= TLS_MINOR_VERSION_TLS12 && \
@@ -632,6 +697,20 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			continue;
 			}
 #endif /* USE_TLS13 */
+
+		/* If we're being scanned by a security scanner and it's a suite 
+		   that will trigger a bogus vulnerability report, don't respond to 
+		   it.  This typically won't be triggered because we can't 
+		   fingerprint the scanner until we see the extensions, which follow
+		   the cipher suites */
+		if( ( handshakeInfo->flags & HANDSHAKE_FLAG_ISSCANNER ) && \
+			( cipherSuiteInfoPtr->flags & CIPHERSUITE_FLAG_TRIGGER ) )
+			{
+			DEBUG_PRINT(( "  Skipping suite %s to avoid triggering a bogus "
+						  "vulnerability warning from a scanner.\n", 
+						  cipherSuiteInfoPtr->debugText ));
+			continue;
+			}
 
 		/* If we're only able to do basic TLS-PSK because there's no private 
 		   key present and the suite requires a private key then we can't 
@@ -686,6 +765,14 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 		}
 	ENSURES( LOOP_BOUND_OK );
+
+	/* Remember whether we've seen any TLS 1.3 suites, which means that 
+	   handling of further TLS 1.3 things stuffed into extensions later on 
+	   is OK */
+#ifdef USE_TLS13
+	if( tls13SuiteIndex < cipherSuiteInfoSize )
+		handshakeInfo->tls13OK = TRUE;
+#endif /* USE_TLS13 */
 
 	/* If the only matching suite that we found was an ECC one, set it to 
 	   the primary suite (which can then be retroactively knocked out as per 
@@ -868,6 +955,7 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 
 	/* Process the nonce and session ID */
+	REQUIRES( rangeCheck( TLS_NONCE_SIZE, 1, TLS_NONCE_SIZE ) );
 	status = sread( stream, isServer ? \
 						handshakeInfo->clientNonce : \
 						handshakeInfo->serverNonce, TLS_NONCE_SIZE );
@@ -925,8 +1013,9 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			{
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-					  "Invalid cipher suite length %d", 
-					  suiteLength ) );
+					  "Invalid cipher suite length %d, should be %d...%d", 
+					  suiteLength, UINT16_SIZE, 
+					  UINT16_SIZE * MAX_CIPHERSUITES ) );
 			}
 		suiteLength /= UINT16_SIZE;
 		}
@@ -1055,37 +1144,74 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 			/* If we're using an ECC cipher suite (either due to it being 
 			   the only suite available or because it was selected above) 
-			   and there's no ECC curve selected by the client, default to 
+			   and there's no ECC group selected by the client, default to 
 			   P256.  This is pretty much the universal default in any case,
 			   in fact 25% of servers on the Internet will run with P256 
 			   even if the client explicitly says they don't support it, see
 			   "In search of CurveSwap: Measuring elliptic curve 
 			   implementations in the wild" by Valenta, Sullivan, Sanso and 
 			   Heninger */
-			if( isEccAlgo( handshakeInfo->keyexAlgo ) && \
-				handshakeInfo->eccCurveID == CRYPT_ECCCURVE_NONE )
-				handshakeInfo->eccCurveID = CRYPT_ECCCURVE_P256;
+			if( handshakeInfo->keyexAlgo == CRYPT_ALGO_ECDH && \
+				handshakeInfo->keyexGroupInfo == NULL )
+				{
+				handshakeInfo->keyexGroupInfo = \
+						getTLSGroupInfoEntry( TLS_GROUP_SECP256R1 );
+				ENSURES( handshakeInfo->keyexGroupInfo != NULL );
+				}
 			}
 		
-		/* If we're using TLS 1.3, switch to the TLS 1.3 suite unless we've
-		   already fallen back to it because no other options were 
-		   available */
+		/* If we're using TLS 1.3, fix up the various issues arising from 
+		   the fact that we don't know until we're finished processing all
+		   of the extensions that it really is TLS 1.3 and not TLS 1.2 */
 #ifdef USE_TLS13
-		if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 && \
-			handshakeInfo->fallbackType != TLS_FALLBACK_TLS13 )				
+		if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
 			{
-			if( handshakeInfo->tls13SuiteInfoPtr == NULL )
+			DEBUG_PRINT(( "Performing TLS 1.3 fixups:\n" ));
+			
+			/* If we're using TLS 1.3, switch to the TLS 1.3 suite unless 
+			   we've already fallen back to it because no other options were 
+			   available */
+			if( handshakeInfo->fallbackType != TLS_FALLBACK_TLS13 )				
 				{
-				retExt( CRYPT_ERROR_NOTAVAIL,
-						( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
-						  "Client specified use of TLS 1.3 but did't offer "
-						  "any TLS 1.3 cipher suites" ) );
+				if( handshakeInfo->tls13SuiteInfoPtr == NULL )
+					{
+					retExt( CRYPT_ERROR_NOTAVAIL,
+							( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
+							  "Client specified use of TLS 1.3 but did't "
+							  "offer any TLS 1.3 cipher suites" ) );
+					}
+				DEBUG_PRINT(( "  Setting cipher suite to %s.\n",
+							  handshakeInfo->tls13SuiteInfoPtr->debugText ));
+				status = setSuiteInfo( sessionInfoPtr, handshakeInfo, 
+									   handshakeInfo->tls13SuiteInfoPtr );
+				if( cryptStatusError( status ) )
+					return( status );
+				} 
+
+			/* If we got offered both TLS classic and TLS 1.3 keyex groups
+			   and the TLS 1.3 option is the preferred one, switch to that
+			   now */
+			if( handshakeInfo->keyexTls13Preferred )
+				{
+				REQUIRES( handshakeInfo->keyexTls13GroupInfo != NULL );
+				DEBUG_PRINT_COND( handshakeInfo->keyexGroupInfo != NULL,
+								  ( "  Replacing %s keyex with more preferred "
+								    "TLS 1.3 %s.\n",
+								    handshakeInfo->keyexGroupInfo->description,
+								    handshakeInfo->keyexTls13GroupInfo->description ) );
+				handshakeInfo->keyexGroupInfo = \
+							handshakeInfo->keyexTls13GroupInfo;
 				}
-			status = setSuiteInfo( sessionInfoPtr, handshakeInfo, 
-								   handshakeInfo->tls13SuiteInfoPtr );
-			if( cryptStatusError( status ) )
-				return( status );
-			} 
+			handshakeInfo->keyexTls13GroupInfo = NULL;
+
+			/* If we're using a TLS 1.3 suite then the keyex authentication
+			   algorithm isn't set by the cipher suite like it is for TLS 
+			   classic, so we have to set it explicitly based on the server 
+			   key being used */
+			if( handshakeInfo->authAlgo == CRYPT_ALGO_NONE && \
+				sessionInfoPtr->privateKey != CRYPT_ERROR )
+				handshakeInfo->authAlgo = sessionInfoPtr->privateKeyAlgo;
+			}
 #endif /* USE_TLS13 */
 		}
 
@@ -1094,8 +1220,26 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( isServer && sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 )
 		{
 		CLEAR_FLAG( sessionInfoPtr->protocolFlags, TLS_PFLAG_TLS12LTS );
-		if( isServer )
-			handshakeInfo->flags &= ~HANDSHAKE_FLAG_NEEDTLS12LTSRESPONSE;
+		handshakeInfo->flags &= ~HANDSHAKE_FLAG_NEEDTLS12LTSRESPONSE;
+		}
+
+	/* If we're the server and we're being scanned, make sure that we don't
+	   agree to anything that will trigger the scanner.  If we can detect 
+	   this in advance then we simply skip the suite in processCipherSuite(),
+	   but if the detection is done via extensions, which follow the cipher
+	   suites, then we can't do it at that point and have to reject the
+	   handshake attempt here.  This works because the triggering suites are
+	   all less-preferred ones so if the following check passes then the 
+	   only suites offered were triggering ones */
+	if( isServer && ( handshakeInfo->flags & HANDSHAKE_FLAG_ISSCANNER ) && \
+		( handshakeInfo->cipherSuiteFlags & CIPHERSUITE_FLAG_TRIGGER ) )
+		{
+		DEBUG_PRINT(( "  Aborting handshake to avoid triggering a bogus "
+					  "vulnerability warning from a scanner.\n" ));
+		retExt( CRYPT_ERROR_NOTAVAIL,
+				( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
+				  "No encryption mechanism compatible with the remote "
+				  "system could be found" ) );
 		}
 
 	/* If we've eventually ended up with a GCM suite, typically in 

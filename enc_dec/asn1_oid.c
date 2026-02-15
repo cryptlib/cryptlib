@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				ASN.1 AlgorithmIdentifier OID Management					*
-*					Copyright Peter Gutmann 1992-2018						*
+*					Copyright Peter Gutmann 1992-2023						*
 *																			*
 ****************************************************************************/
 
@@ -106,7 +106,8 @@ static const ALGOID_INFO algoIDinfoTbl[] = {
   #endif /* USE_SHA2_EXT */
 	/* The following four ALGOID_CLASS_PKC entries are bug workarounds for 
 	   implementations that erroneously use xxxWithRSA when they should be 
-	   using straight RSA */
+	   using straight RSA, see the comment in 
+	   mechs/sign_rw.c:readCmsSignature() for details */
 	{ CRYPT_ALGO_RSA, CRYPT_ALGO_NONE, ALGOID_ENCODING_PKCS1, ALGOID_CLASS_PKC,
 	  MKOID( "\x06\x09\x2A\x86\x48\x86\xF7\x0D\x01\x01\x05" )
 	  MKDESC( "Bug workaround for implementations using sha1WithRSA instead of RSA" ) },
@@ -205,12 +206,19 @@ static const ALGOID_INFO algoIDinfoTbl[] = {
   #endif /* USE_SHA2_EXT */
 #endif /* USE_ECDSA */
 
-	/* EDDSA */
-#ifdef USE_EDDSA
-	{ CRYPT_ALGO_EDDSA, CRYPT_ALGO_NONE, ALGOID_ENCODING_NONE, ALGOID_CLASS_PKC,
+	/* Ed25519.  This follows the usual special-snowflake form of not 
+	   working like anything else in existence, it's both an 
+	   ALGOID_CLASS_PKC identifier when used to identify public keys and an
+	   ALGOID_CLASS_PKC_SIG identifier when used for signing, with SHA2-512
+	   implicitly hardcoded into it */
+#ifdef USE_ED25519
+	{ CRYPT_ALGO_ED25519, CRYPT_ALGO_NONE, ALGOID_ENCODING_NONE, ALGOID_CLASS_PKC,
 	  MKOID( "\x06\x03\x2B\x65\x70" )
 	  MKDESC( "ed25519 (1 3 101 112)" ) },
-#endif /* USE_EDDSA */
+	{ CRYPT_ALGO_ED25519, CRYPT_ALGO_NONE, ALGOID_ENCODING_NONE /*CRYPT_ALGO_SHA2, 64*/, ALGOID_CLASS_PKCSIG,
+	  MKOID( "\x06\x03\x2B\x65\x70" )
+	  MKDESC( "ed25519 (1 3 101 112)" ) },
+#endif /* USE_ED25519 */
 
 	/* Curve25519 */
 #ifdef USE_25519

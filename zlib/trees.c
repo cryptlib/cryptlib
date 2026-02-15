@@ -35,8 +35,10 @@
 /* #define GEN_TREES_H */
 
 #if defined( INC_ALL )
+  #include "crypt.h"    /* For ASAN suppression macros */
   #include "deflate.h"
 #else
+  #include "crypt.h"    /* For ASAN suppression macros */
   #include "zlib/deflate.h"
 #endif /* Compiler-specific includes */
 
@@ -733,6 +735,7 @@ local void scan_tree ( deflate_state *s, ct_data *tree, int max_code )	/* pcg */
  * Send a literal or distance tree in compressed form, using the codes in
  * bl_tree.
  */
+ASAN_NOCHECK_INTEGER_TRUNC	/* pcg */
 local void send_tree ( deflate_state *s, ct_data *tree, int max_code )	/* pcg */
 {
     int n;                     /* iterates over all tree elements */
@@ -815,6 +818,7 @@ local int build_bl_tree( deflate_state *s )	/* pcg */
  * lengths of the bit length codes, the literal tree and the distance tree.
  * IN assertion: lcodes >= 257, dcodes >= 1, blcodes >= 4.
  */
+ASAN_NOCHECK_INTEGER_TRUNC	/* pcg */
 local void send_all_trees( deflate_state *s, int lcodes, int dcodes, int blcodes )	/* pcg */
 {
     int rank;                    /* index in bl_order */
@@ -1030,6 +1034,7 @@ int ZLIB_INTERNAL _tr_tally ( deflate_state *s, unsigned dist, unsigned lc )	/* 
 /* ===========================================================================
  * Send the block data compressed using the given Huffman trees
  */
+ASAN_NOCHECK_INTEGER_TRUNC	/* pcg */
 local void compress_block( deflate_state *s, const ct_data *ltree, const ct_data *dtree )	/* pcg */
 {
     unsigned dist;      /* distance of matched string */

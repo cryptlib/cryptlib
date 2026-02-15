@@ -63,76 +63,92 @@ static int initPubkeyAlgo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		};
 	int keySize;
 #endif /* USE_ECDSA */
-	int pubKeyAlgo, status;
+#ifdef USE_ED25519
+	static const ALGO_STRING_INFO algoStringPubkeyEd25519Tbl[] = {
+		{ "ssh-ed25519", 11, CRYPT_ALGO_ED25519, CRYPT_ALGO_SHA2 },
+		{ NULL, 0, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE }, 
+			{ NULL, 0, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE }
+		};
+#endif /* USE_ED25519 */
+	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
 
-	/* Find out which algorithm the server key is using */
-	status = krnlSendMessage( sessionInfoPtr->privateKey,
-							  IMESSAGE_GETATTRIBUTE, &pubKeyAlgo,
-							  CRYPT_CTXINFO_ALGO );
-	if( cryptStatusError( status ) )
-		return( status );
-	handshakeInfo->pubkeyAlgo = pubKeyAlgo;	/* int vs.enum */
-
 	/* If it's a standard public-key algorithm, return the algorithm 
 	   information directly */
-	if( handshakeInfo->pubkeyAlgo == CRYPT_ALGO_RSA )
+	handshakeInfo->pubkeyAlgo = sessionInfoPtr->privateKeyAlgo;
+	switch( handshakeInfo->pubkeyAlgo )
 		{
-		handshakeInfo->algoStringPubkeyTbl = algoStringPubkeyRSATbl;
-		handshakeInfo->algoStringPubkeyTblNoEntries = \
-			FAILSAFE_ARRAYSIZE( algoStringPubkeyRSATbl, ALGO_STRING_INFO );
-		return( CRYPT_OK );
-		}
+		case CRYPT_ALGO_RSA:
+			handshakeInfo->algoStringPubkeyTbl = algoStringPubkeyRSATbl;
+			handshakeInfo->algoStringPubkeyTblNoEntries = \
+				FAILSAFE_ARRAYSIZE( algoStringPubkeyRSATbl, ALGO_STRING_INFO );
+			return( CRYPT_OK );
+
 #ifdef USE_DSA
-	if( handshakeInfo->pubkeyAlgo == CRYPT_ALGO_DSA )
-		{
-		handshakeInfo->algoStringPubkeyTbl = algoStringPubkeyDSATbl;
-		handshakeInfo->algoStringPubkeyTblNoEntries = \
-			FAILSAFE_ARRAYSIZE( algoStringPubkeyDSATbl, ALGO_STRING_INFO );
-		return( CRYPT_OK );
-		}
+		case CRYPT_ALGO_DSA:
+			handshakeInfo->algoStringPubkeyTbl = algoStringPubkeyDSATbl;
+			handshakeInfo->algoStringPubkeyTblNoEntries = \
+				FAILSAFE_ARRAYSIZE( algoStringPubkeyDSATbl, ALGO_STRING_INFO );
+			return( CRYPT_OK );
 #endif /* USE_DSA */
+
 #ifdef USE_ECDSA
-	ENSURES( handshakeInfo->pubkeyAlgo == CRYPT_ALGO_ECDSA );
+		case CRYPT_ALGO_ECDSA:
+			/* ECDSA gets more complicated because there are multiple fixed 
+			   key sizes possible so we have to vary the algrithm table 
+			   based on our key size */
+			status = krnlSendMessage( sessionInfoPtr->privateKey, 
+									  IMESSAGE_GETATTRIBUTE, &keySize, 
+									  CRYPT_CTXINFO_KEYSIZE );
+			if( cryptStatusError( status ) )
+				return( status );
+			switch( keySize )
+				{
+				case bitsToBytes( 256 ):
+					handshakeInfo->algoStringPubkeyTbl = \
+											algoStringPubkeyECDSATbl;
+					handshakeInfo->algoStringPubkeyTblNoEntries = \
+						FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSATbl, \
+											ALGO_STRING_INFO );
+				break;
 
-	/* ECDSA gets more complicated because there are multiple fixed key 
-	   sizes possible so we have to vary the algrithm table based on our key 
-	   size */
-	status = krnlSendMessage( sessionInfoPtr->privateKey, 
-							  IMESSAGE_GETATTRIBUTE, &keySize, 
-							  CRYPT_CTXINFO_KEYSIZE );
-	if( cryptStatusError( status ) )
-		return( status );
-	switch( keySize )
-		{
-		case bitsToBytes( 256 ):
-			handshakeInfo->algoStringPubkeyTbl = algoStringPubkeyECDSATbl;
-			handshakeInfo->algoStringPubkeyTblNoEntries = \
-				FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSATbl, ALGO_STRING_INFO );
-			break;
+			case bitsToBytes( 384 ):
+				handshakeInfo->algoStringPubkeyTbl = \
+										algoStringPubkeyECDSA384Tbl;
+				handshakeInfo->algoStringPubkeyTblNoEntries = \
+					FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSA384Tbl, \
+										ALGO_STRING_INFO );
+				break;
 
-		case bitsToBytes( 384 ):
-			handshakeInfo->algoStringPubkeyTbl = algoStringPubkeyECDSA384Tbl;
-			handshakeInfo->algoStringPubkeyTblNoEntries = \
-				FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSA384Tbl, ALGO_STRING_INFO );
-			break;
+			case bitsToBytes( 521 ):
+				handshakeInfo->algoStringPubkeyTbl = \
+										algoStringPubkeyECDSA521Tbl;
+				handshakeInfo->algoStringPubkeyTblNoEntries = \
+					FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSA521Tbl, \
+										ALGO_STRING_INFO );
+				break;
 
-		case bitsToBytes( 521 ):
-			handshakeInfo->algoStringPubkeyTbl = algoStringPubkeyECDSA521Tbl;
+			default:
+				retIntError();
+			}
+		return( CRYPT_OK );
+#endif /* USE_ECDSA */
+
+#ifdef USE_ED25519
+		case CRYPT_ALGO_ED25519:
+			handshakeInfo->algoStringPubkeyTbl = algoStringPubkeyEd25519Tbl;
 			handshakeInfo->algoStringPubkeyTblNoEntries = \
-				FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSA521Tbl, ALGO_STRING_INFO );
-			break;
+				FAILSAFE_ARRAYSIZE( algoStringPubkeyEd25519Tbl, ALGO_STRING_INFO );
+			return( CRYPT_OK );
+#endif /* USE_ED25519 */
 
 		default:
 			retIntError();
 		}
 
-	return( CRYPT_OK );
-#else
 	retIntError();
-#endif /* USE_ECDSA */
 	}
 
 /* Handle an ephemeral DH key exchange */
@@ -447,20 +463,18 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											 SSH2_COOKIE_SIZE );
 	if( cryptStatusOK( status ) )
 		{
-		int pkcAlgo;
-
 		/* If the server key is a non-ECC key then it can't be used with an 
 		   ECC keyex so we have to explicitly disable it (technically it's 
 		   possible to mix ECDH with RSA but this is more likely an error 
 		   than anything deliberate) */
-		status = krnlSendMessage( sessionInfoPtr->privateKey, 
-								  IMESSAGE_GETATTRIBUTE, &pkcAlgo,
-								  CRYPT_CTXINFO_ALGO );
-		if( cryptStatusOK( status ) )
+		if( isEccAlgo( sessionInfoPtr->privateKeyAlgo ) )
+			status = writeAlgoClassList( &stream, SSH_ALGOCLASS_KEYEX );
+		else
 			{
-			status = writeAlgoClassList( &stream, isEccAlgo( pkcAlgo ) ? \
-											SSH_ALGOCLASS_KEYEX : \
-											SSH_ALGOCLASS_KEYEX_NOECC );
+			DEBUG_DIAG(( "Disabling ECC keyex because server key is "
+						 "non-ECC" ));
+			status = writeAlgoClassList( &stream, 
+										 SSH_ALGOCLASS_KEYEX_NOECC );
 			}
 		}
 	if( cryptStatusOK( status ) )
@@ -600,7 +614,7 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   DH:
 		byte	type = SSH_MSG_KEXDH_INIT / SSH_MSG_KEXDH_GEX_INIT
 		mpint	y
-	   ECDH:
+	   ECDH/25519:
 		byte	type = SSH_MSG_KEX_ECDH_INIT
 		string	q_c
 
@@ -616,7 +630,7 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						    handshakeInfo->isECDH ) ? \
 							SSH_MSG_KEXDH_INIT : SSH_MSG_KEX_DH_GEX_INIT,
 						  ID_SIZE + ( handshakeInfo->isECDH ? \
-							sizeofString32( MIN_PKCSIZE_ECCPOINT ) : \
+							sizeofString32( MIN_PKCSIZE_BERNSTEIN ) : \
 							sizeofString32( MIN_PKCSIZE ) ) );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -632,34 +646,10 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "Invalid %s phase 1 keyex value",
 				  handshakeInfo->isECDH ? "ECDH" : "DH" ) );
 		}
-	if( handshakeInfo->isECDH )
-		{
-		if( !isValidECDHsize( handshakeInfo->clientKeyexValueLength,
-							  handshakeInfo->serverKeySize, LENGTH_SIZE ) )
-			status = CRYPT_ERROR_BADDATA;
-		}
-	else
-		{
-		if( !isValidDHsize( handshakeInfo->clientKeyexValueLength,
-							handshakeInfo->serverKeySize, LENGTH_SIZE ) )
-			status = CRYPT_ERROR_BADDATA;
-		}
+	status = checkKeyexValueLength( handshakeInfo, NULL, KEYEX_CHECK_PHASE1, 
+									SESSION_ERRINFO );
 	if( cryptStatusError( status ) )
-		{
-#ifdef USE_ERRMSGS
-		const int clientKeyexSize = handshakeInfo->isECDH ? \
-			extractECDHsize( handshakeInfo->clientKeyexValueLength, LENGTH_SIZE ) : \
-			extractDHsize( handshakeInfo->clientKeyexValueLength, LENGTH_SIZE );
-#endif /* USE_ERRMSGS */
-
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid %s phase 1 keyex size, expected %d (%d), "
-				  "got %d (%d)", handshakeInfo->isECDH ? "ECDH" : "DH",
-				  handshakeInfo->serverKeySize, 
-				  handshakeInfo->serverKeySize * 8,
-				  clientKeyexSize, clientKeyexSize * 8 ) );
-		}
+		return( status );
 	CFI_CHECK_UPDATE( "SSH_MSG_KEXDH_INIT" );
 
 	/* If we're fuzzing the input then we're reading static data for which 
@@ -751,6 +741,17 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			string	signature
 		...
 
+	   25519 + Ed25519
+		byte		SSH_MSG_KEX_ECDH_REPLY
+		string		[ server key/certificate ]
+			string	"ssh-ed25519"
+			string	key
+		string		public_value
+		string		[ signature of handshake data ]
+			string	"ssh-ed25519"
+			string	signature
+		...
+
 	   SSH_MSG_KEXDH_REPLY (isFixedDH) and SSH_MSG_KEX_ECDH_REPLY (isECDH) 
 	   have the same value so they're handled with the same code.
 
@@ -811,20 +812,37 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	CFI_CHECK_UPDATE( "completeKeyex" );
 
-	/* Sign the hash.  The reason for the min() part of the expression is
-	   that iCryptCreateSignature() gets suspicious of very large buffer
-	   sizes, for example when the user has specified the use of a 1MB send
-	   buffer */
+	/* Sign the exchange hash, with the usual special-snowflake handling for 
+	   the Bernstein algorithms */
 	clearErrorInfo( &localErrorInfo );
 	status = sMemGetDataBlockRemaining( &stream, &dataPtr, &dataLength );
 	if( cryptStatusOK( status ) )
 		{
+		SIG_DATA_INFO sigDataInfo;
+
+#ifdef USE_ED25519
+		if( handshakeInfo->pubkeyAlgo == CRYPT_ALGO_ED25519 )
+			{
+			setSigDataInfoMessage( &sigDataInfo, 
+								   handshakeInfo->preExchangeHash, 
+								   handshakeInfo->preExchangeHashLength );
+			status = iCryptCreateSignature( dataPtr, 
+								min( dataLength, MAX_INTLENGTH_SHORT - 1 ), 
+								&sigLength, CRYPT_IFORMAT_SSH, 
+								sessionInfoPtr->privateKey, &sigDataInfo, 
+								NULL, &localErrorInfo );
+			}
+		else
+#endif /* USE_ED25519 */
+		{
+		setSigDataInfoHash( &sigDataInfo, 
+							handshakeInfo->iExchangeHashContext );
 		status = iCryptCreateSignature( dataPtr, 
-							min( dataLength, MAX_INTLENGTH_SHORT - 1 ), 
-							&sigLength, CRYPT_IFORMAT_SSH, 
-							sessionInfoPtr->privateKey,
-							handshakeInfo->iExchangeHashContext, NULL,
-							&localErrorInfo );
+								min( dataLength, MAX_INTLENGTH_SHORT - 1 ), 
+								&sigLength, CRYPT_IFORMAT_SSH, 
+								sessionInfoPtr->privateKey, &sigDataInfo, 
+								NULL, &localErrorInfo );
+		}
 		insertCryptoDelay();
 		}
 	krnlSendNotifier( handshakeInfo->iExchangeHashContext,

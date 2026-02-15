@@ -143,7 +143,7 @@ static int openUserKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iUserKeyset,
 	REQUIRES( isEnumRangeOpt( options, CRYPT_KEYOPT ) );
 
 	userFileNameLen = sprintf_s( userFileName, 16, "u%06x", fileRef );
-	ENSURES( userFileNameLen > 0 && userFileNameLen < 16 );
+	ENSURES( rangeCheck( userFileNameLen, 7, 15 ) );
 	return( openKeyset( iUserKeyset, userFileName, userFileNameLen, 
 						options ) );
 	}
@@ -1131,14 +1131,17 @@ int zeroiseUsers( INOUT_PTR USER_INFO *userInfoPtr )
 	LOOP_LARGE( i = 0, i < userIndexInfo->lastEntry, i++ )
 		{
 		char userFileName[ 16 + 8 ];
+		int result;
 
 		ENSURES( LOOP_INVARIANT_LARGE( i, 0, userIndexInfo->lastEntry - 1 ) );
 
 		/* Erase the given user keyset */
-		sprintf_s( userFileName, 16, "u%06x",  userIndex[ i ].fileRef );
+		result = sprintf_s( userFileName, 16, "u%06x", 
+							userIndex[ i ].fileRef );
+		ENSURES( rangeCheck( result, 7, 15 ) );
 		status = fileBuildCryptlibPath( userFilePath, MAX_PATH_LENGTH, 
 										&userFilePathLen, userFileName, 
-										strlen( userFileName ), 
+										strnlen_s( userFileName, 16 ), 
 										BUILDPATH_GETPATH );
 		if( cryptStatusOK( status ) )
 			{
@@ -1175,7 +1178,7 @@ static int createUserKeyset( INOUT_PTR USER_INFO *defaultUserInfoPtr,
 	assert( isReadPtr( newUserInfoPtr, sizeof( USER_INFO ) ) );
 
 	/* Try and open the index file */
-	status = openIndexKeyset( &iIndexKeyset, CRYPT_IKEYOPT_EXCLUSIVEACCESS );
+	status = openIndexKeyset( &iIndexKeyset, CRYPT_IKEYOPT_EXCLUSIVEWRITE );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -1316,7 +1319,7 @@ int initUserIndex( OUT_PTR_PTR_OPT void **userIndexPtrPtr )
 	   index keyset it's a bit more clear-cut, we shouldn't fail if the
 	   access fails so we just skip it and continue, making it look as if
 	   we're in the zeroised state */
-	status = openIndexKeyset( &iIndexKeyset, CRYPT_IKEYOPT_EXCLUSIVEACCESS );
+	status = openIndexKeyset( &iIndexKeyset, CRYPT_IKEYOPT_SAFEREAD );
 	if( cryptStatusError( status ) )
 		{
 		/* If there's no index file present, we're already in the zeroised

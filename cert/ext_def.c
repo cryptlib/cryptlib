@@ -598,7 +598,9 @@ static const ATTRIBUTE_INFO extensionInfo[] = {
 	   need at least something DER-encoded to be able to read it.  OpenSSL 
 	   0.9.7d and later used an OCTET STRING.  The length is (somewhat
 	   arbitrarily) set at 256 bits, corresponding to a SHA-256 hash, to 
-	   prevent it being (easily) used for chosen-prefix attacks.
+	   prevent it being (easily) used for chosen-prefix attacks.  
+	   Coincidentally, around twenty years later the IETF finally got around 
+	   to specifying this exact thing in an RFC, RFC 8854.
 	   
 	   We set the en/decoding level to FL_LEVEL_OBLIVIOUS to make sure that 
 	   it's still encoded even in oblivious mode, if we don't do this then a 
@@ -1247,7 +1249,10 @@ static const ATTRIBUTE_INFO extensionInfo[] = {
 	   The handling of the SEQUENCE OF GeneralName for this attribute and 
 	   others where the construct is used is somewhat peculiar in that it's
 	   not given as FL_MULTIVALUED, see the comment in the generalNameInfo
-	   table for details */
+	   table for details.  We allow it at compliance level REDUCED because
+	   it's needed to encode DNS names, the most common usage for 
+	   certificates.  issuerAltName OTOH is essentially never used so we 
+	   require STANDARD for that */
 	{ MKOID( "\x06\x03\x55\x1D\x11" ), FIELDID_FOLLOWS,
 	  DESCRIPTION( "subjectAltName" )
 	  ENCODING( SEQUENCE ),
@@ -3759,8 +3764,7 @@ static BOOLEAN checkExtension( IN_ARRAY( noAttributeInfoEntries ) \
 			DEBUG_DIAG(( "Extension '%s' is both a SET/SEQUENCE and "
 						 "end-of-SET/SEQUENCE",
 						 ( attributeInfoPtr->description != NULL ) ? \
-							attributeInfoPtr->description : "<Unknown>", 
-						 nestingLevelDelta ));
+							attributeInfoPtr->description : "<Unknown>" ));
 			return( FALSE );
 			}
 

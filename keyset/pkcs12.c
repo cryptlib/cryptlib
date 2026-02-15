@@ -1005,8 +1005,12 @@ int setAccessMethodPKCS12( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	FNPTR_SET( keysetInfoPtr->initFunction, initFunction );
 	FNPTR_SET( keysetInfoPtr->shutdownFunction, shutdownFunction );
 	status = initPKCS12get( keysetInfoPtr );
+#ifdef USE_PKCS12_WRITE
 	if( cryptStatusOK( status ) )
 		status = initPKCS12set( keysetInfoPtr );
+#else
+	FNPTR_SET( keysetInfoPtr->setItemFunction, NULL );
+#endif /* USE_PKCS12_WRITE */
 	return( status );
 	}
 #endif /* USE_PKCS12 */

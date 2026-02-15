@@ -227,6 +227,7 @@ static int readPrivateKeyDecryptionInfo( INOUT_PTR STREAM *stream,
 		{
 		keyInfo->cryptAlgo = CRYPT_ALGO_IDEA;
 		keyInfo->hashAlgo = CRYPT_ALGO_MD5;
+		REQUIRES( rangeCheck( 8, 1, CRYPT_MAX_IVSIZE ) );
 		status = sread( stream, keyInfo->iv, 8 );
 		if( cryptStatusError( status ) )
 			return( status );
@@ -278,6 +279,7 @@ static int readPrivateKeyDecryptionInfo( INOUT_PTR STREAM *stream,
 		   the payload */
 		keyInfo->hashedChecksum = TRUE;
 		}
+		REQUIRES( rangeCheck( ivSize, 1, CRYPT_MAX_IVSIZE ) );
 	status = sread( stream, keyInfo->iv, ivSize );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -317,7 +319,10 @@ static int readRSAKeyComponents( INOUT_PTR STREAM *stream,
 	static_assert( PGP_KEYID_SIZE < MIN_PKCSIZE, "PGP keyID size" );
 	status = sseek( stream, stell( stream ) - PGP_KEYID_SIZE );
 	if( cryptStatusOK( status ) )
+		{
+		REQUIRES( rangeCheck( PGP_KEYID_SIZE, 1, PGP_KEYID_SIZE ) );
 		status = sread( stream, keyInfo->pgp2KeyID, PGP_KEYID_SIZE );
+		}
 	if( cryptStatusError( status ) )
 		return( status );
 #endif /* USE_PGP2 */
@@ -596,7 +601,7 @@ static int readUserID( INOUT_PTR STREAM *stream,
 		{
 		void *dataPtr;
 
-		REQUIRES( isIntegerRange( packetLength ) );
+		REQUIRES( isShortIntegerRangeNZ( packetLength ) );
 		status = sMemGetDataBlock( stream, &dataPtr, packetLength );
 		if( cryptStatusError( status ) )
 			return( status );
@@ -827,6 +832,7 @@ static int readKey( INOUT_PTR STREAM *stream,
 	packetHeader[ 3 ] = PGP_VERSION_OPENPGP;
 
 	/* Read the timestamp and skip the validity period (for PGP 2.x keys) */
+	REQUIRES( boundsCheck( 4, 4, 16 ) );
 	status = sread( stream, packetHeader + 4, 4 );
 	if( cryptStatusOK( status ) && !pgpInfo->isOpenPGP )
 		status = sSkip( stream, 2, 2 );
@@ -1129,6 +1135,7 @@ static int processKeyringPackets( INOUT_PTR STREAM *stream,
 			{
 			REQUIRES( bufEnd >= 0 && bufEnd < bufSize );
 
+			REQUIRES( boundsCheckZ( bufEnd, bufSize - bufEnd, bufSize ) );
 			status = length = sread( stream, buffer + bufEnd,
 									 bufSize - bufEnd );
 			if( cryptStatusError( status ) || length <= 0 )

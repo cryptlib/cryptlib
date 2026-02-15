@@ -49,6 +49,13 @@ static BOOLEAN handleCertImportError( const int errorCode, const int lineNo )
 
 /* Test certificate import code */
 
+typedef enum {
+	CERTIMPORT_CONVENTIONAL,
+	CERTIMPORT_CONVENTIONAL_BASE64,
+	CERTIMPORT_ECC,
+	CERTIMPORT_ED25519
+	} CERTIMPORT_TYPE;
+
 static BOOLEAN handleCertError( const CRYPT_CERTIFICATE cryptCert, 
 								const int certNo )
 	{
@@ -98,8 +105,7 @@ static BOOLEAN handleCertError( const CRYPT_CERTIFICATE cryptCert,
 	return( FALSE );
 	}
 
-static int certImport( const int certNo, const BOOLEAN isECC, 
-					   const BOOLEAN isBase64 )
+static int certImport( const int certNo, const CERTIMPORT_TYPE importType )
 	{
 	CRYPT_CERTIFICATE cryptCert;
 	FILE *filePtr;
@@ -107,10 +113,18 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 	int count, value, status;
 
 	fprintf( outputStream, "Testing %scertificate #%d import...\n",
-			 isECC ? "ECC " : isBase64 ? "base64 " : "", certNo );
-	filenameFromTemplate( buffer, isECC ? ECC_CERT_FILE_TEMPLATE : \
-								  isBase64 ? BASE64CERT_FILE_TEMPLATE : \
-											 CERT_FILE_TEMPLATE, certNo );
+			 ( importType == CERTIMPORT_ECC ) ? "ECC " : \
+			 ( importType == CERTIMPORT_ED25519 ) ? "Ed25519 " : \
+			 ( importType == CERTIMPORT_CONVENTIONAL_BASE64 ) ? "base64 " : "", 
+			 certNo );
+	filenameFromTemplate( buffer, 
+						  ( importType == CERTIMPORT_ECC ) ? \
+						    ECC_CERT_FILE_TEMPLATE : \
+						  ( importType == CERTIMPORT_ED25519 ) ? \
+						    ED25519_CERT_FILE_TEMPLATE : \
+						  ( importType == CERTIMPORT_CONVENTIONAL_BASE64 ) ? \
+						    BASE64CERT_FILE_TEMPLATE : \
+							CERT_FILE_TEMPLATE, certNo );
 	if( ( filePtr = fopen( buffer, "rb" ) ) == NULL )
 		{
 		puts( "Couldn't find certificate file for import test." );
@@ -123,7 +137,8 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 	status = cryptImportCert( buffer, count, CRYPT_UNUSED,
 							  &cryptCert );
 
-	if( status == CRYPT_ERROR_NOSECURE && !( isECC || isBase64 ) && \
+	if( status == CRYPT_ERROR_NOSECURE && \
+		importType == CERTIMPORT_CONVENTIONAL && \
 		( certNo == 8 || certNo == 9 ) )	/* 9 = 512-bit, 10 = P12 512-bit */
 		{
 		/* Some older certs use totally insecure 512-bit keys and can't be
@@ -137,7 +152,8 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 			   outputStream );
 		return( TRUE );
 		}
-	if( status == CRYPT_ERROR_NOSECURE && isECC && \
+	if( status == CRYPT_ERROR_NOSECURE && \
+		importType == CERTIMPORT_ECC && \
 		( certNo == 1 || certNo == 2 || certNo == 3 || certNo == 4 ) )
 		{
 		/* Some ECC certs are now showing the same problem as conventional
@@ -147,7 +163,8 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 			   outputStream );
 		return( TRUE );
 		}
-	if( status == CRYPT_ERROR_BADDATA && !( isECC || isBase64 ) && \
+	if( status == CRYPT_ERROR_BADDATA && \
+		importType == CERTIMPORT_CONVENTIONAL && \
 		certNo == 3 )	/* With RIPEMD-160 support */
 		{
 		fputs( "Warning: Certificate import failed for RegTP/Deutsche "
@@ -155,7 +172,8 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 			   "values.\n\n", outputStream );
 		return( TRUE );
 		}
-	if( status == CRYPT_ERROR_NOTAVAIL && !( isECC || isBase64 ) && \
+	if( status == CRYPT_ERROR_NOTAVAIL && \
+		importType == CERTIMPORT_CONVENTIONAL && \
 		certNo == 3 )	/* Without RIPEMD-160 support */
 		{
 		/* This certificate uses RIPEMD-160 as its hash algorithm */
@@ -164,7 +182,8 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 			   "this build of cryptlib.\n\n", outputStream );
 		return( TRUE );
 		}
-	if( status == CRYPT_ERROR_NOTAVAIL && !( isECC || isBase64 ) && \
+	if( status == CRYPT_ERROR_NOTAVAIL && \
+		importType == CERTIMPORT_CONVENTIONAL && \
 		( certNo == 20 || certNo == 33 || certNo == 35 || certNo == 37 ) )
 		{
 		/* These are ECDSA certificates, the algorithm isn't enabled by 
@@ -175,7 +194,8 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 		return( TRUE );
 		}
 #ifndef USE_RPKI
-	if( status == CRYPT_ERROR_BADDATA && !( isECC || isBase64 ) && \
+	if( status == CRYPT_ERROR_BADDATA && \
+		importType == CERTIMPORT_CONVENTIONAL && \
 		certNo == 28 )
 		{
 		fputs( "Warning: Certificate import failed for RPKI certificate "
@@ -185,7 +205,8 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 		return( TRUE );
 		}
 #endif /* USE_RPKI */
-	if( status == CRYPT_ERROR_BADDATA && !( isECC || isBase64 ) && \
+	if( status == CRYPT_ERROR_BADDATA && \
+		importType == CERTIMPORT_CONVENTIONAL && \
 		certNo == 29 )
 		{
 		/* This certificate has a non-DER encoding of the serialNumber value
@@ -195,7 +216,8 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 			   outputStream );
 		return( TRUE );
 		}
-	if( status == CRYPT_ERROR_BADDATA && !( isECC || isBase64 ) && \
+	if( status == CRYPT_ERROR_BADDATA && \
+		importType == CERTIMPORT_CONVENTIONAL && \
 		certNo == 30 )
 		{
 		/* This certificate has the algoID in the signature altered to make 
@@ -207,7 +229,21 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 			   outputStream );
 		return( TRUE );
 		}
-	if( status == CRYPT_ERROR_BADDATA && isBase64 && \
+	if( status == CRYPT_ERROR_BADDATA && \
+		importType == CERTIMPORT_CONVENTIONAL && \
+		certNo == 33 )
+		{
+		/* This certificate has an invalid subjectAltName.dnsName "g.co",
+		   reading at CRYPT_COMPLIANCELEVEL_OBLIVIOUS will skip the
+		   subjectAltName and allow it to be read */
+		fputs( "Certificate import failed for certificate with invalid "
+			   "subjectAltName.dnsName.\n", outputStream );
+		fputs( "  (This is the correct result for this test).\n\n", 
+			   outputStream );
+		return( TRUE );
+		}
+	if( status == CRYPT_ERROR_BADDATA && \
+		importType == CERTIMPORT_CONVENTIONAL_BASE64 && \
 		( certNo == 3 || certNo == 4 ) )
 		{
 		/* These certificates claim to be in PEM format but have a single 
@@ -220,7 +256,8 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 		return( TRUE );
 		}
 #if CRYPT_MAX_PKCSIZE < 512
-	if( status == CRYPT_ERROR_OVERFLOW && !( isECC || isBase64 ) && \
+	if( status == CRYPT_ERROR_OVERFLOW && \
+		importType == CERTIMPORT_CONVENTIONAL && \
 		certNo == 34 )	/* Certificate with very large key */
 		{
 		fprintf( outputStream, "Certificate import failed for certificate "
@@ -254,10 +291,29 @@ static int certImport( const int certNo, const BOOLEAN isECC,
 		status = cryptCheckCert( cryptCert, CRYPT_UNUSED );
 		if( cryptStatusError( status ) )
 			{
-			if( !handleCertError( cryptCert, certNo ) )
+#if 0		/* Enable if CHECK_ECDSA_MALLEABILITY is defined in ctx_ecdsa.c */
+			if( status == CRYPT_ERROR_SIGNATURE && \
+				importType == CERTIMPORT_ECC && \
+				( certNo == 5 || certNo == 7 || certNo == 8 || \
+				  certNo == 10 || certNo == 11 ) )
 				{
-				return( extErrorExit( cryptCert, "cryptCheckCert()", 
-									  status, __LINE__ ) );
+				/* These certificates have the ECDSA signature in non-
+				   canonical form, which will be rejected by the strict 
+				   signature-checking code */
+				fputs( "\nSignature check failed for certificate with "
+					   "non-canonical ECDSA signature encoding.\n", 
+					   outputStream );
+				fputs( "  (This is the correct result for this test).\n", 
+					   outputStream );
+				}
+			else
+#endif /* 0 */
+				{	
+				if( !handleCertError( cryptCert, certNo ) )
+					{
+					return( extErrorExit( cryptCert, "cryptCheckCert()", 
+										  status, __LINE__ ) );
+					}
 				}
 			}
 		else
@@ -327,7 +383,7 @@ int testCertImport( void )
 
 	for( i = 1; i <= 37; i++ )
 		{
-		if( !certImport( i, FALSE, FALSE ) )
+		if( !certImport( i, CERTIMPORT_CONVENTIONAL ) )
 			return( FALSE );
 		}
 	return( TRUE );
@@ -344,9 +400,33 @@ int testCertImportECC( void )
 		return( TRUE );
 		}
 
-	for( i = 1; i <= 10; i++ )
+	/* Cert 1-10 = pre-mainstream-use test certificates, 11-12 = Let's 
+	   Encrypt P384, 13-14 = GlobalSign P384, 15 = GlobalSign P256, 16 = 
+	   Amazon P256, 17 = Amazon P384, 18 = X9 P256 */
+	for( i = 1; i <= 18; i++ )
 		{
-		if( !certImport( i, TRUE, FALSE ) )
+		if( !certImport( i, CERTIMPORT_ECC ) )
+			return( FALSE );
+		}
+	return( TRUE );
+	}
+
+int testCertImport25519( void )
+	{
+	int i;
+
+	if( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) == CRYPT_ERROR_NOTAVAIL )
+		{
+		fputs( "Ed25519 algorithm support appears to be disabled, skipping "
+			   "processing of Ed25519\ncertificates.\n\n", outputStream );
+		return( TRUE );
+		}
+
+	/* There are no public certificates using Ed25519 available at the time 
+	   of writing */
+	for( i = 1; i < 1; i++ )
+		{
+		if( !certImport( i, CERTIMPORT_ED25519 ) )
 			return( FALSE );
 		}
 	return( TRUE );
@@ -923,7 +1003,7 @@ int testBase64CertImport( void )
 
 	for( i = 1; i <= 4; i++ )
 		{
-		if( !certImport( i, FALSE, TRUE ) )
+		if( !certImport( i, CERTIMPORT_CONVENTIONAL_BASE64 ) )
 			return( FALSE );
 		}
 	return( TRUE );

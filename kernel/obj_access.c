@@ -103,7 +103,7 @@ static int checkAccessValid( IN_HANDLE const int objectHandle,
 							 IN_ERROR const int errorCode )
 	{
 	OBJECT_INFO *objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
-	OBJECT_INFO *objectInfoPtr;
+	const OBJECT_INFO *objectInfoPtr;
 
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isEnumRange( checkType, ACCESS_CHECK ) );
@@ -442,7 +442,8 @@ static int releaseObject( IN_HANDLE const int objectHandle,
 		{
 		/* It's an external access to free the object for access by others, 
 		   clear the reference count */
-		REQUIRES_MUTEX( checkType == ACCESS_CHECK_SUSPEND, objectTable );
+		REQUIRES_MUTEX( checkType == ACCESS_CHECK_SUSPEND && \
+						refCount != NULL, objectTable );
 
 		*refCount = objectInfoPtr->lockCount;
 		objectInfoPtr->lockCount = 0;

@@ -283,9 +283,9 @@ static int findEntry( INOUT_PTR SCOREBOARD_INFO *scoreboardInfo,
 			( !keyIsSessionID && \
 			  scoreboardEntryPtr->fqdnCheckValue == checkValue ) )
 			{
-			void *hashPtr = keyIsSessionID ? \
-								scoreboardEntryPtr->sessionHash : \
-								scoreboardEntryPtr->fqdnHash;
+			const void *hashPtr = keyIsSessionID ? \
+								  scoreboardEntryPtr->sessionHash : \
+								  scoreboardEntryPtr->fqdnHash;
 
 			if( !dataHashed )
 				{

@@ -1341,6 +1341,7 @@ static int readOcspID( INOUT_PTR STREAM *stream,
 			if( length > idMaxLen )
 				return( CRYPT_ERROR_OVERFLOW );
 			*idLen = length;
+			REQUIRES( rangeCheck( length, 1, idMaxLen ) );
 			return( sread( stream, id, length ) );
 
 		case MAKE_CTAG( CTAG_OI_CERTIFICATE ):

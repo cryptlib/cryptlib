@@ -1800,7 +1800,7 @@ static int writeCertPath( INOUT_PTR STREAM *stream,
 						  IN_ENUM( CRYPT_CERTFORMAT ) \
 								const CRYPT_CERTFORMAT_TYPE certFormatType )
 	{
-	CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+	const CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
 	LOOP_INDEX i;
 	int status = CRYPT_OK;
 

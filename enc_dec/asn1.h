@@ -318,7 +318,7 @@ typedef struct {
 
 #define sizeofOID( oid )	( 1 + 1 + byteToInt( oid[ 1 ] ) )
 #define matchOID( oid, oidLength, oidToMatch ) \
-		( oidLength == sizeofOID( oidToMatch ) && \
+		( ( oidLength ) == sizeofOID( oidToMatch ) && \
 		  !memcmp( oid, oidToMatch, oidLength ) ) 
 RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 int readOID( INOUT_PTR STREAM *stream, 

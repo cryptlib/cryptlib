@@ -649,6 +649,105 @@ BOOLEAN BN_sqr( INOUT_PTR BIGNUM *r,
 	return( TRUE );
 	}
 
+/* Integer square root of a bignum: r = isqrt( a ), using a modification of 
+   the abacus method because if it's good enough for quantum cryptanalysis 
+   then it's good enough for us.  Original algorithm from 
+   http://medialab.freaknet.org/martin/src/sqrt/sqrt.c.  Takes more 
+   iterations to converge than Newton-Raphson but also uses no multiplies or 
+   divides, see for example 
+   https://github.com/libressl-portable/openbsd/blob/master/src/lib/libcrypto/bn/bn_isqrt.c */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
+BOOLEAN BN_isqrt( INOUT_PTR BIGNUM *r, 
+				  IN_PTR const BIGNUM *a, 
+				  INOUT_PTR BN_CTX *bnCTX )
+	{
+	BIGNUM *one, *op, *tmp;
+	int noBits = BN_num_bits( a );
+	int bnStatus = BN_STATUS;
+	int LOOP_ITERATOR;
+
+	assert( isWritePtr( r, sizeof( BIGNUM ) ) );
+	assert( isReadPtr( a, sizeof( BIGNUM ) ) );
+	assert( isWritePtr( bnCTX, sizeof( BN_CTX ) ) );
+
+	REQUIRES_B( sanityCheckBignum( a ) && !BN_is_zero( a ) && \
+				!BN_is_negative( a ) );
+	REQUIRES_B( r != a );
+	REQUIRES_B( noBits >= 4 );
+	REQUIRES_B( sanityCheckBNCTX( bnCTX ) );
+
+	BN_CTX_start( bnCTX );
+	one = BN_CTX_get( bnCTX );
+	op = BN_CTX_get( bnCTX );
+	tmp = BN_CTX_get( bnCTX );
+	if( one == NULL || op == NULL || tmp == NULL )
+		{
+		BN_CTX_end( bnCTX );
+		return( FALSE );
+		}
+
+	/* one = highest power of 4 <= n */
+	noBits = roundUp( noBits - 3, 4 );
+	BN_clear( one );
+	CK( BN_set_bit( one, noBits ) );
+	if( BN_cmp( one, a ) <= 0 )
+		CK( BN_lshift( one, one, 2 ) );
+	if( BN_cmp( one, a ) > 0 )
+		{
+		CK( BN_rshift( one, one, 2 ) );
+		}
+	if( bnStatusError( bnStatus ) )
+		{
+		BN_CTX_end( bnCTX );
+		return( bnStatus );
+		}
+	assert( BN_cmp( one, a ) <= 0 );
+
+	/* Interate the abacus algorithm until we get a result:
+
+		op = n, res = 0;
+		while (one != 0) 
+			if (op >= res + one) 
+				op = op - (res + one);
+				res = res +  2 * one;
+			res /= 2;
+			one /= 4; 
+		return res */
+	CKPTR( BN_copy( op, a ) );
+	CK( BN_zero( r ) );
+	LOOP_EXT_WHILE( BN_cmp_word( one, 0 ) > 0, 
+					bnWordsToBits( BIGNUM_ALLOC_WORDS ) / 2 )
+		{
+		ENSURES_B( \
+			LOOP_INVARIANT_EXT_GENERIC( \
+				bnWordsToBits( BIGNUM_ALLOC_WORDS ) / 2 ) );
+
+		CK( BN_add( tmp, r, one ) );
+		if( BN_cmp( op, tmp ) >= 0 )
+			{
+			CK( BN_sub( op, op, tmp ) );
+			CK( BN_lshift( tmp, one, 1 ) );
+			CK( BN_add( r, r, tmp ) );
+			}	
+		CK( BN_rshift( r, r, 1 ) );
+		CK( BN_rshift( one, one, 2 ) );
+		if( bnStatusError( bnStatus ) )
+			{
+			BN_CTX_end( bnCTX );
+			return( bnStatus );
+			}
+		}
+	ENSURES_B( LOOP_BOUND_OK );
+
+	/* Clean up */
+	BN_CTX_end( bnCTX );
+
+	ENSURES_B( sanityCheckBignum( r ) );
+
+	return( TRUE );
+	}
+
 /****************************************************************************
 *																			*
 *						Perform Division Ops on Bignums						*

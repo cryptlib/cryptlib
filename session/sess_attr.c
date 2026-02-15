@@ -566,6 +566,7 @@ static int addPrivateKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifndef USE_SHA2_EXT
 	int privateKeyAlgo;
 #endif /* USE_SHA2_EXT */
+	int privateKeyAlgo;		/* int vs. enum */
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -708,9 +709,16 @@ static int addPrivateKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( status );
 		}
 
+	/* Get any additional information that we may need for the private key */
+	status = krnlSendMessage( privateKey, IMESSAGE_GETATTRIBUTE, 
+							  &privateKeyAlgo, CRYPT_CTXINFO_ALGO );
+	if( cryptStatusError( status ) )
+		return( status );
+
 	/* Add the private key and increment its reference count */
 	krnlSendNotifier( privateKey, IMESSAGE_INCREFCOUNT );
 	sessionInfoPtr->privateKey = privateKey;
+	sessionInfoPtr->privateKeyAlgo = privateKeyAlgo;
 
 	return( CRYPT_OK );
 	}
@@ -876,7 +884,7 @@ int getSessionAttributeS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		case CRYPT_ATTRIBUTE_ERRORMESSAGE:
 			{
 #ifdef USE_ERRMSGS
-			ERROR_INFO *errorInfo = &sessionInfoPtr->errorInfo;
+			const ERROR_INFO *errorInfo = &sessionInfoPtr->errorInfo;
 
 			if( errorInfo->errorStringLength > 0 )
 				{
@@ -906,7 +914,7 @@ int getSessionAttributeS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				}
 			STDC_FALLTHROUGH;
 
-		case CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1:
+		case CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2:
 		case CRYPT_SESSINFO_SERVER_NAME:
 		case CRYPT_SESSINFO_CLIENT_NAME:
 			attributeListPtr = findSessionInfo( sessionInfoPtr, attribute );
@@ -1204,7 +1212,7 @@ int setSessionAttributeS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Make sure that the caller isn't trying to set a second copy of a 
 	   singleton attribute */
-	if( attribute == CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1 || \
+	if( attribute == CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2 || \
 		attribute == CRYPT_SESSINFO_SERVER_NAME )
 		{
 		if( checkAttributePresent( sessionInfoPtr, attribute ) )
@@ -1227,7 +1235,7 @@ int setSessionAttributeS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( addCredential( sessionInfoPtr, data, dataLength, 
 								   attribute ) );
 
-		case CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA1:
+		case CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2:
 			/* Remember the value */
 			return( addSessionInfoS( sessionInfoPtr, attribute, data, 
 									 dataLength ) );

@@ -88,9 +88,9 @@ CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN checkEntropy( IN_BUFFER( dataLength ) const BYTE *data, 
 					  IN_LENGTH_SHORT_MIN( MIN_KEYSIZE ) const int dataLength )
 	{
-	const int delta = ( dataLength < 16 ) ? 1 : 0;
+	const int minCount = ( dataLength / 2 ) - ( dataLength <= 16 ? 1 : 0 );
 	LOOP_INDEX i;
-	int bitCount[ 8 + 8 ], noOnes;
+	int bitCount[ 4 + 8 ], noOnes, exceptionCount = 0, errorCount = 0;
 
 	assert( isReadPtrDynamic( data, dataLength ) );
 
@@ -100,7 +100,7 @@ BOOLEAN checkEntropy( IN_BUFFER( dataLength ) const BYTE *data,
 	if( !checkNontrivialKey( data, dataLength ) )
 		return( FALSE );
 
-	memset( bitCount, 0, sizeof( int ) * 8 );
+	memset( bitCount, 0, 4 * sizeof( int ) );
 	LOOP_LARGE( i = 0, i < dataLength, i++ )
 		{
 		int value;
@@ -120,7 +120,7 @@ BOOLEAN checkEntropy( IN_BUFFER( dataLength ) const BYTE *data,
 	noOnes = bitCount[ 1 ] + bitCount[ 2 ] + ( 2 * bitCount[ 3 ] );
 	if( noOnes < dataLength * 2 || noOnes > dataLength * 6 )
 		{
-		zeroise( bitCount, sizeof( int ) * 8 );
+		zeroise( bitCount, 4 * sizeof( int ) );
 		return( FALSE );
 		}
 
@@ -129,21 +129,25 @@ BOOLEAN checkEntropy( IN_BUFFER( dataLength ) const BYTE *data,
 	   numer of samples available from the keys is far too small for this so
 	   we can only use 2-bit values.
 
-	   This isn't precisely 1/16, for short samples (< 128 bits) we adjust
-	   the count by one because of the small sample size and for odd-length
-	   data we're getting four more samples so the actual figure is slightly
-	   less than 1/16 */
-	if( ( bitCount[ 0 ] + delta < dataLength / 2 ) || \
-		( bitCount[ 1 ] + delta < dataLength / 2 ) || \
-		( bitCount[ 2 ] + delta < dataLength / 2 ) || \
-		( bitCount[ 3 ] + delta < dataLength / 2 ) )
+	   Even then the small sample size leads to unacceptable FP rates so for
+	   short samples (<= 128 bits) we adjust the count by one and in addition
+	   allow a single value to be one below that in order to avoid getting too
+	   many FPs */	
+	LOOP_SMALL( i = 0, i < 4, i++ )
 		{
-		zeroise( bitCount, sizeof( int ) * 8 );
-		return( FALSE );
-		}
+		ENSURES_B( LOOP_INVARIANT_SMALL( i, 0, 3 ) );
 
-	zeroise( bitCount, sizeof( int ) * 8 );
-	return( TRUE );
+		if( bitCount[ i ] == minCount - 1 )
+			exceptionCount++;
+		else
+			{
+			if( bitCount[ i ] < minCount - 1 )
+				errorCount++;
+			}
+		}
+	zeroise( bitCount, 4 * sizeof( int ) );
+
+	return( ( errorCount > 0 || exceptionCount > 1 ) ? FALSE : TRUE );
 	}
 
 /* Check a bignum for suspicious patterns.  This is very vaguely-defined and 
@@ -924,6 +928,20 @@ static int checkKeyLength( INOUT_PTR STREAM *stream,
 	REQUIRES( isPkcAlgo( cryptAlgo ) );
 	REQUIRES( isBooleanValue( hasAlgoParameters ) );
 	REQUIRES( isIntegerRangeNZ( startPos ) );
+
+	/* The Bernstein algorithms use a fixed-length encoding so we just check
+	   that the key has the correct length */
+	if( isBernsteinAlgo( cryptAlgo ) )
+		{
+		status = readBitStringHole( stream, &keyLength, 
+									MIN_PKCSIZE_BERNSTEIN, DEFAULT_TAG );
+		if( cryptStatusOK( status ) && keyLength < MIN_PKCSIZE_BERNSTEIN )
+			status = CRYPT_ERROR_NOSECURE;
+		if( cryptStatusError( status ) )
+			return( status );
+
+		return( sseek( stream, startPos ) );
+		}
 
 	/* ECC algorithms are a complete mess to handle because of the arbitrary
 	   manner in which the algorithm parameters can be represented.  To deal

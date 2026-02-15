@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Test Key Generation Routines					*
-*					  Copyright Peter Gutmann 1995-2020						*
+*					  Copyright Peter Gutmann 1995-2024						*
 *																			*
 ****************************************************************************/
 
@@ -24,54 +24,77 @@
 
 	File define			File			Description
 	-----------			----			-----------
-	CA_PRIVKEY_FILE		ca.p15			Root CA key.
+   CA:
+	CA_PRIVKEY_FILE		ca.p15			RSA root CA key.
 		CMP_CA_FILE		cmp_ca1.der		Written as side-effect of the above.
-	ICA_PRIVKEY_FILE	ca_int.p15		Intermediate CA key + previous root 
-										CA cert, pathlen = 0.
+	ECCCA_PRIVKEY_FILE	ca_ecc.p15		ECDSA root CA key.
+	EDCA_PRIVKEY_FILE	ca_ed.p15		Ed25519 root CA key.
+
+   SSH:
+	SSH_PRIVKEY_FILE	ssh1.p15		Raw SSH RSA key.
+	SSH_PRIVKEY_FILE	ssh2.p15		Raw SSH DSA key.
+	SSH_PRIVKEY_FILE	ssh3.p15		Raw SSH ECDSA key.
+	SSH_PRIVKEY_FILE	ssh4.p15		Raw SSH Ed25519 key.
+
+   TLS:
+	SERVER_PRIVKEY_FILE	server1.p15		TLS RSA server key + root CA cert, 
+										server cert has CN = localhost, OCSP 
+										AIA.
+	SERVER_PRIVKEY_FILE	server2.p15		As server2.p15 but with a different 
+										RSA key, used to check that use of 
+										the wrong key is detected.
+	SERVER_PRIVKEY_FILE	server3.p15		As server1.p15, RSA key but with a 
+										different FQDN, used to check that 
+										use of the wrong certificate for 
+										that host is detected.
+	SERVER_PRIVKEY_FILE	serverp256.p15	As server1 but P256 ECDSA key.	
+	SERVER_PRIVKEY_FILE	serverp384.p15	As server1 but P384 ECDSA key.	
+	SERVER_PRIVKEY_FILE	serverp521.p15	As server1 but P521 ECDSA key.	
+	SERVER_PRIVKEY_FILE	server25519.p15	As server1 but Ed25519 key.	
+
+   Intermed.CA:
+	ICA_PRIVKEY_FILE	ca_int.p15		Intermediate CA RSA key + previous 
+										root CA cert, pathlen = 0.
+	ECCICA_PRIVKEY_FILE ca_iecc.p15		Intermediate CA ECDSA key + previous 
+										root CA cert, pathlen = 0.
+   SCEP:
 	SCEPCA_PRIVKEY_FILE	ca_scep1.p15	SCEP RSA CA key + root CA cert, SCEP 
 										CA keyUsage allows encryption + 
 										signing.
 		SCEP_CA_FILE	scep_ca1.der	Written as side-effect of the above.
-	SCEPCA_PRIVKEY_FILE	ca_scep2.p15	SCEP ECC CA key + root CA cert, SCEP 
-										CA keyUsage allows signing.
+	SCEPCA_PRIVKEY_FILE	ca_scep2.p15	SCEP ECDSA CA key + root CA cert, 
+										SCEP CA keyUsage allows signing.
 		SCEP_CA_FILE	scep_ca2.der	Written as side-effect of the above.
-	SERVER_PRIVKEY_FILE	server1.p15		TLS server key + root CA cert, server
-										cert has CN = localhost, OCSP AIA.
-	SERVER_PRIVKEY_FILE	server2.p15		As server2.p15 but with a different 
-										key, used to check that use of the
-										wrong key is detected.
-	SERVER_PRIVKEY_FILE	server3.p15		As server1.p15 but with a different 
-										FQDN, used to check that use of the
-										wrong cert for that host is detected.
-	SSH_PRIVKEY_FILE	ssh1.p15		Raw SSHv1 RSA key.
-	SSH_PRIVKEY_FILE	ssh2.p15		Raw SSHv2 DSA key.
-	SSH_PRIVKEY_FILE	ssh3.p15		Raw SSHv2 ECDSA key.
-	TSA_PRIVKEY_FILE	tsa.p15			TSA server key + root CA cert, TSA 
-										cert has TSP extKeyUsage.
-	USER_PRIVKEY_FILE	user1.p15		User key + root CA cert, user cert 
-										has email address.
-	USER_PRIVKEY_FILE	user2.p15		(Via template): User key using SHA256 
-										+ root CA cert, user cert has email 
-										address.  Used to test auto-upgrade 
-										of enveloping algos to SHA256.
-										Note that since 3.4.3 the default 
-										algorithm is now SHA256 anyway so 
-										this test is a no-op, but the 
-										functionality is left in place to 
-										test future upgrades to new hash 
+
+   TSP:
+	TSA_PRIVKEY_FILE	tsa.p15			TSA RSA server key + root CA cert, 
+										TSA cert has TSP extKeyUsage.
+   User:
+	USER_PRIVKEY_FILE	user1.p15		User RSA key + root CA cert, user 
+										cert has email address.
+	USER_PRIVKEY_FILE	user2.p15		(Via template): User RSA key using 
+										SHA256 + root CA cert, user cert has 
+										email address.  Used to test auto-
+										upgrade of enveloping algorithms to 
+										SHA256.  Note that since 3.4.3 the 
+										default algorithm is now SHA256 
+										anyway so this test is a no-op, but 
+										the functionality is left in place 
+										to test future upgrades to new hash 
 										algorithms.
 	USER_PRIVKEY_FILE	user3.p15		(Via template): User key + 
-										intermediate CA cert + root CA cert.
+										intermediate CA cert + root CA cert,
+										i.e. long certificate chain.
 										
-										(OCSP_CA_FILE is written by the
-										testCertManagement() code).
 
-   Other keys written by the self-test process are:
+   Other keys written by the self-test process (outside of this module) are:
 
 	CMP_PRIVKEY_FILE	cmp*.p15		Created during the CMP self-test.
 	DUAL_PRIVKEY_FILE	dual.p15		For test of signature + encryption 
 										cert in same file in 
 										testDoubleCertFile().
+	OCSP_CA_FILE		ocspca.der		Written by the testCertManagement() 
+										code.
 	PNPCA_PRIVKEY_FILE	pnp_ca.p15		Created during the PnP PKI self-test,
 	PNP_PRIVKEY_FILE	pnp_user.p15	_ca is for a CA cert request, _user 
 										is for a user cert request.
@@ -232,7 +255,7 @@ static const CERT_DATA userCertRequestData[] = {
 
 /* Create a standalone private key + certificate */
 
-static int createCAKeyFile( const BOOLEAN isECC )
+static int createCAKeyFile( const CRYPT_ALGO_TYPE cryptAlgo )
 	{
 	CRYPT_KEYSET cryptKeyset;
 	CRYPT_CERTIFICATE cryptCert;
@@ -243,8 +266,7 @@ static int createCAKeyFile( const BOOLEAN isECC )
 	int status;
 
 	/* Create a self-signed CA certificate */
-	status = cryptCreateContext( &cryptContext, CRYPT_UNUSED, 
-								 isECC ? CRYPT_ALGO_ECDSA : CRYPT_ALGO_RSA );
+	status = cryptCreateContext( &cryptContext, CRYPT_UNUSED, cryptAlgo );
 	if( cryptStatusOK( status ) )
 		{
 		status = cryptSetAttributeString( cryptContext, CRYPT_CTXINFO_LABEL,
@@ -279,7 +301,10 @@ static int createCAKeyFile( const BOOLEAN isECC )
 
 	/* Open the keyset, update it with the certificate, and close it */
 	status = cryptKeysetOpen( &cryptKeyset, CRYPT_UNUSED, CRYPT_KEYSET_FILE,
-							  isECC ? ECCCA_PRIVKEY_FILE : CA_PRIVKEY_FILE, 
+							  ( cryptAlgo == CRYPT_ALGO_ECDSA ) ? \
+								ECCCA_PRIVKEY_FILE : \
+							  ( cryptAlgo == CRYPT_ALGO_ED25519 ) ? \
+								EDCA_PRIVKEY_FILE : CA_PRIVKEY_FILE, 
 							  CRYPT_KEYOPT_CREATE );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -291,7 +316,7 @@ static int createCAKeyFile( const BOOLEAN isECC )
 		return( status );
 
 	/* Save the certificate to disk for use in request/response protocols */
-	if( !isECC )
+	if( cryptAlgo == CRYPT_ALGO_RSA )
 		{
 		BYTE certBuffer[ BUFFER_SIZE ];
 		char filenameBuffer[ FILENAME_BUFFER_SIZE ];
@@ -328,7 +353,8 @@ static int createCAKeyFile( const BOOLEAN isECC )
 
 /* Create a raw SSH private key */
 
-static int createSSHKeyFile( const int keyNo )
+static int createSSHKeyFile( const CRYPT_ALGO_TYPE cryptAlgo,
+							 const int keyNo )
 	{
 	CRYPT_KEYSET cryptKeyset;
 	CRYPT_CONTEXT cryptContext;
@@ -336,10 +362,7 @@ static int createSSHKeyFile( const int keyNo )
 	int status;
 
 	/* Create a private key */
-	status = cryptCreateContext( &cryptContext, CRYPT_UNUSED, 
-								 ( keyNo == 1 ) ? CRYPT_ALGO_RSA : \
-								 ( keyNo == 2 ) ? CRYPT_ALGO_DSA : \
-												  CRYPT_ALGO_ECDSA );
+	status = cryptCreateContext( &cryptContext, CRYPT_UNUSED, cryptAlgo );
 	if( cryptStatusOK( status ) )
 		{
 		status = cryptSetAttributeString( cryptContext, CRYPT_CTXINFO_LABEL,
@@ -787,34 +810,46 @@ int createTestKeys( void )
 	puts( "Creating custom key files and associated certificate files..." );
 
 	if( cryptQueryCapability( CRYPT_ALGO_ECDSA, \
+							  NULL ) == CRYPT_ERROR_NOTAVAIL || \
+		cryptQueryCapability( CRYPT_ALGO_ED25519, \
 							  NULL ) == CRYPT_ERROR_NOTAVAIL )
 		{
-		puts( "Error: ECDSA must be enabled to create the custom key "
-			  "files." );
+		puts( "Error: ECDSA and Ed25519 must be enabled to create the "
+			  "custom key files." );
 		return( FALSE );
 		}
 
 	printf( "CA root key + CMP request certificate... " );
-	status = createCAKeyFile( FALSE );
+	status = createCAKeyFile( CRYPT_ALGO_RSA );
 	if( cryptStatusOK( status ) )
 		{
 		printf( "done.\nECC CA root key... " );
-		status = createCAKeyFile( TRUE );
+		status = createCAKeyFile( CRYPT_ALGO_ECDSA );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		printf( "done.\nEd25519 CA root key... " );
+		status = createCAKeyFile( CRYPT_ALGO_ED25519 );
 		}
 	if( cryptStatusOK( status ) )
 		{
 		printf( "done.\nSSH RSA server key... " );
-		status = createSSHKeyFile( 1 );
+		status = createSSHKeyFile( CRYPT_ALGO_RSA, 1 );
 		}
 	if( cryptStatusOK( status ) )
 		{
 		printf( "done.\nSSH DSA server key... " );
-		status = createSSHKeyFile( 2 );
+		status = createSSHKeyFile( CRYPT_ALGO_DSA, 2 );
 		}
 	if( cryptStatusOK( status ) )
 		{
 		printf( "done.\nSSH ECC server key... " );
-		status = createSSHKeyFile( 3 );
+		status = createSSHKeyFile( CRYPT_ALGO_ECDSA, 3 );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		printf( "done.\nSSH Ed25519 server key... " );
+		status = createSSHKeyFile( CRYPT_ALGO_ED25519, 4 );
 		}
 	if( cryptStatusOK( status ) )
 		{
@@ -868,6 +903,15 @@ int createTestKeys( void )
 		filenameFromTemplate( filenameBuffer, SERVER_ECPRIVKEY_FILE_TEMPLATE, 521 );
 		if( !writeCertChain( serverCertRequestData, filenameBuffer, NULL, 
 							 FALSE, CRYPT_ALGO_ECDSA, 66 /* P521 */ ) )
+			status = CRYPT_ERROR_FAILED;
+		}
+	if( cryptStatusOK( status ) )
+		{
+		printf( "done.\nTLS Ed25519 server key... " );
+
+		filenameFromTemplate( filenameBuffer, SERVER_PRIVKEY_FILE_TEMPLATE, 25519 );
+		if( !writeCertChain( serverCertRequestData, filenameBuffer, NULL, 
+							 FALSE, CRYPT_ALGO_ED25519, CRYPT_USE_DEFAULT ) )
 			status = CRYPT_ERROR_FAILED;
 		}
 	if( cryptStatusOK( status ) )

@@ -174,8 +174,8 @@ static int writePrivateKey( INOUT_PTR PKCS12_OBJECT_INFO *keyObjectInfo,
 		return( status );
 		}
 	headerSize = stell( &stream );
-	ENSURES( boundsCheck( headerSize, privKeyDataSize, 
-						  keyObjectInfo->dataSize ) );
+	ENSURES_SC( boundsCheck( headerSize, privKeyDataSize, 
+							 keyObjectInfo->dataSize ) );
 
 	/* Insert the wrapped key into the stream buffer */
 	status = sMemGetDataBlockRemaining( &stream, &privKeyData, 

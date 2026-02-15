@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Private Key Read Routines						*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2024					*
 *																			*
 ****************************************************************************/
 
@@ -227,9 +227,9 @@ static int readDlpPrivateKey( INOUT_PTR STREAM *stream,
 							  IN_BOOL const BOOLEAN useExtFormat,
 							  IN_BOOL const BOOLEAN checkRead )
 	{
-	PKC_INFO *dlpKey = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	PKC_INFO *dlpKey = contextInfoPtr->ctxPKC;
 	const DH_DOMAINPARAMS *domainParams = dlpKey->domainParams;
 	const BIGNUM *p = ( domainParams != NULL ) ? \
 					  &domainParams->p : &dlpKey->dlpParam_p;
@@ -296,9 +296,9 @@ static int readEccPrivateKey( INOUT_PTR STREAM *stream,
 							  IN_BOOL const BOOLEAN useExtFormat,
 							  IN_BOOL const BOOLEAN checkRead )
 	{
-	PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
 	READ_BIGNUM_FUNCTION readBignumFunction = checkRead ? \
 									checkBignumRead : readBignumTag;
 	int status;
@@ -340,16 +340,19 @@ static int readEccPrivateKey( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_EDDSA ) || defined( USE_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int readEddsaPrivateKey( INOUT_PTR STREAM *stream, 
+static int read25519PrivateKey( INOUT_PTR STREAM *stream, 
 								INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								IN_BOOL const BOOLEAN useExtFormat,
 								IN_BOOL const BOOLEAN checkRead )
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
+	BYTE buffer[ MAX_PKCSIZE_BERNSTEIN + 8 ];
+	int length, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -357,13 +360,42 @@ static int readEddsaPrivateKey( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( capabilityInfoPtr != NULL );
 	REQUIRES( contextInfoPtr->type == CONTEXT_PKC && \
-			  capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_EDDSA );
+			  ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 || \
+			    capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ED25519 ) );
 	REQUIRES( isBooleanValue( useExtFormat ) );
 	REQUIRES( isBooleanValue( checkRead ) );
 
-	retIntError();
+	/* If we're using the extended format, read the outer wrapper and read 
+	   and check the hash that binds the public key data to the private key 
+	   data */
+	if( useExtFormat )
+		{
+		status = readSequence( stream, NULL );
+		if( cryptStatusOK( status ) )
+			status = readCheckSPKIHash( stream, contextInfoPtr );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
+
+	/* Read the private value in Bernstein special-snowflake form and write 
+	   it */
+	status = readOctetString( stream, buffer, &length, 
+							  MIN_PKCSIZE_BERNSTEIN, MAX_PKCSIZE_BERNSTEIN );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( length != 32 )
+		return( CRYPT_ERROR_BADDATA );
+	status = import25519ByteString( &eccKey->curve25519Param_priv, 
+									buffer, length );
+	zeroise( buffer, MAX_PKCSIZE_BERNSTEIN );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	ENSURES( sanityCheckPKCInfo( eccKey ) );
+
+	return( CRYPT_OK );
 	}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 #endif /* USE_INT_ASN1 */
 
 /****************************************************************************
@@ -384,9 +416,9 @@ static int readRsaPrivateKeyOld( INOUT_PTR STREAM *stream,
 								 INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
 	CRYPT_ALGO_TYPE cryptAlgo DUMMY_INIT;
-	PKC_INFO *rsaKey = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	PKC_INFO *rsaKey = contextInfoPtr->ctxPKC;
 	const int startPos = stell( stream );
 	int length, endPos, status, LOOP_ITERATOR;
 
@@ -573,9 +605,9 @@ static int readDsaPrivateKeyOld( INOUT_PTR STREAM *stream,
 								 INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
 	CRYPT_ALGO_TYPE cryptAlgo DUMMY_INIT;
-	PKC_INFO *dlpKey = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	PKC_INFO *dlpKey = contextInfoPtr->ctxPKC;
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -651,9 +683,9 @@ static int readEccPrivateKeyOld( INOUT_PTR STREAM *stream,
 								 INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
 	CRYPT_ALGO_TYPE cryptAlgo;
-	PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
 	ALGOID_PARAMS algoIDparams;
 	long value;
 	int tag, status;
@@ -750,9 +782,9 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readPgpRsaPrivateKey( INOUT_PTR STREAM *stream, 
 								 INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
-	PKC_INFO *rsaKey = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	PKC_INFO *rsaKey = contextInfoPtr->ctxPKC;
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -806,9 +838,9 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readPgpDlpPrivateKey( INOUT_PTR STREAM *stream, 
 								 INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
-	PKC_INFO *dlpKey = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	PKC_INFO *dlpKey = contextInfoPtr->ctxPKC;
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -830,6 +862,36 @@ static int readPgpDlpPrivateKey( INOUT_PTR STREAM *stream,
 		return( status );
 
 	ENSURES( sanityCheckPKCInfo( dlpKey ) );
+
+	return( CRYPT_OK );
+	}
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static int readPgpEccPrivateKey( INOUT_PTR STREAM *stream, 
+								 INOUT_PTR CONTEXT_INFO *contextInfoPtr )
+	{
+	const CAPABILITY_INFO *capabilityInfoPtr = \
+								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+	PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
+	int status;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( capabilityInfoPtr != NULL );
+	REQUIRES( contextInfoPtr->type == CONTEXT_PKC && \
+			  ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ECDSA ) );
+
+	/* Read the PGP private key information */
+	status = readBignumInteger16Ubits( stream, &eccKey->eccParam_d, 
+									   bytesToBits( ECCPARAM_MIN_D ), 
+									   bytesToBits( ECCPARAM_MAX_D ), 
+									   NULL, BIGNUM_CHECK_VALUE_ECC );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	ENSURES( sanityCheckPKCInfo( eccKey ) );
 
 	return( CRYPT_OK );
 	}
@@ -975,16 +1037,21 @@ static int readPrivateKeyEccFunction( INOUT_PTR STREAM *stream,
 		case KEYFORMAT_PRIVATE_OLD:
 			return( readEccPrivateKeyOld( stream, contextInfoPtr ) );
 #endif /* USE_PKCS12 && USE_INT_ASN1 */
+
+#ifdef USE_PGP
+		case KEYFORMAT_PGP:
+			return( readPgpEccPrivateKey( stream, contextInfoPtr ) );
+#endif /* USE_PGP */
 		}
 
 	retIntError();
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_EDDSA ) || defined( USE_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int readPrivateKeyEddsaFunction( INOUT_PTR STREAM *stream, 
+static int readPrivateKey25519Function( INOUT_PTR STREAM *stream, 
 										INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 										IN_ENUM( KEYFORMAT )  \
 											const KEYFORMAT_TYPE formatType,
@@ -999,7 +1066,8 @@ static int readPrivateKeyEddsaFunction( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( capabilityInfoPtr != NULL );
 	REQUIRES( contextInfoPtr->type == CONTEXT_PKC && \
-			  capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_EDDSA );
+			  ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 || \
+			    capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ED25519 ) );
 	REQUIRES( isEnumRange( formatType, KEYFORMAT ) );
 	REQUIRES( isBooleanValue( checkRead ) );
 
@@ -1007,18 +1075,18 @@ static int readPrivateKeyEddsaFunction( INOUT_PTR STREAM *stream,
 		{
 #ifdef USE_INT_ASN1
 		case KEYFORMAT_PRIVATE:
-			return( readEddsaPrivateKey( stream, contextInfoPtr, FALSE, 
+			return( read25519PrivateKey( stream, contextInfoPtr, FALSE, 
 										 checkRead ) );
 
 		case KEYFORMAT_PRIVATE_EXT:
-			return( readEddsaPrivateKey( stream, contextInfoPtr, TRUE,
+			return( read25519PrivateKey( stream, contextInfoPtr, TRUE,
 										 checkRead ) );
 #endif /* USE_INT_ASN1 */
 		}
 
 	retIntError();
 	}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 
 /****************************************************************************
 *																			*
@@ -1029,10 +1097,10 @@ static int readPrivateKeyEddsaFunction( INOUT_PTR STREAM *stream,
 STDC_NONNULL_ARG( ( 1 ) ) \
 void initPrivKeyRead( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
-	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
+	CRYPT_ALGO_TYPE cryptAlgo;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	CRYPT_ALGO_TYPE cryptAlgo;
+	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -1049,16 +1117,16 @@ void initPrivKeyRead( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 		return;
 		}
 #if defined( USE_ECDH ) || defined( USE_ECDSA ) || \
-	defined( USE_EDDSA ) || defined( USE_25519 )
+	defined( USE_25519 ) || defined( USE_ED25519 )
 	if( isEccAlgo( cryptAlgo ) )
 		{
-#if defined( USE_EDDSA ) || defined( USE_25519 )
-		if( cryptAlgo == CRYPT_ALGO_EDDSA || cryptAlgo == CRYPT_ALGO_25519 )
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+		if( isBernsteinAlgo( cryptAlgo ) )
 			{
-			FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKeyEddsaFunction );
+			FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKey25519Function );
 			return;
 			}
-#endif /* USE_EDDSA || USE_25519 */
+#endif /* USE_25519 || USE_ED25519 */
 		FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKeyEccFunction );
 		return;
 		}

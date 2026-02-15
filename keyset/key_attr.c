@@ -123,7 +123,7 @@ int getKeysetAttributeS( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		case CRYPT_ATTRIBUTE_ERRORMESSAGE:
 			{
 #ifdef USE_ERRMSGS
-			ERROR_INFO *errorInfo = &keysetInfoPtr->errorInfo;
+			const ERROR_INFO *errorInfo = &keysetInfoPtr->errorInfo;
 
 			if( errorInfo->errorStringLength > 0 )
 				{

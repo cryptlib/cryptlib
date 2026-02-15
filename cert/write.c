@@ -94,6 +94,52 @@ static int setNonce( INOUT_PTR DATAPTR_ATTRIBUTE *attributePtr,
 	}
 #endif /* USE_CERTREV || USE_CERTVAL */
 
+/* Write signature algorithm information */
+
+CHECK_RETVAL_LENGTH \
+static int writeSigAlgoInfo( INOUT_PTR_OPT STREAM *stream,
+							 IN_HANDLE const CRYPT_CONTEXT iCryptContext,
+							 IN_ALGO_OPT const CRYPT_ALGO_TYPE hashAlgo,
+							 IN_LENGTH_SHORT const int hashParam )
+	{
+	ALGOID_PARAMS algoIDparams;
+	int algorithm, status;
+
+	assert( stream == NULL || \
+			isWritePtr( stream, sizeof( STREAM ) ) );
+
+	REQUIRES( isHandleRangeValid( iCryptContext ) );
+	REQUIRES( ( hashAlgo == CRYPT_ALGO_NONE && hashParam == 0 ) || \
+			  ( isEnumRange( hashAlgo, CRYPT_ALGO ) && \
+				rangeCheck( hashParam, MIN_HASHSIZE, 
+							CRYPT_MAX_HASHSIZE ) ) );
+			  /* Currently there's always hash information present because
+			     the Bernstein algorithms implicitly hardcode SHA2-512,
+			     which we record as the algorithm used even though we don't
+			     do the hashing ourselves since it's done in the signature-
+			     generation code */
+
+	/* Find out which algorithm we're working with */
+	status = krnlSendMessage( iCryptContext, IMESSAGE_GETATTRIBUTE,
+							  &algorithm, CRYPT_CTXINFO_ALGO );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* Determine the algorithm ID size or write it as required */
+	initAlgoIDparamsHash( &algoIDparams, hashAlgo, hashParam );
+	if( stream == NULL )
+		{
+		if( isBernsteinAlgo( algorithm ) )
+			return( sizeofContextAlgoID( iCryptContext ) );
+		return( sizeofContextAlgoIDex( iCryptContext, 
+									   &algoIDparams ) );
+		}
+	if( isBernsteinAlgo( algorithm ) )
+		return( writeContextAlgoID( stream, iCryptContext ) );
+	return( writeContextAlgoIDex( stream, iCryptContext, 
+								  &algoIDparams ) );
+	}
+
 /****************************************************************************
 *																			*
 *							Write Certificate Objects						*
@@ -120,7 +166,6 @@ static int writeCertInfo( INOUT_PTR STREAM *stream,
 						  IN_HANDLE const CRYPT_CONTEXT iIssuerCryptContext )
 	{
 	const CERT_CERT_INFO *certCertInfo = subjectCertInfoPtr->cCertCert;
-	ALGOID_PARAMS algoIDparams;
 	int algoIdInfoSize, length, extensionSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -174,11 +219,9 @@ static int writeCertInfo( INOUT_PTR STREAM *stream,
 	subjectCertInfoPtr->subjectDNsize = length;
 
 	/* Determine the size of the certificate information */
-	initAlgoIDparamsHash( &algoIDparams, certCertInfo->hashAlgo, 
-						  certCertInfo->hashParam );
-	status = algoIdInfoSize = \
-				sizeofContextAlgoIDex( iIssuerCryptContext, 
-									   &algoIDparams );
+	status = algoIdInfoSize = writeSigAlgoInfo( NULL, iIssuerCryptContext, 
+												certCertInfo->hashAlgo, 
+												certCertInfo->hashParam );
 	if( cryptStatusError( status ) )
 		return( status );
 	status = extensionSize = \
@@ -216,12 +259,11 @@ static int writeCertInfo( INOUT_PTR STREAM *stream,
 		}
 
 	/* Write the serial number and signature algorithm identifier */
-	initAlgoIDparamsHash( &algoIDparams, certCertInfo->hashAlgo, 
-						  certCertInfo->hashParam );
 	writeInteger( stream, certCertInfo->serialNumber,
 				  certCertInfo->serialNumberLength, DEFAULT_TAG );
-	status = writeContextAlgoIDex( stream, iIssuerCryptContext,
-								   &algoIDparams );
+	status = writeSigAlgoInfo( stream, iIssuerCryptContext, 
+							   certCertInfo->hashAlgo, 
+							   certCertInfo->hashParam );
 	if( cryptStatusError( status ) )
 		return( status );
 

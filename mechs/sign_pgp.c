@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							PGP Signature Routines							*
-*						Copyright Peter Gutmann 1993-2019					*
+*						Copyright Peter Gutmann 1993-2024					*
 *																			*
 ****************************************************************************/
 
@@ -46,7 +46,7 @@ static int writePgpSigPacketHeader( OUT_BUFFER_OPT( dataMaxLen, *dataLen ) \
 									OUT_LENGTH_BOUNDED_SHORT_Z( dataMaxLen ) \
 										int *dataLen,
 									IN_HANDLE const CRYPT_CONTEXT iSignContext,
-									IN_HANDLE const CRYPT_CONTEXT iHashContext,
+									IN_ALGO const CRYPT_ALGO_TYPE hashAlgo,
 									IN_BUFFER_OPT( sigAttributeLength ) \
 										const void *sigAttributes,
 									IN_LENGTH_SHORT_Z \
@@ -60,7 +60,7 @@ static int writePgpSigPacketHeader( OUT_BUFFER_OPT( dataMaxLen, *dataLen ) \
 	BYTE keyID[ PGP_KEYID_SIZE + 8 ];
 	BYTE iAndSHeader[ 64 + 8 ];
 	const time_t currentTime = getTime( GETTIME_NOFAIL_MINUTES );
-	int hashAlgo, signAlgo, pgpHashAlgo, pgpSignAlgo;	/* int vs.enum */
+	int signAlgo, pgpHashAlgo, pgpSignAlgo;		/* int vs.enum */
 	int iAndSHeaderLength = 0, length, status;
 
 	assert( ( data == NULL && dataMaxLen == 0 ) || \
@@ -74,7 +74,7 @@ static int writePgpSigPacketHeader( OUT_BUFFER_OPT( dataMaxLen, *dataLen ) \
 				isShortIntegerRangeMin( dataMaxLen, \
 										MIN_CRYPT_OBJECTSIZE ) ) );
 	REQUIRES( isHandleRangeValid( iSignContext ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
+	REQUIRES( isHashAlgo( hashAlgo ) );
 	REQUIRES( ( sigAttributes == NULL && sigAttributeLength == 0 ) || \
 			  ( sigAttributes != NULL && \
 			    isShortIntegerRangeNZ( sigAttributeLength ) ) );
@@ -85,10 +85,6 @@ static int writePgpSigPacketHeader( OUT_BUFFER_OPT( dataMaxLen, *dataLen ) \
 	*dataLen = 0;
 
 	/* Get the signature information */
-	status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
-							  &hashAlgo, CRYPT_CTXINFO_ALGO );
-	if( cryptStatusError( status ) )
-		return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM2 : status );
 	if( cryptStatusError( cryptlibToPgpAlgo( hashAlgo, &pgpHashAlgo ) ) )
 		return( CRYPT_ARGERROR_NUM2 );
 	status = krnlSendMessage( iSignContext, IMESSAGE_GETATTRIBUTE,
@@ -161,7 +157,12 @@ static int writePgpSigPacketHeader( OUT_BUFFER_OPT( dataMaxLen, *dataLen ) \
 	  [	byte[]		typeAndValue packet for iAndS ]
 	
 	   The signer ID is optional, but if we omit it GPG fails the signature 
-	   check so we always include it */
+	   check so we always include it.  This also handles a highly unlikely
+	   fault attack on algorithms like EdDSA which allows recovery of the
+	   secret scalar value d from two signatures on the same data using
+	   different public keys, the inclusion of the key-based signerID means
+	   that the same message won't be signed by the two different public 
+	   keys */
 	length = ( 1 + 1 + UINT32_SIZE ) + ( 1 + 1 + PGP_KEYID_SIZE ) + \
 			 sigAttributeLength;
 	if( iAndSlength > 0 )
@@ -209,14 +210,14 @@ static int writePgpSigPacketHeader( OUT_BUFFER_OPT( dataMaxLen, *dataLen ) \
 
 /* Create a PGP signature */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 9 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5, 9 ) ) \
 int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 							void *signature, 
 						IN_LENGTH_SHORT_Z const int sigMaxLength, 
 						OUT_LENGTH_BOUNDED_SHORT_Z( sigMaxLength ) \
 							int *signatureLength, 
 						IN_HANDLE const CRYPT_CONTEXT iSignContext,
-						IN_HANDLE const CRYPT_CONTEXT iHashContext,
+						IN_PTR const SIG_DATA_INFO *sigDataInfo,
 						IN_BUFFER_OPT( sigAttributeLength ) \
 							const void *sigAttributes,
 						IN_LENGTH_SHORT_Z const int sigAttributeLength,
@@ -237,6 +238,7 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	assert( ( signature == NULL && sigMaxLength == 0 ) || \
 			isWritePtrDynamic( signature, sigMaxLength ) );
 	assert( isWritePtr( signatureLength, sizeof( int ) ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
 	assert( ( sigAttributes == NULL && sigAttributeLength == 0 ) || \
 			isReadPtrDynamic( sigAttributes, sigAttributeLength ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
@@ -246,7 +248,8 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 				isShortIntegerRangeMin( sigMaxLength, \
 										MIN_CRYPT_OBJECTSIZE ) ) );
 	REQUIRES( isHandleRangeValid( iSignContext ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, SIGNATURE_PGP, TRUE ) && \
+			  sigDataInfo->data == NULL );
 	REQUIRES( ( sigAttributes == NULL && sigAttributeLength == 0 ) || \
 			  ( sigAttributes != NULL && \
 			    isShortIntegerRangeNZ( sigAttributeLength ) ) );
@@ -267,7 +270,8 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	if( signature == NULL )
 		{
 		status = writePgpSigPacketHeader( NULL, 0, &extraDataLength, 
-										  iSignContext, iHashContext, 
+										  iSignContext, 
+										  sigDataInfo->hashAlgo, 
 										  sigAttributes, sigAttributeLength,
 										  sigType, iAndSlength );
 		if( cryptStatusError( status ) )
@@ -277,7 +281,7 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 					  "Couldn't write PGP signature packet header" ) );
 			}
 		status = createSignature( NULL, 0, &signatureDataLength, 
-								  iSignContext, iHashContext, CRYPT_UNUSED, 
+								  iSignContext, sigDataInfo, 
 								  SIGNATURE_PGP, errorInfo );
 		if( cryptStatusError( status ) )
 			return( status );
@@ -322,13 +326,14 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	   from the pre-hashed data and the length, hash check, and signature */
 	status = writePgpSigPacketHeader( extraData, extraDataLength, 
 									  &extraDataLength, iSignContext,
-									  iHashContext, sigAttributes, 
-									  sigAttributeLength, sigType, 
-									  iAndSlength );
+									  sigDataInfo->hashAlgo, 
+									  sigAttributes, sigAttributeLength, 
+									  sigType, iAndSlength );
 	if( cryptStatusOK( status ) )
 		{
-		status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH,
-								  extraData, extraDataLength - UINT16_SIZE );
+		status = krnlSendMessage( sigDataInfo->hashContext, 
+								  IMESSAGE_CTX_HASH, extraData, 
+								  extraDataLength - UINT16_SIZE );
 		if( status == CRYPT_ERROR_COMPLETE )
 			{
 			/* Unlike standard signatures PGP requires that the hashing not 
@@ -374,15 +379,18 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	sMemDisconnect( &stream );
 	if( cryptStatusOK( status ) )
 		{
-		status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, 
+		status = krnlSendMessage( sigDataInfo->hashContext, 
+								  IMESSAGE_CTX_HASH, 
 								  extraTrailer, extraTrailerLength );
 		}
 	if( cryptStatusOK( status ) )
-		status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, "", 0 );
+		status = krnlSendMessage( sigDataInfo->hashContext, 
+								  IMESSAGE_CTX_HASH, "", 0 );
 	if( cryptStatusOK( status ) )
 		{
 		setMessageData( &msgData, hash, CRYPT_MAX_HASHSIZE );
-		status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE_S,
+		status = krnlSendMessage( sigDataInfo->hashContext, 
+								  IMESSAGE_GETATTRIBUTE_S,
 								  &msgData, CRYPT_CTXINFO_HASHVALUE );
 		}
 	if( cryptStatusError( status ) )
@@ -400,8 +408,7 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	/* We've finally finished with all the hashing, create the signature */
 	status = createSignature( signatureData, CRYPT_MAX_PKCSIZE + 128, 
 							  &signatureDataLength, iSignContext, 
-							  iHashContext, CRYPT_UNUSED, SIGNATURE_PGP,
-							  errorInfo );
+							  sigDataInfo, SIGNATURE_PGP, errorInfo );
 	if( cryptStatusOK( status ) )
 		{
 		totalLength = 1 + \
@@ -456,11 +463,11 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 
 /* Check a PGP signature */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4, 5 ) ) \
 int checkSignaturePGP( IN_BUFFER( signatureLength ) const void *signature, 
 					   IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength,
 					   IN_HANDLE const CRYPT_CONTEXT sigCheckContext,
-					   IN_HANDLE const CRYPT_CONTEXT iHashContext,
+					   IN_PTR const SIG_DATA_INFO *sigDataInfo,
 					   INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	const READSIG_FUNCTION readSigFunction = getReadSigFunction( SIGNATURE_PGP );
@@ -472,11 +479,13 @@ int checkSignaturePGP( IN_BUFFER( signatureLength ) const void *signature,
 	int status;
 
 	assert( isReadPtrDynamic( signature, signatureLength ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 	
 	REQUIRES( isShortIntegerRangeMin( signatureLength, 40 ) );
 	REQUIRES( isHandleRangeValid( sigCheckContext ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, SIGNATURE_PGP, TRUE ) && \
+			  sigDataInfo->data == NULL );
 
 	/* Make sure that the requested signature format is available */
 	if( readSigFunction == NULL )
@@ -512,7 +521,7 @@ int checkSignaturePGP( IN_BUFFER( signatureLength ) const void *signature,
 	   attributes, see the earlier comment in createSignaturePGP() */
 	REQUIRES( boundsCheck( queryInfo.attributeStart, 
 						   queryInfo.attributeLength, queryInfo.size ) );
-	status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH,
+	status = krnlSendMessage( sigDataInfo->hashContext, IMESSAGE_CTX_HASH,
 							  ( BYTE * ) signature + queryInfo.attributeStart,
 							  queryInfo.attributeLength );
 	if( cryptStatusOK( status ) && queryInfo.attributeLength != 5 )
@@ -533,12 +542,15 @@ int checkSignaturePGP( IN_BUFFER( signatureLength ) const void *signature,
 		if( cryptStatusOK( status ) )
 			{
 			ENSURES( isShortIntegerRangeNZ( length ) );
-			status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH,
-									  buffer, length );
+			status = krnlSendMessage( sigDataInfo->hashContext, 
+									  IMESSAGE_CTX_HASH, buffer, length );
 			}
 		}
 	if( cryptStatusOK( status ) )
-		status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, "", 0 );
+		{
+		status = krnlSendMessage( sigDataInfo->hashContext, 
+								  IMESSAGE_CTX_HASH, "", 0 );
+		}
 	if( cryptStatusError( status ) )
 		{
 		zeroise( &queryInfo, sizeof( QUERY_INFO ) );
@@ -550,8 +562,7 @@ int checkSignaturePGP( IN_BUFFER( signatureLength ) const void *signature,
 
 	/* Check the signature */
 	status = checkSignature( signature, signatureLength, sigCheckContext,
-							 iHashContext, CRYPT_UNUSED, SIGNATURE_PGP, 
-							 errorInfo );
+							 sigDataInfo, SIGNATURE_PGP, errorInfo );
 	if( cryptStatusError( status ) )
 		{
 		zeroise( &queryInfo, sizeof( QUERY_INFO ) );

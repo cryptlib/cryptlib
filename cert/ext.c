@@ -346,7 +346,7 @@ void printAttributeList( IN_DATAPTR const DATAPTR_ATTRIBUTE attributeList )
 
 	REQUIRES_V( DATAPTR_ISVALID( attributeList ) );
 
-	DEBUG_PRINT(( "Attribute list starting at %lX:\n", 
+	DEBUG_PRINT(( "Attribute list starting at %p:\n", 
 				  attributeList.dataPtr ));
 	LOOP_LARGE( attributeListCursor = DATAPTR_GET( attributeList ), 
 				attributeListCursor != NULL,
@@ -354,7 +354,7 @@ void printAttributeList( IN_DATAPTR const DATAPTR_ATTRIBUTE attributeList )
 		{
 		ENSURES_V( LOOP_INVARIANT_LARGE_GENERIC() );
 
-		DEBUG_PRINT(( "This: %8lX Prev: %8lX Next: %8lX attrID = %4d fldID = %4d "
+		DEBUG_PRINT(( "This: %p Prev: %p Next: %p attrID = %4d fldID = %4d "
 					  "subFldID = %4d.\n", attributeListCursor,
 					  attributeListCursor->prev.dataPtr, 
 					  attributeListCursor->next.dataPtr, 

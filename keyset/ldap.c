@@ -52,6 +52,12 @@
    installation section of the manual */
 
 #if defined( __WINDOWS__ )
+  /* VS 2008 forgets to define NTDDI_WINLH, needed in winldap.h */
+
+  #if VC_EQ_2008( _MSC_VER )
+	#define NTDDI_WINLH			0
+  #endif /* VS 2008 */
+
   /* cryptlib.h includes a trap for inclusion of wincrypt.h before 
      cryptlib.h which results in a compiler error if both files are 
 	 included.  To disable this, we need to undefine the CRYPT_MODE_ECB 
@@ -383,7 +389,8 @@ static void getErrorInfo( KEYSET_INFO *keysetInfoPtr, int ldapStatus )
 #endif /* Different LDAP client types */
 	if( errorMessage != NULL )
 		{
-		setErrorString( errorInfo, errorMessage, strlen( errorMessage ) );
+		setErrorString( errorInfo, errorMessage, 
+						strnlen_s( errorMessage, MAX_ERRMSG_SIZE ) );
 		}
 	else
 		clearErrorInfo( errorInfo );
@@ -1369,7 +1376,8 @@ static int getAttributeFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	if( attributeDataPtr == NULL )
 		return( CRYPT_ARGERROR_VALUE );
 	return( attributeCopy( data, attributeDataPtr, 
-						   strlen( attributeDataPtr ) ) );
+						   strnlen_s( attributeDataPtr, 
+									  CRYPT_MAX_TEXTSIZE ) ) );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \

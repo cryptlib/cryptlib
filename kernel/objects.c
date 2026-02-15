@@ -19,9 +19,16 @@
 /* Define the following to use fixed (deterministic) object handles.  This
    orders object handles sequentially, making it easier to pin down 
    approximately where/when a leftover objects was created, as well as
-   ensuring that handles have consistent values across runs */
+   ensuring that handles have consistent values across runs.  There's a
+   companion define to enable reporting of object creation, which places
+   the leftover object within the over flow of objects.
+   
+   Note that enabling fixed object handles will require disabling the kernel 
+   smoke test in test/testlib.c:main() because this overruns the number of 
+   object slots available */
 
 /* #define USE_FIXED_OBJECTHANDLES */
+/* #define REPORT_OBJECT_CREATION	*/
 
 /* A template used to initialise object table entries.  Some of the entries
    are either object handles that have to be set to CRYPT_ERROR or values
@@ -993,11 +1000,9 @@ int krnlCreateObject( OUT_HANDLE_OPT int *objectHandle,
 	/* Report what's just been created, useful for determining where 
 	   leftover objects are coming from.  We only enable this when tracking 
 	   down leaks since it otherwise creates a huge amount of noise */
-#if 0
-	DEBUG_DIAG(( "Created %s, ID = %d", 
-				 getObjectDescriptionNT( localObjectHandle ),
-				 objectInfo.uniqueID ));
-#endif /* 0 */
+#ifdef REPORT_OBJECT_CREATION
+	DEBUG_DIAG_ATOMIC( "Created %s", getObjectDescriptionNT( localObjectHandle ) );
+#endif /* REPORT_OBJECT_CREATION */
 
 	MUTEX_UNLOCK( objectTable );
 

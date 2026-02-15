@@ -73,6 +73,12 @@ static const PGP_ALGOMAP_INFO pgpAlgoMap[] = {
 #ifdef USE_DSA
 	{ PGP_ALGO_DSA, PGP_ALGOCLASS_SIGN, CRYPT_ALGO_DSA },
 #endif /* USE_DSA */
+#ifdef USE_ECDSA
+	{ PGP_ALGO_ECDSA, PGP_ALGOCLASS_SIGN, CRYPT_ALGO_ECDSA },
+#endif /* USE_ECDSA */
+#ifdef USE_ED25519
+	{ PGP_ALGO_ED25519, PGP_ALGOCLASS_SIGN, CRYPT_ALGO_ED25519 },
+#endif /* USE_ED25519 */
 
 	/* Hash algos */
 #ifdef USE_MD5
@@ -489,7 +495,8 @@ int readPgpS2K( INOUT_PTR STREAM *stream,
 		return( CRYPT_OK );
 
 	/* It's a salted hash, read the salt */
-	status = sread( stream, salt, saltMaxLen );
+	REQUIRES( rangeCheck( PGP_SALTSIZE, 1, saltMaxLen ) );
+	status = sread( stream, salt, PGP_SALTSIZE );
 	if( cryptStatusError( status ) )
 		return( status );
 	*saltLen = PGP_SALTSIZE;

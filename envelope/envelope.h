@@ -615,6 +615,11 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 		int ( *ENV_SYNCDEENVELOPEDATA_FUNCTION )( INOUT_PTR struct EI *envelopeInfoPtr, 
 												  INOUT_PTR STREAM *stream );
 
+#ifdef _MSC_VER
+  #pragma warning( push )
+  #pragma warning( disable: 4324 )	/* Structure was padded to align */
+#endif /* _MSC_VER */
+
 typedef struct EI {
 	/* Control and status information */
 	CRYPT_FORMAT_TYPE type;			/* Envelope type */
@@ -882,6 +887,10 @@ typedef struct EI {
 	DECLARE_VARSTRUCT_VARS;
 	} ENVELOPE_INFO;
 
+#ifdef _MSC_VER
+  #pragma warning( pop )
+#endif /* _MSC_VER */
+
 /****************************************************************************
 *																			*
 *								Enveloping Functions						*
@@ -977,7 +986,7 @@ BOOLEAN moreContentItemsPossible( IN_PTR_OPT \
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int createContentListItem( OUT_BUFFER_ALLOC_OPT( sizeof( CONTENT_LIST ) ) \
 								CONTENT_LIST **newContentListItemPtrPtr,
-						   INOUT_PTR MEMPOOL_STATE memPoolState,
+						   INOUT_PTR void *memPoolStatePtr,
 						   IN_ENUM( CONTENT ) const CONTENT_TYPE type,
 						   IN_ENUM( CRYPT_FORMAT ) \
 								const CRYPT_FORMAT_TYPE formatType,
@@ -989,7 +998,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int appendContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 						   INOUT_PTR CONTENT_LIST *contentListItem );
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
-void deleteContentListItem( INOUT_PTR MEMPOOL_STATE memPoolState,
+void deleteContentListItem( INOUT_PTR void *memPoolStatePtr,
 							INOUT_PTR CONTENT_LIST *contentListItem );
 STDC_NONNULL_ARG( ( 1 ) ) \
 int deleteContentList( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr );
@@ -1038,7 +1047,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
 int cmsInitSigParams( const ACTION_LIST *actionListPtr,
 					  IN_ENUM( CRYPT_FORMAT ) const CRYPT_FORMAT_TYPE formatType,
 					  IN_HANDLE const CRYPT_USER iCryptOwner,
-					  OUT_PTR SIGPARAMS *sigParams );
+					  OUT_PTR SIG_PARAMS *sigParams );
 
 /* Prototypes for envelope mapping functions */
 

@@ -306,6 +306,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		textLength = sprintf_s( textBuffer, 64 + CRYPT_MAX_TEXTSIZE,
 								"Warning: Couldn't find certificate for '%s'", 
 								queryText );
+		ENSURES( rangeCheck( textLength, 1, 64 + CRYPT_MAX_TEXTSIZE - 1 ) );
 		setErrorString( SESSION_ERRINFO, textBuffer, textLength );
 
 		return( CRYPT_OK );

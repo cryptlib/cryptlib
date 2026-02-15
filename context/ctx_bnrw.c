@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Bignum Import/Export Routines					*
-*						Copyright Peter Gutmann 1995-2015					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -90,7 +90,7 @@ static int checkBignum( const BIGNUM *bignum,
 	REQUIRES( maxRange == NULL || sanityCheckBignum( maxRange ) );
 	REQUIRES( isEnumRangeOpt( checkType, BIGNUM_CHECK ) );
 
-	/* The following should never happen because BN_bin2bn() works with 
+	/* The following should never happen because bytesToBignum() works with 
 	   unsigned values but we perform the check anyway just in case someone 
 	   messes with the underlying bignum code */
 	ENSURES( !( BN_is_negative( bignum ) ) )
@@ -161,23 +161,23 @@ static int checkBignum( const BIGNUM *bignum,
 	return( CRYPT_OK );
 	}
 
-/* Import a bignum from a buffer.  This is a low-level internal routine also
-   used by the OpenSSL bignum code, the non-cryptlib-style API is for 
-   compatibility purposes */
+/* Import a bignum from a byte string */
 
-CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1, 3 ) ) \
-BIGNUM *BN_bin2bn( IN_BUFFER( length ) const BYTE *buffer, 
-				   IN_LENGTH_PKC_Z const int length, 
-				   OUT_PTR BIGNUM *bignum )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static int bytesToBignum( OUT_PTR BIGNUM *bignum,
+						  IN_BUFFER( length ) const BYTE *buffer, 
+						  IN_LENGTH_PKC_Z const int length, 
+						  const BOOLEAN storeByteString )
 	{
 	int index = 0, bnStatus = BN_STATUS;
 	LOOP_INDEX byteCount, wordIndex;
 
+	assert( isWritePtr( bignum, sizeof( BIGNUM ) ) );
 	assert( length == 0 || isReadPtrDynamic( buffer, length ) );
-	assert( isReadPtr( bignum, sizeof( BIGNUM ) ) );
 
-	REQUIRES_N( length >= 0 && length <= CRYPT_MAX_PKCSIZE );
-	REQUIRES_N( sanityCheckBignum( bignum ) );
+	REQUIRES( sanityCheckBignum( bignum ) );
+	REQUIRES( length >= 0 && length <= CRYPT_MAX_PKCSIZE );
+	REQUIRES( isBooleanValue( storeByteString ) );
 
 	/* Clear return value */
 	BN_clear( bignum );
@@ -185,7 +185,7 @@ BIGNUM *BN_bin2bn( IN_BUFFER( length ) const BYTE *buffer,
 	/* Bignums with value zero are special-cased since they have a length of
 	   zero */
 	if( length <= 0 )
-		return( bignum );
+		return( CRYPT_OK );
 
 	/* Walk down the bignum a word at a time adding the data bytes */
 	bignum->top = ( ( length - 1 ) / BN_BYTES ) + 1;
@@ -197,32 +197,35 @@ BIGNUM *BN_bin2bn( IN_BUFFER( length ) const BYTE *buffer,
 		int noBytes = ( ( byteCount - 1 ) % BN_BYTES ) + 1;
 		int LOOP_ITERATOR_ALT;
 
-		ENSURES_N( LOOP_INVARIANT_REV( wordIndex, 0, bignum->top - 1 ) )
-		ENSURES_N( LOOP_INVARIANT_SECONDARY( byteCount, 1, length ) );
+		ENSURES( LOOP_INVARIANT_REV( wordIndex, 0, bignum->top - 1 ) )
+		ENSURES( LOOP_INVARIANT_SECONDARY( byteCount, 1, length ) );
 
 		byteCount -= noBytes;
 		LOOP_EXT_REV_CHECKINC_ALT( noBytes > 0, noBytes--, BN_BYTES + 1 )
 			{
-			ENSURES_N( LOOP_INVARIANT_EXT_REV_XXX_ALT( noBytes, 1, BN_BYTES,
-													   BN_BYTES + 1 ) );
+			ENSURES( LOOP_INVARIANT_EXT_REV_XXX_ALT( noBytes, 1, BN_BYTES,
+													 BN_BYTES + 1 ) );
 
 			value = ( value << 8 ) | buffer[ index++ ];
 			}
-		ENSURES_N( LOOP_BOUND_EXT_REV_OK_ALT( BN_BYTES + 1 ) );
+		ENSURES( LOOP_BOUND_EXT_REV_OK_ALT( BN_BYTES + 1 ) );
 		bignum->d[ wordIndex ] = value;
 		}
-	ENSURES_N( LOOP_BOUND_EXT_REV_OK( BIGNUM_ALLOC_WORDS ) );
-	ENSURES_N( wordIndex == -1 && byteCount == 0 );
+	ENSURES( LOOP_BOUND_EXT_REV_OK( BIGNUM_ALLOC_WORDS ) );
+	ENSURES( wordIndex == -1 && byteCount == 0 );
 
 	/* Now that we've imported the raw data value, convert it to 
-	   normalised form */
-	CK( BN_normalise( bignum ) );
-	if( bnStatusError( bnStatus ) )
-		return( NULL );
+	   normalised form unless we're just storing a byte string */
+	if( !storeByteString )
+		{
+		CK( BN_normalise( bignum ) );
+		if( bnStatusError( bnStatus ) )
+			return( getBnStatus( bnStatus ) );
+		}
 
-	ENSURES_N( sanityCheckBignum( bignum ) );
+	ENSURES( sanityCheckBignum( bignum ) );
 
-	return( bignum );
+	return( CRYPT_OK );
 	}
 
 /* Convert a byte string to a BIGNUM value */
@@ -285,16 +288,15 @@ int importBignum( INOUT_PTR TYPECAST( BIGNUM * ) struct BN *bignumPtr,
 	if( checkType != BIGNUM_CHECK_NONE )
 		{
 		/* Perform a debug-mode check for suspicious bignum data */
-		assert_nofuzz( checkEntropyInteger( buffer, length ) );
+		assert_notest( checkEntropyInteger( buffer, length ) );
 		}
 
-	/* Convert the byte string into a bignum.  Since the only thing that 
-	   this does is format a string of bytes as a BN_ULONGs, the only
-	   failure that can occur is a CRYPT_ERROR_INTERNAL */
-	if( BN_bin2bn( buffer, length, bignum ) == NULL )
+	/* Convert the byte string into a bignum */
+	status = bytesToBignum( bignum, buffer, length, FALSE );
+	if( cryptStatusError( status ) )
 		{
 		BN_clear( bignum );
-		return( CRYPT_ERROR_INTERNAL );
+		return( status );
 		}
 
 	/* Check the bignum value that we've just imported */
@@ -371,7 +373,7 @@ BOOLEAN verifyBignumImport( TYPECAST( const BIGNUM * ) \
 
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
 
-/* Convert a byte string to an ECC point */
+/* Convert a byte string to an X9.62 ECC point */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 int importECCPoint( INOUT_PTR TYPECAST( BIGNUM * ) struct BN *bignumPtr1, 
@@ -489,27 +491,94 @@ BOOLEAN verifyECCPointImport( TYPECAST( const BIGNUM * ) \
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+
+/* Store a byte string in a bignum, needed for the Bernstein special-
+   snowflake format which uses fixed-length little-endian byte strings 
+   instead of standard bignums */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int import25519ByteString( INOUT_PTR TYPECAST( BIGNUM * ) 
+								struct BN *bignumPtr, 
+						   IN_BUFFER( length ) const void *buffer, 
+						   IN_LENGTH_SHORT_MIN( MIN_PKCSIZE_BERNSTEIN ) \
+								const int length )
+	{
+	BIGNUM *bignum = ( BIGNUM * ) bignumPtr;
+	int status;
+
+	assert( isWritePtr( bignum, sizeof( BIGNUM ) ) );
+	assert( isReadPtrDynamic( buffer, length ) );
+
+	REQUIRES( sanityCheckBignum( bignum ) );
+	REQUIRES( length >= MIN_PKCSIZE_BERNSTEIN && \
+			  length <= CRYPT_MAX_PKCSIZE );
+
+	/* Make sure that we've been given valid input.  This should already 
+	   have been checked by the caller using far more specific checks than 
+	   the very generic values that we use here and is in fact verified by
+	   the REQUIRES() statement above, but we perform the check here to
+	   document what's being done */
+	if( length < MIN_PKCSIZE_BERNSTEIN || length > CRYPT_MAX_PKCSIZE )
+		return( CRYPT_ERROR_BADDATA );
+
+	/* Check that the bignum data appears valid unless we're using Ed25519, 
+	   for which the self-test values contain said suspicious data values */
+#ifndef USE_ED25519
+	assert_notest( checkEntropyInteger( buffer, length ) );
+#endif /* USE_ED25519 */
+
+	/* Store the byte string as a bignum */
+	status = bytesToBignum( bignum, buffer, length, TRUE );
+	if( cryptStatusError( status ) )
+		{
+		BN_clear( bignum );
+		return( status );
+		}
+
+	ENSURES( sanityCheckBignum( bignum ) );
+
+	return( CRYPT_OK );
+	}
+#endif /* USE_25519 || USE_ED25519 */
+
 /****************************************************************************
 *																			*
 *								Bignum Export Routines 						*
 *																			*
 ****************************************************************************/
 
-/* Export a bignum to a buffer.  This is a low-level internal routine also
-   used by the OpenSSL bignum code, the non-cryptlib-style API is for 
-   compatibility purposes */
+/* Export a bignum to a buffer */
 
-CHECK_RETVAL_LENGTH_SHORT STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int BN_bn2bin( const BIGNUM *bignum, BYTE *buffer )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+static int bignumToBytes( OUT_BUFFER( dataMaxLength, *dataLength ) \
+							void *data, 
+						  IN_LENGTH_SHORT_MIN( 16 ) const int dataMaxLength, 
+						  OUT_LENGTH_BOUNDED_Z( dataMaxLength ) \
+							int *dataLength,
+						  const BIGNUM *bignum )
 	{
-	const int length = BN_num_bytes( bignum );
-	int index = 0;
+	BYTE *buffer = data;
+	int length, index = 0;
 	LOOP_INDEX byteCount, wordIndex;
 
+	assert( isWritePtrDynamic( data, dataMaxLength ) );
+	assert( isWritePtr( dataLength, sizeof( int ) ) );
 	assert( isReadPtr( bignum, sizeof( BIGNUM ) ) );
 
+	REQUIRES( isShortIntegerRangeMin( dataMaxLength, 16 ) );
 	REQUIRES( sanityCheckBignum( bignum ) );
-	REQUIRES( length >= 0 && length <= CRYPT_MAX_PKCSIZE );
+
+	/* Clear return values */
+	REQUIRES( isShortIntegerRangeNZ( dataMaxLength ) ); 
+	memset( data, 0, min( 16, dataMaxLength ) );
+	*dataLength = 0;
+
+	/* Make sure that the result will fit into the output buffer */
+	length = BN_num_bytes( bignum );
+	ENSURES( length > 0 && length <= CRYPT_MAX_PKCSIZE );
+	if( length > dataMaxLength )
+		return( CRYPT_ERROR_OVERFLOW );
 
 	/* Walk down the bignum a word at a time extracting the data bytes */
 	LOOP_EXT_REV( ( byteCount = length, wordIndex = bignum->top - 1 ),
@@ -538,7 +607,8 @@ int BN_bn2bin( const BIGNUM *bignum, BYTE *buffer )
 	ENSURES( LOOP_BOUND_OK );
 	ENSURES( wordIndex == -1 && byteCount == 0 );
 
-	return( length );
+	*dataLength = length;
+	return( CRYPT_OK );
 	}
 
 /* Convert a BIGNUM value to a byte string */
@@ -549,8 +619,8 @@ int exportBignum( OUT_BUFFER( dataMaxLength, *dataLength ) void *data,
 				  OUT_LENGTH_BOUNDED_Z( dataMaxLength ) int *dataLength,
 				  IN_PTR TYPECAST( BIGNUM * ) const struct BN *bignumPtr )
 	{
-	BIGNUM *bignum = ( BIGNUM * ) bignumPtr;
-	int length, result;
+	const BIGNUM *bignum = ( BIGNUM * ) bignumPtr;
+	int length, status;
 
 	assert( isWritePtrDynamic( data, dataMaxLength ) );
 	assert( isWritePtr( dataLength, sizeof( int ) ) );
@@ -564,15 +634,13 @@ int exportBignum( OUT_BUFFER( dataMaxLength, *dataLength ) void *data,
 	memset( data, 0, min( 16, dataMaxLength ) );
 	*dataLength = 0;
 
-	/* Make sure that the result will fit into the output buffer */
-	length = BN_num_bytes( bignum );
-	ENSURES( length > 0 && length <= CRYPT_MAX_PKCSIZE );
-	if( length > dataMaxLength )
-		return( CRYPT_ERROR_OVERFLOW );
-
 	/* Export the bignum into the output buffer */
-	result = BN_bn2bin( bignum, data );
-	ENSURES( result == length );
+	status = bignumToBytes( data, dataMaxLength, &length, bignum );
+	if( cryptStatusError( status ) )
+		{
+		zeroise( data, dataMaxLength );
+		return( status );
+		}
 	*dataLength = length;
 
 	return( CRYPT_OK );
@@ -580,7 +648,7 @@ int exportBignum( OUT_BUFFER( dataMaxLength, *dataLength ) void *data,
 
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
 
-/* Convert an ECC point to a byte string */
+/* Convert an ECC point to an X9.62 byte string */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 4, 5 ) ) \
 int exportECCPoint( OUT_BUFFER_OPT( dataMaxLength, *dataLength ) void *data, 
@@ -590,10 +658,10 @@ int exportECCPoint( OUT_BUFFER_OPT( dataMaxLength, *dataLength ) void *data,
 					IN_PTR TYPECAST( BIGNUM * ) const struct BN *bignumPtr2,
 					IN_LENGTH_PKC const int fieldSize )
 	{
-	BIGNUM *bignum1 = ( BIGNUM * ) bignumPtr1;
-	BIGNUM *bignum2 = ( BIGNUM * ) bignumPtr2;
+	const BIGNUM *bignum1 = ( BIGNUM * ) bignumPtr1;
+	const BIGNUM *bignum2 = ( BIGNUM * ) bignumPtr2;
 	BYTE *bufPtr = data;
-	int length, result;
+	int length, dummy, status;
 
 	assert( data == NULL || isWritePtrDynamic( data, dataMaxLength ) );
 	assert( isWritePtr( dataLength, sizeof( int ) ) );
@@ -623,6 +691,10 @@ int exportECCPoint( OUT_BUFFER_OPT( dataMaxLength, *dataLength ) void *data,
 		return( CRYPT_OK );
 		}
 
+	/* Make sure that the result will fit into the output buffer */
+	if( 1 + ( fieldSize * 2 ) > dataMaxLength )
+		return( CRYPT_ERROR_OVERFLOW );
+
 	/* Encode the ECC point data, which consists of the Q coordinates 
 	   stuffed into a byte string with an encoding-specifier byte 0x04 at 
 	   the start:
@@ -631,25 +703,89 @@ int exportECCPoint( OUT_BUFFER_OPT( dataMaxLength, *dataLength ) void *data,
 		|ID	|		qx		|		qy		|
 		+---+---------------+---------------+
 			|<-- fldSize -> |<- fldSize --> | */
-	if( 1 + ( fieldSize * 2 ) > dataMaxLength )
-		return( CRYPT_ERROR_OVERFLOW );
 	*bufPtr++ = 0x04;
 	REQUIRES( rangeCheck( fieldSize, MIN_PKCSIZE_ECC, 
 						  CRYPT_MAX_PKCSIZE_ECC ) );
 	memset( bufPtr, 0, fieldSize * 2 );
 	length = BN_num_bytes( bignum1 );
 	ENSURES( length > 0 && length <= fieldSize );
-	result = BN_bn2bin( bignum1, bufPtr + ( fieldSize - length ) );
-	ENSURES( result == length );
+	status = bignumToBytes( bufPtr + ( fieldSize - length ), fieldSize, 
+							&dummy, bignum1 );
+	if( cryptStatusError( status ) )
+		{
+		zeroise( data, dataMaxLength );
+		return( status );
+		}
 	bufPtr += fieldSize;
 	length = BN_num_bytes( bignum2 );
 	ENSURES( length > 0 && length <= fieldSize );
-	result = BN_bn2bin( bignum2, bufPtr + ( fieldSize - length ) );
-	ENSURES( result == length );
+	status = bignumToBytes( bufPtr + ( fieldSize - length ), fieldSize, 
+							&dummy, bignum2 );
+	if( cryptStatusError( status ) )
+		{
+		zeroise( data, dataMaxLength );
+		return( status );
+		}
 	*dataLength = 1 + ( fieldSize * 2 );
 
 	return( CRYPT_OK );
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
+#if defined( USE_25519 ) || defined( USE_ED25519 )
+
+/* Extract a byte string from a bignum in the Bernstein special-snowflake 
+   format which uses fixed-length little-endian byte strings instead of 
+   standard bignums */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
+int export25519ByteString( OUT_BUFFER( dataMaxLength, *dataLength ) 
+								void *data, 
+						   IN_LENGTH_SHORT_MIN( MIN_PKCSIZE_BERNSTEIN ) \
+								const int dataMaxLength, 
+						   OUT_LENGTH_BOUNDED_Z( dataMaxLength ) 
+								int *dataLength,
+						   IN_PTR TYPECAST( BIGNUM * ) 
+								const struct BN *bignumPtr )
+	{
+	const BIGNUM *bignum = ( BIGNUM * ) bignumPtr;
+	BYTE *bufPtr = data;
+	int length, dummy, status;
+
+	assert( isWritePtrDynamic( data, dataMaxLength ) );
+	assert( isWritePtr( dataLength, sizeof( int ) ) );
+	assert( isReadPtr( bignum, sizeof( BIGNUM ) ) );
+
+	REQUIRES( isShortIntegerRangeMin( dataMaxLength, 
+									  MIN_PKCSIZE_BERNSTEIN ) );
+	REQUIRES( sanityCheckBignum( bignum ) );
+
+	/* Clear return values */
+	REQUIRES( isShortIntegerRangeNZ( dataMaxLength ) ); 
+	memset( data, 0, min( 16, dataMaxLength ) );
+	*dataLength = 0;
+
+	/* Make sure that the result will fit into the output buffer.  This 
+	   should already have been arranged by the caller and is in fact 
+	   verified by the REQUIRES() statement above, but we perform the check 
+	   here to document what's being done */
+	if( dataMaxLength < 32 )
+		return( CRYPT_ERROR_OVERFLOW );
+
+	/* Bignums are stored in normalised form while the Bernstein format uses
+	   fixed-length values so we insert any leading zeroes as required */
+	memset( bufPtr, 0, 16 );
+	length = BN_num_bytes( bignum );
+	ENSURES( length > 16 && length <= 32 );
+	status = bignumToBytes( bufPtr + ( 32 - length ), length, &dummy, bignum );
+	if( cryptStatusError( status ) )
+		{
+		zeroise( data, dataMaxLength );
+		return( status );
+		}
+	*dataLength = 32;
+
+	return( CRYPT_OK );
+	}
+#endif /* USE_25519 || USE_ED25519 */
 #endif /* USE_PKC */

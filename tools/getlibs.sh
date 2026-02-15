@@ -52,11 +52,14 @@ hasSubstring()
 	return 1
 	}
 
-# If we're using a newer version of clang, we'll have been compiled with
-# specific compiler options that need to be passed down to the linker.
+# If we've been compiled with specific compiler options that apply to the
+# linker, pass them on down.
 
 if hasSubstring "$BUILDOPTS" "sanitize=safe-stack" ; then
 	LDARGS="$LDARGS -fsanitize=safe-stack" ;
+fi
+if hasSubstring "$BUILDOPTS" "-Wl,-z,relro,-z,now" ; then
+	LDARGS="$LDARGS -Wl,-z,relro,-z,now" ;
 fi
 
 # Add any libraries needed by optional components.  In the case of zlib use
@@ -186,8 +189,11 @@ case $OSNAME in
 		LDARGS="$LDARGS -lw" ;;
 
 	'Linux')
+		# Alpine Linux contains a broken ldconfig so we have to check that
+		# it works before invoking it.
 		LDARGS="$LDARGS -lresolv -lpthread" ;
 		if [ -x /sbin/ldconfig ] && \
+		   [ "$(/sbin/ldconfig -V 2>&1 | grep -c 'Illegal option')" -le 0 ] && \
 		   [ "$(/sbin/ldconfig -p | grep -c 'libdl\.so')" -gt 0 ] ; then
 			LDARGS="$LDARGS -ldl" ;
 		elif [ -f /usr/lib/libdl.so ] || \

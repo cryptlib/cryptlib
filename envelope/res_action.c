@@ -415,10 +415,10 @@ int replaceAction( INOUT_PTR ACTION_LIST *actionListItem,
 /* Delete an action from an action list */
 
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static void deleteActionListItem( INOUT_PTR MEMPOOL_STATE memPoolState,
+static void deleteActionListItem( INOUT_PTR void *memPoolStatePtr,
 								  INOUT_PTR ACTION_LIST *actionListItem )
 	{
-	assert( isWritePtr( memPoolState, sizeof( MEMPOOL_STATE ) ) );
+	assert( isWritePtr( memPoolStatePtr, sizeof( MEMPOOL_STATE ) ) );
 	assert( isWritePtr( actionListItem, sizeof( ACTION_LIST ) ) );
 
 	/* Destroy any attached objects and information if necessary and
@@ -430,7 +430,7 @@ static void deleteActionListItem( INOUT_PTR MEMPOOL_STATE memPoolState,
 	if( actionListItem->iTspSession != CRYPT_ERROR )
 		krnlSendNotifier( actionListItem->iTspSession, IMESSAGE_DECREFCOUNT );
 	zeroise( actionListItem, sizeof( ACTION_LIST ) );
-	freeMemPool( memPoolState, actionListItem );
+	freeMemPool( memPoolStatePtr, actionListItem );
 	}
 
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
@@ -468,12 +468,12 @@ static int deleteAction( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 /* Delete the action lists */
 
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static void deleteActionList( INOUT_PTR MEMPOOL_STATE memPoolState,
+static void deleteActionList( INOUT_PTR void *memPoolStatePtr,
 							  INOUT_PTR ACTION_LIST *actionListPtr )
 	{
 	int LOOP_ITERATOR;
 
-	assert( isWritePtr( memPoolState, sizeof( MEMPOOL_STATE ) ) );
+	assert( isWritePtr( memPoolStatePtr, sizeof( MEMPOOL_STATE ) ) );
 	assert( isReadPtr( actionListPtr, sizeof( ACTION_LIST ) ) );
 
 	LOOP_MED_WHILE( actionListPtr != NULL )
@@ -484,7 +484,7 @@ static void deleteActionList( INOUT_PTR MEMPOOL_STATE memPoolState,
 
 		REQUIRES_V( DATAPTR_ISVALID( actionListPtr->next ) );
 		actionListPtr = DATAPTR_GET( actionListPtr->next );
-		deleteActionListItem( memPoolState, actionListItem );
+		deleteActionListItem( memPoolStatePtr, actionListItem );
 		}
 	ENSURES_V( LOOP_BOUND_OK );
 	}
@@ -644,8 +644,7 @@ ACTION_RESULT checkAction( IN_PTR_OPT const ACTION_LIST *actionListStart,
 
 		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
 
-		REQUIRES_EXT( actionListPtr == NULL || \
-					  sanityCheckActionList( actionListPtr ), 
+		REQUIRES_EXT( sanityCheckActionList( actionListPtr ), 
 					  ACTION_RESULT_ERROR );
 
 		/* Make sure that we haven't added this action already.  This can
@@ -1086,9 +1085,8 @@ BOOLEAN checkActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			return( FALSE );
 
 		/* Make sure that the encryption action is the only other action */
-		if( actionListPtrNext->action != ACTION_CRYPT )
-			return( FALSE );
-		REQUIRES_B( DATAPTR_ISVALID( actionListPtrNext->next ) );
+		REQUIRES_B( actionListPtrNext->action == ACTION_CRYPT && \
+					DATAPTR_ISVALID( actionListPtrNext->next ) );
 		if( DATAPTR_ISSET( actionListPtrNext->next ) )
 			return( FALSE );
 

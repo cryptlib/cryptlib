@@ -225,6 +225,10 @@ typedef enum {
 	Name, "pass" | _USERNAME_PW	| Store/match name, wrong	|			 A5
 		  (wrong}|				|	password -> Fail		| ERROR
 	Name, "pass" | _USERNAME_PW	| Check/match name, password| SUCCESS/ERROR
+	-------------+--------------+---------------------------+--------------
+	Name, "pass" | _USERNAME_PW	| Store/match name, wrong	|			 A6
+		  (wrong}|				|	password -> Fail		| ERROR
+	Name,"pubkey"| _USERNAME_PW	| Error						| ERROR (fatal)
 
    The match options with no caller-supplied list of credentials to match 
    against are:
@@ -248,10 +252,17 @@ typedef enum {
 		  (wrong)|				|							|			 B5
 	Name, "pass" | _USERNAME	| Check/match name,			|
 				 |				|	update password			| CALLERCHECK
+	-------------+--------------+---------------------------+--------------
+	Name, "pass" | _NONE		| Store/add name, password	| CALLERCHECK
+		  (wrong)|				|							|			 B6
+	Name,"pubkey"| _USERNAME	| Error						| ERROR (fatal)
 
    Finally the match options for public-key authentication, these are 
    dependent on the presence of a public-key database rather than a list of 
-   credentials (or lack thereof):
+   credentials (or lack thereof).  We don't list things like the Name/Name2
+   sequence because they're already handled as part of the password 
+   processing above and it would make the table rather large with all of the
+   extra states.
 
 	Client sends | Credentials	| Action					| Result
 				 | present		|							|
@@ -539,7 +550,7 @@ static int checkQueryValidity( INOUT_PTR SSH_INFO *sshInfo,
 		}
 
 	/* If we've already seen a standard authentication method then the new 
-	   method must be the same (C7) */
+	   method must be the same (A6, B6, C7) */
 	if( sshInfo->prevAuthType != currentAuthType )
 		return( CRYPT_ERROR_INVALID );
 
@@ -761,14 +772,13 @@ static int checkPublicKeySig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  IN_BUFFER( userNameLength ) const void *userName, 
 							  IN_LENGTH_TEXT const int userNameLength )
 	{
-	MESSAGE_CREATEOBJECT_INFO createInfo;
 	MESSAGE_KEYMGMT_INFO getkeyInfo DUMMY_INIT_STRUCT;
 	MESSAGE_DATA msgData;
-	ERROR_INFO localErrorInfo;
 	BYTE keyID[ CRYPT_MAX_HASHSIZE + 8 ];
 	BYTE holderName[ CRYPT_MAX_TEXTSIZE + 8 ];
-	void *packetDataPtr DUMMY_INIT_PTR, *sigDataPtr;
-	int packetDataLength, sigDataLength, holderNameLen, status;
+	void *packetDataPtr DUMMY_INIT_PTR;
+	int pkcAlgo;		/* enum vs. int */
+	int packetDataLength, holderNameLen, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
@@ -776,6 +786,18 @@ static int checkPublicKeySig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isReadPtr( userName, userNameLength ) );
 
 	REQUIRES( userNameLength > 0 && userNameLength <= CRYPT_MAX_TEXTSIZE );
+
+	/* Find out which algorithm we're dealing with, which affects how the
+	   signature check is done */
+	status = krnlSendMessage( sessionInfoPtr->iKeyexAuthContext, 
+							  IMESSAGE_GETATTRIBUTE, &pkcAlgo, 
+							  CRYPT_CTXINFO_ALGO );
+	if( cryptStatusError( status ) )
+		{
+		/* This is a can't-occur error condition so we convert it into 
+		   something more meaningful in this context */
+		return( CRYPT_ERROR_PERMISSION );
+		}
 
 	/* Make sure that this key is valid for authentication purposes, in 
 	   other words that it's present in the authentication keyset.
@@ -883,69 +905,21 @@ static int checkPublicKeySig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* Hash the authentication request data, composed of:
-	
-		string		exchange hash
-		[ SSH_MSG_USERAUTH_REQUEST packet payload up to signature start ] */
-	setMessageCreateObjectInfo( &createInfo, handshakeInfo->hashAlgo );
-	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,
-							  IMESSAGE_DEV_CREATEOBJECT, &createInfo,
-							  OBJECT_TYPE_CONTEXT );
-	if( cryptStatusError( status ) )
-		return( status );
-	status = hashAsString( createInfo.cryptHandle, 
-						   handshakeInfo->sessionID,
-						   handshakeInfo->sessionIDlength );
-	if( cryptStatusOK( status ) )
+	/* Process the signature on the authentication data, with the usual 
+	   special-snowflake handling for the Bernstein algorithms (C1c, C3c, 
+	   C4c) */
+#ifdef USE_ED25519
+	if( isBernsteinAlgo( pkcAlgo ) )
 		{
-		static const BYTE packetID = SSH_MSG_USERAUTH_REQUEST;
-
-		/* readAuthPacketSSH2() has stripped the ID byte from the start of 
-		   the packet so we need to hash it in explicitly before we hash the 
-		   rest of the packet */
-		krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH, 
-						 ( MESSAGE_CAST ) &packetID, ID_SIZE );
-		status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH,
-								  packetDataPtr, packetDataLength );
+		return( processAuthDataSigBernstein( sessionInfoPtr, handshakeInfo, 
+											 stream, packetDataPtr, 
+											 packetDataLength, pkcAlgo, 
+											 FALSE ) );
 		}
-	if( cryptStatusOK( status ) )
-		{
-		status = krnlSendMessage( createInfo.cryptHandle, 
-								  IMESSAGE_CTX_HASH, "", 0 );
-		}
-	if( cryptStatusError( status ) )
-		{
-		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
-		return( status );
-		}
-
-	/* Check the signature.  The reason for the min() part of the expression 
-	   is that iCryptCheckSignature() gets suspicious of very large buffer 
-	   sizes, for example if the client were to specify the use of a huge 
-	   signature packet (C1c, C3c, C4c) */
-	clearErrorInfo( &localErrorInfo );
-	status = sMemGetDataBlockRemaining( stream, &sigDataPtr, 
-										&sigDataLength );
-	if( cryptStatusOK( status ) )
-		{
-		status = iCryptCheckSignature( sigDataPtr, 
-									   min( sigDataLength, \
-											MAX_INTLENGTH_SHORT - 1 ),
-									   CRYPT_IFORMAT_SSH, 
-									   sessionInfoPtr->iKeyexAuthContext, 
-									   createInfo.cryptHandle, CRYPT_UNUSED, 
-									   NULL, &localErrorInfo );
-		}
-	krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
-	if( cryptStatusError( status ) )
-		{
-		retExtErr( status,
-				   ( status, SESSION_ERRINFO, &localErrorInfo,
-					 "Verification of client's public-key authentication "
-					 "failed" ) );
-		}
-
-	return( CRYPT_OK );
+#endif /* USE_ED25519 */
+	return( processAuthDataSig( sessionInfoPtr, handshakeInfo, stream,
+								packetDataPtr,packetDataLength, pkcAlgo, 
+								FALSE ) );
 	}
 
 /* Process public-key authentication */
@@ -1013,6 +987,12 @@ static int processPubkeyAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   to request authentication from a key other than the one the 
 		   client thinks it's using by sending back an ACK for key B when 
 		   the client has proposed key A.
+		   
+		   This allows makes it very easy to fingerprint users, and there's
+		   even a demo SSH server that does this, 
+		   https://github.com/FiloSottile/whoami.filippo.io, greeting you by 
+		   name when you connect via SSH (no user interaction required) and 
+		   have your name on Github.
 			   
 		   There was an attempt to fix the OpenSSH problem in 2021 by 
 		   forcing the issue with a CVE, see
@@ -1222,10 +1202,10 @@ static int readAuthPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	"password":
 		string	password
 	"publickey":
-		string		"ssh-rsa"	"ssh-dss"	"ecdsa-sha2-*"
+		string		"ssh-rsa"	"ssh-dss"	"ecdsa-sha2-*"	"ed25519"
 		string		[ client key/certificate ]
-			string	"ssh-rsa"	"ssh-dss"	"ecdsa-sha2-*"
-			mpint	e			p			Q
+			string	"ssh-rsa"	"ssh-dss"	"ecdsa-sha2-*"	"ed25519"
+			mpint	e			p			Q				string	pubKey
 			mpint	n			q
 			mpint				g
 			mpint				y
@@ -1785,8 +1765,7 @@ static int processFixedAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			authInfo.status = processUserAuth( sessionInfoPtr, handshakeInfo,
 									&authInfo.userAuthInfo, 
 									CREDENTIAL_USERNAME_PASSWORD_PRESENT, 
-									( authState == AUTHSTATE_FIRST_MESSAGE ) ? \
-									  AUTHSTATE_IN_PROGRESS : authState );
+									AUTHSTATE_IN_PROGRESS );
 			}
 		if( authInfo.status == OK_SPECIAL && \
 			authInfo.userAuthInfo == USERAUTH_NOOP_2 )
@@ -1832,7 +1811,7 @@ int processServerAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	{
 	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
 	FAILSAFE_AUTH_INFO authInfo DUMMY_INIT_STRUCT;
-	int status DUMMY_INIT;
+	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );

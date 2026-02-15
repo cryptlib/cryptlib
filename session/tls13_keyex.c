@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib TLS 1.3 Keyex Management						*
-*					Copyright Peter Gutmann 2019-2022						*
+*					Copyright Peter Gutmann 2019-2024						*
 *																			*
 ****************************************************************************/
 
@@ -26,10 +26,11 @@
 ****************************************************************************/
 
 /* The TLS 1.3 keyex is stuffed inside an extension in the client/server 
-   hello.  This is an ugly "optimisation" for TLS 1.3 where we have to guess 
-   any keyex mechanisms that the server supports and send one of each that 
-   we think might be required, with the server choosing the one that it 
-   deems the most cromulent.  
+   hello (in fact most of TLS 1.3 is assembled from extensions).  This is an 
+   ugly "optimisation" for TLS 1.3 where we have to guess any keyex 
+   mechanisms that the server supports and send one of each that we think 
+   might be required, with the server choosing the one that it deems the 
+   most cromulent.  
    
    This saves 1RTT at the expense of a whole lot of extra crypto computation 
    on the client, and to make things even worse since we're taking guesses 
@@ -51,10 +52,17 @@
   [	uint16			keyexListLength		-- Client only ]
 		uint16		namedGroup
 		uint16		keyexLength
-			byte[]	keyex
+	DH:
+			byte[]	y
+	ECDH:
+			byte[]	ecPoint
+	25519:
+			byte[]	pubValue
 
    For DH the keyex is the Y value padded out with zeroes to the length of 
-   p for no known reason, for ECDH it's the ECC point in X9.62 format */
+   p for no known reason, for ECDH it's the ECC point in X9.62 format with
+   a standard 16-bit length as opposed to TLS classic's 8-bit length, and
+   for 25519 it's the 32-bit public value */
 
 #define MAX_TOTAL_KEYEX_SIZE	8192
 #define MAX_KEYEX_SIZE			2048
@@ -66,44 +74,14 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					IN_LENGTH_SHORT_Z const int extLength,
 					OUT_BOOL BOOLEAN *extErrorInfoSet )
 	{
-	static const int eccCurveInfo[] = {
-#ifdef PREFER_ECC
-		TLS_GROUP_SECP256R1,		/* CRYPT_ECCCURVE_P256 */
-		TLS_GROUP_BRAINPOOLP256R1,	/* CRYPT_ECCCURVE_BRAINPOOL_P256 */
-		TLS_GROUP_FFDHE2048,		/* 2048-bit DH */
-		TLS_GROUP_FFDHE3072,		/* 3096-bit DH */
-	 /* TLS_GROUP_FFDHE4096,		// Pointlessly large group */
-#else
-		TLS_GROUP_FFDHE2048,		/* 2048-bit DH */
-		TLS_GROUP_FFDHE3072,		/* 3096-bit DH */
-	 /* TLS_GROUP_FFDHE4096,		// Pointlessly large group */
-		TLS_GROUP_SECP256R1,		/* CRYPT_ECCCURVE_P256 */
-		TLS_GROUP_BRAINPOOLP256R1,	/* CRYPT_ECCCURVE_BRAINPOOL_P256 */
-#endif /* PREFER_ECC */
-		TLS_GROUP_SECP384R1,		/* CRYPT_ECCCURVE_P384 */
-		TLS_GROUP_SECP521R1,		/* CRYPT_ECCCURVE_P521 */
-		TLS_GROUP_BRAINPOOLP384R1,	/* CRYPT_ECCCURVE_BRAINPOOL_P384 */
-		TLS_GROUP_BRAINPOOLP512R1,	/* CRYPT_ECCCURVE_BRAINPOOL_P512 */
-			TLS_GROUP_NONE, TLS_GROUP_NONE 
-		};
-	static const MAP_TABLE curveIDTbl[] = {
-		{ TLS_GROUP_FFDHE2048, bitsToBytes( 2048 ) },
-		{ TLS_GROUP_FFDHE3072, bitsToBytes( 3072 ) },
-	 /* { TLS_GROUP_FFDHE4096, bitsToBytes( 4096 ) }, */
-		{ TLS_GROUP_SECP256R1, CRYPT_ECCCURVE_P256 },
-		{ TLS_GROUP_SECP384R1, CRYPT_ECCCURVE_P384 },
-		{ TLS_GROUP_SECP521R1, CRYPT_ECCCURVE_P521 },
-		{ TLS_GROUP_BRAINPOOLP256R1, CRYPT_ECCCURVE_BRAINPOOL_P256 },
-		{ TLS_GROUP_BRAINPOOLP384R1, CRYPT_ECCCURVE_BRAINPOOL_P384 },
-		{ TLS_GROUP_BRAINPOOLP512R1, CRYPT_ECCCURVE_BRAINPOOL_P512 },
-		{ CRYPT_ERROR, 0 }, { CRYPT_ERROR, 0 }
-		};
 	CRYPT_ECCCURVE_TYPE clientECDHcurve = CRYPT_ECCCURVE_NONE;
-	const BOOLEAN isEccAvailable = \
-					algoAvailable( CRYPT_ALGO_ECDH ) ? TRUE : FALSE;
-	BOOLEAN isEccKeyex = FALSE, isGoogle = FALSE;
-	int clientDHkeySize = CRYPT_ERROR, keyexListLen = extLength;
-	int keyexParam = CRYPT_ERROR, groupIndex = 99, endPos, status;
+	const TLS_GROUP_INFO *groupInfo, *groupInfoPtr;
+	const BOOLEAN seenPreferredGroups = \
+			( handshakeInfo->keyexTls13GroupInfo != NULL ) ? TRUE : FALSE;
+	BOOLEAN isECDHAvailable, is25519Available, isGoogle = FALSE;
+	BOOLEAN seenKeyex = FALSE;
+	int keyexListLen = extLength, groupIndex = 99, endPos;
+	int noGroupInfoEntries, status;
 	LOOP_INDEX i;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -117,34 +95,47 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Clear return values */
 	*extErrorInfoSet = FALSE;
 
-	/* If we're the client, get the keyex parameters that we used when we 
-	   sent our keyex to the server */
-#ifndef CONFIG_FUZZ
+	/* Get the TLS group information */
+	status = getTLSGroupInfo( &groupInfo, &noGroupInfoEntries );
+	ENSURES( cryptStatusOK( status ) );
+
+	/* Check which algorithms we have available and get any required 
+	   parameters.  If we're the client then we'll have a preconfigured set 
+	   of contexts available which modifies the algorithm choice while the
+	   server accepts anything that the client sends */
+	isECDHAvailable = algoAvailable( CRYPT_ALGO_ECDH ) ? TRUE : FALSE;
+	is25519Available = algoAvailable( CRYPT_ALGO_25519 ) ? TRUE : FALSE;
 	if( !isServer( sessionInfoPtr ) )
 		{
-		int eccParam;
-
+#if 0	/* See comment in session/tls_ext_rw.c:writeSupportedGroups() */
 		/* Get the DH keysize and ECDH curve type */
-		status = krnlSendMessage( handshakeInfo->dhContext,
+		status = krnlSendMessage( handshakeInfo->keyexContext,
 								  IMESSAGE_GETATTRIBUTE, &clientDHkeySize,
 								  CRYPT_CTXINFO_KEYSIZE );
-		if( cryptStatusOK( status ) && \
-			handshakeInfo->dhContextAlt != CRYPT_ERROR )
+#endif /* 0 */
+		if( handshakeInfo->keyexEcdhContext == CRYPT_ERROR )
+			isECDHAvailable = FALSE;
+		else
 			{
-			status = krnlSendMessage( handshakeInfo->dhContextAlt,
+			int eccParam;	/* int vs. enum */
+			
+			status = krnlSendMessage( handshakeInfo->keyexEcdhContext,
 									  IMESSAGE_GETATTRIBUTE, &eccParam,
 									  CRYPT_IATTRIBUTE_KEY_ECCPARAM );
 			if( cryptStatusOK( status ) )
 				clientECDHcurve = eccParam;	/* int vs. enum */
+			else
+				isECDHAvailable = FALSE;
 			}
+#ifdef USE_25519
+		if( handshakeInfo->keyex25519Context == CRYPT_ERROR )
+			is25519Available = FALSE;
+#else
+		is25519Available = FALSE;
+#endif /* USE_25519 */
 		if( cryptStatusError( status ) )
 			return( status );
 		}
-#else
-	/* Set up dummy parameters */
-	clientDHkeySize = bitsToBytes( 2048 );
-	clientECDHcurve = CRYPT_ECCCURVE_P256;
-#endif /* CONFIG_FUZZ */
 
 	/* If we're the server, the client will send us a list of keyex values 
 	   so first we need to read and check the list header.  If we're the 
@@ -173,7 +164,7 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	LOOP_SMALL( i = 0, stell( stream ) < endPos - 16 && i < 8, i++ )
 		{
 		int keyexStartPos DUMMY_INIT, keyexLength DUMMY_INIT;
-		int namedGroup, groupParam;
+		int keyexCheckStatus, namedGroup;
 		LOOP_INDEX_ALT newGroupIndex;
 
 		ENSURES( LOOP_INVARIANT_SMALL( i, 0, 7 ) );
@@ -187,7 +178,7 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 		if( cryptStatusError( status ) )
 			return( status );
-		DEBUG_PRINT(( "%s sent keyex group %d (%X), length %d.\n",
+		DEBUG_PRINT(( "%s sent keyex using group %d (%X), length %d",
 					  isServer( sessionInfoPtr ) ? "Client" : "Server",
 					  namedGroup, namedGroup, keyexLength ));
 		if( keyexLength < 32 || keyexLength > MAX_KEYEX_SIZE )
@@ -204,83 +195,94 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				if( cryptStatusError( status ) )
 					return( status );
 				isGoogle = TRUE;
+				DEBUG_PRINT(( ".\n" ));
 				continue;
 				}
 
 			return( CRYPT_ERROR_BADDATA );
 			}
 
-		/* If this is an ECC group and we don't have ECC available, 
-		   continue */
-		if( isECCGroup( namedGroup ) && !isEccAvailable )
-			{
-			status = sSkip( stream, keyexLength, MAX_INTLENGTH_SHORT );
-			if( cryptStatusError( status ) )
-				return( status );
-			continue;
-			}
-
 		/* Check whether this is a more-preferred group than what we've 
 		   currently got.  First, we find its position in the preferred-
 		   groups array */
-		LOOP_SMALL_ALT( newGroupIndex = 0, 
-						newGroupIndex < FAILSAFE_ARRAYSIZE( eccCurveInfo, int ) && \
-						eccCurveInfo[ newGroupIndex ] != namedGroup && \
-						eccCurveInfo[ newGroupIndex ] != TLS_GROUP_NONE,
+		LOOP_SMALL_ALT( ( newGroupIndex = 0, groupInfoPtr = NULL ), 
+						newGroupIndex < noGroupInfoEntries && \
+							groupInfo[ newGroupIndex ].tlsGroupID != TLS_GROUP_NONE,
 						newGroupIndex++ )
 			{
 			ENSURES( LOOP_INVARIANT_SMALL_ALT( newGroupIndex, 0, 
-											   FAILSAFE_ARRAYSIZE( eccCurveInfo, \
-																   int ) - 1 ) );
+											   noGroupInfoEntries - 1 ) );
+			
+			if( groupInfo[ newGroupIndex ].tlsGroupID == namedGroup )
+				{
+				groupInfoPtr = &groupInfo[ newGroupIndex ];
+				break;
+				}
 			}
 		ENSURES( LOOP_BOUND_OK_ALT );
-		ENSURES( newGroupIndex <= FAILSAFE_ARRAYSIZE( eccCurveInfo, int ) );
+		ENSURES( newGroupIndex <= noGroupInfoEntries );
+		DEBUG_PRINT_COND( groupInfoPtr != NULL,
+						  ( ", recognised as %s.\n",
+							groupInfoPtr->description ) );
 
 		/* If we didn't find a match or haven't found something more 
 		   preferred than what we've already got, continue */
-		if( eccCurveInfo[ newGroupIndex ] == TLS_GROUP_NONE || \
-			newGroupIndex > groupIndex )
+		if( groupInfoPtr == NULL || newGroupIndex > groupIndex )
 			{
+			DEBUG_PRINT_COND( groupInfoPtr == NULL,
+							  ( ".\n  Skipping unrecognised keyex using "
+							    "%d (%X).\n", namedGroup, namedGroup ) );
+			DEBUG_PRINT_COND( groupInfoPtr != NULL,
+							  ( "  Skipping less-preferred keyex using "
+							    "%s.\n", groupInfoPtr->description ) );
 			status = sSkip( stream, keyexLength, MAX_INTLENGTH_SHORT );
 			if( cryptStatusError( status ) )
 				return( status );
 			continue;
 			}
 
-		/* Get the information for this group, either the DH key size or the 
-		   ECDH curve type */
-		status = mapValue( namedGroup, &groupParam, curveIDTbl, 
-						   FAILSAFE_ARRAYSIZE( curveIDTbl, MAP_TABLE ) );
-		ENSURES( cryptStatusOK( status ) );
-
-		/* If we're the client then the returned keyex value has to match 
-		   what we sent, not just be something that we recognise */
-		if( !isServer( sessionInfoPtr ) )
+		/* Perform any additional algorithm-specific checks: The algorithm 
+		   must be available, and the returned keyex has to match what we 
+		   sent */
+		keyexCheckStatus = CRYPT_OK;
+		switch( groupInfoPtr->algorithm )
 			{
-			if( isECCGroup( namedGroup ) )
-				{
-				if( groupParam != clientECDHcurve )
+			case CRYPT_ALGO_ECDH:
+				if( !isECDHAvailable )
 					{
-					*extErrorInfoSet = TRUE;
-					retExt( CRYPT_ERROR_INVALID,
-							( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
-							  "Server sent keyex for ECC group %d, we "
-							  "requested group %d", groupParam, 
-							  clientECDHcurve ) );
+					keyexCheckStatus = CRYPT_ERROR_NOTAVAIL;
+					break;
 					}
-				}
-			else
-				{
-				if( groupParam != clientDHkeySize )
+				if( !isServer( sessionInfoPtr ) && \
+					groupInfoPtr->eccCurveID != clientECDHcurve )
 					{
-					*extErrorInfoSet = TRUE;
-					retExt( CRYPT_ERROR_INVALID,
-							( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
-							  "Server sent keyex for DH keysize %d, we "
-							  "requested keysize %d", groupParam, 
-							  clientDHkeySize ) );
+					keyexCheckStatus = CRYPT_ERROR_BADDATA;
+					break;
 					}
-				}
+				break;
+			
+#ifdef USE_25519
+			case CRYPT_ALGO_25519:
+				if( !is25519Available )
+					{
+					keyexCheckStatus = CRYPT_ERROR_NOTAVAIL;
+					break;
+					}
+				break;
+#endif /* USE_25519 */
+			}
+		if( cryptStatusError( keyexCheckStatus ) )
+			{
+			DEBUG_PRINT_COND( groupInfoPtr != NULL,
+							  ( "  Skipping keyex using %s %s.\n", 
+							    groupInfoPtr->description,
+							    ( keyexCheckStatus == CRYPT_ERROR_NOTAVAIL ) ? \
+								  "due to algorithm unavailability" : \
+								  "since it's not what we asked for" ) );
+			status = sSkip( stream, keyexLength, MAX_INTLENGTH_SHORT );
+			if( cryptStatusError( status ) )
+				return( status );
+			continue;
 			}
 
 		/* We've now filtered out any oversized post-magic keyexes, check the
@@ -291,50 +293,62 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										CRYPT_MAX_TEXTSIZE )
 			return( CRYPT_ERROR_BADDATA );
 
-		/* Remember the keyex data.  This gets a bit complicated both 
-		   because we need to include the length value with the data and
-		   because classic TLS used an 8-bit length for ECC keyex data for 
-		   no known reason while TLS 1.3 uses a standard 16-bit length.  To 
-		   deal with this we skip the first byte of the 16-bit length to 
-		   make it look like an 8-bit length if we're reading an ECC keyex 
-		   value */
-		groupIndex = newGroupIndex;
-		keyexParam = groupParam;
-		handshakeInfo->tls13KeyexGroup = namedGroup;
-		if( isECCGroup( namedGroup ) )
+		/* Because of TLS 1.3's stupid splitting of keyex information across 
+		   two different extensions we can in theory get preferred keyex 
+		   data (via the keyex extension) that differs from the preferred 
+		   keyex group (via the supported-groups extension).  Since what 
+		   matters is the actual keyex that we get, we allow it to override 
+		   the supported-groups value but also warn that this has happened */
+		if( seenPreferredGroups )
 			{
-			/* Make sure that the result will fit into an 8-bit length,
-			   required for classic TLS ECC values */
-			if( keyexLength > 256 )
-				return( CRYPT_ERROR_BADDATA );
+			DEBUG_PRINT_COND( handshakeInfo->keyexTls13GroupInfo != groupInfoPtr,
+							  ( "  Warning: %s sent more-preferred keyex %s "
+							    "but advertised preferred keyex group %s.\n",
+								isServer( sessionInfoPtr ) ? "Client" : "Server",
+							    groupInfoPtr->description, 
+							    handshakeInfo->keyexTls13GroupInfo->description ) );
+			}
 
-			isEccKeyex = TRUE;
-			keyexLength += 1;			/* Single-byte length */
-			status = sseek( stream, keyexStartPos + 1 );
-			}
-		else
-			{
-			keyexLength += UINT16_SIZE;	/* 16-bit length */
-			status = sseek( stream, keyexStartPos );
-			}
+		/* Remember the keyex data including the length value at the start */
+		DEBUG_PRINT_COND( handshakeInfo->keyexTls13GroupInfo == NULL || \
+						  ( seenPreferredGroups && \
+						    handshakeInfo->keyexTls13GroupInfo == groupInfoPtr ),
+						  ( "  Setting keyex to %s, length %d.\n",
+						    groupInfoPtr->description, keyexLength ) );
+		DEBUG_PRINT_COND( !( handshakeInfo->keyexTls13GroupInfo == NULL || \
+							 ( seenPreferredGroups && \
+							   handshakeInfo->keyexTls13GroupInfo == groupInfoPtr ) ),
+						  ( "  Replacing %s keyex with more preferred %s, "
+							"length %d.\n",
+						    handshakeInfo->keyexTls13GroupInfo->description,
+						    groupInfoPtr->description, keyexLength ) );
+		handshakeInfo->keyexTls13GroupInfo = groupInfoPtr;
+		keyexLength += UINT16_SIZE;				/* 16-bit length */
+		status = sseek( stream, keyexStartPos );
 		if( cryptStatusOK( status ) )
 			{
+			REQUIRES( rangeCheck( keyexLength, 1, 
+								  CRYPT_MAX_PKCSIZE + CRYPT_MAX_TEXTSIZE ) );
 			status = sread( stream, handshakeInfo->tls13KeyexValue, 
 							keyexLength );
 			}
 		if( cryptStatusError( status ) )
 			return( status );
 		handshakeInfo->tls13KeyexValueLen = keyexLength;
+		seenKeyex = TRUE;
+
+		/* Remember the most-preferred value that we've just selected */
+		groupIndex = newGroupIndex;
 		}
 	ENSURES( LOOP_BOUND_OK );
 
-	/* If we didn't match anything that we can use, we can't continue */
-	if( keyexParam == CRYPT_ERROR )
+	/* If we didn't match anything that we can use then we can't continue */
+	if( !seenKeyex )
 		{
 		/* Google Chrome doesn't send any MTI keyexes in its first client
 		   hello, which forces a retry on every connect.  If this isn't 
 		   already a retry, tell the caller to add an extra round trip and
-		   more crypto computations for make benefit Google's braindamage */
+		   more crypto computations for make benefit Google braindamage */
 		if( isServer( sessionInfoPtr ) && \
 			!( handshakeInfo->flags & HANDSHAKE_FLAG_RETRIEDCLIENTHELLO ) )
 			{
@@ -353,13 +367,13 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( isGoogle )
 			{
 			/* We can fingerprint Google Chrome via the GREASE braindamage 
-			   mentioned in the extensions code, it also doesn't send a MTI 
+			   mentioned in the extensions code, it also doesn't send an MTI 
 			   P256 keyex in its client hello so once we've fallen we can't 
 			   get up any more */
 			retExt( CRYPT_ERROR_NOTAVAIL,
 					( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
-					  "Google Chrome doesn't support the mandatory P256 "
-					  "key exchange in its client handshake, can't "
+					  "Google Chrome doesn't support the mandatory ECDH "
+					  "P256 key exchange in its client handshake, can't "
 					  "continue" ) );
 			}
 		retExt( CRYPT_ERROR_NOTAVAIL,
@@ -368,82 +382,107 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "message",
 				  isServer( sessionInfoPtr ) ? "client" : "server" ) );
 		}
+	DEBUG_PRINT_COND( handshakeInfo->keyexGroupInfo != NULL,
+					  ( "Final keyex set to %s.\n", 
+					    handshakeInfo->keyexGroupInfo->description ) );
+	DEBUG_PRINT_COND( handshakeInfo->keyexTls13GroupInfo != NULL,
+					  ( "Final TLS 1.3 keyex set to %s.\n", 
+					    handshakeInfo->keyexTls13GroupInfo->description ) );
+	groupInfoPtr = handshakeInfo->keyexTls13GroupInfo;
+	handshakeInfo->keyexAlgo = groupInfoPtr->algorithm;
 
 	/* If we're fuzzing, we don't do any of the crypto stuff */
 	FUZZ_SKIP_REMAINDER();
 
 	/* If we're the server then we now have the parameters that we need to 
-	   set up the DH/ECDH crypto */
+	   set up the DH/ECDH/25519 crypto */
 	if( isServer( sessionInfoPtr ) )
 		{
-		if( isEccKeyex )
+		status = createKeyexContextTLS( &handshakeInfo->keyexContext, 
+										groupInfoPtr->algorithm );
+		if( cryptStatusError( status ) )
+			return( status );
+		switch( groupInfoPtr->algorithm )
 			{
-			handshakeInfo->keyexAlgo = CRYPT_ALGO_ECDH;
-			status = createDHcontextTLS( &handshakeInfo->dhContext, 
-										 CRYPT_ALGO_ECDH );
-			if( cryptStatusOK( status ) )
+			case CRYPT_ALGO_DH:
 				{
-				status = krnlSendMessage( handshakeInfo->dhContext,
-										  IMESSAGE_SETATTRIBUTE, &keyexParam,
-										  CRYPT_IATTRIBUTE_KEY_ECCPARAM );
-				}
-			DEBUG_PRINT(( "Keyex set to ECDH, curve ID %d.\n", keyexParam ));
-			}
-		else
-			{
-			/* For DH we have to indicate that we're using the nonstandard
-			   parameters required by TLS 1.3 */
-			keyexParam |= 1;
+				/* For DH we have to indicate that we're using the 
+				   nonstandard parameters required by TLS 1.3 */
+				const int keyexParam = groupInfoPtr->keySize | 1;
 
-			handshakeInfo->keyexAlgo = CRYPT_ALGO_DH;
-			status = createDHcontextTLS( &handshakeInfo->dhContext, 
-										 CRYPT_ALGO_DH );
-			if( cryptStatusOK( status ) )
-				{
-				status = krnlSendMessage( handshakeInfo->dhContext,
-										  IMESSAGE_SETATTRIBUTE, &keyexParam,
+				status = krnlSendMessage( handshakeInfo->keyexContext,
+										  IMESSAGE_SETATTRIBUTE, 
+										  ( MESSAGE_CAST ) &keyexParam,
 										  CRYPT_IATTRIBUTE_KEY_DLPPARAM );
+				break;
 				}
-			DEBUG_PRINT(( "Keyex set to DH, key size %d.\n", keyexParam ));
+
+			case CRYPT_ALGO_ECDH:
+				status = krnlSendMessage( handshakeInfo->keyexContext,
+								IMESSAGE_SETATTRIBUTE, 
+								( MESSAGE_CAST ) &groupInfoPtr->eccCurveID,
+								CRYPT_IATTRIBUTE_KEY_ECCPARAM );
+				break;
+
+#ifdef USE_25519
+			case CRYPT_ALGO_25519:
+				status = krnlSendMessage( handshakeInfo->keyexContext,
+										  IMESSAGE_SETATTRIBUTE, 
+										  MESSAGE_VALUE_TRUE, 
+										  CRYPT_IATTRIBUTE_KEY_IMPLICIT );
+				break;
+
+#endif /* USE_25519 */
+
+			default:
+				retIntError();
 			}
 
 		return( status );
 		}
 
 	/* We're the client, destroy any contexts from the guessed keyex that 
-	   we don't need */
-	if( isEccKeyex )
+	   we don't need and move what's left up to make it the actual keyex 
+	   context */
+	if( groupInfoPtr->algorithm != CRYPT_ALGO_DH && \
+		handshakeInfo->keyexContext != CRYPT_ERROR )
 		{
-		handshakeInfo->keyexAlgo = CRYPT_ALGO_ECDH;
-		if( handshakeInfo->dhContext != CRYPT_ERROR )
-			{
-			krnlSendNotifier( handshakeInfo->dhContext, 
-							  IMESSAGE_DECREFCOUNT );
-			}
-		handshakeInfo->dhContext = handshakeInfo->dhContextAlt;
-		handshakeInfo->dhContextAlt = CRYPT_ERROR;
-		DEBUG_PRINT(( "Keyex set to ECDH, curve ID %d.\n", keyexParam ));
+		krnlSendNotifier( handshakeInfo->keyexContext, 
+						  IMESSAGE_DECREFCOUNT );
 		}
+	if( groupInfoPtr->algorithm == CRYPT_ALGO_ECDH )
+		handshakeInfo->keyexContext = handshakeInfo->keyexEcdhContext;
 	else
 		{
-		handshakeInfo->keyexAlgo = CRYPT_ALGO_DH;
-		if( handshakeInfo->dhContextAlt != CRYPT_ERROR )
+		if( isECDHAvailable )
 			{
-			krnlSendNotifier( handshakeInfo->dhContextAlt, 
+			krnlSendNotifier( handshakeInfo->keyexEcdhContext, 
 							  IMESSAGE_DECREFCOUNT );
-			handshakeInfo->dhContextAlt = CRYPT_ERROR;
 			}
-		DEBUG_PRINT(( "Keyex set to DH, key size %d.\n", keyexParam ));
 		}
+#ifdef USE_25519
+	if( groupInfoPtr->algorithm == CRYPT_ALGO_25519 )
+		handshakeInfo->keyexContext = handshakeInfo->keyex25519Context;
+	else
+		{
+		if( is25519Available )
+			{
+			krnlSendNotifier( handshakeInfo->keyex25519Context, 
+							  IMESSAGE_DECREFCOUNT );
+			}
+		}
+	handshakeInfo->keyex25519Context = CRYPT_ERROR;
+#endif /* USE_25519 */
+	handshakeInfo->keyexEcdhContext = CRYPT_ERROR;
 
 	return( CRYPT_OK );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int writeKeyexData( INOUT_PTR STREAM *stream,
-						   IN_HANDLE const CRYPT_CONTEXT dhContext,
+						   IN_HANDLE const CRYPT_CONTEXT keyexContext,
 						   IN_ENUM( TLS_GROUP ) \
-								const TLS_GROUP_TYPE groupType,
+								const TLS_GROUP_TYPE tlsGroupType,
 						   IN_LENGTH_SHORT_MIN( 32 ) const int keyDataSize )
 	{
 	KEYAGREE_PARAMS keyAgreeParams;
@@ -451,29 +490,32 @@ static int writeKeyexData( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	REQUIRES( isHandleRangeValid( dhContext ) );
-	REQUIRES( isEnumRange( groupType, TLS_GROUP ) );
+	REQUIRES( isHandleRangeValid( keyexContext ) );
+	REQUIRES( isEnumRange( tlsGroupType, TLS_GROUP ) );
 	REQUIRES( isShortIntegerRangeMin( keyDataSize, 32 ) );
 
-	/* Perform Phase 1 of the (EC)DH keyex */
+	/* Perform Phase 1 of the DH/ECDH/25519 keyex */
 	memset( &keyAgreeParams, 0, sizeof( KEYAGREE_PARAMS ) );
-	status = krnlSendMessage( dhContext, IMESSAGE_CTX_ENCRYPT, 
+	status = krnlSendMessage( keyexContext, IMESSAGE_CTX_ENCRYPT, 
 							  &keyAgreeParams, sizeof( KEYAGREE_PARAMS ) );
 	if( cryptStatusError( status ) )
 		return( status );
 
 	/* Write the group type and keyex data */
-	writeUint16( stream, groupType );
-	writeUint16( stream, keyDataSize );
-	if( isECCGroup( groupType ) )
+	writeUint16( stream, tlsGroupType );
+	if( isECCGroup( tlsGroupType ) )
 		{
-		/* It's an ECDH keyex value, write it as is */
+		/* It's an ECDH/25519 keyex value with a fixed length, write it as 
+		   is */
+		writeUint16( stream, keyAgreeParams.publicValueLen );
 		status = swrite( stream, keyAgreeParams.publicValue,
 						 keyAgreeParams.publicValueLen );
 		}
 	else
 		{
-		/* It's a DH keyex value, write it as a fixed-length value */
+		/* It's a variable-length DH keyex value, write it as a fixed-length 
+		   value */
+		writeUint16( stream, keyDataSize );
 		status = writeFixedsizeValue( stream, keyAgreeParams.publicValue,
 									  keyAgreeParams.publicValueLen, 
 									  keyDataSize );
@@ -487,84 +529,127 @@ int writeKeyexTLS13( INOUT_PTR STREAM *stream,
 					 const TLS_HANDSHAKE_INFO *handshakeInfo,
 					 IN_BOOL const BOOLEAN isServer )
 	{
-	int dhKeySize DUMMY_INIT, dhKeyShareSize = 0;
 	int ecdhKeySize DUMMY_INIT, ecdhKeyShareSize = 0;
-	int status = CRYPT_OK;
+	int x25519KeyShareSize = 0, status = CRYPT_OK;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
 
 	REQUIRES( sanityCheckTLSHandshakeInfo( handshakeInfo ) );
 	REQUIRES( isBooleanValue( isServer ) );
-	REQUIRES( handshakeInfo->dhContext != CRYPT_ERROR || \
-			  handshakeInfo->dhContextAlt != CRYPT_ERROR );
+#ifdef USE_25519
+	REQUIRES( handshakeInfo->keyexContext != CRYPT_ERROR || \
+			  handshakeInfo->keyexEcdhContext != CRYPT_ERROR || \
+			  handshakeInfo->keyex25519Context != CRYPT_ERROR );
+#else
+	REQUIRES( handshakeInfo->keyexContext != CRYPT_ERROR || \
+			  handshakeInfo->keyexEcdhContext != CRYPT_ERROR );
+#endif /* USE_25519 */
 
-	/* Get the key size for each context type.  Because of the unecessary
-	   zero-padding requirements we can at least precompute all of the
-	   length values without having to actually look at the (EC)DH data */
-	if( handshakeInfo->dhContext != CRYPT_ERROR )
+	/* Get the key size for context types that can have varying key lengths.  
+	   Because of the unecessary zero-padding requirements we can at least 
+	   precompute all of the length values without having to actually look 
+	   at the data */
+#if 0	/* See comment in session/tls_ext_rw.c:writeSupportedGroups() */
+	if( handshakeInfo->keyexContext != CRYPT_ERROR )
 		{
-		status = krnlSendMessage( handshakeInfo->dhContext, 
+		status = krnlSendMessage( handshakeInfo->keyexContext, 
 								  IMESSAGE_GETATTRIBUTE, &dhKeySize,
 								  CRYPT_CTXINFO_KEYSIZE );
 		}
-	if( cryptStatusOK( status ) && \
-		handshakeInfo->dhContextAlt != CRYPT_ERROR )
+#endif /* 0 */
+	if( handshakeInfo->keyexEcdhContext != CRYPT_ERROR )
 		{
-		status = krnlSendMessage( handshakeInfo->dhContextAlt, 
+		status = krnlSendMessage( handshakeInfo->keyexEcdhContext, 
 								  IMESSAGE_GETATTRIBUTE, &ecdhKeySize,
 								  CRYPT_CTXINFO_KEYSIZE );
-		}
-	if( cryptStatusError( status ) )
-		return( status );
-
-	/* If we're the server then we're just responding to the client's 
-	   keyex with a single keyex value.  At this point we'll have been
-	   able to sort out whether we're talking DH or ECDH so the values
-	   to use in either case are dhContext + dhKeySize */
-	if( isServer )
-		{
-		const int keyexLength = \
-			isECCGroup( handshakeInfo->tls13KeyexGroup ) ? \
-			1 + dhKeySize + dhKeySize : dhKeySize;
-			/* ECC point vs. DH value */
-
-		return( writeKeyexData( stream, handshakeInfo->dhContext, 
-								handshakeInfo->tls13KeyexGroup, 
-								keyexLength ) );
-		}
-
-	/* Calculate the size of the encoded form */
-	if( handshakeInfo->dhContext != CRYPT_ERROR )
-		dhKeyShareSize = UINT16_SIZE + UINT16_SIZE + dhKeySize;
-	if( handshakeInfo->dhContextAlt != CRYPT_ERROR )
-		{
-		ecdhKeyShareSize = UINT16_SIZE + UINT16_SIZE + 1 + \
-						   ecdhKeySize + ecdhKeySize;
-		}
-
-	/* We're the client and potentially sending a list of keyex values,
-	   write the keyex wrapper */
-	writeUint16( stream, dhKeyShareSize + ecdhKeyShareSize );
-
-	/* Write the DH key share */
-	if( handshakeInfo->dhContext != CRYPT_ERROR )
-		{
-		status = writeKeyexData( stream, handshakeInfo->dhContext, 
-								 TLS_GROUP_FFDHE2048, dhKeySize );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
 
-	/* Write the ECDH key share if available */
-	if( handshakeInfo->dhContextAlt != CRYPT_ERROR )
+	/* If we're the server then we're just responding to the client's keyex 
+	   with a single keyex value.  Note that the keyDataSize value is a 
+	   dummy parameter for the keyex groups that send fixed-size data values
+	   (ECDH, 25519) so we don't have to special-case things for groups with
+	   variable-size values (DH) */
+	if( isServer )
 		{
-		status = writeKeyexData( stream, handshakeInfo->dhContextAlt, 
+		const TLS_GROUP_INFO *groupInfoPtr = \
+						handshakeInfo->keyexGroupInfo;
+
+		return( writeKeyexData( stream, handshakeInfo->keyexContext, 
+								groupInfoPtr->tlsGroupID, 
+								groupInfoPtr->keySize ) );
+		}
+
+	/* We're the client, calculate the size of the encoded form.  The two
+	   UINT16 values added to each length are:
+
+		uint16		namedGroup
+		uint16		keyexLength
+
+	   followed by the keyex data */
+#if 0	/* See comment in session/tls_ext_rw.c:writeSupportedGroups() */
+	if( handshakeInfo->keyexContext != CRYPT_ERROR )
+		dhKeyShareSize = UINT16_SIZE + UINT16_SIZE + dhKeySize;
+#endif /* 0 */
+	if( handshakeInfo->keyexEcdhContext != CRYPT_ERROR )
+		{
+		ecdhKeyShareSize = UINT16_SIZE + UINT16_SIZE + \
+						   1 + ecdhKeySize + ecdhKeySize;
+		}
+#ifdef USE_25519
+	if( handshakeInfo->keyex25519Context != CRYPT_ERROR )
+		x25519KeyShareSize = UINT16_SIZE + UINT16_SIZE + 32;
+#endif /* USE_25519 */
+	ENSURES( isShortIntegerRangeMin( ecdhKeyShareSize + \
+									 x25519KeyShareSize, 32 ) );
+
+	/* We're the client and potentially sending a list of keyex values,
+	   write the keyex wrapper */
+	writeUint16( stream, ecdhKeyShareSize + x25519KeyShareSize );
+
+	/* Write the DH key share */
+#if 0	/* See comment in session/tls_ext_rw.c:writeSupportedGroups() */
+	if( handshakeInfo->keyexContext != CRYPT_ERROR )
+		{
+		status = writeKeyexData( stream, handshakeInfo->keyexContext, 
+								 TLS_GROUP_FFDHE2048, dhKeySize );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
+#endif /* 0 */
+
+	/* Write the ECDH/25519 key shares in preferred-keyex order.  Note that 
+	   the keyDataSize value is a dummy parameter for the keyex groups that 
+	   send fixed-size data values (ECDH, 25519) so we don't have to special-
+	   case things for groups with variable-size values (DH) */
+#if defined( USE_25519 ) && defined( PREFER_25519 )
+	if( handshakeInfo->keyex25519Context != CRYPT_ERROR )
+		{
+		status = writeKeyexData( stream, handshakeInfo->keyex25519Context, 
+								 TLS_GROUP_X25519, 32 );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
+#endif /* USE_25519 && PREFER_25519 */
+	if( handshakeInfo->keyexEcdhContext != CRYPT_ERROR )
+		{
+		status = writeKeyexData( stream, handshakeInfo->keyexEcdhContext, 
 								 TLS_GROUP_SECP256R1, 
 								 1 + ecdhKeySize + ecdhKeySize );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
+#if defined( USE_25519 ) && !defined( PREFER_25519 )
+	if( handshakeInfo->keyex25519Context != CRYPT_ERROR )
+		{
+		status = writeKeyexData( stream, handshakeInfo->keyex25519Context, 
+								 TLS_GROUP_X25519, 32 );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
+#endif /* USE_25519 && !PREFER_25519 */
 
 	return( CRYPT_OK );
 	}

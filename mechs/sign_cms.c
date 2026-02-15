@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								CMS Signature Routines						*
-*						Copyright Peter Gutmann 1993-2019					*
+*						Copyright Peter Gutmann 1993-2024					*
 *																			*
 ****************************************************************************/
 
@@ -114,6 +114,7 @@ static int writeCmsSignerInfo( INOUT_PTR STREAM *stream,
 	{
 	MESSAGE_DATA msgData;
 	DYNBUF iAndSDB;
+	ALGOID_PARAMS algoIDparams;
 	int sizeofHashAlgoID, timeStampSize DUMMY_INIT;
 	int unsignedAttributeSize = 0, status;
 
@@ -124,9 +125,7 @@ static int writeCmsSignerInfo( INOUT_PTR STREAM *stream,
 
 	REQUIRES( isHandleRangeValid( certificate ) );
 	REQUIRES( isHashAlgo( hashAlgo ) );
-	REQUIRES( hashParam == 0 || \
-			  ( hashParam >= MIN_HASHSIZE && \
-				hashParam <= CRYPT_MAX_HASHSIZE ) );
+	REQUIRES( rangeCheck( hashParam, MIN_HASHSIZE, CRYPT_MAX_HASHSIZE ) );
 	REQUIRES( ( attributes == NULL && attributeSize == 0 ) || \
 			  ( attributes != NULL && \
 				isShortIntegerRangeNZ( attributeSize ) ) );
@@ -136,16 +135,8 @@ static int writeCmsSignerInfo( INOUT_PTR STREAM *stream,
 			  isHandleRangeValid( unsignedAttrObject ) );
 
 	/* Determine the size of the hash algorithm information */
-	if( hashParam == 0 )
-		status = sizeofHashAlgoID = sizeofAlgoID( hashAlgo );
-	else
-		{
-		ALGOID_PARAMS algoIDparams;
-
-		initAlgoIDparamsHash( &algoIDparams, hashAlgo, hashParam );
-		status = sizeofHashAlgoID = sizeofAlgoIDex( hashAlgo, 
-													&algoIDparams );
-		}
+	initAlgoIDparamsHash( &algoIDparams, hashAlgo, hashParam );
+	status = sizeofHashAlgoID = sizeofAlgoIDex( hashAlgo, &algoIDparams );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -178,15 +169,8 @@ static int writeCmsSignerInfo( INOUT_PTR STREAM *stream,
 	/* Write the issuerAndSerialNumber, digest algorithm identifier,
 	   attributes (if there are any) and signature */
 	swrite( stream, dynData( iAndSDB ), dynLength( iAndSDB ) );
-	if( hashParam == 0 )
-		writeAlgoID( stream, hashAlgo, DEFAULT_TAG );
-	else
-		{
-		ALGOID_PARAMS algoIDparams;
-
-		initAlgoIDparamsHash( &algoIDparams, hashAlgo, hashParam );
-		writeAlgoIDex( stream, hashAlgo, &algoIDparams, DEFAULT_TAG );
-		}
+	initAlgoIDparamsHash( &algoIDparams, hashAlgo, hashParam );
+	writeAlgoIDex( stream, hashAlgo, &algoIDparams, DEFAULT_TAG );
 	if( attributeSize > 0 )
 		swrite( stream, attributes, attributeSize );
 	status = swrite( stream, signature, signatureSize );
@@ -241,9 +225,7 @@ static int createCmsCountersignature( IN_BUFFER( dataSignatureSize ) \
 	REQUIRES( isShortIntegerRangeMin( dataSignatureSize, \
 									  MIN_CRYPT_OBJECTSIZE ) );
 	REQUIRES( isHashAlgo( hashAlgo ) );
-	REQUIRES( hashParam == 0 || \
-			  ( hashParam >= MIN_HASHSIZE && \
-				hashParam <= CRYPT_MAX_HASHSIZE ) );
+	REQUIRES( rangeCheck( hashParam, MIN_HASHSIZE, CRYPT_MAX_HASHSIZE ) );
 	REQUIRES( isHandleRangeValid( iTspSession ) );
 
 	/* Hash the signature data to create the hash value to countersign.
@@ -539,9 +521,7 @@ static int addAlgorithmProtection( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttribu
 	REQUIRES( isHandleRangeValid( iCmsAttributes ) );
 	REQUIRES( isHandleRangeValid( iSignContext ) );
 	REQUIRES( isHashAlgo( hashAlgo ) );
-	REQUIRES( hashParam == 0 || \
-			  ( hashParam >= MIN_HASHSIZE && \
-				hashParam <= CRYPT_MAX_HASHSIZE ) );
+	REQUIRES( rangeCheck( hashParam, MIN_HASHSIZE, CRYPT_MAX_HASHSIZE ) );
 
 	status = krnlSendMessage( iSignContext, IMESSAGE_GETATTRIBUTE, 
 							  &sigAlgorithm, CRYPT_CTXINFO_ALGO );
@@ -572,9 +552,7 @@ static int checkAlgorithmProtection( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttri
 	REQUIRES( isHandleRangeValid( iCmsAttributes ) );
 	REQUIRES( isHandleRangeValid( iSigCheckContext ) );
 	REQUIRES( isHashAlgo( hashAlgo ) );
-	REQUIRES( hashParam == 0 || \
-			  ( hashParam >= MIN_HASHSIZE && \
-				hashParam <= CRYPT_MAX_HASHSIZE ) );
+	REQUIRES( rangeCheck( hashParam, MIN_HASHSIZE, CRYPT_MAX_HASHSIZE ) );
 
 	/* Check that the algorithms indicated in the cmsContentProtection 
 	   attribute match the (otherwise unauthenticated) algorithms that we've
@@ -804,12 +782,10 @@ static int hashCmsAttributes( INOUT_PTR CMS_ATTRIBUTE_INFO *cmsAttributeInfo,
 	return( status );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int createCmsAttributes( INOUT_PTR CMS_ATTRIBUTE_INFO *cmsAttributeInfo,
-								OUT_HANDLE_OPT CRYPT_CONTEXT *iCmsHashContext,
 								IN_HANDLE const CRYPT_CONTEXT iSignContext,
-								IN_ALGO const CRYPT_ALGO_TYPE hashAlgo,
-								IN_LENGTH_HASH_Z const int hashParam,
+								INOUT_PTR SIG_DATA_INFO *sigDataInfo,
 								IN_BOOL const BOOLEAN lengthCheckOnly )
 	{
 	CRYPT_CERTIFICATE iCmsAttributes;
@@ -822,7 +798,7 @@ static int createCmsAttributes( INOUT_PTR CMS_ATTRIBUTE_INFO *cmsAttributeInfo,
 	assert( isWritePtr( cmsAttributeInfo, sizeof( CMS_ATTRIBUTE_INFO ) ) );
 	assert( isWritePtrDynamic( cmsAttributeInfo->attributeBuffer, \
 							   cmsAttributeInfo->maxEncodedAttributeSize ) );
-	assert( isWritePtr( iCmsHashContext, sizeof( CRYPT_CONTEXT ) ) );
+	assert( isWritePtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
 
 	REQUIRES( isBooleanValue( cmsAttributeInfo->useSmimeSig ) );
 	REQUIRES( ( cmsAttributeInfo->iCmsAttributes == CRYPT_UNUSED && \
@@ -838,14 +814,13 @@ static int createCmsAttributes( INOUT_PTR CMS_ATTRIBUTE_INFO *cmsAttributeInfo,
 	REQUIRES( cmsAttributeInfo->encodedAttributes == NULL && \
 			  cmsAttributeInfo->encodedAttributeSize == 0 );
 	REQUIRES( isHandleRangeValid( iSignContext ) );
-	REQUIRES( isHashAlgo( hashAlgo ) );
-	REQUIRES( hashParam == 0 || \
-			  ( hashParam >= MIN_HASHSIZE && \
-				hashParam <= CRYPT_MAX_HASHSIZE ) );
+	REQUIRES( isHashAlgo( sigDataInfo->hashAlgo ) && \
+			  rangeCheck( sigDataInfo->hashParam, \
+						  MIN_HASHSIZE, CRYPT_MAX_HASHSIZE ) );
 	REQUIRES( isBooleanValue( lengthCheckOnly ) );
 
 	/* Clear return value */
-	*iCmsHashContext = CRYPT_ERROR;
+	sigDataInfo->hashContext = CRYPT_ERROR;
 
 	/* Set up the attribute buffer */
 	cmsAttributeInfo->encodedAttributes = cmsAttributeInfo->attributeBuffer;
@@ -910,7 +885,8 @@ static int createCmsAttributes( INOUT_PTR CMS_ATTRIBUTE_INFO *cmsAttributeInfo,
 		   a non-critical attribute so we don't abort the signature 
 		   generation if we can't add it */
 		( void ) addAlgorithmProtection( iCmsAttributes, iSignContext,
-										 hashAlgo, hashParam );
+										 sigDataInfo->hashAlgo, 
+										 sigDataInfo->hashParam );
 		}
 	if( cmsAttributeInfo->useSmimeSig )
 		{
@@ -932,18 +908,19 @@ static int createCmsAttributes( INOUT_PTR CMS_ATTRIBUTE_INFO *cmsAttributeInfo,
 		}
 
 	/* Hash the attributes into the CMS hash context */
-	setMessageCreateObjectInfo( &createInfo, hashAlgo );
+	setMessageCreateObjectInfo( &createInfo, sigDataInfo->hashAlgo );
 	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,
 							  IMESSAGE_DEV_CREATEOBJECT, &createInfo,
 							  OBJECT_TYPE_CONTEXT );
 	if( cryptStatusOK( status ) )
 		{
 		createdHashContext = TRUE;
-		if( isParameterisedHashAlgo( hashAlgo ) )
+		if( isParameterisedHashAlgo( sigDataInfo->hashAlgo ) )
 			{
 			status = krnlSendMessage( createInfo.cryptHandle, 
 									  IMESSAGE_SETATTRIBUTE, 
-									  ( MESSAGE_CAST ) &hashParam, 
+									  ( MESSAGE_CAST ) \
+											&sigDataInfo->hashParam, 
 									  CRYPT_CTXINFO_BLOCKSIZE );
 			}
 		}
@@ -966,7 +943,7 @@ static int createCmsAttributes( INOUT_PTR CMS_ATTRIBUTE_INFO *cmsAttributeInfo,
 		}
 
 	/* Return the hash of the attributes to the caller */
-	*iCmsHashContext = createInfo.cryptHandle;
+	sigDataInfo->hashContext = createInfo.cryptHandle;
 
 	return( CRYPT_OK );
 	}
@@ -989,14 +966,14 @@ static int createCmsAttributes( INOUT_PTR CMS_ATTRIBUTE_INFO *cmsAttributeInfo,
 	useDefaultAuthAttr = FALSE,		Caller has supplied attributes
 	iAuthAttr = validhandle */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 11 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5, 11 ) ) \
 int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 							void *signature, 
 						IN_LENGTH_SHORT_Z const int sigMaxLength, 
 						OUT_LENGTH_BOUNDED_SHORT_Z( sigMaxLength ) \
 							int *signatureLength,
 						IN_HANDLE const CRYPT_CONTEXT signContext,
-						IN_HANDLE const CRYPT_CONTEXT iHashContext,
+						IN_PTR const SIG_DATA_INFO *sigDataInfo,
 						IN_BOOL const BOOLEAN useDefaultAuthAttr,
 						IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthAttr,
 						IN_HANDLE_OPT const CRYPT_SESSION iTspSession,
@@ -1005,19 +982,19 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 						IN_BOOL const BOOLEAN useSmimeSig,
 						INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	CRYPT_CONTEXT iCmsHashContext = iHashContext;
 	CRYPT_CERTIFICATE iSigningCert;
 	STREAM stream;
+	SIG_DATA_INFO localSigDataInfo = *sigDataInfo;
 	CMS_ATTRIBUTE_INFO cmsAttributeInfo;
 	BYTE buffer[ CRYPT_MAX_PKCSIZE + 128 + 8 ];
 	BYTE *bufPtr = ( signature == NULL ) ? NULL : buffer;
 	const int bufSize = ( signature == NULL ) ? 0 : CRYPT_MAX_PKCSIZE + 128;
-	int hashAlgo, hashParam = 0;
 	int dataSignatureSize, length DUMMY_INIT, status;
 
 	assert( ( signature == NULL && sigMaxLength == 0 ) || \
 			isReadPtrDynamic( signature, sigMaxLength ) );
 	assert( isWritePtr( signatureLength, sizeof( int ) ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( ( signature == NULL && sigMaxLength == 0 ) || \
@@ -1025,7 +1002,8 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 			    isShortIntegerRangeMin( sigMaxLength, \
 										MIN_CRYPT_OBJECTSIZE ) ) );
 	REQUIRES( isHandleRangeValid( signContext ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, signatureType, TRUE ) && \
+			  sigDataInfo->data == NULL );
 	REQUIRES( isBooleanValue( useDefaultAuthAttr ) );
 	REQUIRES( ( iAuthAttr == CRYPT_UNUSED && \
 				useDefaultAuthAttr == FALSE ) || \
@@ -1043,19 +1021,11 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	*signatureLength = 0;
 
 	initCmsAttributeInfo( &cmsAttributeInfo, useSmimeSig, 
-						  useDefaultAuthAttr, iAuthAttr, iHashContext, 
-						  signContext, iTspSession );
+						  useDefaultAuthAttr, iAuthAttr, 
+						  sigDataInfo->hashContext, signContext, 
+						  iTspSession );
 
-	/* Get the message hash algo and signing certificate */
-	status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
-							  &hashAlgo, CRYPT_CTXINFO_ALGO );
-	if( cryptStatusOK( status ) && isParameterisedHashAlgo( hashAlgo ) )
-		{
-		status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
-								  &hashParam, CRYPT_CTXINFO_BLOCKSIZE );
-		}
-	if( cryptStatusError( status ) )
-		return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM2 : status );
+	/* Get the signing certificate */
 	status = krnlSendMessage( signContext, IMESSAGE_GETDEPENDENT,
 							  &iSigningCert, OBJECT_TYPE_CERTIFICATE );
 	if( cryptStatusError( status ) )
@@ -1065,8 +1035,8 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	   signature info */
 	if( useDefaultAuthAttr || iAuthAttr != CRYPT_UNUSED )
 		{
-		status = createCmsAttributes( &cmsAttributeInfo, &iCmsHashContext, 
-									  signContext, hashAlgo, hashParam,
+		status = createCmsAttributes( &cmsAttributeInfo, signContext, 
+									  &localSigDataInfo,
 									  ( signature == NULL ) ? TRUE : FALSE );
 		if( cryptStatusError( status ) )
 			{
@@ -1078,10 +1048,15 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 
 	/* Create the signature */
 	status = createSignature( bufPtr, bufSize, &dataSignatureSize, 
-							  signContext, iCmsHashContext, CRYPT_UNUSED, 
+							  signContext, &localSigDataInfo, 
 							  signatureType, errorInfo );
-	if( iCmsHashContext != iHashContext )
-		krnlSendNotifier( iCmsHashContext, IMESSAGE_DECREFCOUNT );
+	if( localSigDataInfo.hashContext != sigDataInfo->hashContext )
+		{
+		/* We've gone via authenticated attributes, the original hash 
+		   context wasn't the one that was signed */
+		krnlSendNotifier( localSigDataInfo.hashContext, 
+						  IMESSAGE_DECREFCOUNT );
+		}
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -1090,7 +1065,8 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	if( iTspSession != CRYPT_UNUSED && signature != NULL )
 		{
 		status = createCmsCountersignature( buffer, dataSignatureSize,
-											hashAlgo, hashParam,
+											sigDataInfo->hashAlgo, 
+											sigDataInfo->hashParam,
 											iTspSession );
 		if( cryptStatusError( status ) )
 			{
@@ -1104,7 +1080,9 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	INJECT_FAULT( ENVELOPE_CORRUPT_AUTHATTR, 
 				  ENVELOPE_CORRUPT_AUTHATTR_CMS_1 );
 	sMemOpenOpt( &stream, signature, ( signature == NULL ) ? 0 : sigMaxLength );
-	status = writeCmsSignerInfo( &stream, iSigningCert, hashAlgo, hashParam,
+	status = writeCmsSignerInfo( &stream, iSigningCert, 
+								 sigDataInfo->hashAlgo, 
+								 sigDataInfo->hashParam,
 								 cmsAttributeInfo.encodedAttributes, 
 								 cmsAttributeInfo.encodedAttributeSize,
 								 buffer, dataSignatureSize,
@@ -1154,19 +1132,19 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
    overall signature-checking object, which may include attached 
    certificates and other information */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 7 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4, 7 ) ) \
 int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature, 
 					   IN_DATALENGTH const int signatureLength,
 					   IN_HANDLE const CRYPT_CONTEXT sigCheckContext,
-					   IN_HANDLE const CRYPT_CONTEXT iHashContext,
+					   IN_PTR const SIG_DATA_INFO *sigDataInfo,
 					   OUT_OPT_HANDLE_OPT CRYPT_CERTIFICATE *iExtraData,
 					   IN_HANDLE const CRYPT_HANDLE iSigCheckKey,
 					   INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	CRYPT_CERTIFICATE iLocalExtraData;
-	CRYPT_CONTEXT iCmsHashContext = iHashContext;
 	MESSAGE_CREATEOBJECT_INFO createInfo;
 	QUERY_INFO queryInfo;
+	SIG_DATA_INFO localSigDataInfo = *sigDataInfo;
 	MESSAGE_DATA msgData;
 	STREAM stream;
 	ERROR_INFO localErrorInfo;
@@ -1177,32 +1155,21 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 #endif /* USE_ERRMSGS */
 	BOOLEAN isCertificate = FALSE;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
-	int hashAlgo, hashParam = 0, value, status;	/* int vs.enum */
+	int value, status;
 
 	assert( isReadPtrDynamic( signature, signatureLength ) );
+	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
 	assert( ( iExtraData == NULL ) || \
 			isWritePtr( iExtraData, sizeof( CRYPT_CERTIFICATE ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( isBufsizeRangeMin( signatureLength, 40 ) );
 	REQUIRES( isHandleRangeValid( sigCheckContext ) );
-	REQUIRES( isHandleRangeValid( iHashContext ) );
+	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, SIGNATURE_CMS, TRUE ) );
 	REQUIRES( isHandleRangeValid( iSigCheckKey ) );
 
 	if( iExtraData != NULL )
 		*iExtraData = CRYPT_ERROR;
-
-	/* Get the message hash algorithm */
-	status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
-							  &hashAlgo, CRYPT_CTXINFO_ALGO );
-	if( cryptStatusOK( status ) )
-		{
-		status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
-								  &hashParam, CRYPT_CTXINFO_BLOCKSIZE );
-		}
-	if( cryptStatusError( status ) )
-		return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM2 : status );
-	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE" );
 
 	/* Check whether we're dealing with a certificate.  This is used to 
 	   allow for more detailed error reporting if something goes wrong */
@@ -1210,6 +1177,7 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 							  &value, CRYPT_CERTINFO_CERTTYPE );
 	if( cryptStatusOK( status ) )
 		isCertificate = TRUE;
+	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE" );
 
 	/* Unpack the SignerInfo record and make sure that the supplied key is
 	   the correct one for the sig.check and the supplied hash context
@@ -1253,14 +1221,15 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 				( CRYPT_ERROR_WRONGKEY, errorInfo,
 				  "Wrong key provided for signature verification" ) );
 		}
-	if( queryInfo.hashAlgo != hashAlgo || \
-		queryInfo.hashParam != hashParam )
+	if( queryInfo.hashAlgo != sigDataInfo->hashAlgo || \
+		queryInfo.hashParam != sigDataInfo->hashParam )
 		{
 		retExt( CRYPT_ARGERROR_NUM2,
 				( CRYPT_ARGERROR_NUM2, errorInfo,
 				  "Hash algorithm %s used for data doesn't match hash "
 				  "algorithm %s used in CMS signature", 
-				  getAlgoNameEx( hashAlgo, hashParam ), 
+				  getAlgoNameEx( sigDataInfo->hashAlgo, 
+								 sigDataInfo->hashParam ), 
 				  getAlgoNameEx( queryInfo.hashAlgo, 
 								 queryInfo.hashParam ) ) );
 		}
@@ -1271,10 +1240,9 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 	if( queryInfo.attributeStart <= 0 )
 		{
 		status = checkSignature( signature, signatureLength, sigCheckContext,
-								 iCmsHashContext, CRYPT_UNUSED, 
-								 ( queryInfo.cryptAlgoEncoding == ALGOID_ENCODING_PSS ) ? \
-								   SIGNATURE_CMS_PSS : SIGNATURE_CMS, 
-								 errorInfo );
+						sigDataInfo, 
+						( queryInfo.cryptAlgoEncoding == ALGOID_ENCODING_PSS ) ? \
+						  SIGNATURE_CMS_PSS : SIGNATURE_CMS, errorInfo );
 		if( cryptStatusError( status ) )
 			return( status );
 		CFI_CHECK_UPDATE( "checkSignature" );
@@ -1306,33 +1274,38 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 			return( status );
 			}
 		}
-	iCmsHashContext = createInfo.cryptHandle;
-	status = krnlSendMessage( iCmsHashContext, IMESSAGE_CTX_HASH,
+	localSigDataInfo.hashContext = createInfo.cryptHandle;
+	status = krnlSendMessage( localSigDataInfo.hashContext, 
+							  IMESSAGE_CTX_HASH,
 							  ( BYTE * ) setTag, sizeof( BYTE ) );
 	if( cryptStatusOK( status ) )
 		{
-		status = krnlSendMessage( iCmsHashContext, IMESSAGE_CTX_HASH,
+		status = krnlSendMessage( localSigDataInfo.hashContext, 
+						IMESSAGE_CTX_HASH,
 						( BYTE * ) signature + queryInfo.attributeStart + 1,
 						queryInfo.attributeLength - 1 );
 		}
 	if( cryptStatusOK( status ) )
-		status = krnlSendMessage( iCmsHashContext, IMESSAGE_CTX_HASH, "", 0 );
+		{
+		status = krnlSendMessage( localSigDataInfo.hashContext, 
+								  IMESSAGE_CTX_HASH, "", 0 );
+		}
 	if( cryptStatusError( status ) )
 		{
-		krnlSendNotifier( iCmsHashContext, IMESSAGE_DECREFCOUNT );
+		krnlSendNotifier( localSigDataInfo.hashContext, 
+						  IMESSAGE_DECREFCOUNT );
 		retExt( status,
 				( status, errorInfo,
 				  "Couldn't hash CMS signed attributes" ) );
 		}
 	CFI_CHECK_UPDATE( "IMESSAGE_CTX_HASH" );
 
-	/* Check the signature */
+	/* Check the signature on the signed attributes */
 	status = checkSignature( signature, signatureLength, sigCheckContext,
-							 iCmsHashContext, CRYPT_UNUSED, 
-							 ( queryInfo.cryptAlgoEncoding == ALGOID_ENCODING_PSS ) ? \
-							   SIGNATURE_CMS_PSS : SIGNATURE_CMS,
-							 errorInfo );
-	krnlSendNotifier( iCmsHashContext, IMESSAGE_DECREFCOUNT );
+						&localSigDataInfo, 
+						( queryInfo.cryptAlgoEncoding == ALGOID_ENCODING_PSS ) ? \
+						  SIGNATURE_CMS_PSS : SIGNATURE_CMS, errorInfo );
+	krnlSendNotifier( localSigDataInfo.hashContext, IMESSAGE_DECREFCOUNT );
 	if( cryptStatusError( status ) )
 		return( status );
 	CFI_CHECK_UPDATE( "checkSignature" );
@@ -1361,7 +1334,8 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 							  &msgData, CRYPT_CERTINFO_CMS_MESSAGEDIGEST );
 	if( cryptStatusOK( status ) )
 		{
-		status = krnlSendMessage( iHashContext, IMESSAGE_COMPARE, &msgData,
+		status = krnlSendMessage( sigDataInfo->hashContext, 
+								  IMESSAGE_COMPARE, &msgData,
 								  MESSAGE_COMPARE_HASH );
 		if( cryptStatusError( status ) )
 			status = CRYPT_ERROR_SIGNATURE;
@@ -1372,7 +1346,9 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 		retExt( status,
 				( status, errorInfo,
 				  "%s hash of CMS signed attributes doesn't match stored "
-				  "hash value", getAlgoNameEx( hashAlgo, hashParam ) ) );
+				  "hash value", 
+				  getAlgoNameEx( sigDataInfo->hashAlgo, 
+								 sigDataInfo->hashParam ) ) );
 		}
 	CFI_CHECK_UPDATE( "IMESSAGE_COMPARE" );
 
@@ -1411,7 +1387,8 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 	if( cryptStatusOK( status ) )
 		{
 		status = checkAlgorithmProtection( iLocalExtraData, sigCheckContext,
-										   hashAlgo, hashParam );
+										   sigDataInfo->hashAlgo, 
+										   sigDataInfo->hashParam );
 		if( cryptStatusError( status ) )
 			{
 			krnlSendNotifier( iLocalExtraData, IMESSAGE_DECREFCOUNT );

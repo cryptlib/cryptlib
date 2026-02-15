@@ -132,7 +132,7 @@
    because once __WIN32__ is turned off we try and typedef BOOLEAN, but 
    under Windows it's already typedef'd which leads to error messages */
 
-#if defined( __WIN32__ ) && ( _MSC_VER == 1200 ) && defined( CROSSCOMPILE )
+#if defined( __WIN32__ ) && ( _MSC_VER == 1500 ) && defined( CROSSCOMPILE )
   /* Embedded OS variant.  Use the 'Crosscompile' build configuration and 
      change Project | Settings | C/C++ | Preprocessor | Additional include 
 	 directories as per comments below.  For a new OS, add it to the 
@@ -167,6 +167,7 @@
 //	#define __ITRON__		/* Extra include: ./,./embedded/itron */
 //	#define __MGOS__		/* Extra include: ./,./embedded/mgos,./embedded */
 //	#define __MQXRTOS__		/* Extra include: ./,./embedded/mqx */
+	#define __NORTi__		/* Extra include: ./,./embedded/norti */
 //	#define __Nucleus__		/* Extra include: ./,./embedded/nucleus */
 //	#define __OSEK__		/* Extra include: ./,./embedded/osek */
 //	#define __Quadros__		/* Extra include: ./,./embedded/quadros */
@@ -177,7 +178,7 @@
 //	#define __ThreadX__		/* Extra include: ./,./embedded/threadx */
 //	#define __TKernel__		/* Extra include: ./,./embedded/tk */
 //  #define __UCOS__		/* Extra include: ./,./embedded/ucos */
-	#define __VxWorks__		/* Extra include: ./,./embedded/vxworks/,./embedded/vxworks/wrn/coreip/ */
+//	#define __VxWorks__		/* Extra include: ./,./embedded/vxworks/,./embedded/vxworks/wrn/coreip/ */
 //	#define __ZEPHYR__		/* Extra include: ./,./embedded/zephyr,./embedded */
 
   /* Embedded OS additions (filesystems, networking).  Include directory 
@@ -238,10 +239,14 @@
    on a specific version of Visual Studio rather than any version being built
    in debug mode to ensure that development-specific capabilities aren't
    enabled in general debug builds.  The following value defines the version
-   of Visual Studio being used on current development systems, complete list
-   at https://qiita.com/yumetodo/items/8c112fca0a8e6b47072d */
+   of Visual Studio being used on current development systems, lists are
+   at https://qiita.com/yumetodo/items/8c112fca0a8e6b47072d and
+   https://learn.microsoft.com/en-us/cpp/overview/compiler-versions but both
+   are inevitably out of date, the best way to tell is to type in _MSC_VER
+   on a new line and let IntelliSense tell you what it is, or to use
+   #if _MSC_VER == / >= 19xx #error Bang #endif */
 
-#define VS_LATEST_VERSION           1941
+#define VS_LATEST_VERSION           1950
 
 #ifdef _SCCTK
   #define __IBM4758__
@@ -283,6 +288,7 @@
   #define VC_GE_2002( version )		( ( version ) >= 1300 )
   #define VC_LT_2005( version )		( ( version ) < 1400 )
   #define VC_GE_2005( version )		( ( version ) >= 1400 )
+  #define VC_EQ_2008( version )		( ( version ) == 1500 )
   #define VC_GE_2008( version )		( ( version ) >= 1500 )
   #define VC_LT_2010( version )		( ( version ) < 1600 )
   #define VC_GE_2010( version )		( ( version ) >= 1600 )
@@ -300,7 +306,9 @@
   #define VC_GE_2002( version )		0
   #define VC_LT_2005( version )		0
   #define VC_GE_2005( version )		0
+  #define VC_EQ_2008( version )		0
   #define VC_GE_2008( version )		0
+  #define VC_LT_2010( version )		0
   #define VC_GE_2010( version )		0
   #define VC_GE_2012( version )		0
   #define VC_GE_2013( version )		0
@@ -502,9 +510,12 @@
   #endif /* VC++ 2017 or newer */
 #endif /* Visual C++ */
 
-/* Turn off unnecessary PVS Studio warnings */
+/* Turn off unnecessary PVS Studio warnings.  These annotations actually 
+   have to be placed at the location where the warnings occur so this is 
+   mostly a catalogue of the ones that need to be disabled via the GUI */
 
 #ifdef PVS_STUDIO
+  //-V::002				/* Diagnostic messages may have incorrect line numbers */
   //-V::102				/* Non-size_t used for pointer arithmetic */
   //-V::103				/* Implicit conversion of size_t to int */
   //-V::104				/* Implicit conversion of int to size_t */
@@ -516,9 +527,16 @@
   //-V::119				/* More than one sizeof() used in an expression */
   //-V::206				/* Explicit conversion from "void *" to "int *" */
   //-V::526				/* memcmp() returns 0 on equal, check this */
+  //-V::560				/* Expression always true/false */
+  //-V::590				/* Consider inspecting the expression */
   //-V::677				/* Custom declaration of a standard type, e.g. BYTE */
   //-V::801				/* Structure passed by value */
   //-V::802				/* Structure size can be reduced */
+  //-V::1042			/* File has a copyleft license */
+  //-V::1059			/* Macro name overrides C std.macro (analyse.h) */
+  //-V::1071			/* Return value of function not always checked */
+  //-V::1109			/* Deprecated function used */
+  //-V::1111			/* n-th argument used without check */
 #endif /* PVS_STUDIO */
 
 /* VC++ 2005 implements the TR 24731 security extensions but doesn't yet 
@@ -678,6 +696,24 @@
 #elif defined( __FreeBSD__ ) || defined( __NetBSD__ ) || \
 	  defined( __OpenBSD__ )
   #include <sys/endian.h>
+#elif defined( sun ) || defined( __sun )
+  /* Solaris is a bit special because we could be running the Sun compiler
+	 or gcc or clang, but the use of gcc/clang doesn't guarantee the 
+	 presence of endian.h.  To deal with this we pull in the Sun-specific
+	 sys/byteorder.h and convert the defines in that into the equivalent
+	 endian.h defines */
+  #include <sys/byteorder.h>
+  #if defined( _LITTLE_ENDIAN )
+	#ifndef BYTE_ORDER
+	  #define LITTLE_ENDIAN		4321
+	  #define BYTE_ORDER		LITTLE_ENDIAN
+	#endif /* !BYTE_ORDER */
+  #elif defined( _BIG_ENDIAN )
+	#ifndef BYTE_ORDER
+	  #define BIG_ENDIAN		1234
+	  #define BYTE_ORDER		LITTLE_ENDIAN
+	#endif /* !BYTE_ORDER */
+  #endif /* Sun-specific endianness defines */
 #elif defined( __GNUC__ )
   /* Using __GNUC__ is a bit risky because a few other compilers want to 
      pretend really hard to be gcc while not being gcc, which means that

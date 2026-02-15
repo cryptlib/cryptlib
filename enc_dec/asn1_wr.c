@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								ASN.1 Write Routines						*
-*						Copyright Peter Gutmann 1992-2014					*
+*						Copyright Peter Gutmann 1992-2020					*
 *																			*
 ****************************************************************************/
 
@@ -83,7 +83,7 @@ static int writeLength( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long length 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int writeNumeric( INOUT_PTR STREAM *stream, IN_INT const long integer )
 	{
-	BYTE buffer[ 16 + 8 ];
+	BYTE buffer[ 16 + 8 ], outBuffer[ 16 + 8 ];
 	long intValue = integer;
 	LOOP_INDEX i;
 	int length = 0;
@@ -99,16 +99,18 @@ static int writeNumeric( INOUT_PTR STREAM *stream, IN_INT const long integer )
 	/* Assemble the encoded value in little-endian order */
 	if( intValue > 0 )
 		{
-		LOOP_SMALL_REV_CHECKINC( intValue > 0, intValue >>= 8 )
+		LOOP_SMALL( length = 0, length < 8 && intValue > 0, length++ )
 			{
-			ENSURES_S( LOOP_INVARIANT_SMALL_REV_XXX( intValue, 1, INT_MAX ) );
+			ENSURES_S( LOOP_INVARIANT_SMALL( length, 0, 7 ) );
 
-			buffer[ length++ ] = intToByte( intValue );
+			buffer[ length ] = intToByte( intValue );
+			intValue >>= 8;
 			}
-		ENSURES_S( LOOP_BOUND_SMALL_REV_OK );
+		ENSURES_S( LOOP_BOUND_OK );
 
 		/* Make sure that we don't inadvertently set the sign bit if the 
 		   high bit of the value is set */
+		ENSURES_S( rangeCheck( length, 1, 8 ) );
 		if( buffer[ length - 1 ] & 0x80 )
 			buffer[ length++ ] = 0x00;
 		}
@@ -118,32 +120,36 @@ static int writeNumeric( INOUT_PTR STREAM *stream, IN_INT const long integer )
 		   is actually checked for by the precondition at the start of this 
 		   function), it's present only in case it's ever needed in the 
 		   future */
-		LOOP_SMALL_CHECKINC( intValue != -1 && length < sizeof( int ), 
-							 intValue >>= 8 )
+		LOOP_SMALL( length = 0, length < 8 && intValue != -1, length++ )
 			{
-			ENSURES_S( LOOP_INVARIANT_SMALL_XXX( intValue, 0, INT_MAX ) );
+			ENSURES_S( LOOP_INVARIANT_SMALL( length, 0, 7 ) );
 
-			buffer[ length++ ] = intToByte( intValue );
+			buffer[ length ] = intToByte( intValue );
+			intValue >>= 8;
 			}
 		ENSURES_S( LOOP_BOUND_OK );
 
 		/* Make sure that we don't inadvertently clear the sign bit if the 
 		   high bit of the value is clear */
+		ENSURES_S( rangeCheck( length, 1, 8 ) );
 		if( !( buffer[ length - 1 ] & 0x80 ) )
 			buffer[ length++ ] = 0xFF;
 		}
-	ENSURES_S( length > 0 && length <= 8 );
+	ENSURES_S( rangeCheck( length, 1, 8 ) );
 
-	/* Output the value in reverse (big-endian) order */
-	sputc( stream, length );
-	LOOP_SMALL_REV( i = length - 1, i > 0, i-- )
+	/* Output the value in reverse (big-endian) order.  The loop index looks
+	   a bit odd, it's effectively i + 1 because for the destination we're
+	   writing one past the length byte and for the source the length is 
+	   1-based while the index is 0-based */
+	outBuffer[ 0 ] = intToByte( length );
+	LOOP_SMALL( i = 1, i <= length, i++ )
 		{
-		ENSURES_S( LOOP_INVARIANT_REV( i, 1, length - 1 ) );
+		ENSURES_S( LOOP_INVARIANT_SMALL( i, 1, length ) );
 
-		sputc( stream, buffer[ i ] );
+		outBuffer[ i ] = buffer[ length - i ];
 		}
-	ENSURES_S( LOOP_BOUND_SMALL_REV_OK );
-	return( sputc( stream, buffer[ 0 ] ) );
+	ENSURES_S( LOOP_BOUND_OK );
+	return( swrite( stream, outBuffer, 1 + length ) );
 	}
 
 /****************************************************************************
@@ -154,13 +160,17 @@ static int writeNumeric( INOUT_PTR STREAM *stream, IN_INT const long integer )
 
 /* Determine the encoded size of an object given only a length.  This
    function is a bit problematic because it's frequently called as part 
-   of a complex expression, where in theory it should never be passed a 
+   of a complex expression where in theory it should never be passed a 
    negative value but due to some sort of exceptional circumstances may
-   end up being passed one.  Since this is a can't-occur condition, we 
+   end up being passed one.  Since this is a can't-occur condition we 
    don't want to go overboard with checking for it (it would require having 
    to check the return value of every single use of sizeofObject() within a
-   complex expression), but also need some means of being able to cope with
-   it.  To deal with this we always return a safe length of zero on error.
+   complex expression), but we also need some means of being able to cope 
+   with it.  To deal with this we always return a safe length of zero on 
+   error.
+   
+   There's also checkEncodeOverflow() that we use where possible to check
+   for problems in nested sizeofObject() computations.
    
    In addition to the general sizeofObject(), we also provide a 
    sizeofShortObject() that avoids the need to cast values to ints all over 
@@ -194,6 +204,73 @@ int sizeofShortObject( IN_LENGTH_SHORT_Z const int length )
 		}
 
 	return( 1 + calculateLengthSize( length ) + length );
+	}
+
+/* Check whether an ASN.1 encoding operation, expressed as:
+
+	sizeofObject*( sizeofObject*( length ) + extraLen );
+	
+   would overflow.  This is mostly redundant because we always keep lengths 
+   below MAX_INTLENGTH which means that we can safely apply a series of 
+   sizeofObject() operations and add small amounts of extra data like 
+   parameters without getting close to INT_MAX, but we provide the check 
+   anyway to document that it's been done */
+
+CHECK_RETVAL_LENGTH \
+static long sizeofObjectChecked( IN_LENGTH_Z const long length )
+	{
+	const int lengthSize = calculateLengthSize( length );
+	
+	if( checkOverflowAddLong( 1 + lengthSize, length ) )
+		return( -1 );
+	return( 1 + lengthSize + length );
+	}
+
+CHECK_RETVAL_BOOL \
+BOOLEAN checkEncodeOverflow( IN_LENGTH const long length,
+							 IN_RANGE( 0, 5 ) const int lengthNestingLevel,
+							 IN_LENGTH_SHORT_Z const int extraLen,
+							 IN_RANGE( 0, 5 ) const int extraLenNestingLevel )
+	{
+	long calculatedLength = length;
+	LOOP_INDEX i;
+	
+	REQUIRES_EXT( isIntegerRange( length ), TRUE );
+	REQUIRES_EXT( rangeCheck( lengthNestingLevel, 0, 5 ), TRUE );
+	REQUIRES_EXT( isShortIntegerRange( extraLen ),  TRUE );
+	REQUIRES_EXT( rangeCheck( extraLenNestingLevel, 0, 5 ), TRUE );
+	
+	/* Check whether the sizeofObject() for length would overflow */
+	LOOP_SMALL( i = 0, i < lengthNestingLevel, i++ )
+		{
+		ENSURES_EXT( LOOP_INVARIANT_SMALL( i, 0, lengthNestingLevel - 1 ),
+					 TRUE );
+
+		calculatedLength = sizeofObjectChecked( calculatedLength );
+		if( calculatedLength <= 0 )
+			return( TRUE );
+		}
+	ENSURES_EXT( LOOP_BOUND_OK, TRUE );
+	
+	/* Check whether the extra length would overflow */
+	if( checkOverflowAddLong( calculatedLength, extraLen ) )
+		return( TRUE );
+	calculatedLength += extraLen;
+	
+	/* Check whether the overall sizeofObject() would overflow */
+	LOOP_SMALL( i = 0, i < extraLenNestingLevel, i++ )
+		{
+		ENSURES_EXT( LOOP_INVARIANT_SMALL( i, 0, extraLenNestingLevel - 1 ),
+					 TRUE );
+
+		calculatedLength = sizeofObjectChecked( calculatedLength );
+		if( calculatedLength <= 0 )
+			return( TRUE );
+		}
+	ENSURES_EXT( LOOP_BOUND_OK, TRUE );
+	
+	/* No overflow detected */
+	return( FALSE );
 	}
 
 /* Determine the size of a time value following the RFC 3280 rules for 
@@ -436,11 +513,6 @@ int writeBitString( INOUT_PTR STREAM *stream, IN_INT_Z const int bitString,
 					IN_TAG const int tag )
 	{
 	BYTE buffer[ 16 + 8 ];
-#if UINT_MAX > 0xFFFF
-	const int maxIterations = 32;
-#else
-	const int maxIterations = 16;
-#endif /* 16 vs.32-bit systems */
 	unsigned int value = 0;
 	LOOP_INDEX i;
 	int data = bitString, noBits = 0;
@@ -450,11 +522,15 @@ int writeBitString( INOUT_PTR STREAM *stream, IN_INT_Z const int bitString,
 	REQUIRES_S( bitString >= 0 && bitString < INT_MAX );
 	REQUIRES_S( tag == DEFAULT_TAG || ( tag >= 0 && tag < MAX_TAG_VALUE ) );
 
-	/* ASN.1 bitstrings start at bit 0, so we need to reverse the order of
-	  the bits before we write them out */
-	LOOP_MED( i = 0, i < maxIterations, i++ )
+	/* ASN.1 bitstrings start at bit 0 so we need to reverse the order of
+	   the bits before we write them out.  This doesn't assume 32-bit ints
+	   or anything similar but merely extracts the first 32 bits from
+	   whatever we're passed, most bitstrings are only a few bits with the
+	   one exception being CMP's braindamaged error codes which for no
+	   known reason are encoded as a bitstring rather than an enum or int */
+	LOOP_MED( i = 0, i < 32, i++ )
 		{
-		ENSURES_S( LOOP_INVARIANT_MED( i, 0, maxIterations - 1 ) );
+		ENSURES_S( LOOP_INVARIANT_MED( i, 0, 31 ) );
 
 		/* Update the number of significant bits */
 		if( data > 0 )
@@ -468,25 +544,15 @@ int writeBitString( INOUT_PTR STREAM *stream, IN_INT_Z const int bitString,
 		}
 	ENSURES_S( LOOP_BOUND_OK );
 
-	/* Write the data as an ASN.1 BITSTRING.  This has the potential to lose
-	   some bits on 16-bit systems, but the only place where bit strings 
-	   longer than one or two bytes are used is with CMP's bizarre encoding 
-	   of error subcodes that just provide further information above and 
-	   beyond the main error code and text message, and it's unlikely that 
-	   too many people will be running a CMP server on a DOS box */
+	/* Write the data as an ASN.1 BITSTRING */
 	buffer[ 0 ] = ( tag == DEFAULT_TAG ) ? \
 				  BER_BITSTRING : intToByte( MAKE_CTAG_PRIMITIVE( tag ) );
 	buffer[ 1 ] = 1 + intToByte( ( ( noBits + 7 ) >> 3 ) );
 	buffer[ 2 ] = intToByte( ~( ( noBits - 1 ) & 7 ) & 7 );
-#if UINT_MAX > 0xFFFF
 	buffer[ 3 ] = intToByte( value >> 24 );
 	buffer[ 4 ] = intToByte( value >> 16 );
 	buffer[ 5 ] = intToByte( value >> 8 );
 	buffer[ 6 ] = intToByte( value );
-#else
-	buffer[ 3 ] = intToByte( ( value >> 8 ) & 0xFF );
-	buffer[ 4 ] = intToByte( value & 0xFF );
-#endif /* 16 vs.32-bit systems */
 	return( swrite( stream, buffer, 3 + ( ( noBits + 7 ) >> 3 ) ) );
 	}
 
@@ -499,8 +565,9 @@ static int writeTimeData( INOUT_PTR STREAM *stream,
 						  IN_BOOL const BOOLEAN isUTCTime )
 	{
 	struct tm timeInfo, *timeInfoPtr = &timeInfo;
-	char buffer[ 32 + 8 ];
+	BYTE buffer[ 32 + 8 ];
 	const int length = isUTCTime ? 13 : 15;
+	int result;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -519,18 +586,21 @@ static int writeTimeData( INOUT_PTR STREAM *stream,
 		/* This and the following sprintf_s() give a bogus buffer-overflow 
 		   warning from gcc because it doesn't understand the difference 
 		   between %02d and %d */
-		sprintf_s( buffer + 2, 16, "%02d%02d%02d%02d%02d%02dZ", 
-				   timeInfoPtr->tm_year % 100, timeInfoPtr->tm_mon + 1, 
-				   timeInfoPtr->tm_mday, timeInfoPtr->tm_hour, 
-				   timeInfoPtr->tm_min, timeInfoPtr->tm_sec );
+		result = sprintf_s( buffer + 2, 16, "%02d%02d%02d%02d%02d%02dZ", 
+							timeInfoPtr->tm_year % 100, 
+							timeInfoPtr->tm_mon + 1, 
+							timeInfoPtr->tm_mday, timeInfoPtr->tm_hour, 
+							timeInfoPtr->tm_min, timeInfoPtr->tm_sec );
 		}
 	else
 		{
-		sprintf_s( buffer + 2, 16, "%04d%02d%02d%02d%02d%02dZ", 
-				   timeInfoPtr->tm_year + 1900, timeInfoPtr->tm_mon + 1, 
-				   timeInfoPtr->tm_mday, timeInfoPtr->tm_hour, 
-				   timeInfoPtr->tm_min, timeInfoPtr->tm_sec );
+		result = sprintf_s( buffer + 2, 16, "%04d%02d%02d%02d%02d%02dZ", 
+							timeInfoPtr->tm_year + 1900, 
+							timeInfoPtr->tm_mon + 1, 
+							timeInfoPtr->tm_mday, timeInfoPtr->tm_hour, 
+							timeInfoPtr->tm_min, timeInfoPtr->tm_sec );
 		}
+	ENSURES_S( rangeCheck( result, length, 15 ) );
 	return( swrite( stream, buffer, length + 2 ) );
 	}
 

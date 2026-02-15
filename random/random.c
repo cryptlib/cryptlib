@@ -1085,14 +1085,12 @@ int initRandomInfo( INOUT_PTR TYPECAST( RANDOM_INFO * ) struct RI *randomInfoPtr
 	/* Initialise any helper routines that may be needed */
 	initRandomPolling();
 
-	/* Mix the fixed seed into the pool if there's one defined.  We use
-	   size_t as the data type since that typically matches the system word
-	   size */
+	/* Mix the fixed seed into the pool if there's one defined */
 #ifdef FIXED_SEED
 	{
-	const size_t value = ( size_t ) FIXED_SEED;
+	const BYTE value[ 8 ] = { FIXED_SEED };
 
-	( void ) addEntropyData( randomInfoPtr, &value, sizeof( value ) );
+	( void ) addEntropyData( randomInfoPtr, value, 8 );
 	}
 #endif /* FIXED_SEED */
 
@@ -1401,6 +1399,7 @@ static void addStoredSeedData( INOUT_PTR RANDOM_INFO *randomInfo )
 	sioctlSetString( &stream, STREAM_IOCTL_IOBUFFER, 
 					 SAFEBUFFER_PTR( streamBuffer ), STREAM_BUFSIZE );
 	sioctlSet( &stream, STREAM_IOCTL_PARTIALREAD, TRUE );
+	REQUIRES_V( rangeCheck( RANDSEED_MAX_SIZE, 1, RANDSEED_MAX_SIZE ) );
 	status = length = sread( &stream, seedBuffer, RANDSEED_MAX_SIZE );
 	sFileClose( &stream );
 	zeroise( streamBuffer, SAFEBUFFER_SIZE( STREAM_BUFSIZE ) );

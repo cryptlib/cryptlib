@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							cryptlib Keyset Routines						*
-*						Copyright Peter Gutmann 1995-2019					*
+*						Copyright Peter Gutmann 1995-2024					*
 *																			*
 ****************************************************************************/
 
@@ -198,9 +198,9 @@ static BOOLEAN checkKeysetFunctions( IN_PTR const KEYSET_INFO *keysetInfoPtr )
 #ifndef USE_PKCS12_WRITE
 			if( keysetInfoPtr->subType == KEYSET_SUBTYPE_PKCS12 )
 				{
-				if( !FNPTR_ISNULL( keysetInfoPtr->setItemFunction ) )
+				if( FNPTR_ISSET( keysetInfoPtr->setItemFunction ) )
 					{
-					DEBUG_PUTS(( "checkKeysetFunctions: Suprious PKCS #12 write function" ));
+					DEBUG_PUTS(( "checkKeysetFunctions: Spurious PKCS #12 write function" ));
 					return( FALSE );
 					}
 				}
@@ -354,7 +354,7 @@ static int initKeysetUpdate( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 			getHashParameters( CRYPT_ALGO_SHA1, 0, &hashFunction, &hashSize );
 			sMemOpen( &stream, buffer, 8 );
 			status = writeSequence( &stream, length );
-			ENSURES( cryptStatusOK( status ) );
+			ENSURES_SC( cryptStatusOK( status ) );
 			hashFunction( hashInfo, NULL, 0, buffer, stell( &stream ), 
 						  HASH_STATE_START );
 			sMemClose( &stream );
@@ -487,13 +487,14 @@ static const OID_INFO keyFileOIDinfo[] = {
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int getKeysetType( INOUT_PTR STREAM *stream,
-						  OUT_ENUM_OPT( KEYSET_SUBTYPE ) KEYSET_SUBTYPE *subType )
+						  OUT_ENUM_OPT( KEYSET_SUBTYPE ) \
+								KEYSET_SUBTYPE_TYPE *subType )
 	{
 	long length;
 	int value, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( subType, sizeof( KEYSET_SUBTYPE ) ) );
+	assert( isWritePtr( subType, sizeof( KEYSET_SUBTYPE_TYPE ) ) );
 
 	/* Clear return value */
 	*subType = KEYSET_SUBTYPE_NONE;
@@ -556,7 +557,7 @@ static int getKeysetType( INOUT_PTR STREAM *stream,
 	value = pgpGetPacketType( value );
 	if( value == PGP_PACKET_PUBKEY || value == PGP_PACKET_SECKEY )
 		{
-		KEYSET_SUBTYPE type;
+		KEYSET_SUBTYPE_TYPE type;
 
 		/* Determine the file type based on the initial CTB */
 		type = ( value == PGP_PACKET_PUBKEY ) ? \
@@ -574,7 +575,7 @@ static int getKeysetType( INOUT_PTR STREAM *stream,
 			}
 		else
 			{
-			if( length < 200 || length > 4096 )
+			if( length < 150 || length > 4096 )
 				return( CRYPT_ERROR_BADDATA );
 			}
 		status = value = sgetc( stream );
@@ -604,9 +605,9 @@ static int openKeysetStream( INOUT_PTR STREAM *stream,
 								const CRYPT_KEYOPT_TYPE options,
 							 OUT_BOOL BOOLEAN *isReadOnly, 
 							 OUT_ENUM_OPT( KEYSET_SUBTYPE ) \
-								KEYSET_SUBTYPE *keysetSubType )
+								KEYSET_SUBTYPE_TYPE *keysetSubType )
 	{
-	KEYSET_SUBTYPE subType = KEYSET_SUBTYPE_PKCS15;
+	KEYSET_SUBTYPE_TYPE subType = KEYSET_SUBTYPE_PKCS15;
 	char nameBuffer[ MAX_ATTRIBUTE_SIZE + 1 + 8 ];
 	const int suffixPos = nameLength - 4;
 	int openMode, status;
@@ -614,7 +615,7 @@ static int openKeysetStream( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtrDynamic( name, nameLength ) );
 	assert( isWritePtr( isReadOnly, sizeof( BOOLEAN ) ) );
-	assert( isWritePtr( keysetSubType, sizeof( KEYSET_SUBTYPE ) ) );
+	assert( isWritePtr( keysetSubType, sizeof( KEYSET_SUBTYPE_TYPE ) ) );
 
 	REQUIRES( isEnumRangeOpt( options, CRYPT_KEYOPT ) );
 	REQUIRES( nameLength >= MIN_NAME_LENGTH && \
@@ -649,7 +650,8 @@ static int openKeysetStream( INOUT_PTR STREAM *stream,
 		{
 		/* If we want to create a new file we can't do it if we don't have
 		   write permission */
-		if( options == CRYPT_KEYOPT_CREATE )
+		if( options == CRYPT_KEYOPT_CREATE || \
+			options == CRYPT_IKEYOPT_EXCLUSIVEWRITE )
 			return( CRYPT_ERROR_PERMISSION );
 
 		/* Open the file in read-only mode */
@@ -658,25 +660,43 @@ static int openKeysetStream( INOUT_PTR STREAM *stream,
 		}
 	else
 		{
-		/* If we're creating the file, open it in write-only mode.  Since
-		   we'll (presumably) be storing private keys in it we mark it as
-		   both private (owner-access-only ACL) and sensitive (store in
-		   secure storage if possible) */
-		if( options == CRYPT_KEYOPT_CREATE )
+		switch( options )
 			{
-			openMode = FILE_FLAG_WRITE | FILE_FLAG_EXCLUSIVE_ACCESS | \
-					   FILE_FLAG_PRIVATE | FILE_FLAG_SENSITIVE;
-			}
-		else
-			{
-			/* Open it for read or read/write depending on whether the
-			   readonly flag is set */
-			openMode = ( options == CRYPT_KEYOPT_READONLY ) ? \
-					   FILE_FLAG_READ : FILE_FLAG_READ | FILE_FLAG_WRITE;
+			case CRYPT_KEYOPT_NONE:
+				openMode = FILE_FLAG_READ | FILE_FLAG_WRITE;
+				break;
+
+			case CRYPT_KEYOPT_READONLY:
+				openMode = FILE_FLAG_READ;
+				break;
+
+			case CRYPT_KEYOPT_CREATE:
+				/* If we're creating the file, open it in write-only mode.  
+				   Since we'll (presumably) be storing private keys in it we 
+				   mark it as both private (owner-access-only ACL) and 
+				   sensitive (store in secure storage if possible) */
+				openMode = FILE_FLAG_WRITE | FILE_FLAG_EXCLUSIVE_ACCESS | \
+						   FILE_FLAG_PRIVATE | FILE_FLAG_SENSITIVE;
+				break;
+
+			case CRYPT_IKEYOPT_EXCLUSIVEWRITE:
+				/* Configuration data, make sure that no-one else can update
+				   it while we're working with it and perform additional 
+				   checks before working with it */
+				openMode = FILE_FLAG_READ | FILE_FLAG_WRITE | \
+						   FILE_FLAG_EXCLUSIVE_ACCESS | FILE_FLAG_PRIVATE;
+				break;
+
+			case CRYPT_IKEYOPT_SAFEREAD:
+				/* Configuration data, perform additional checks before 
+				   working with it */
+				openMode = FILE_FLAG_READ | FILE_FLAG_PRIVATE;
+				break;
+
+			default:
+				retIntError();
 			}
 		}
-	if( options == CRYPT_IKEYOPT_EXCLUSIVEACCESS )
-		openMode |= FILE_FLAG_EXCLUSIVE_ACCESS;
 
 	/* Pre-open the file containing the keyset.  This initially opens it in
 	   read-only mode for auto-detection of the file type so we can check for
@@ -726,7 +746,7 @@ static int openKeysetStream( INOUT_PTR STREAM *stream,
 			sioctlSet( stream, STREAM_IOCTL_IOBUFFER, 0 );
 			}
 
-		/* If it's a cryptlib keyset we can open it in any mode */
+		/* If it's a cryptlib keyset then we can open it in any mode */
 		if( isWriteableFileKeyset( subType ) )
 			{
 			/* If we're opening it something other than read-only mode, 
@@ -735,7 +755,7 @@ static int openKeysetStream( INOUT_PTR STREAM *stream,
 			   opening the file initially is to determine its type, so if an 
 			   attacker slips in a different file on the re-open it'll 
 			   either be a no-op if it's the same file type or we'll get a
-			   CRYPT_ERROR_BADDATA if it's the same file type */
+			   CRYPT_ERROR_BADDATA if it's a different file type */
 			if( openMode != FILE_FLAG_READ )
 				{
 				sFileClose( stream );
@@ -827,7 +847,7 @@ static BOOLEAN isFileKeysetAccessPermitted( INOUT_PTR KEYSET_INFO *keysetInfoPtr
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int completeKeysetFileOpen( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 								   IN_ENUM( KEYSET_SUBTYPE ) \
-										KEYSET_SUBTYPE subType,
+										KEYSET_SUBTYPE_TYPE subType,
 								   INOUT_PTR STREAM *stream,
 								   IN_BUFFER( nameLength ) const char *name, 
 								   IN_LENGTH_SHORT_MIN( MIN_NAME_LENGTH ) \
@@ -1046,6 +1066,63 @@ static void completeMemstreamClose( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	}
 #endif /* USE_HARDWARE || USE_TPM  */
 
+/* Check whether a given key type can be stored in a given keyset */
+
+CHECK_RETVAL_BOOL \
+static BOOLEAN isKeysetStorageOK( IN_ENUM( KEYSET_SUBTYPE ) \
+										KEYSET_SUBTYPE_TYPE subType,
+								  IN_HANDLE \
+										const CRYPT_CONTEXT iCryptContext )
+	{
+	int algorithm;	/* enum vs. int */
+	int status;
+	
+	REQUIRES( isEnumRange( subType, KEYSET_SUBTYPE ) );
+	REQUIRES( isHandleRangeValid( iCryptContext ) );
+
+	/* Find out what algorithm we're dealing with */	
+	status = krnlSendMessage( iCryptContext, IMESSAGE_GETATTRIBUTE,
+							  &algorithm, CRYPT_CTXINFO_ALGO );
+	if( cryptStatusError( status ) )
+		return( FALSE );
+
+	/* Make sure that keys for this algorithm can be stored in the given 
+	   keyset type.  Note that these values are non-transitive for non-
+	   native formats in that the fact that a given algorithm type's keys 
+	   can be read from a keyset doesn't mean that they can also be written.  
+	   For example for PKCS #12 keysets cryptlib will read RSA, DSA, and ECC
+	   keys but will only write RSA keys, in this case because of the fact
+	   that the format defined for them isn't the format that everything
+	   uses so it's unclear what we should be emitting, see the comment in
+	   context/key_rdpriv.c */
+	switch( subType )
+		{
+#ifdef USE_PGPKEYS
+		case KEYSET_SUBTYPE_PGP_PUBLIC:
+		case KEYSET_SUBTYPE_PGP_PRIVATE:
+			if( algorithm == CRYPT_ALGO_RSA || \
+				algorithm == CRYPT_ALGO_DSA || \
+				algorithm == CRYPT_ALGO_ELGAMAL || \
+				algorithm == CRYPT_ALGO_ECDSA )
+				return( TRUE );
+			break;
+#endif /* USE_PGPKEYS */
+
+#ifdef USE_PKCS12
+		case KEYSET_SUBTYPE_PKCS12:
+			if( algorithm == CRYPT_ALGO_RSA )
+				return( TRUE );
+			break;
+#endif /* USE_PKCS12 */
+
+		case KEYSET_SUBTYPE_PKCS15:
+			/* PKCS #15 keysets can store keys for every algorithm type */
+			return( TRUE );
+		}
+	
+	return( FALSE );
+	}
+
 /****************************************************************************
 *																			*
 *								Keyset Message Handler						*
@@ -1074,6 +1151,8 @@ static int keysetMessageFunction( INOUT_PTR TYPECAST( KEYSET_INFO * ) \
 	/* Process the destroy object message */
 	if( message == MESSAGE_DESTROY )
 		{
+		int shutdownStatus = CRYPT_OK;
+		
 		/* If the keyset is active, perform any required cleanup functions */
 		if( TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_OPEN ) )
 			{
@@ -1090,7 +1169,14 @@ static int keysetMessageFunction( INOUT_PTR TYPECAST( KEYSET_INFO * ) \
 			status = shutdownFunction( keysetInfoPtr );
 			if( cryptStatusError( status ) )
 				{
-				assert( INTERNAL_ERROR );
+				/* Keysets for which the KEYSET_FLAG_INCOMPLETE flag is set
+				   can fail as part of a normal shutdown, for everything 
+				   else we let the user know that something has gone wrong */
+				if( status == CRYPT_ERROR_INCOMPLETE && \
+					TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_INCOMPLETE ) )
+					shutdownStatus = CRYPT_ERROR_INCOMPLETE;
+				else
+					assert( DEBUG_WARN );
 
 				/* The shutdown failed for some reason.  This can only 
 				   really ever happen for file keysets (which includes 
@@ -1118,9 +1204,9 @@ static int keysetMessageFunction( INOUT_PTR TYPECAST( KEYSET_INFO * ) \
 					SET_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_EMPTY );
 					}
 
-				/* Continue with the cleanup, eating the error status but 
-				   remembering that there was a problem in case this is 
-				   needed later */
+				/* Continue with the cleanup, eating any non-incomplete 
+				   error status but remembering that there was a problem in 
+				   case this is needed later */
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
 				shutdownFailed = TRUE;
 #endif /* USE_HARDWARE || USE_TPM */
@@ -1137,7 +1223,7 @@ static int keysetMessageFunction( INOUT_PTR TYPECAST( KEYSET_INFO * ) \
 				completeKeysetFileClose( keysetInfoPtr );
 			}
 
-		return( CRYPT_OK );
+		return( shutdownStatus );
 		}
 
 	/* Process attribute get/set/delete messages */
@@ -1355,6 +1441,10 @@ static int keysetMessageFunction( INOUT_PTR TYPECAST( KEYSET_INFO * ) \
 		   operations.  Going via a keyset/device bypasses these issues, but 
 		   doing it directly shows up all of these problems */
 		resetErrorInfo( keysetInfoPtr );
+		if( keysetInfoPtr->type == KEYSET_FILE && \
+			!isKeysetStorageOK( keysetInfoPtr->subType, 
+								setkeyInfo->cryptHandle ) )
+			return( CRYPT_ERROR_NOTAVAIL );
 		status = initKeysetUpdate( keysetInfoPtr, NULL, NULL, 0, FALSE );
 		if( cryptStatusError( status ) )
 			return( status );
@@ -1380,7 +1470,7 @@ static int keysetMessageFunction( INOUT_PTR TYPECAST( KEYSET_INFO * ) \
 		const KEY_DELETEITEM_FUNCTION deleteItemFunction = \
 							( KEY_DELETEITEM_FUNCTION ) \
 							FNPTR_GET( keysetInfoPtr->deleteItemFunction );
-		MESSAGE_KEYMGMT_INFO *deletekeyInfo = \
+		const MESSAGE_KEYMGMT_INFO *deletekeyInfo = \
 							( MESSAGE_KEYMGMT_INFO * ) messageDataPtr;
 		CONST_INIT_STRUCT_3( KEYID_INFO keyIDinfo, \
 							 deletekeyInfo->keyIDtype, deletekeyInfo->keyID, \
@@ -1525,7 +1615,7 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 	{
 	KEYSET_INFO *keysetInfoPtr;
 	STREAM stream;
-	KEYSET_SUBTYPE keysetSubType DUMMY_INIT;
+	KEYSET_SUBTYPE_TYPE keysetSubType DUMMY_INIT;
 	OBJECT_SUBTYPE subType;
 	KEY_INIT_FUNCTION initFunction;
 	BOOLEAN isReadOnly = ( options == CRYPT_KEYOPT_READONLY ) ? TRUE : FALSE;
@@ -1878,7 +1968,7 @@ int createKeysetIndirect( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 	FILE_INFO *fileInfo;
 	STREAM stream DUMMY_INIT_STRUCT;
 	KEY_INIT_FUNCTION initFunction;
-	KEYSET_SUBTYPE subType = KEYSET_SUBTYPE_PKCS15;
+	KEYSET_SUBTYPE_TYPE subType = KEYSET_SUBTYPE_PKCS15;
 	BOOLEAN streamConnected = FALSE;
 	int status;
 

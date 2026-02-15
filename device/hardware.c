@@ -541,8 +541,7 @@ static const MECHANISM_FUNCTION_INFO defaultMechanismFunctions[] = {
 	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_HOTP, ( MECHANISM_FUNCTION ) deriveHOTP },
 #endif /* USE_TLS || USE_SSH */
 #ifdef USE_TLS
-	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_TLS, ( MECHANISM_FUNCTION ) deriveSSL },
-	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_SSL, ( MECHANISM_FUNCTION ) deriveTLS },
+	{ MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_TLS, ( MECHANISM_FUNCTION ) deriveTLS },
 	{ MESSAGE_DEV_SIGN, MECHANISM_SIG_TLS, ( MECHANISM_FUNCTION ) signTLS },
 	{ MESSAGE_DEV_SIGCHECK, MECHANISM_SIG_TLS, ( MECHANISM_FUNCTION ) sigcheckTLS },
 #endif /* USE_TLS */
@@ -639,8 +638,11 @@ int deviceInitHardware( void )
 		DATAPTR_SET( capabilityInfoList[ i ].info, \
 					 ( void * ) capabilityInfoPtr );
 		DATAPTR_SET( capabilityInfoList[ i ].next, NULL );
-		DATAPTR_SET( capabilityInfoList[ i - 1 ].next, 
-					 &capabilityInfoList[ i ] );
+		if( i > 0 )
+			{
+			DATAPTR_SET( capabilityInfoList[ i - 1 ].next, 
+						 &capabilityInfoList[ i ] );
+			}
 		}
 
 	return( CRYPT_OK );
@@ -667,7 +669,7 @@ int setDeviceHardware( INOUT_PTR DEVICE_INFO *deviceInfoPtr )
 	FNPTR_SET( deviceInfoPtr->initFunction, initFunction );
 	FNPTR_SET( deviceInfoPtr->shutdownFunction, shutdownFunction );
 	FNPTR_SET( deviceInfoPtr->controlFunction, controlFunction );
-	status = deviceInitStorage( deviceInfoPtr );
+	status = deviceInitGetSet( deviceInfoPtr );
 	ENSURES( cryptStatusOK( status ) );
 #ifndef CONFIG_NO_SELFTEST
 	FNPTR_SET( deviceInfoPtr->selftestFunction, selftestDevice );

@@ -427,7 +427,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
 int dbmsFormatQuery( OUT_BUFFER( outMaxLength, *outLength ) char *output, 
 					 IN_LENGTH_SHORT const int outMaxLength, 
 					 OUT_LENGTH_BOUNDED_Z( outMaxLength ) int *outLength,
-					 IN_BUFFER( inputLength ) const char *input, 
+					 IN_BUFFER( inputLength ) const BYTE *input, 
 					 IN_LENGTH_SHORT const int inputLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int dbmsParseName( OUT_PTR DBMS_NAME_INFO *nameInfo, 

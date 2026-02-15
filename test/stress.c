@@ -56,11 +56,14 @@ static int testStressObjects( void )
 			return( FALSE );
 			}
 
-		/* Destroy an earlier object to make sure that there are gaps in the
-		   LFSR coverage */
-		if( i > 1000 && ( i % 500 ) == 0 )
+		/* Destroy an earlier object to make sure that there are gaps in the 
+		   LFSR coverage.  The code triggers once we've filled the first half 
+		   of the handle array, destroying every tenth object */
+		if( i > NO_OBJECTS / 2 && ( i % ( NO_OBJECTS / 10 ) ) == 0 )
 			{
-			status = cryptDestroyContext( handleArray[ i - 600 ] );
+			const int objectIndex = i - ( NO_OBJECTS / 2 );
+			
+			status = cryptDestroyContext( handleArray[ objectIndex ] );
 			if( cryptStatusError( status ) )
 				{
 				free( handleArray );
@@ -68,7 +71,7 @@ static int testStressObjects( void )
 						 "with status %d.\n", i, status );
 				return( FALSE );
 				}
-			handleArray[ i - 600 ] = -1;
+			handleArray[ objectIndex ] = -1;
 			}
 		}
 	fprintf( outputStream, "." );
@@ -80,7 +83,7 @@ static int testStressObjects( void )
 		if( cryptStatusError( status ) )
 			{
 			free( handleArray );
-			fprintf( outputStream, "\ncryptEncrypt() #%d failed with "
+			fprintf( outputStream, "\ncryptEncrypt() data #%d failed with "
 					 "status %d.\n", i, status );
 			return( FALSE );
 			}
@@ -94,7 +97,7 @@ static int testStressObjects( void )
 		if( cryptStatusError( status ) )
 			{
 			free( handleArray );
-			fprintf( outputStream, "\ncryptEncrypt() #%d failed with "
+			fprintf( outputStream, "\ncryptEncrypt() EOF #%d failed with "
 					 "status %d.\n", i, status );
 			return( FALSE );
 			}
@@ -207,6 +210,47 @@ static int testStressObjectsDetailed( void )
 		}
 
 	fputs( "Detailed object stress test succeeded.\n\n", outputStream );
+	return( TRUE );
+	}
+
+/* Perform a socket-pool stress test.  This just fetches the same 
+   certificate 200 times to make sure that recycling of sockets in the pool
+   works.  Best run with the socket pool limited to 32 entries rather than
+   the default 128 */
+
+int testStressSocketPool( void )
+	{
+	CRYPT_KEYSET cryptKeyset;
+	CRYPT_CERTIFICATE cryptCert;
+	int i, status;
+
+	fputs( "Running socket pool stress test.\n", outputStream );
+	for( i = 0; i < 200; i++ )
+		{
+		status = cryptKeysetOpen( &cryptKeyset, CRYPT_UNUSED, 
+					CRYPT_KEYSET_HTTP, 
+					"http://cacerts.digicert.com/DigiCertTLSECCP384RootG5.crt",
+					CRYPT_KEYOPT_READONLY );
+		if( cryptStatusError( status ) )
+			{
+			printf( "cryptKeysetOpen() failed with error code %d, line "
+					"%d.\n", status, __LINE__ );
+			return( CRYPT_ERROR_FAILED );
+			}
+		status = cryptGetPublicKey( cryptKeyset, &cryptCert, 
+									CRYPT_KEYID_NAME, "[none]" );
+		cryptKeysetClose( cryptKeyset );
+		if( cryptStatusError( status ) )
+			{
+			return( extErrorExit( cryptKeyset, "cryptGetPublicKey()", 
+								  status, __LINE__ ) );
+			}
+		cryptDestroyCert( cryptCert );
+		fputc( '.', outputStream );
+		}
+	fputc( '\n', outputStream );
+
+	fputs( "Socket pool stress test succeeded.\n\n", outputStream );
 	return( TRUE );
 	}
 

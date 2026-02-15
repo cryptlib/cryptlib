@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib PKC_INFO Bignum Support Routines				*
-*						Copyright Peter Gutmann 1995-2015					*
+*						Copyright Peter Gutmann 1995-2021					*
 *																			*
 ****************************************************************************/
 
@@ -111,17 +111,19 @@ void clearTempBignums( INOUT_PTR PKC_INFO *pkcInfo )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initContextBignums( INOUT_PTR PKC_INFO *pkcInfo, 
-						IN_BOOL const BOOLEAN isECC )
+						IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
 	assert( isWritePtr( pkcInfo, sizeof( PKC_INFO ) ) );
 
-	REQUIRES( isBooleanValue( isECC ) );
+	REQUIRES( isEnumRange( cryptAlgo, CRYPT_ALGO ) );
 
 	/* Initialise the overall PKC information */
 	memset( pkcInfo, 0, sizeof( PKC_INFO ) );
 	INIT_FLAGS( pkcInfo->flags, PKCINFO_FLAG_NONE );
 
-	/* Initialise the bignum information */
+	/* Initialise the bignum information.  The values aren't used for all
+	   algorithm types but we clear everything in any case to keep things
+	   clean */
 	BN_init( &pkcInfo->param1 ); BN_init( &pkcInfo->param2 );
 	BN_init( &pkcInfo->param3 ); BN_init( &pkcInfo->param4 );
 	BN_init( &pkcInfo->param5 ); BN_init( &pkcInfo->param6 );
@@ -130,7 +132,7 @@ int initContextBignums( INOUT_PTR PKC_INFO *pkcInfo,
 	BN_init( &pkcInfo->tmp1 ); BN_init( &pkcInfo->tmp2 );
 	BN_init( &pkcInfo->tmp3 );
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
-	if( isECC )
+	if( cryptAlgo == CRYPT_ALGO_ECDH || cryptAlgo == CRYPT_ALGO_ECDSA )
 		{
 		pkcInfo->isECC = TRUE;
 		pkcInfo->ecCTX = EC_GROUP_new( EC_GFp_simple_method() );
@@ -316,12 +318,27 @@ static int bignumChecksum( INOUT_PTR PKC_INFO *pkcInfo,
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
 	if( isEccAlgo( cryptAlgo ) )
 		{
-		BN_checksum( &pkcInfo->eccParam_qx, &value );
-		BN_checksum( &pkcInfo->eccParam_qy, &value );
-		if( isPrivateKey )
-			BN_checksum( &pkcInfo->eccParam_d, &value );
-		BN_checksum_ec_group( pkcInfo->ecCTX, &value );
-		BN_checksum_ec_point( pkcInfo->ecPoint, &value );
+  #if defined( USE_25519 ) || defined( USE_ED25519 )
+		if( cryptAlgo == CRYPT_ALGO_25519 || \
+			cryptAlgo == CRYPT_ALGO_ED25519 )
+			{
+			BN_checksum( &pkcInfo->curve25519Param_pub, &value );
+			if( isPrivateKey )
+				{
+				BN_checksum( &pkcInfo->curve25519Param_priv, &value );
+				BN_checksum( &pkcInfo->curve25519Param_s, &value );
+				}
+			}
+		else
+  #endif /* USE_25519 || defined( USE_ED25519 */
+			{
+			BN_checksum( &pkcInfo->eccParam_qx, &value );
+			BN_checksum( &pkcInfo->eccParam_qy, &value );
+			if( isPrivateKey )
+				BN_checksum( &pkcInfo->eccParam_d, &value );
+			BN_checksum_ec_group( pkcInfo->ecCTX, &value );
+			BN_checksum_ec_point( pkcInfo->ecPoint, &value );
+			}
 		}
 	else
 #endif /* USE_ECDH || USE_ECDSA */
@@ -340,7 +357,7 @@ static int bignumChecksum( INOUT_PTR PKC_INFO *pkcInfo,
 	else
 		{
 		/* Note that we don't checksum the (optional) blinding values 
-		   rsaParam_blind_k and rsaParam_blind_kInv, since these are updated
+		   rsaParam_blind_k and rsaParam_blind_kInv since these are updated
 		   on every RSA operation so the checksum would change every time 
 		   they're used.  Since these are random values, a fault will only
 		   make them even more random */

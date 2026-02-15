@@ -1531,13 +1531,15 @@ C_RET cryptGetCertExtension( C_IN CRYPT_CERTIFICATE certificate,
 	if( !isWritePtr( extensionLength, sizeof( int ) ) )
 		return( CRYPT_ERROR_PARAM6 );
 	*extensionLength = 0;
-	oidLen = strlen( oid );
+	oidLen = strnlen_s( oid, CRYPT_MAX_TEXTSIZE + 1 );
 	if( oidLen < MIN_ASCII_OIDSIZE || oidLen > CRYPT_MAX_TEXTSIZE )
 		return( CRYPT_ERROR_PARAM2 );
 #ifdef EBCDIC_CHARS
 	strlcpy_s( asciiOID, CRYPT_MAX_TEXTSIZE, oid );
-	ebcdicToAscii( asciiOID, asciiOID, strlen( asciiOID ) );
-	if( cryptStatusError( textToOID( asciiOID, strlen( asciiOID ), 
+	ebcdicToAscii( asciiOID, asciiOID, 
+				   strnlen_s( asciiOID, CRYPT_MAX_TEXTSIZE ) );
+	if( cryptStatusError( textToOID( asciiOID, 
+									 strnlen_s( asciiOID, CRYPT_MAX_TEXTSIZE ), 
 									 binaryOID, MAX_OID_SIZE, &binaryOidLen ) ) )
 		return( CRYPT_ERROR_PARAM2 );
 #else
@@ -1638,13 +1640,14 @@ C_RET cryptAddCertExtension( C_IN CRYPT_CERTIFICATE certificate,
 	if( cryptStatusError( checkCertObjectEncoding( extension, 
 												   extensionLength ) ) )
 		return( CRYPT_ERROR_PARAM4 );
-	oidLen = strlen( oid );
+	oidLen = strnlen_s( oid, CRYPT_MAX_TEXTSIZE + 1 );
 	if( oidLen < MIN_ASCII_OIDSIZE || oidLen > CRYPT_MAX_TEXTSIZE )
 		return( CRYPT_ERROR_PARAM2 );
 #ifdef EBCDIC_CHARS
 	strlcpy_s( asciiOID, CRYPT_MAX_TEXTSIZE, oid );
 	ebcdicToAscii( asciiOID, asciiOID, oidLen );
-	if( cryptStatusError( textToOID( asciiOID, strlen( asciiOID ), 
+	if( cryptStatusError( textToOID( asciiOID, 
+									 strnlen_s( asciiOID, CRYPT_MAX_TEXTSIZE ), 
 									 binaryOID, MAX_OID_SIZE, &binaryOidLen ) ) )
 		return( CRYPT_ERROR_PARAM2 );
 #else
@@ -1726,13 +1729,15 @@ C_RET cryptDeleteCertExtension( C_IN CRYPT_CERTIFICATE certificate,
 		return( CRYPT_ERROR_PARAM1 );
 	if( !isReadPtr( oid, MIN_ASCII_OIDSIZE ) )
 		return( CRYPT_ERROR_PARAM2 );
-	oidLen = strlen( oid );
+	oidLen = strnlen_s( oid, CRYPT_MAX_TEXTSIZE + 1 );
 	if( oidLen < MIN_ASCII_OIDSIZE || oidLen > CRYPT_MAX_TEXTSIZE )
 		return( CRYPT_ERROR_PARAM2 );
 #ifdef EBCDIC_CHARS
 	strlcpy_s( asciiOID, CRYPT_MAX_TEXTSIZE, oid );
-	ebcdicToAscii( asciiOID, asciiOID, strlen( asciiOID ) );
-	if( cryptStatusError( textToOID( asciiOID, strlen( asciiOID ), 
+	ebcdicToAscii( asciiOID, asciiOID, 
+				   strnlen_s( asciiOID, CRYPT_MAX_TEXTSIZE ) );
+	if( cryptStatusError( textToOID( asciiOID, 
+									 strnlen_s( asciiOID, CRYPT_MAX_TEXTSIZE ), 
 									 binaryOID, MAX_OID_SIZE, &binaryOidLen ) ) )
 		return( CRYPT_ERROR_PARAM2 );
 #else

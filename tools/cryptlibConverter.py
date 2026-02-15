@@ -876,7 +876,8 @@ s = re.search(r"#ifndef _CRYPTLIB_DEFINED\n(.*)\n#endif", s, re.DOTALL).group(1)
 
 #Ignore anything before "#define C_INOUT..."
 #--------------------------------------------
-s = s[re.search(r"#define C_INOUT.*?\n", s, re.DOTALL).end() : ]
+#s = s[re.search(r"#define C_INOUT.*?\n", s, re.DOTALL).end() : ]
+s = s[re.search(r"\/\* END_OF_PREAMBLE.*?\n", s, re.DOTALL).end() : ]
 
 #Remove all conditionals
 #------------------------

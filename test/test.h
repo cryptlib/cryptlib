@@ -54,7 +54,7 @@
 	#define TEST_LOWLEVEL
   #endif /* TEST_LOWLEVEL */
   #ifndef TEST_ENVELOPE
-	#ifdef defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ )
+	#if defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ )
 	  #pragma message( "Enabling TEST_ENVELOPE since TEST_DEVICE is enabled." )
 	#endif /* Notify config change */
 	#define TEST_ENVELOPE
@@ -242,40 +242,31 @@
 
 #if defined( _MSC_VER ) && defined( _M_X64 )
   /* Win64, time_t is 64 bits */
-  #define TIMET_FORMAT	"%lld"
+  #define TIMET_FORMAT	"%llX"
 #elif defined( _MSC_VER ) && ( _MSC_VER >= 1700 )
   /* VS 2012 and newer, time_t is 64 bits */
-  #define TIMET_FORMAT	"%lld"
+  #define TIMET_FORMAT	"%llX"
 #else
-  #define TIMET_FORMAT	"%ld"
+  #define TIMET_FORMAT	"%lX"
 #endif /* Environment-specific time_t size */
 
 /* Generic buffer size and dynamically-allocated file I/O buffer size.  The
    generic buffer has to be of a reasonable size so that we can handle 
    S/MIME signature chains, the file buffer should be less than the 16-bit 
-   INT_MAX for testing on 16-bit machines and less than 32K for testing on 
-   the (16-bit DOS-derived) Watcom C 10 */
+   INT_MAX for testing on 16-bit machines */
 
-#if defined( __MSDOS16__ ) || defined( __WIN16__ )
-  #define BUFFER_SIZE			4096
-  #define FILEBUFFER_SIZE		30000
-#elif defined( __QNX__ ) && defined( __WATCOMC__ ) && ( __WATCOMC__ < 1100 )
-  #define BUFFER_SIZE			8192
-  #define FILEBUFFER_SIZE		30000
-#else
-  #define BUFFER_SIZE			16384
-  #define FILEBUFFER_SIZE		40960
-#endif /* __MSDOS__ && __TURBOC__ */
+#define BUFFER_SIZE				16384
+#define FILEBUFFER_SIZE			40960
 #define FILENAME_BUFFER_SIZE	512
 
 /* For some debugging versions we only want to enable debug-specific options 
    on a specific version of Visual Studio rather than any version being built
    in debug mode to ensure that development-specific capabilities aren't
    enabled in general debug builds.  The following value defines the version
-   of Visual Studio being used on current development systems, complete list
-   at https://qiita.com/yumetodo/items/8c112fca0a8e6b47072d */
+   of Visual Studio being used on current development systems, see the note
+   in misc/os_detect.h on how to get this */
 
-#define VS_LATEST_VERSION		1941
+#define VS_LATEST_VERSION		1950
 
 /* Explicit includes needed by Palm OS, see the comment in crypt.h for more
    details */
@@ -343,12 +334,12 @@
 	#define __WIN64__
   #endif /* Win32/Win64 */
   #define _OSSPEC_DEFINED
-  #define VC_16BIT( version )		( version <= 800 )
-  #define VC_LE_VC6( version )		( version <= 1200 )
-  #define VC_LT_2005( version )		( version < 1400 )
-  #define VC_GE_2005( version )		( version >= 1400 )
-  #define VC_GE_2010( version )		( version >= 1600 )
-  #define VC_GE_2017( version )		( version >= 1910 )
+  #define VC_16BIT( version )		( ( version ) <= 800 )
+  #define VC_LE_VC6( version )		( ( version ) <= 1200 )
+  #define VC_LT_2005( version )		( ( version ) d< 1400 )
+  #define VC_GE_2005( version )		( ( version ) >= 1400 )
+  #define VC_GE_2010( version )		( ( version ) >= 1600 )
+  #define VC_GE_2017( version )		( ( version ) >= 1910 )
 #else
   #define VC_16BIT( version )		0
   #define VC_LE_VC6( version )		0
@@ -504,7 +495,7 @@ typedef enum { KEYFILE_NONE, KEYFILE_X509, KEYFILE_X509_ALT, KEYFILE_PGP,
 			   KEYFILE_OPENPGP_AES_KEYID, KEYFILE_OPENPGP_CAST, 
 			   KEYFILE_OPENPGP_RSA, KEYFILE_OPENPGP_MULT, KEYFILE_NAIPGP, 
 			   KEYFILE_OPENPGP_PARTIAL, KEYFILE_OPENPGP_BOUNCYCASTLE,
-			   KEYFILE_OPENPGP_ECC 
+			   KEYFILE_OPENPGP_ECC1, KEYFILE_OPENPGP_ECC2 
 			 } KEYFILE_TYPE;
 
 /* When we're testing certificate chain handling, we need to deal with 
@@ -575,8 +566,9 @@ typedef enum {
 #define DH_KEY2_LABEL			TEXT( "Test DH key #2" )
 #define ECDSA_PUBKEY_LABEL		TEXT( "Test ECDSA sigcheck key" )
 #define ECDSA_PRIVKEY_LABEL		TEXT( "Test ECDSA signing key" )
-#define EDDSA_PRIVKEY_LABEL		TEXT( "Test EDDSA signing key" )
 #define CURVE25519_PRIVKEY_LABEL TEXT( "Test 25519 private key" )
+#define ED25519_PUBKEY_LABEL	TEXT( "Test Ed25519 sigcheck key" )
+#define ED25519_PRIVKEY_LABEL	TEXT( "Test Ed25519 signing key" )
 #define CA_PRIVKEY_LABEL		TEXT( "Test RSA private key" )
 #define USER_PRIVKEY_LABEL		TEXT( "Test user key" )
 #define DUAL_SIGNKEY_LABEL		TEXT( "Test signing key" )
@@ -803,7 +795,7 @@ BOOLEAN loadECDSAContextsEx( const CRYPT_DEVICE cryptDevice,
 							 CRYPT_CONTEXT *signContext,
 							 const C_STR sigCheckContextLabel,
 							 const C_STR signContextLabel );
-BOOLEAN loadEDDSAContexts( const CRYPT_DEVICE cryptDevice,
+BOOLEAN load25519Contexts( const CRYPT_DEVICE cryptDevice,
 						   CRYPT_CONTEXT *sigCheckContext,
 						   CRYPT_CONTEXT *signContext );
 void destroyContexts( const CRYPT_DEVICE cryptDevice,
@@ -890,9 +882,10 @@ C_RET cryptFuzzInit( C_IN CRYPT_SESSION cryptSession,
 C_RET cryptSetFuzzData( C_IN CRYPT_SESSION cryptSession, 
 						C_IN void *data, C_IN int dataLength,
 						C_IN CRYPT_SUBPROTOCOL_TYPE subProtocolType );
-C_RET cryptFuzzSpecial( C_IN CRYPT_CONTEXT cryptContext,
-						C_IN void *data, C_IN int dataLength,
-						C_IN int isServer, C_IN int isHTTP );
+C_RET cryptFuzzSpecial( C_IN void *data, C_IN int dataLength );
+C_RET cryptFuzzNetworkSpecial( C_IN CRYPT_CONTEXT cryptContext, 
+							   C_IN void *data, C_IN int dataLength, 
+							   C_IN int isServer, C_IN int isHTTP );
 #endif /* NDEBUG */
 
 /****************************************************************************
@@ -1110,6 +1103,7 @@ int testOCSPReqResp( void );
 int testPKIUser( void );
 int testCertImport( void );
 int testCertImportECC( void );
+int testCertImport25519( void );
 int testCertReqImport( void );
 int testCRLImport( void );
 int testCertChainImport( void );
@@ -1164,6 +1158,8 @@ int testSessionSSHPortforward( void );
 int testSessionSSHExec( void );
 int testSessionSSH_SFTP( void );
 int testSessionSSHServer( void );
+int testSessionSSHServerEccKey( void );
+int testSessionSSHServerEd25519Key( void );
 int testSessionSSHServerPubkeyAuth( void );
 int testSessionSSHServerPreauth( void );
 int testSessionSSHServerTOTPAuth( void );
@@ -1201,6 +1197,7 @@ int testSessionTLS13ClientCert( void );
 int testSessionTLS13Server( void );
 int testSessionTLS13ServerEccKey( void );
 int testSessionTLS13ServerEccKeyP384( void );
+int testSessionTLS13ServerEd25519Key( void );
 int testSessionTLSBadSSL( void );
 
 /* Functions to test local client/server sessions.  These require threading
@@ -1210,11 +1207,13 @@ int testSessionTLSBadSSL( void );
   int testSessionSSHClientServer( void );
   int testSessionSSHClientServerDsaKey( void );
   int testSessionSSHClientServerEccKey( void );
+  int testSessionSSHClientServerEd25519Key( void );
   int testSessionSSHClientServerFingerprint( void );
   int testSessionSSHClientServerPubkeyAuth( void );
   int testSessionSSHClientServerPubkeyAuthPassword( void );
   int testSessionSSHClientServerPubkeyAuthWrongKey( void );
   int testSessionSSHClientServerPubkeyAuthWrongName( void );
+  int testSessionSSHClientServerPubkeyAuthNoPubkey( void );
   int testSessionSSHClientServerPreauth( void );
   int testSessionSSHClientServerPreauthMissing( void );
   int testSessionSSHClientServerPreauthWrong( void );
@@ -1245,6 +1244,8 @@ int testSessionTLSBadSSL( void );
   int testSessionTLS12WhitelistFailClientServer( void );
   int testSessionTLS12WebSocketsClientServer( void );
   int testSessionTLS13ClientServer( void );
+  int testSessionTLS13ClientServerEccKey( void );
+  int testSessionTLS13ClientServerEd25519Key( void );
   int testSessionTLS13ClientCertClientServer( void );
   int testSessionTLS13ForceTLS13ClientServer( void );
   int testSessionTLSClientServerDualThread( void );
@@ -1287,6 +1288,7 @@ int testSmokeTestKernel( void );
 int testSmokeTestObjects( void );
 void testStressThreadsSimple( void );
 void testStressThreadsComplex( void );
+int testStressSocketPool( void );
 
 /* Umbrella tests for the above functions */
 

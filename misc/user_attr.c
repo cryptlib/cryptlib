@@ -15,6 +15,12 @@
   #include "misc/user.h"
 #endif /* Compiler-specific includes */
 
+/* The name of the configuration file.  This is purely the filename, the 
+   rest is assembled by fileBuildCryptlibPath() when the configuration data
+   is read */
+
+#define CONFIG_FILE_NAME	"cryptlib"
+
 /****************************************************************************
 *																			*
 *								Utility Functions							*
@@ -95,8 +101,11 @@ static int twoPhaseConfigUpdate( INOUT_PTR USER_INFO *userInfoPtr,
 		strlcpy_s( userFileName, 16, "cryptlib" );
 	else
 		{
-		sprintf_s( userFileName, 16, "u%06x", 
-				   userInfoPtr->userFileInfo.fileRef );
+		int result;
+
+		result = sprintf_s( userFileName, 16, "u%06x", 
+							userInfoPtr->userFileInfo.fileRef );
+		ENSURES( rangeCheck( result, 7, 15 ) );
 		}
 
 	/* Determine what we have to do with the configuation information */
@@ -446,8 +455,8 @@ int setUserAttribute( INOUT_PTR USER_INFO *userInfoPtr,
 			   flipped, so we treat the read as an opportunistic read and 
 			   fall back to built-in safe defaults if there's a problem, 
 			   warning the user in debug mode */
-			status = readConfig( userInfoPtr->objectHandle, "cryptlib", 
-								 userInfoPtr->trustInfo );
+			status = readConfig( userInfoPtr->objectHandle, 
+								 CONFIG_FILE_NAME, userInfoPtr->trustInfo );
 			if( cryptStatusError( status ) )
 				{
 				DEBUG_DIAG_ERRMSG(( "Configuration file read failed with "

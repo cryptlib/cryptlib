@@ -357,8 +357,9 @@ static int testEAPSubprotocol( const PROTOCOL_TYPE protocolType,
 	/* No 2.x version of FreeRADIUS and no 3.x version before about 3.10
 	   supported TLS 1.2 or even 1.1, returning weird errors if newer 
 	   versions of TLS were attempted.  To deal with this, undefine the 
-	   following, which forces use of TLS 1.0 in order to deal with older
-	   FreeRADIUS implementations */
+	   following which forces use of TLS 1.0 in order to deal with older
+	   FreeRADIUS implementations, for example ancient codebases baked into
+	   commercial security products (*cough*FaultyGate*cough*) */
 #if 0
 	cryptSetAttribute( cryptSession, CRYPT_SESSINFO_VERSION, 1 );
 #endif /* 0 */

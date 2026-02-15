@@ -22,7 +22,7 @@
   #include "enc_dec/asn1_ext.h"
 #endif /* Compiler-specific includes */
 
-#ifdef USE_TPM
+#if defined( USE_TPM ) && defined( USE_TPM_EXT )
 
 /****************************************************************************
 *																			*
@@ -245,6 +245,8 @@ static int decryptFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	setMessageData( &msgData, buffer + 2, padSize - 3 );
 	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_GETATTRIBUTE_S, 
 							  &msgData, CRYPT_IATTRIBUTE_RANDOM_NONCE );
+	if( cryptStatusError( status ) )
+		return( status );
 	LOOP_EXT( i = 2, i < padSize - 1, i++, CRYPT_MAX_PKCSIZE + 1 )
 		{
 		ENSURES( LOOP_INVARIANT_EXT( i, 2, padSize - 2,
@@ -750,4 +752,4 @@ int tpmGetCapabilities( INOUT_PTR DEVICE_INFO *deviceInfoPtr )
 	
 	return( CRYPT_OK );
 	}
-#endif /* USE_TPM */
+#endif /* USE_TPM && USE_TPM_EXT */

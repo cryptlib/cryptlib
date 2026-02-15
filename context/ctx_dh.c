@@ -125,7 +125,7 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 #ifndef CONFIG_NO_SELFTEST
 
 /* Test the Diffie-Hellman implementation using a sample key.  Because a lot 
-   of the high-level encryption routines don't exist yet, we cheat a bit and 
+   of the high-level encryption routines don't exist yet we cheat a bit and 
    set up a dummy encryption context with just enough information for the 
    following code to work */
 
@@ -537,7 +537,7 @@ static const CAPABILITY_INFO capabilityInfo = {
 	selfTest, getDefaultInfo, NULL, NULL, initKey, generateKey, 
 	encryptFn, decryptFn, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
 	readPublicKeyDlpFunction, writePublicKeyDlpFunction, 
-	encodeDLValuesFunction, decodeDLValuesFunction
+	NULL, NULL		/* Read/written as a single bignum, not a pair of values */
 	};
 
 CHECK_RETVAL_PTR_NONNULL \

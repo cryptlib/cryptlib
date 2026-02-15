@@ -71,6 +71,11 @@ This header file is an INTERNAL file which supports mode implementation
 
 #if defined( _MSC_VER )
 #  if _MSC_VER >= 1400
+  #if VC_EQ_2008( _MSC_VER )	/* VS 2008 forgets to define CPU identifiers */
+	#define _M_IA64			0
+	#define _M_AMD64		0
+	#define _M_ARM			0
+  #endif /* VS 2008 */
 #    include <stdlib.h>
 #    include <intrin.h>
 #    pragma intrinsic(memset)

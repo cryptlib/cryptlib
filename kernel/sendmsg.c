@@ -5,6 +5,7 @@
 *																			*
 ****************************************************************************/
 
+#include <stdio.h>		/* For sprintf() */
 #if defined( INC_ALL )
   #include "crypt.h"
   #include "acl.h"
@@ -60,7 +61,8 @@ int checkTargetType( IN_HANDLE const CRYPT_HANDLE originalObjectHandle,
 	{
 	const OBJECT_TYPE target = targets & 0xFF;
 	const OBJECT_TYPE altTarget = targets >> 8;
-	OBJECT_INFO *objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
+	const OBJECT_INFO *objectTable = \
+				getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
 
 	/* Precondition: Source is a valid object, destination(s) are valid
 	   target(s) */
@@ -872,6 +874,14 @@ static const MESSAGE_HANDLING_INFO messageHandlingInfo[] = {
 	  ROUTE( OBJECT_TYPE_CONTEXT ), ST_CTX_PKC, ST_NONE, ST_NONE, 
 	  PARAMTYPE_DATA_LENGTH,
 	  PRE_POST_DISPATCH( CheckActionAccess, UpdateUsageCount ) },
+	{ MESSAGE_CTX_SIGN_MSG,			/* Context: Action = sign message */
+	  ROUTE( OBJECT_TYPE_CONTEXT ), ST_CTX_PKC, ST_NONE, ST_NONE, 
+	  PARAMTYPE_DATA_LENGTH,
+	  PRE_POST_DISPATCH( CheckActionAccess, UpdateUsageCount ) },
+	{ MESSAGE_CTX_SIGCHECK_MSG,		/* Context: Action = sigcheck message */
+	  ROUTE( OBJECT_TYPE_CONTEXT ), ST_CTX_PKC, ST_NONE, ST_NONE, 
+	  PARAMTYPE_DATA_LENGTH,
+	  PRE_POST_DISPATCH( CheckActionAccess, UpdateUsageCount ) },
 	{ MESSAGE_CTX_HASH,				/* Context: Action = hash */
 	  ROUTE( OBJECT_TYPE_CONTEXT ), ST_CTX_HASH | ST_CTX_MAC, ST_NONE, ST_NONE, 
 	  PARAMTYPE_DATA_LENGTH,
@@ -1196,7 +1206,11 @@ int initSendMessage( void )
 				   "Message value" );
 	static_assert( MESSAGE_CTX_SIGCHECK == MESSAGE_CTX_SIGN + 1, \
 				   "Message value" );
-	static_assert( MESSAGE_CTX_HASH == MESSAGE_CTX_SIGCHECK + 1, \
+	static_assert( MESSAGE_CTX_SIGN_MSG == MESSAGE_CTX_SIGCHECK + 1, \
+				   "Message value" );
+	static_assert( MESSAGE_CTX_SIGCHECK_MSG == MESSAGE_CTX_SIGN_MSG + 1, \
+				   "Message value" );
+	static_assert( MESSAGE_CTX_HASH == MESSAGE_CTX_SIGCHECK_MSG + 1, \
 				   "Message value" );
 	static_assert( MESSAGE_CTX_GENKEY == MESSAGE_CTX_HASH + 1, \
 				   "Message value" );
@@ -1584,7 +1598,10 @@ static int processInternalMessage( IN_HANDLE const int localObjectHandle,
 	REQUIRES( isValidObject( localObjectHandle ) );
 	REQUIRES( isValidMessage( message & MESSAGE_MASK ) );
 
-	/* If there's a pre-dispatch handler, invoke it */
+	/* If there's a pre-dispatch handler, invoke it.  The use of 
+	   messageDataPtr can lead to a static analyser warning since some pre-
+	   dispatch functions have non-null pointers while others have null
+	   pointers */
 	if( handlingInfoPtr->preDispatchFunction != NULL )
 		{
 		status = handlingInfoPtr->preDispatchFunction( localObjectHandle,
@@ -1639,7 +1656,8 @@ static int processInternalMessage( IN_HANDLE const int localObjectHandle,
 		return( status );
 		}
 
-	/* If there's a post-dispatch handler, invoke it */
+	/* If there's a post-dispatch handler, invoke it.  This has the same 
+	   issue with messageDataPtr as the preDispatchFunction() call above */
 	if( handlingInfoPtr->postDispatchFunction != NULL )
 		{
 		status = handlingInfoPtr->postDispatchFunction( localObjectHandle, 
@@ -1791,6 +1809,8 @@ PARAMCHECK_MESSAGE( MESSAGE_CTX_ENCRYPT, INOUT_PTR, IN_LENGTH ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_DECRYPT, INOUT_PTR, IN_LENGTH ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_SIGN, IN_PTR, IN_LENGTH ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_SIGCHECK, IN_PTR, IN_LENGTH ) \
+PARAMCHECK_MESSAGE( MESSAGE_CTX_SIGN_MSG, IN_PTR, IN_LENGTH ) \
+PARAMCHECK_MESSAGE( MESSAGE_CTX_SIGCHECK_MSG, IN_PTR, IN_LENGTH ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_HASH, IN_PTR, IN_LENGTH_Z ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_GENKEY, PARAM_NULL, PARAM_IS( 0 ) ) \
 PARAMCHECK_MESSAGE( MESSAGE_CTX_GENIV, PARAM_NULL, PARAM_IS( 0 ) ) \

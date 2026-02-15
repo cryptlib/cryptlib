@@ -64,10 +64,17 @@ static BOOLEAN sanityCheckURL( const URL_INFO *urlInfo )
 		return( FALSE );
 		}
 
-	/* The host always has to be present */
-	if( urlInfo->host == NULL || \
-		urlInfo->hostLen < MIN_HOST_SIZE || \
-		urlInfo->hostLen > MAX_HOST_SIZE )
+	/* The host always has to be present.  We allow a single special case in
+	   which the host name is less than MIN_HOST_SIZE bytes for the IPv6 
+	   loopback address "::1" */
+	if( urlInfo->host == NULL )
+		{
+		DEBUG_PUTS(( "sanityCheckURL: Host" ));
+		return( FALSE );
+		}
+	if( ( urlInfo->hostLen < MIN_HOST_SIZE || \
+		  urlInfo->hostLen > MAX_HOST_SIZE ) && \
+		!( urlInfo->hostLen == 3 && !memcmp( urlInfo->host, "::1", 3 ) ) )
 		{
 		DEBUG_PUTS(( "sanityCheckURL: Host" ));
 		return( FALSE );
@@ -204,7 +211,8 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 	{
 	const char *strPtr, *hostName, *location;
 	LOOP_INDEX urlIndex;
-	int offset, strLen, hostNameLen, locationLen, minLen, status;
+	int offset, strLen, hostNameLen, locationLen, minLen = MIN_DNS_SIZE;
+	int status;
 
 	assert( isWritePtr( urlInfo, sizeof( URL_INFO ) ) );
 	assert( isReadPtrDynamic( url, urlLen ) );
@@ -221,7 +229,8 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 	if( defaultPort != CRYPT_UNUSED )
 		urlInfo->port = defaultPort;
 
-	/* Make sure that the input contains valid characters */
+	/* Make sure that the input contains valid characters.  Beyond this 
+	   point we know that the 'BYTE *' is legitimately a 'char *' */
 	LOOP_MAX( urlIndex = 0, urlIndex < urlLen, urlIndex++ )
 		{
 		int ch;
@@ -306,6 +315,26 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 		if( offset < 2 || offset > strLen - 1 || offset > CRYPT_MAX_TEXTSIZE )
 			return( CRYPT_ERROR_BADDATA );
 
+		/* We know that it has to be an IPv6 address, make sure that the 
+		   format is approximately valid.  This is an extra level of 
+		   checking that IPv4 addresses and DNS names don't have, but since
+		   we know that it's an IPv6 address we may as well catch any 
+		   problems here.
+		   
+		   We start at offset 1 to skip the '[' at the start and stop before
+		   the ']' at the end */
+		LOOP_MAX( urlIndex = 1, urlIndex < offset, urlIndex++ )
+			{
+			int ch;
+
+			ENSURES( LOOP_INVARIANT_MAX( urlIndex, 1, offset - 1 ) );
+
+			ch = byteToInt( strPtr[ urlIndex ] );
+			if( !isXDigit( ch ) && ch != ':' )
+				return( CRYPT_ERROR_BADDATA );
+			}
+		ENSURES( LOOP_BOUND_OK );
+
 		/* If we're only pre-parsing the IPv6 address for future use rather 
 		   than actually parsing it to pass to the network address-
 		   resolution functions then we have to leave the square-bracket 
@@ -315,15 +344,16 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 			{
 			hostName = strPtr;
 			hostNameLen = offset + 1;	/* Include ']' */
-			minLen = 4;
 			}
 		else
 			{
 			/* Extract the IPv6 address starting at position 1 (past the 
 			   '[') and ending at position 'offset' (before the ']') with 
-			   minimum length 2 */
+			   minimum length 2.  We have to special-case the IPv6 loopback
+			   address "::1" which is less than the standard MIN_DNS_SIZE */
 			hostNameLen = strExtract( &hostName, strPtr, 1, offset );
-			minLen = 2;
+			if( hostNameLen == 3 && !memcmp( hostName, "::1", 3 ) )
+				minLen = 3;
 			}
 		offset++;	/* Skip ']' */
 		}
@@ -358,7 +388,6 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 		/* There's port/location info following the server name.  Trailing
 		   whitespace will be stripped later */
 		hostNameLen = strExtract( &hostName, strPtr, 0, offset );
-		minLen = MIN_HOST_SIZE;
 		}
 	if( hostNameLen < minLen || hostNameLen > MAX_HOST_SIZE )
 		return( CRYPT_ERROR_BADDATA );

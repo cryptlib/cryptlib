@@ -1150,7 +1150,8 @@ static int writeSignatures( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			  actionListPtr = DATAPTR_GET( actionListPtr->next ) )
 		{
 		const ACTION_LIST *associatedActionPtr;
-		SIGPARAMS sigParams;
+		SIG_DATA_INFO sigDataInfo;
+		SIG_PARAMS sigParams;
 		const int sigBufSize = min( envelopeInfoPtr->bufSize - \
 									envelopeInfoPtr->bufPos, \
 									MAX_INTLENGTH_SHORT - 1 );
@@ -1183,11 +1184,11 @@ static int writeSignatures( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		/* Sign the data */
 		associatedActionPtr = DATAPTR_GET( actionListPtr->associatedAction );
 		REQUIRES( associatedActionPtr != NULL );
+		setSigDataInfoHash( &sigDataInfo, associatedActionPtr->iCryptHandle );
 		status = iCryptCreateSignature( envelopeInfoPtr->buffer + \
 										envelopeInfoPtr->bufPos, sigBufSize, 
 							&sigSize, envelopeInfoPtr->type,
-							actionListPtr->iCryptHandle,
-							associatedActionPtr->iCryptHandle,
+							actionListPtr->iCryptHandle, &sigDataInfo,
 							( envelopeInfoPtr->type == CRYPT_FORMAT_CRYPTLIB ) ? \
 								NULL : &sigParams, &localErrorInfo );
 		if( cryptStatusError( status ) )

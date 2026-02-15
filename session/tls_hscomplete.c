@@ -306,7 +306,11 @@ static int readHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			status = CRYPT_ERROR_OVERFLOW;
 			}
 		else
+			{
+			REQUIRES( rangeCheck( macValueLength, \
+								  1, MD5MAC_SIZE + SHA1MAC_SIZE ) );
 			status = sread( &stream, macBuffer, macValueLength );
+			}
 		}
 	sMemDisconnect( &stream );
 	if( cryptStatusError( status ) )
