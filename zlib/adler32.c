@@ -25,15 +25,13 @@
 #endif /* __MVS__ */
 
 #define ZLIB_INTERNAL	/* pcg */
-#if defined( INC_ALL )
+#if defined( INC_ALL )	/* pcg */
   #include "zutil.h"
 #else
   #include "zlib/zutil.h"
 #endif /* Compiler-specific includes */
 
-#if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )
-
-local uLong adler32_combine_ OF((uLong adler1, uLong adler2, z_off64_t len2));
+#if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )	/* pcg */
 
 #define BASE 65521U     /* largest prime smaller than 65536 */
 #define NMAX 5552
@@ -86,8 +84,7 @@ local uLong adler32_combine_ OF((uLong adler1, uLong adler2, z_off64_t len2));
 #endif
 
 /* ========================================================================= */
-uLong ZEXPORT adler32_z( uLong adler, const Bytef *buf, z_size_t len )	/* pcg */
-{
+uLong ZEXPORT adler32_z(uLong adler, const Bytef *buf, z_size_t len) {
     unsigned long sum2;
     unsigned n;
 
@@ -154,14 +151,12 @@ uLong ZEXPORT adler32_z( uLong adler, const Bytef *buf, z_size_t len )	/* pcg */
 }
 
 /* ========================================================================= */
-uLong ZEXPORT adler32( uLong adler, const Bytef *buf, uInt len )	/* pcg */
-{
+uLong ZEXPORT adler32(uLong adler, const Bytef *buf, uInt len) {
     return adler32_z(adler, buf, len);
 }
 
 /* ========================================================================= */
-local uLong adler32_combine_( uLong adler1, uLong adler2, z_off64_t len2 )		/* pcg */
-{
+local uLong adler32_combine_(uLong adler1, uLong adler2, z_off64_t len2) {
     unsigned long sum1;
     unsigned long sum2;
     unsigned rem;
@@ -186,13 +181,12 @@ local uLong adler32_combine_( uLong adler1, uLong adler2, z_off64_t len2 )		/* p
 }
 
 /* ========================================================================= */
-uLong ZEXPORT adler32_combine( uLong adler1, uLong adler2, z_off_t len2 )	/* pcg */
-{
+uLong ZEXPORT adler32_combine(uLong adler1, uLong adler2, z_off_t len2) {
     return adler32_combine_(adler1, adler2, len2);
 }
 
-uLong ZEXPORT adler32_combine64( uLong adler1, uLong adler2, z_off64_t len2 )	/* pcg */
-{
+uLong ZEXPORT adler32_combine64(uLong adler1, uLong adler2, z_off64_t len2) {
     return adler32_combine_(adler1, adler2, len2);
 }
+
 #endif /* USE_COMPRESSION && !HAS_ZLIB */

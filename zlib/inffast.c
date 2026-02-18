@@ -1,9 +1,9 @@
 /* inffast.c -- fast decoding
- * Copyright (C) 1995-2017 Mark Adler
+ * Copyright (C) 1995-2026 Mark Adler
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
-#if defined( INC_ALL )
+#if defined( INC_ALL )	/* pcg */
   #include "zutil.h"
   #include "inftrees.h"
   #include "inflate.h"
@@ -15,7 +15,7 @@
   #include "zlib/inffast.h"
 #endif /* Compiler-specific includes */
 
-#if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )
+#if defined( USE_COMPRESSION ) && !defined( HAS_ZLIB )	/* pcg */
 
 #ifdef ASMINF
 #  pragma message("Assembler code may have bugs -- use at your own risk")
@@ -56,8 +56,7 @@
       requires strm->avail_out >= 258 for each loop to avoid checking for
       output space.
  */
-void ZLIB_INTERNAL inflate_fast( z_streamp strm, unsigned start )	/* pcg */
-{
+void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
     struct inflate_state FAR *state;
     z_const unsigned char FAR *in;      /* local strm->next_in */
     z_const unsigned char FAR *last;    /* have enough input while in < last */
@@ -77,7 +76,7 @@ void ZLIB_INTERNAL inflate_fast( z_streamp strm, unsigned start )	/* pcg */
     code const FAR *dcode;      /* local strm->distcode */
     unsigned lmask;             /* mask for first level of length codes */
     unsigned dmask;             /* mask for first level of distance codes */
-    code here;                  /* retrieved table entry */
+    code const *here;           /* retrieved table entry */
     unsigned op;                /* code bits, operation, extra bits, or */
                                 /*  window position, window bytes to copy */
     unsigned len;               /* match length, unused bytes */
@@ -114,20 +113,20 @@ void ZLIB_INTERNAL inflate_fast( z_streamp strm, unsigned start )	/* pcg */
             hold += (unsigned long)(*in++) << bits;
             bits += 8;
         }
-        here = lcode[hold & lmask];
+        here = lcode + (hold & lmask);
       dolen:
-        op = (unsigned)(here.bits);
+        op = (unsigned)(here->bits);
         hold >>= op;
         bits -= op;
-        op = (unsigned)(here.op);
+        op = (unsigned)(here->op);
         if (op == 0) {                          /* literal */
-            Tracevv((stderr, here.val >= 0x20 && here.val < 0x7f ?
+            Tracevv((stderr, here->val >= 0x20 && here->val < 0x7f ?
                     "inflate:         literal '%c'\n" :
-                    "inflate:         literal 0x%02x\n", here.val));
-            *out++ = (unsigned char)(here.val);
+                    "inflate:         literal 0x%02x\n", here->val));
+            *out++ = (unsigned char)(here->val);
         }
         else if (op & 16) {                     /* length base */
-            len = (unsigned)(here.val);
+            len = (unsigned)(here->val);
             op &= 15;                           /* number of extra bits */
             if (op) {
                 if (bits < op) {
@@ -145,14 +144,14 @@ void ZLIB_INTERNAL inflate_fast( z_streamp strm, unsigned start )	/* pcg */
                 hold += (unsigned long)(*in++) << bits;
                 bits += 8;
             }
-            here = dcode[hold & dmask];
+            here = dcode + (hold & dmask);
           dodist:
-            op = (unsigned)(here.bits);
+            op = (unsigned)(here->bits);
             hold >>= op;
             bits -= op;
-            op = (unsigned)(here.op);
+            op = (unsigned)(here->op);
             if (op & 16) {                      /* distance base */
-                dist = (unsigned)(here.val);
+                dist = (unsigned)(here->val);
                 op &= 15;                       /* number of extra bits */
                 if (bits < op) {
                     hold += (unsigned long)(*in++) << bits;
@@ -165,7 +164,8 @@ void ZLIB_INTERNAL inflate_fast( z_streamp strm, unsigned start )	/* pcg */
                 dist += (unsigned)hold & ((1U << op) - 1);
 #ifdef INFLATE_STRICT
                 if (dist > dmax) {
-                    strm->msg = (char *)"invalid distance too far back";
+                    strm->msg = (z_const char *)
+                        "invalid distance too far back";
                     state->mode = BAD;
                     break;
                 }
@@ -178,8 +178,8 @@ void ZLIB_INTERNAL inflate_fast( z_streamp strm, unsigned start )	/* pcg */
                     op = dist - op;             /* distance back in window */
                     if (op > whave) {
                         if (state->sane) {
-                            strm->msg =
-                                (char *)"invalid distance too far back";
+                            strm->msg = (z_const char *)
+                                "invalid distance too far back";
                             state->mode = BAD;
                             break;
                         }
@@ -271,17 +271,17 @@ void ZLIB_INTERNAL inflate_fast( z_streamp strm, unsigned start )	/* pcg */
                 }
             }
             else if ((op & 64) == 0) {          /* 2nd level distance code */
-                here = dcode[here.val + (hold & ((1U << op) - 1))];
+                here = dcode + here->val + (hold & ((1U << op) - 1));
                 goto dodist;
             }
             else {
-                strm->msg = (char *)"invalid distance code";
+                strm->msg = (z_const char *)"invalid distance code";
                 state->mode = BAD;
                 break;
             }
         }
         else if ((op & 64) == 0) {              /* 2nd level length code */
-            here = lcode[here.val + (hold & ((1U << op) - 1))];
+            here = lcode + here->val + (hold & ((1U << op) - 1));
             goto dolen;
         }
         else if (op & 32) {                     /* end-of-block */
@@ -290,7 +290,7 @@ void ZLIB_INTERNAL inflate_fast( z_streamp strm, unsigned start )	/* pcg */
             break;
         }
         else {
-            strm->msg = (char *)"invalid literal/length code";
+            strm->msg = (z_const char *)"invalid literal/length code";
             state->mode = BAD;
             break;
         }
@@ -328,4 +328,5 @@ void ZLIB_INTERNAL inflate_fast( z_streamp strm, unsigned start )	/* pcg */
  */
 
 #endif /* !ASMINF */
+
 #endif /* USE_COMPRESSION && !HAS_ZLIB */
