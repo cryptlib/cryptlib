@@ -371,7 +371,10 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   check above does a pretty good job of that too */
 	if( !checkEntropy( keyAgreeParams->wrappedKey, 
 					   keyAgreeParams->wrappedKeyLen ) )
+		{
+		zeroise( keyAgreeParams->wrappedKey, keyAgreeParams->wrappedKeyLen );
 		return( CRYPT_ERROR_NOSECURE );
+		}
 	
 	ENSURES( sanityCheckPKCInfo( pkcInfo ) );
 

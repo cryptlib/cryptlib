@@ -488,15 +488,23 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* Perform the X25519 computation to obtain the shared secret.  Since 
-	   this function reads the input and produces the output directly rather 
-	   than going via a bignum, there's no need to explicitly call 
+	/* Perform the X25519 computation to obtain the shared secret and make 
+	   sure that the result looks random.  There's a long, as in tl;dr, 
+	   argument that this isn't necessary for 25519 except where it is, but
+	   this is engineering not mathematics so we perform the check.
+	   
+	   Since this function reads the input and produces the output directly 
+	   rather than going via a bignum, there's no need to explicitly call 
 	   import/export25519ByteString() */
 	osslStatus = ossl_x25519( keyAgreeParams->wrappedKey, privKeyBuffer, 
 							  keyAgreeParams->publicValue );
 	zeroise( privKeyBuffer, CURVE25519_SIZE );
-	if( !osslStatus )
+	if( !osslStatus || \
+		!checkEntropy( keyAgreeParams->wrappedKey, CURVE25519_SIZE ) )
+		{
+		zeroise( keyAgreeParams->wrappedKey, CURVE25519_SIZE );
 		return( CRYPT_ERROR_NOSECURE );
+		}
 	keyAgreeParams->wrappedKeyLen = CURVE25519_SIZE;
 
 	ENSURES( sanityCheckPKCInfo( pkcInfo ) );

@@ -401,7 +401,10 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		return( status );
 	if( !checkEntropy( keyAgreeParams->wrappedKey, 
 					   keyAgreeParams->wrappedKeyLen ) )
+		{
+		zeroise( keyAgreeParams->wrappedKey, keyAgreeParams->wrappedKeyLen );
 		return( CRYPT_ERROR_NOSECURE );
+		}
 
 	ENSURES( sanityCheckPKCInfo( pkcInfo ) );
 
