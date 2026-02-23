@@ -54,7 +54,7 @@ cryptographic hardware like PKCS #11 tokens and crypto accelerators, TPMs, and
 fully custom crypto hardware via plugin modules.
 
 cryptlib is written in C, with language bindings for C / C++, C# / .NET,
-Delphi, Java, Python, and Visual Basic (VB).
+Delphi, Java, Python, Rust, and Visual Basic (VB).
 
 ## Suppported Platforms
 
@@ -63,9 +63,9 @@ AIX, Digital Unix, DGUX, FreeBSD/NetBSD/OpenBSD, HP-UX, IRIX, Linux, MP-RAS,
 OSF/1, QNX, Solaris, Ultrix, and UTS4), Windows, Mac OS, and lesser-known
 systems like IBM MVS, Tandem, and VM/CMS, it's also targeted at embedded,
 RTOS, and even bare-metal use, including AMX, ARINC653, ChorusOS, CMSIS, CMX,
-eCos, embOS, FreeRTOS/OpenRTOS, uITRON, MGOS, MQX, Nucleus, OSEK, PalmOS,
-Quadros, RiotOS, RTEMS, SMX, Telit, ThreadX, TI kernel, T-Kernel, uC/OS II,
-VDK, VxWorks, XMK, and Zephyr OS.
+eCos, embOS, FreeRTOS/OpenRTOS, uITRON, MGOS, MQX, NORTi, Nucleus, OSEK,
+PalmOS, Quadros, RiotOS, RTEMS, SMX, Telit, ThreadX, TI kernel, T-Kernel,
+uC/OS II, VDK, VxWorks, XMK, and Zephyr OS.
 
 ## Installation and Usage
 
@@ -174,6 +174,10 @@ use under standard GPL copyleft terms.
 
 * Optionally [closed-source use](https://www.cryptlib.com) for anyone
 requiring commercial support.
+
+cryptlib is hosted in two locations, on
+[Github (US-based)](https://github.com/cryptlib/cryptlib) and
+[CodeBerg (EU-based](https://codeberg.org/fencepost_error/cryptlib).
 
 ## Related Projects
 
