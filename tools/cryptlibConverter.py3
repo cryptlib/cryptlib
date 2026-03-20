@@ -51,10 +51,10 @@ def parseEnumContents(enumContents, nameSpace, debugString):
         enumTuple = (key, str(val), comment)
 
         #if comment:
-        #    print debugString+ ":" + " Parsed Element %s = %s /* %s */" % enumTuple
+        #    print (debugString+ ":" + " Parsed Element %s = %s /* %s */" % enumTuple)
         #else:
-        #    print debugString+ ":" + " Parsed Element %s = %s" % enumTuple[:-1]
-        #raw_input()
+        #    print (debugString+ ":" + " Parsed Element %s = %s" % enumTuple[:-1])
+        #input()
 
         nameSpace[key] = val    #Add new enum value into namespace
         counter = val + 1       #Increment implicit enum value
@@ -129,8 +129,8 @@ def parseFunctionParams(functionParams):
         index += 1
         paramStructs.append(p)
     #for p in paramStructs:
-    #    print p.__dict__
-    #raw_input()
+    #    print (p.__dict__)
+    #input()
     return paramStructs
 
 #Takes a string containing a JNI function parameters prototype list, and a list of ParamStructs
@@ -177,10 +177,9 @@ if language == "java":
     #ENUMs as ints
     typedefEnumTemplate = "// %(typedefName)s"
     typedefEnumElementTemplate = "public static final int %(name)-NPADs = %(value)-VPADs;"
-
-    typedefEnumElementTemplateComment = typedefEnumElementTemplate + " // %(comment)s"
+    typedefEnumElementTemplateComment = " /** * %(comment)s */\n"+ typedefEnumElementTemplate
     simpleEnumElementTemplate = "public static final int %(name)-NPADs = %(value)-VPADs;"
-    simpleEnumElementTemplateComment = simpleEnumElementTemplate + " // %(comment)s"
+    simpleEnumElementTemplateComment = " /** * %(comment)s */\n" + simpleEnumElementTemplate 
     defineNPad = "40"
     defineVPad = "4"
     defineTemplate = simpleEnumElementTemplate
@@ -920,6 +919,20 @@ while typedefEnumMatch:
     newTypedefEnum = typedefEnumTemplate % vars()
     for enumTuple in enumTuples:
         name, value, comment = enumTuple
+
+	# this is the point at which ENUM comments can be cleaned or updated (modified March 2026)
+	# needed for python too
+        pos = comment.find("*/")
+        if pos != -1:
+            comment = comment[:pos]
+        if language == "java":
+            if ("******" in comment) :
+                comment = comment.replace("*","") [6:]
+            # if comment is empty add a dummy comment for JavaDoc
+            if not comment:
+                comment = "  -  "
+        # end modification
+
         if not comment:
             paddedTemplate = typedefEnumElementTemplate.replace("NPAD", namePad).replace("VPAD", valuePad)
             newEnum = paddedTemplate % vars()
@@ -930,8 +943,8 @@ while typedefEnumMatch:
             newTypedefEnum += "\n"  #Don't always add this or we'll get extraneous newlines in python
         newTypedefEnum += newEnum
 
-    #print "Output Equivalent of Typedef Enum====\n", newTypedefEnum
-    #raw_input()
+    #print ("Output Equivalent of Typedef Enum====\n", newTypedefEnum)
+    #input()
 
     if sInts:
         sInts += newTypedefEnum + "\n"
@@ -941,7 +954,7 @@ while typedefEnumMatch:
 
     #Get next typedef
     typedefEnumMatch = typedefEnumPattern.search(s, typedefEnumMatch.start() + len(newTypedefEnum))
-#print "ENUMTYPES:\n",enumTypes
+#print ("ENUMTYPES:\n",enumTypes)
 
 #Replace simple enums
 #---------------------
@@ -979,8 +992,8 @@ while simpleEnumMatch:
             newSimpleEnum += "\n"   #Don't always add this or we'll get extraneous newlines in python
         newSimpleEnum += newEnum
 
-    #print "Output Equivalent of Simple Enum====\n", newSimpleEnum
-    #raw_input()
+    #print ("Output Equivalent of Simple Enum====\n", newSimpleEnum)
+    #input()
 
     if sInts:
         sInts += newSimpleEnum + "\n"
@@ -1007,6 +1020,13 @@ while defineMatch:
     if not name.startswith("CRYPT_"):
         raise "name doesn't start with CRYPT_"+name
     name = name.replace("CRYPT_", "")
+    
+    # this is the point at which DEFINE comments can be cleaned or updated (modified March 2026)
+    # if comment is empty add a dummy comment for JavaDoc
+    if not comment and (language == "java"):
+        # must be > 4 characters (see line 1034)
+        comment = "  -  "
+    # end modification
 
     #Construct its output equivalent from language-specific string templates
     if not comment:
@@ -1017,8 +1037,8 @@ while defineMatch:
         paddedTemplate = defineTemplateComment.replace("NPAD", defineNPad).replace("VPAD", defineVPad)
         newDefine = paddedTemplate % vars()
 
-    #print "define: " + newDefine
-    #raw_input()
+    #print ("define: " + newDefine)
+    #input()
 
     if sInts:
         sInts += newDefine + "\n"
@@ -1050,7 +1070,14 @@ while defineMatch:
     if not name.startswith("CRYPT_"):
         raise "name doesn't start with CRYPT_"+name
     name = name.replace("CRYPT_", "")
-
+    
+    # this is the point at which DEFINE () comments can be cleaned or updated (modified March 2026)
+    # if comment is empty add a dummy comment for JavaDoc
+    if not comment and (language == "java"):
+        # must be > 4 characters (see line 1085)
+        comment = "  -  "
+    # end modification
+    
     #Construct its output equivalent from language-specific string templates
     if not comment:
         paddedTemplate = defineTemplate.replace("NPAD", defineNPad).replace("VPAD", defineVPad)
@@ -1060,8 +1087,8 @@ while defineMatch:
         paddedTemplate = defineTemplateComment.replace("NPAD", defineNPad).replace("VPAD", defineVPad)
         newDefine = paddedTemplate % vars()
 
-    #print "define: " + newDefine
-    #raw_input()
+    #print ("define: " + newDefine)
+    #input()
 
     if sInts:
         sInts += newDefine + "\n"
@@ -1083,8 +1110,8 @@ exceptionString += exceptionPostfix
 definePattern = re.compile(r"#define[ \t]+[^(]+\([^\)]*\)([^\n]*\\\n)*[^\n]*")
 defineMatch = definePattern.search(s)
 while defineMatch:
-    #print "defined macros:", defineMatch.group()
-    #raw_input()
+    #print ("defined macros:", defineMatch.group())
+    #input()
     define = defineMatch.group()
     newDefine = commentPrefix + "CRYPTLIBCONVERTER - NOT SUPPORTED:\n" + define
     newDefine = newDefine.replace("\n", "\n"+commentPrefix)
@@ -1099,12 +1126,12 @@ while typedefIntMatch:
     typedefInt = typedefIntMatch.group()
     typedefIntName = typedefIntMatch.group(1)
     intTypes.append(typedefIntName)
-    #print "typedef int:", typedefInt
-    #raw_input()
+    #print ("typedef int:", typedefInt)
+    #input()
     newTypedefInt = commentPrefix + "CRYPTLIBCONVERTER - NOT NEEDED: " + typedefInt
     s = s[ : typedefIntMatch.start()] + newTypedefInt + s[typedefIntMatch.end() : ]
     typedefIntMatch = typedefIntPattern.search(s, typedefIntMatch.start() + len(newTypedefInt))
-#print "INTTYPES:\n",intTypes
+#print ("INTTYPES:\n",intTypes)
 
 #Comment out typedef structs
 #----------------------------
@@ -1114,14 +1141,14 @@ while typedefStructMatch:
     typedefStruct = typedefStructMatch.group()
     typedefStructName = typedefStructMatch.group(1)
     structTypes.append(typedefStructName)
-    #print "typedef struct:", typedefStructName
-    #raw_input()
+    #print ("typedef struct:", typedefStructName)
+    #input()
     newTypedefStruct = commentPrefix + "CRYPTLIBCONVERTER - NOT SUPPORTED:\n" + typedefStruct
     newTypedefStruct = newTypedefStruct.replace("\n", "\n"+commentPrefix)
     s = s[ : typedefStructMatch.start()] + newTypedefStruct + s[typedefStructMatch.end() : ]
     typedefStructMatch = typedefStructPattern.search(s, typedefStructMatch.start() + len(newTypedefStruct))
-#print "STRUCTTYPES:\n",structTypes
-#raw_input()
+#print ("STRUCTTYPES:\n",structTypes)
+#input()
 
 #Translate functions
 #--------------------
@@ -1134,8 +1161,8 @@ while functionMatch:
         raise "name doesn't start with crypt"+functionName
     functionName = functionName[len("crypt") : ]
     functionNames.append(functionName)
-    #print "function:", functionName, functionParams
-    #raw_input()
+    #print ("function:", functionName, functionParams)
+    #input()
 
     #Parse its parameters
     paramStructs = parseFunctionParams(functionParams)
@@ -1414,6 +1441,15 @@ public static void AddRandom(
         if s[functionMatch.end()+1] != "\n":
             newFunction += "\n"
 
+        ## insert individual JavaDoc function descriptions here, read from an external file
+        ##TEXT="""
+	##* @param cryptHandle  the Cryptlib object  
+	##"""
+        ##newFunction = "/** * Function description for "+ functionName  + TEXT + " */\n\n" + newFunction
+        #print(newFunction)
+        #input()
+
+
     s = s[ : functionMatch.start()] + newFunction + s[functionMatch.end() : ]
     functionMatch = functionPattern.search(s, functionMatch.start() + len(newFunction))
 
@@ -1424,8 +1460,8 @@ if language != "java" and language != "net":
         match = re.search(r"/\*(.*?)\*/", s, re.DOTALL)
         if match == None:
             break
-        #print match.group()
-        #raw_input()
+        #print (match.group())
+        #input()
         commentStrings = (commentPrefix + match.group(1) + "  ").split("\n")
         newComment = commentStrings[0]
         for commentString in commentStrings[1:]:
@@ -1435,8 +1471,8 @@ if language != "java" and language != "net":
                 newComment += "\n" + commentPrefix + commentString[1:]
             else:
                 newComment += "\n" + commentPrefix + commentString
-            #print "building up:\n", newComment
-            #raw_input()
+            #print ("building up:\n", newComment)
+            #input()
         idx = commentString.find("\n")
         s = s[ : match.start()] + newComment + s[match.end() : ]
 
@@ -1855,7 +1891,7 @@ void releasePointerString(JNIEnv* env, jstring str, jbyte* bytesPtr)
     functionPattern = re.compile(r"JNIEXPORT ([^ \t]+) JNICALL Java_cryptlib_crypt_([^ \t\n]+)\n[ \t]*\(([^\)]*)\);")
     functionMatch = functionPattern.search(s)
     while functionMatch:
-        #print functionMatch.groups()
+        #print (functionMatch.groups())
 
         #Extract the returnType, name, and prototype for this function
         function = functionMatch.group()
@@ -1908,7 +1944,7 @@ void releasePointerString(JNIEnv* env, jstring str, jbyte* bytesPtr)
             else:
                 discardName = None
 
-        #for p in newParamStructs: print "     "+str(p)
+        #for p in newParamStructs: print ("     "+str(p))
 
         #Substitute parameter names into the function prototype
         newFunctionParams = expandFunctionPrototype(functionPrototype, newParamStructs)
@@ -2036,10 +2072,10 @@ void releasePointerString(JNIEnv* env, jstring str, jbyte* bytesPtr)
 elif language == "python":
     os.chdir(outDir)
 
-    #print sInts
-    #raw_input()
-    #print sFuncs
-    #raw_input()
+    #print (sInts)
+    #input()
+    #print (sFuncs)
+    #input()
 
     moduleFunctions = ""
     s =         pyBeforeExceptions + exceptionString + pyBeforeFuncs + sFuncs + \
@@ -2047,14 +2083,14 @@ elif language == "python":
                 pyBeforeInts + sInts + \
                 pyAfterInts
 
-    #print s
-    #raw_input()
+    #print (s)
+    #input()
     functionPattern = re.compile(r"static PyObject\* python_crypt([^\(]+)[^{]+{([^}]*)}", re.DOTALL)
     functionMatch = functionPattern.search(s)
     while functionMatch:
-        #print functionMatch.group()
-        #print functionMatch.groups()
-        #raw_input()
+        #print (functionMatch.group())
+        #print (functionMatch.groups())
+        #input()
 
         #Most of the code in this loop is copied-then-modified from the java code above, ugly..
         voidTag = ""
@@ -2067,8 +2103,8 @@ elif language == "python":
         newParamStructs = newParamStructsDict[functionName]
         lengthIndices = lengthIndicesDict[functionName]
         offsetIndices = offsetIndicesDict[functionName]
-        #print functionName, lengthIndices, offsetIndices
-        #raw_input()
+        #print (functionName, lengthIndices, offsetIndices)
+        #input()
         if newReturnStructsDict.get(functionName):
             returnName = newReturnStructsDict.get(functionName).name
             returnType = newReturnStructsDict.get(functionName).type
@@ -2164,7 +2200,7 @@ if (PyArg_ParseTuple(args, "i", &randomDataLength))
 if (!PyArg_ParseTuple(args, "%s", %s))
     return(NULL);\n\n""" % (parseFormatString, ", ".join(parseArgsList))
             #for p in newParamStructs:
-            #    print p.name,
+            #    print (p.name, end=" ")
 
         if arrayNames:
             if charArrayNames:
@@ -2236,7 +2272,8 @@ if (!PyArg_ParseTuple(args, "%s", %s))
             elif returnType == "CRYPT_QUERY_INFO":
                 newFunctionBody += "return(processStatusReturnCryptQueryInfo(status, %s));" % returnName
             elif returnType == "CRYPT_OBJECT_INFO":
-                newFunctionBody += "return(processStatusReturnCryptObjectInfo(status, %s));" % returnName
+	        # modified (March 2026, Ralf Senderek)
+                newFunctionBody += "if (status == 0)\n\t return(processStatus(status));\nelse\n\t return(processStatusReturnCryptObjectInfo(status, %s));" % returnName
             elif returnType == "int":
                 newFunctionBody += "return(processStatusReturnInt(status, %s));" % returnName
         else:
@@ -2266,7 +2303,7 @@ elif language == "net":
     functionPattern = re.compile(r"public static ([^ \t]+) ([^ \t\n]+)\([ \t\n]*([^\)]*)\);")
     functionMatch = functionPattern.search(s)
     while functionMatch:
-        #print functionMatch.groups()
+        #print (functionMatch.groups())
 
         #Extract the returnType, name, and prototype for this function
         function = functionMatch.group()
@@ -2312,7 +2349,7 @@ elif language == "net":
             else:
                 discardName = None
 
-        #for p in newParamStructs: print "     "+str(p)
+        #for p in newParamStructs: print ("     "+str(p))
 
         #Substitute parameter names into the function prototype
         newFunctionParams = functionPrototype #expandFunctionPrototype(functionPrototype, newParamStructs)

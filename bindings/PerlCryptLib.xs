@@ -50,8 +50,12 @@ void * shift_buffer(buffer, length, offset)
 			RETVAL = newSVpvn(__buffer, length);
 			free(__buffer);
 		}
+		else
+		        RETVAL = 0;
 	OUTPUT:
+		RETVAL
 		length
+	   
 
 
 
@@ -588,8 +592,8 @@ int cryptQueryObject(objectData, objectDataLength, cryptObjectInfo)
 			hv_store(cryptObjectInfo, "cryptAlgo",   9, newSVnv(dummy.cryptAlgo), 0);
 			hv_store(cryptObjectInfo, "cryptMode",   9, newSVnv(dummy.cryptMode), 0);
 			hv_store(cryptObjectInfo, "hashAlgo",    8, newSVnv(dummy.hashAlgo), 0);
-			hv_store(cryptObjectInfo, "salt",        4, newSVpv(dummy.salt, dummy.saltSize), 0);
 			hv_store(cryptObjectInfo, "saltSize",    8, newSVnv(dummy.saltSize), 0);
+			hv_store(cryptObjectInfo, "salt",        4, newSVpv((char *)dummy.salt, dummy.saltSize), 0);
 		}
 	OUTPUT:
 		RETVAL
