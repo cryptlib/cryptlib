@@ -1,7 +1,9 @@
 #!/usr/bin/python3
 
-# ported to python3 by Ralf Senderek, October 2018
-# modified to use the new Buffer Protocol (PyObject_GetBuffer), November 2023
+# This script has been written by Trevor Perrin originally.
+# Ported to python3 by Ralf Senderek, October 2018
+# Modified to use the new Buffer Protocol (PyObject_GetBuffer), November 2023
+# Transformed comments for Javadoc and added method comments, March 2026
 
 import sys
 import os
@@ -171,6 +173,19 @@ if not language in ("java", "python", "net"):
     sys.exit()
 
 if language == "java":
+
+    # try to read the external function comment file for Javadoc (March 2026)
+    FunctionComments = {}
+    try:
+         FunctionCommentFile = os.path.join(outDir, "function-comments.py3")
+         F = open(FunctionCommentFile, "r")
+         FuncDictString = F.read()
+         F.close()
+         FunctionComments = eval(FuncDictString)
+         print("Found " + str(len(FunctionComments.keys())) + "function comments")
+    except:
+         print ("Error: cannot read function comments, missing file " + FunctionCommentFile)
+
     #ENUM IDIOM
     #typedefEnumTemplate = "public static class %(typedefName)s\n{public int getValue(){return m_value;}private %(typedefName)s(int value){m_value = value;}int m_value;}"
     #typedefEnumElementTemplate = "public static final %(typedefName)s %(name)-NPADs = new %(typedefName)s(%(value)-VPADs);"
@@ -281,7 +296,8 @@ public class CRYPT_OBJECT_INFO
     #ENUMs as ints
     paramEnumTypeTemplate = "int %(name)s, // %(type)s\n"
     commentPrefix = "//"
-    classPrefix = "package cryptlib;\n\nimport java.nio.*;\n\npublic class crypt\n{\n"
+    classComment = "\t/** * <h2>This class represents all data structures, constant values and methods\n\t * that <a href=\"https://github.com/cryptlib/cryptlib\">cryptlib</a> makes available\n\t * via the nio interface.</h2>\n\t * <h3>Author:  Peter Gutmann</h3>\n\t */"
+    classPrefix = "package cryptlib;\n\nimport java.nio.*;\n\n" + classComment + "\npublic class crypt\n{\n"
     classPostfix = "\n};"
     sFuncs = None
     sInts = None
@@ -1441,11 +1457,16 @@ public static void AddRandom(
         if s[functionMatch.end()+1] != "\n":
             newFunction += "\n"
 
-        ## insert individual JavaDoc function descriptions here, read from an external file
-        ##TEXT="""
-	##* @param cryptHandle  the Cryptlib object  
-	##"""
-        ##newFunction = "/** * Function description for "+ functionName  + TEXT + " */\n\n" + newFunction
+        if language == "java" :
+             # add the function comments for each functionName from dictionary FunctionComments
+             TEXT = ''
+             if functionName in FunctionComments.keys():
+                  TEXT = FunctionComments[functionName]
+             else:     
+                  print("No comment for function " + functionName + " available ")
+             if TEXT:
+                  newFunction = "/** * \n* "  + TEXT + " \n*/\n" + newFunction
+
         #print(newFunction)
         #input()
 
