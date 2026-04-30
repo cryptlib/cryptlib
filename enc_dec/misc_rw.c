@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				Miscellaneous (Non-ASN.1) Read/Write Routines				*
-*						Copyright Peter Gutmann 1992-2022					*
+*						Copyright Peter Gutmann 1992-2024					*
 *																			*
 ****************************************************************************/
 
@@ -60,14 +60,12 @@ static int readInteger( INOUT_PTR STREAM *stream,
 	/* Clear return values */
 	if( integer != NULL )
 		{
-		REQUIRES( rangeCheck( maxLength, 1, CRYPT_MAX_PKCSIZE ) ); 
+		REQUIRES_S( rangeCheck( maxLength, 1, CRYPT_MAX_PKCSIZE ) ); 
 		memset( integer, 0, min( 16, maxLength ) );
 		}
 	*integerLength = 0;
 
-	/* Read the length and make sure that it's within range, with a 2-byte 
-	   allowance for extra zero-padding (the exact length will be checked 
-	   later after the padding is stripped) */
+	/* Read the length value */
 	if( lengthType == LENGTH_16U || lengthType == LENGTH_16U_BITS )
 		status = length = readUint16( stream );
 	else
@@ -77,11 +75,29 @@ static int readInteger( INOUT_PTR STREAM *stream,
 	if( lengthType == LENGTH_16U_BITS )
 		length = bitsToBytes( length );
 
+	/* If it's a fixed-length encoding then we can just read it as is */
+	if( checkType == BIGNUM_CHECK_VALUE_FIXEDLEN )
+		{
+		/* This is a fixed-length value, e.g. X9.62, for which 
+		   minLength == maxLength == length */
+		if( length != minLength )
+			return( CRYPT_ERROR_BADDATA );
+		*integerLength = length;
+		if( integer == NULL )
+			return( sSkip( stream, length, MAX_INTLENGTH_SHORT ) );
+		REQUIRES_S( rangeCheck( length, 1, maxLength ) );
+		return( sread( stream, integer, length ) );
+		}
+
 	/* Check that the bignum value falls within the allowed length range.  
 	   Before we do the general length check we perform a more specific 
 	   check for the case where the length is below the minimum allowed but 
 	   still looks at least vaguely valid, in which case we report it as a 
-	   too-short key rather than a bad data error */
+	   too-short key rather than a bad data error. 
+	   
+	   Following this we make sure that it's within range, with a 2-byte 
+	   allowance for extra zero-padding (the exact length will be checked 
+	   later after the padding is stripped) */
 	switch( checkType )
 		{
 		case BIGNUM_CHECK_NONE:
@@ -91,34 +107,32 @@ static int readInteger( INOUT_PTR STREAM *stream,
 
 		case BIGNUM_CHECK_VALUE_PKC:
 			if( isShortPKCKey( length ) )
+				{
+				/* This is a bit of an odd one because the function's 
+				   contract is that it always sets the stream error state on
+				   an error exit, but CRYPT_ERROR_NOSECURE isn't a stream
+				   error state.  To deal with this we set the state to a
+				   more stream-specific CRYPT_ERROR_BADDATA while returning
+				   CRYPT_ERROR_NOSECURE as our return code */
+				sSetError( stream, CRYPT_ERROR_BADDATA );
 				return( CRYPT_ERROR_NOSECURE );
+				}
 			break;
 
 		case BIGNUM_CHECK_VALUE_ECC:
 			if( isShortECCKey( length ) )
+				{
+				/* See the comment for BIGNUM_CHECK_VALUE_PKC */
+				sSetError( stream, CRYPT_ERROR_BADDATA );
 				return( CRYPT_ERROR_NOSECURE );
+				}
 			break;
 
-		case BIGNUM_CHECK_VALUE_FIXEDLEN:
-			if( length != minLength )
-				return( CRYPT_ERROR_NOSECURE );
-			break;
-		
 		default:
 			retIntError();
 		}
 	if( length < minLength || length > maxLength + 2 )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
-
-	/* If it's a fixed-length encoding then there's nothing further to do */
-	if( checkType == BIGNUM_CHECK_VALUE_FIXEDLEN )
-		{
-		*integerLength = length;
-		if( integer == NULL )
-			return( sSkip( stream, length, MAX_INTLENGTH_SHORT ) );
-		REQUIRES_S( rangeCheck( length, 1, maxLength ) );
-		return( sread( stream, integer, length ) );
-		}
 
 	/* If we're reading a signed integer then the sign bit can't be set 
 	   since this would produce a negative value.  This differs from the 
@@ -127,23 +141,23 @@ static int readInteger( INOUT_PTR STREAM *stream,
 	if( lengthType == LENGTH_32 && ( sPeek( stream ) & 0x80 ) )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 
-	/* Skip up to 8 bytes of possible leading-zero padding and repeat the 
+	/* Skip up to 4 bytes of possible leading-zero padding and repeat the 
 	   length check once the zero-padding has been adjusted */
-	LOOP_SMALL( i = 0, length > 0 && sPeek( stream ) == 0 && i < 8, 
+	LOOP_SMALL( i = 0, length > 0 && sPeek( stream ) == 0 && i < 4, 
 				( i++, length-- ) )
 		{
-		ENSURES( LOOP_INVARIANT_SMALL( i, 0, 7 ) );
-		ENSURES( LOOP_INVARIANT_SECONDARY( length, 1, 
-										   CRYPT_MAX_PKCSIZE + 2 ) );
-				 /* maxLength <= CRYPT_MAX_PKCSIZE, length is checked 
-				    against 'maxLength + 2' above */
+		ENSURES_S( LOOP_INVARIANT_SMALL( i, 0, 3 ) );
+		ENSURES_S( LOOP_INVARIANT_SECONDARY( length, 1, 
+											 CRYPT_MAX_PKCSIZE + 2 ) );
+				   /* maxLength <= CRYPT_MAX_PKCSIZE, length is checked 
+					  against 'maxLength + 2' above */
 
 		status = sgetc( stream );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
-	ENSURES( LOOP_BOUND_OK );
-	if( i >= 8 )
+	ENSURES_S( LOOP_BOUND_OK );
+	if( i >= 4 )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 
 	/* Repeat the earlier check on the adjusted value */
@@ -282,7 +296,9 @@ int readUint32Time( INOUT_PTR STREAM *stream,
 	return( CRYPT_OK );
 	}
 
-/* Read 64-bit integer values */
+/* Read 64-bit integer values.  Note that the uint64 functions actually work 
+   with standard integers, they're just used because someone's spec requires 
+   encoding as a 64-bit integer even though it isn't */
 
 #ifdef USE_WEBSOCKETS
 
@@ -329,7 +345,7 @@ static int readData32( INOUT_PTR STREAM *stream,
 	REQUIRES_S( isBooleanValue( zeroLengthOK ) );
 
 	/* Clear return values */
-	REQUIRES( isShortIntegerRangeNZ( dataMaxLength ) ); 
+	REQUIRES_S( isShortIntegerRangeNZ( dataMaxLength ) ); 
 	memset( data, 0, min( 16, dataMaxLength ) );
 	*dataLength = 0;
 
@@ -355,7 +371,8 @@ static int readData32( INOUT_PTR STREAM *stream,
 		/* Avoid integer-overflow warning in the following check */
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 		}
-	if( headerSize + length > dataMaxLength )
+	if( checkOverflowAdd( headerSize, length ) || \
+		headerSize + length > dataMaxLength )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	if( includeLengthField )
 		{
@@ -465,7 +482,7 @@ static int readUniversal( INOUT_PTR STREAM *stream,
 			break;
 
 		default:
-			retIntError();
+			retIntError_Stream( stream );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -580,11 +597,11 @@ static int readBignumInteger( INOUT_PTR STREAM *stream,
 	   parameter for both readInteger() and importBignum(), since the 
 	   former merely checks the byte count while the latter actually parses 
 	   and processes the bignum */
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 	if( checkType == BIGNUM_CHECK_VALUE_FIXEDLEN )
 		status = import25519ByteString( bignum, buffer, length );
 	else
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 		{
 		status = importBignum( bignum, buffer, length, minLength, maxLength, 
 							   maxRange, checkType );
@@ -645,7 +662,9 @@ int readBignumInteger32( INOUT_PTR STREAM *stream,
 *																			*
 ****************************************************************************/
 
-/* Write 16-, 32- and 64-bit integer values */
+/* Write 16-, 32- and 64-bit integer values.  Note that the uint64 functions 
+   actually work with standard integers, they're just used because someone's 
+   spec requires encoding as a 64-bit integer even though it isn't */
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeUint16( INOUT_PTR STREAM *stream, 
@@ -690,7 +709,15 @@ int writeUint64( INOUT_PTR STREAM *stream, IN_INT_Z const long value )
 
 /* Write 32-bit time values.  This differs slightly from the standard
    writeUint32() in that it doesn't check that the input value is within an
-   integer range */
+   integer range.
+   
+   This function won't work with 32-bit signed time_t values, however since 
+   the encoded value is a UINT32 it'll be OK when time_t is 64 bits, which
+   it is on the majority of current compilers.  In any case it's only used
+   in two locations, context/key_wrpub.c to write the PGP key creation time
+   and mechs/sign_pgp.c with PGP signatures, neither of which seem terribly
+   critical and neither of which are likely to occur on whatever systems
+   might still use 32-bit signed time_t types */
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeUint32Time( INOUT_PTR STREAM *stream, const time_t timeVal )

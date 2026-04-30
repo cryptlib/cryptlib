@@ -124,7 +124,7 @@ int setUserAttribute( INOUT_PTR USER_INFO *userInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int setUserAttributeS( INOUT_PTR USER_INFO *userInfoPtr,
 					   IN_BUFFER( dataLength ) const void *data,
-					   IN_DATALENGTH const int dataLength,
+					   IN_LENGTH const int dataLength,
 					   IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE attribute );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int deleteUserAttribute( INOUT_PTR USER_INFO *userInfoPtr,

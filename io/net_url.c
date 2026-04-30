@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					Network Stream URL Processing Functions					*
-*						Copyright Peter Gutmann 1993-2015					*
+*						Copyright Peter Gutmann 1993-2025					*
 *																			*
 ****************************************************************************/
 
@@ -92,7 +92,7 @@ static BOOLEAN sanityCheckURL( const URL_INFO *urlInfo )
 
 /* Check a schema */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int checkSchema( IN_BUFFER( schemaLen ) const void *schema, 
 						IN_RANGE( 2, 16 ) const int schemaLen,
 						OUT_ENUM_OPT( URL_TYPE ) URL_TYPE *urlType,
@@ -199,7 +199,21 @@ static int checkSchema( IN_BUFFER( schemaLen ) const void *schema,
    supplied URLs, for example when breaking down a DNS name in a certificate 
    for comparison against the FQDN that the client is connecting to, so it 
    treats input as suspicious (an unqualified 'BYTE *' rather than a clean
-   'char *') until proven otherwise */
+   'char *') until proven otherwise.
+   
+   However even in this case it assumes that some level of common sense has
+   been applied to the URI, in other words that the CA hasn't signd a
+   certificate that uses URI-encoding tricks that would require a full-
+   fledged URI processor to handle.  The only place where this would ever
+   be an issue is with certificate name constraints, and the documentation
+   warns against relying on these because of the ease with which they're
+   bypassed.  For example the PKIX spec never addresses most URI 
+   complications like use of percent encodings, so either the encoded or 
+   decoded form could be regarded as valid, leading to a a Schroedinger's 
+   constraint where comparing two forms with or without percent-encoding has 
+   them both valid and invalid at the same time until you submit it to a PKI 
+   app.  This would make a good, if slow, random number generator, one bit 
+   per PKI code base */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int parseURL( OUT_PTR URL_INFO *urlInfo, 
@@ -229,8 +243,10 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 	if( defaultPort != CRYPT_UNUSED )
 		urlInfo->port = defaultPort;
 
-	/* Make sure that the input contains valid characters.  Beyond this 
-	   point we know that the 'BYTE *' is legitimately a 'char *' */
+	/* Make sure that the input contains valid characters.  Note that this
+	   doesn't check for valid URL forms, merely that the individual 
+	   characters are valid.  Beyond this point we know that the 'BYTE *' 
+	   is legitimately a 'char *' */
 	LOOP_MAX( urlIndex = 0, urlIndex < urlLen, urlIndex++ )
 		{
 		int ch;
@@ -245,7 +261,7 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 
 	/* Skip leading and trailing whitespace */
 	strLen = strStripWhitespace( &strPtr, url, urlLen );
-	if( strLen < MIN_DNS_SIZE || strLen > urlLen || strLen >= MAX_URL_SIZE )
+	if( strLen < MIN_DNS_SIZE || strLen > urlLen || strLen > MAX_URL_SIZE )
 		return( CRYPT_ERROR_BADDATA );
 	ANALYSER_HINT( strPtr != NULL );
 
@@ -256,6 +272,7 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 		if( offset < MIN_SCHEMA_SIZE || offset > strLen || \
 			offset > MAX_SCHEMA_SIZE )
 			return( CRYPT_ERROR_BADDATA );
+		REQUIRES( !checkOverflowAdd( offset, 3 ) );
 		offset += 3;	/* Adjust for "://" */
 		urlInfo->schema = strPtr;
 		urlInfo->schemaLen = offset;
@@ -290,10 +307,29 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 			userInfoLen > ( ( urlTypeHint == URL_TYPE_LDAP ) ? \
 							CRYPT_MAX_TEXTSIZE * 2 : CRYPT_MAX_TEXTSIZE ) )
 			return( CRYPT_ERROR_BADDATA );
+
+		/* Perform a secondary check in case someone is playing silly 
+		   buggers with the URI.  For the full rules see RFC 3986 but in
+		   brief our greedy parse looking for the '@', which is what we
+		   care for in a caller-supplied URI, skips some delimiters that
+		   can be present in a maliciously-crafted URI coming from a
+		   certificate.  Specifically, adding a '/' in user info ending in
+		   a '?' changes the parsing priority from "userinfo? @ fqdn" to 
+		   "fqdn / path ? query".  To deal with this we check for disallowed
+		   delimiters in what we assume is the user info, ']' is also
+		   disallowed but since this is only used for IPv6 addresses it
+		   only makes sense when used with a matching '[' */
+		if( strFindCh( userInfo, userInfoLen, '/' ) >= 0 || \
+			strFindCh( userInfo, userInfoLen, '#' ) >= 0 || \
+			strFindCh( userInfo, userInfoLen, '?' ) >= 0 || \
+			strFindCh( userInfo, userInfoLen, '[' ) >= 0 )
+			return( CRYPT_ERROR_BADDATA );
+
 		urlInfo->userInfo = userInfo;
 		urlInfo->userInfoLen = userInfoLen;
 
 		/* Skip the user info */
+		REQUIRES( !checkOverflowAdd( offset, 1 ) );
 		strLen = strExtract( &strPtr, strPtr, offset + 1, strLen );
 		if( strLen < MIN_HOST_SIZE || strLen > MAX_URL_SIZE )
 			return( CRYPT_ERROR_BADDATA );
@@ -312,7 +348,8 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 		   explicit here to be sure */
 		if( ( offset = strFindCh( strPtr, strLen, ']' ) ) <= 0 )
 			return( CRYPT_ERROR_BADDATA );
-		if( offset < 2 || offset > strLen - 1 || offset > CRYPT_MAX_TEXTSIZE )
+		if( offset < 2 || checkOverflowSub( strLen, 1 ) || \
+			offset > strLen - 1 || offset > CRYPT_MAX_TEXTSIZE )
 			return( CRYPT_ERROR_BADDATA );
 
 		/* We know that it has to be an IPv6 address, make sure that the 
@@ -343,6 +380,7 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 		if( preParseOnly )
 			{
 			hostName = strPtr;
+			REQUIRES( !checkOverflowAdd( offset, 1 ) );
 			hostNameLen = offset + 1;	/* Include ']' */
 			}
 		else
@@ -352,6 +390,8 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 			   minimum length 2.  We have to special-case the IPv6 loopback
 			   address "::1" which is less than the standard MIN_DNS_SIZE */
 			hostNameLen = strExtract( &hostName, strPtr, 1, offset );
+			if( hostNameLen <= 0 )
+				return( CRYPT_ERROR_BADDATA );
 			if( hostNameLen == 3 && !memcmp( hostName, "::1", 3 ) )
 				minLen = 3;
 			}
@@ -369,7 +409,7 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 			offset = offset2;
 		else
 			{
-			REQUIRES( offset >= 0 );
+			ENSURES( offset >= 0 );
 			if( offset2 >= 0 )
 				offset = min( offset, offset2 );
 			}

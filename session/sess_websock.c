@@ -275,8 +275,8 @@ static int checkProtocol( IN_BUFFER( reqProtocolLen ) \
 						  IN_BOOL const BOOLEAN isServer,
 						  INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	char reqProtocolName[ CRYPT_MAX_TEXTSIZE + 1 + 8 ];
-	char respProtocolName[ CRYPT_MAX_TEXTSIZE + 1 + 8 ];
+	char reqProtocolName[ CRYPT_MAX_TEXTSIZE + 8 ];
+	char respProtocolName[ CRYPT_MAX_TEXTSIZE + 8 ];
 
 	assert( isReadPtr( reqProtocol, reqProtocolLen ) );
 	assert( ( !isServer && respProtocolLen == 0 ) || \
@@ -292,13 +292,12 @@ static int checkProtocol( IN_BUFFER( reqProtocolLen ) \
 	/* Format the protocol names for display */
 	REQUIRES( rangeCheck( reqProtocolLen, 1, CRYPT_MAX_TEXTSIZE ) );
 	memcpy( reqProtocolName, reqProtocol, reqProtocolLen );
-	sanitiseString( reqProtocolName, reqProtocolLen + 1, 
-					reqProtocolLen ); 
+	sanitiseString( reqProtocolName, CRYPT_MAX_TEXTSIZE, reqProtocolLen ); 
 	if( respProtocolLen > 0 )
 		{
 		REQUIRES( rangeCheck( respProtocolLen, 1, CRYPT_MAX_TEXTSIZE ) );
 		memcpy( respProtocolName, respProtocol, respProtocolLen );
-		sanitiseString( respProtocolName, respProtocolLen + 1, 
+		sanitiseString( respProtocolName, CRYPT_MAX_TEXTSIZE, 
 						respProtocolLen ); 
 		}
 
@@ -453,6 +452,8 @@ static int activateWebSocketsClient( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	/* Prepare the session buffer for the upcoming WebSockets packet 
 	   exchange by writing the WebSockets header to it */
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize, 
+								 sessionInfoPtr->sendBufPos ) );
 	status = length = \
 		writeInnerHeaderFunction( sessionInfoPtr,
 								  sessionInfoPtr->sendBuffer + \
@@ -461,6 +462,7 @@ static int activateWebSocketsClient( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 										sessionInfoPtr->sendBufPos );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( sessionInfoPtr->sendBufPos, length ) );
 	sessionInfoPtr->sendBufPos += length;
 
 	return( CRYPT_OK );
@@ -573,6 +575,8 @@ static int activateWebSocketsServer( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	/* Prepare the session buffer for the upcoming WebSockets packet 
 	   exchange by writing the WebSockets header to it */
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize, 
+								 sessionInfoPtr->sendBufPos ) );
 	status = length = \
 		writeInnerHeaderFunction( sessionInfoPtr,
 								  sessionInfoPtr->sendBuffer + \
@@ -581,6 +585,7 @@ static int activateWebSocketsServer( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 										sessionInfoPtr->sendBufPos );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( sessionInfoPtr->sendBufPos, length ) );
 	sessionInfoPtr->sendBufPos += length;
 
 	return( CRYPT_OK );
@@ -648,6 +653,8 @@ static int closeWebSockets( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	/* If there's not enough room in the receive buffer to read at least 1K
 	   of packet data then we can't try anything further */
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufSize,
+								 sessionInfoPtr->receiveBufEnd ) );
 	if( sessionInfoPtr->receiveBufSize - sessionInfoPtr->receiveBufEnd < \
 		min( sessionInfoPtr->pendingPacketRemaining, 1024 ) )
 		return( CRYPT_OK );
@@ -855,6 +862,7 @@ static int processPayload( INOUT_BUFFER_FIXED( bufSize ) BYTE *buffer,
 			}
 
 		/* Adjust the total length by the number of bytes processed */
+		REQUIRES( !checkOverflowSub( wsInfo->totalLength, payloadBytes ) );
 		wsInfo->totalLength -= payloadBytes;
 		ENSURES( wsInfo->totalLength >= 0 && \
 				 wsInfo->totalLength < MAX_BUFFER_SIZE - 1 );
@@ -912,11 +920,13 @@ int processInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	DEBUG_DUMP_WS( buffer, bufSize );
 
 	/* Read as much of the input data as we can into the header buffer */
+	REQUIRES( !checkOverflowSub( TLS_WS_BUFSIZE, wsInfo->headerBufPos ) );
 	bytesCopied = min( TLS_WS_BUFSIZE - wsInfo->headerBufPos, bufSize );
 	REQUIRES( boundsCheckZ( wsInfo->headerBufPos, bytesCopied, 
 							TLS_WS_BUFSIZE ) );
 	memcpy( wsInfo->headerBuffer + wsInfo->headerBufPos, buffer, 
 			bytesCopied );
+	REQUIRES( !checkOverflowAdd( wsInfo->headerBufPos, bytesCopied ) );
 	wsInfo->headerBufPos += bytesCopied;
 
 	/* If this is the start of a new header, process the type and 
@@ -945,6 +955,8 @@ int processInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* We've got all the data we need to process the header, remember how 
 	   many bytes we took from the buffer */
+	REQUIRES( !checkOverflowSub( wsInfo->headerBytesRequired,
+								 oldHeaderBufPos ) );
 	bytesFromBuffer = wsInfo->headerBytesRequired - oldHeaderBufPos;
 
 	sMemConnect( &stream, wsInfo->headerBuffer + WS_LENGTH_OFFSET,
@@ -990,6 +1002,7 @@ int processInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	sMemDisconnect( &stream );
 
 	/* Move any remaining data down in the input buffer */
+	REQUIRES( !checkOverflowSub( bufSize, bytesFromBuffer ) );
 	remainingData = bufSize - bytesFromBuffer;
 	if( remainingData > 0 )
 		{
@@ -1144,7 +1157,8 @@ int prepareInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionTLSWS( sessionInfoPtr ) );
 	REQUIRES( bufSize >= headerSize && bufSize < MAX_BUFFER_SIZE );
 	REQUIRES( dataSize >= headerSize && dataSize <= bufSize );
-	REQUIRES( isIntegerRange( payloadSize ) );
+	REQUIRES( !checkOverflowSub( dataSize, headerSize ) );
+	ENSURES( isIntegerRange( payloadSize ) );
 
 	/* Add the length field as required */
 	if( payloadSize > WS_LENGTH_THRESHOLD )
@@ -1161,6 +1175,8 @@ int prepareInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		const int bytesToMove = isServer? payloadSize : \
 										  TLS_WS_MASKSIZE + payloadSize;
 
+		REQUIRES( !checkOverflowAdd( TLS_WS_MASKSIZE, payloadSize ) );
+
 		/* There are WS_LENGTH_THRESHOLD bytes or less in the buffer so the
 		   length can be encoded as part of the header, move the payload 
 		   data down and insert the length byte at the appropriate 
@@ -1176,6 +1192,7 @@ int prepareInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* Since we've just eliminated the length field, we need to adjust 
 		   various values to match */
 		maskPtr -= UINT16_SIZE;
+		REQUIRES( !checkOverflowSub( headerSize, UINT16_SIZE ) );
 		headerSize -= UINT16_SIZE;
 		}
 
@@ -1205,6 +1222,7 @@ int prepareInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   into a single response, and instructing the peer to ignore 
 	   unsolicited Pongs, which our response may seem to be if it's delayed 
 	   too long */
+	REQUIRES( !checkOverflowAdd( headerSize, payloadSize ) );
 	if( ( wsInfo->sendPong || wsInfo->sendClose ) && \
 		( headerSize + payloadSize < bufSize ) )
 		{
@@ -1215,9 +1233,12 @@ int prepareInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											   wsInfo, isServer );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( extraDataLength, length ) );
 		extraDataLength += length;
 		}
 
+	REQUIRES( !checkOverflowAdd3( headerSize, payloadSize, 
+								  extraDataLength ) );
 	return( headerSize + payloadSize + extraDataLength );
 	}
 

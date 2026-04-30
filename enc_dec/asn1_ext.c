@@ -39,10 +39,10 @@ int sizeofMessageDigest( IN_ALGO const CRYPT_ALGO_TYPE hashAlgo,
 	status = algoInfoSize = sizeofAlgoIDex( hashAlgo, &algoIDparams );
 	ENSURES( !cryptStatusError( status ) );
 	ENSURES( isShortIntegerRangeMin( algoInfoSize, 8 ) );
-	hashInfoSize = sizeofObject( hashSize );
+	hashInfoSize = sizeofShortObject( hashSize );
 	ENSURES( isShortIntegerRangeMin( hashInfoSize, hashSize ) );
 
-	return( sizeofObject( algoInfoSize + hashInfoSize ) );
+	return( sizeofShortObject( algoInfoSize + hashInfoSize ) );
 	}
 
 RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
@@ -62,7 +62,7 @@ int writeMessageDigest( INOUT_PTR STREAM *stream,
 
 	initAlgoIDparamsHash( &algoIDparams, hashAlgo, hashSize );
 	status = algoInfoSize = sizeofAlgoIDex( hashAlgo, &algoIDparams );
-	ENSURES( !cryptStatusError( status ) );
+	ENSURES_S( !cryptStatusError( status ) );
 	writeSequence( stream, algoInfoSize + sizeofShortObject( hashSize ) );
 	status = writeAlgoIDex( stream, hashAlgo, &algoIDparams, DEFAULT_TAG );
 	if( cryptStatusOK( status ) )
@@ -137,7 +137,7 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 	{
 	const OID_INFO *oidInfoPtr;
 	BOOLEAN isData = FALSE, isDetachedSig = FALSE;
-	long savedLength = CRYPT_UNUSED, savedLengthDataStart DUMMY_INIT;
+	long savedLength = CRYPT_UNUSED, savedLengthDataStart = 0;
 	long length, value;
 	int tag, objectSize, status;
 
@@ -171,7 +171,7 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 		{
 		savedLength = length;
 		savedLengthDataStart = stell( stream );
-		REQUIRES( isIntegerRangeNZ( savedLengthDataStart ) );
+		REQUIRES_S( isIntegerRangeNZ( savedLengthDataStart ) );
 		}
 	status = readOIDEx( stream, oidInfo, noOidInfoEntries, &oidInfoPtr );
 	if( cryptStatusError( status ) )
@@ -215,7 +215,7 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 		if( !( isData && ( flags & READCMS_FLAG_INNERHEADER ) ) )
 			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 
-		/* It's a detached signature, we're done */
+		/* It's a detached signature, exit with dataSize still at 0 */
 		if( selectionID != NULL )
 			*selectionID = oidInfoPtr->selectionID;
 		return( CRYPT_OK );
@@ -231,15 +231,15 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 		{
 		savedLength = length;
 		savedLengthDataStart = stell( stream );
-		REQUIRES( isIntegerRangeNZ( savedLengthDataStart ) );
+		REQUIRES_S( isIntegerRangeNZ( savedLengthDataStart ) );
 		}
 	if( flags & READCMS_FLAG_WRAPPERONLY )
 		{
 		/* We're only reading the outer wrapper in order to accomodate
 		   redundantly nested CMS content types, don't try and read
 		   any further */
-		ENSURES( !( flags & ( READCMS_FLAG_DEFINITELENGTH | \
-							  READCMS_FLAG_DEFINITELENGTH_OPT ) ) );
+		ENSURES_S( !( flags & ( READCMS_FLAG_DEFINITELENGTH | \
+							    READCMS_FLAG_DEFINITELENGTH_OPT ) ) );
 		if( dataSize != NULL )
 			*dataSize = length;
 		if( selectionID != NULL )
@@ -309,7 +309,13 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 												  &objectSize );
 			if( cryptStatusError( status ) )
 				return( sSetError( stream, status ) );
-			length = savedLength - objectSize;
+			if( savedLength < objectSize )
+				length = UNDERFLOW_MARKER;
+			else
+				{
+				REQUIRES_S( !checkOverflowSub( savedLength, objectSize ) );
+				length = savedLength - objectSize;
+				}
 			if( !isIntegerRangeNZ( length ) )
 				return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 			}
@@ -322,7 +328,7 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 		const CMS_CONTENT_INFO *contentInfoPtr = oidInfoPtr->extraInfo;
 		const int startPos = stell( stream );
 
-		REQUIRES( isIntegerRangeNZ( startPos ) );
+		REQUIRES_S( isIntegerRangeNZ( startPos ) );
 
 		status = readShortInteger( stream, &value );
 		if( cryptStatusError( status ) )
@@ -342,6 +348,12 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 												  &objectSize );
 			if( cryptStatusError( status ) )
 				return( sSetError( stream, status ) );
+			if( objectSize > length )
+				{
+				/* Make sure that the calculations that follow work */
+				return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+				}
+			REQUIRES_S( !checkOverflowSub( length, objectSize ) );
 			length -= objectSize;
 			if( !isIntegerRangeNZ( length ) )
 				return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
@@ -362,7 +374,7 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 			}
 		else
 			{
-			if( length < sizeofObject( sizeofObject( 1 ) ) )
+			if( length < sizeofShortObject( sizeofShortObject( 1 ) ) )
 				return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 			}
 		}
@@ -396,7 +408,7 @@ int writeCMSheader( INOUT_PTR STREAM *stream,
 				contentOIDlength <= MAX_OID_SIZE );
 	REQUIRES_S( dataSize == CRYPT_UNUSED || isIntegerRange( dataSize ) );
 				/* May be zero for degenerate (detached) signatures */
-	REQUIRES( isBooleanValue( isInnerHeader ) );
+	REQUIRES_S( isBooleanValue( isInnerHeader ) );
 
 	/* The handling of the wrapper type for the content is rather complex.
 	   If it's an outer header, it's an OCTET STRING for data and a SEQUENCE
@@ -552,7 +564,11 @@ int readCMSencrHeader( INOUT_PTR STREAM *stream,
 	   depending on the content */
 	status = tag = peekTag( stream );
 	if( cryptStatusError( status ) )
+		{
+		if( iCryptContext != NULL )
+			krnlSendNotifier( *iCryptContext, IMESSAGE_DECREFCOUNT );
 		return( status );
+		}
 	ANALYSER_HINT( isValidTag( tag ) );	/* Guaranteed by peekTag() */
 	status = readLongGenericHole( stream, &length, tag );
 	if( cryptStatusOK( status ) )
@@ -619,6 +635,9 @@ int writeCMSencrHeader( INOUT_PTR STREAM *stream,
 	/* If a size is given, write the definite form */
 	if( dataSize != CRYPT_UNUSED )
 		{
+		if( checkEncodeOverflow( dataSize, 1, 
+								 contentOIDlength + cryptInfoSize, 0 ) )
+			return( CRYPT_ERROR_OVERFLOW );
 		writeSequence( stream, contentOIDlength + cryptInfoSize + \
 					   sizeofObject( dataSize ) );
 		swrite( stream, contentOID, contentOIDlength );

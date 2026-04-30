@@ -25,8 +25,10 @@
 
 /* CMS version numbers for various objects.  They're monotonically increasing
    because it was thought that this was enough to distinguish the record
-   types (see the note about CMS misdesign above).  This was eventually fixed
-   but the odd version numbers remain, except for PWRI which was done right */
+   types (see the note about CMS misdesign elsewhere).  This was eventually 
+   fixed but the odd version numbers remain, except for PWRI which was done 
+   right.  In C terms though this means that KEYTRANS_VERSION and 
+   PWRI_VERSION have the same value */
 
 enum { KEYTRANS_VERSION, SIGNATURE_VERSION, KEYTRANS_EX_VERSION,
 	   SIGNATURE_EX_VERSION, KEK_VERSION, PWRI_VERSION = 0 };
@@ -146,7 +148,7 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 		int ( *READKEK_FUNCTION )( INOUT_PTR STREAM *stream, 
 								   OUT_PTR QUERY_INFO *queryInfo );
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-		int ( *WRITEKEK_FUNCTION )( STREAM *stream,
+		int ( *WRITEKEK_FUNCTION )( INOUT_PTR STREAM *stream,
 									IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 									IN_BUFFER_OPT( encryptedKeyLength ) \
 										const BYTE *encryptedKey, 
@@ -232,12 +234,19 @@ int getPgpPacketInfo( INOUT_PTR STREAM *stream,
 
 /* Prototypes for signature functions in sign.c */
 
+#ifdef USE_INT_CMS
+
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN sanityCheckSigDataInfo( IN_PTR \
 									const SIG_DATA_INFO *sigDataInfo,
 								IN_ENUM( SIGNATURE ) \
 									const SIGNATURE_TYPE signatureType,
 							    IN_BOOL const BOOLEAN isInternal );
+
+#else
+  #define sanityCheckSigDataInfo( sigDataInfo, signatureType, isInternal ) \
+		  TRUE
+#endif /* USE_INT_CMS */
 
 /* Prototypes for signature functions in sign_cms.c */
 
@@ -258,7 +267,7 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 						INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4, 7 ) ) \
 int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature, 
-					   IN_DATALENGTH const int signatureLength,
+					   IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength,
 					   IN_HANDLE const CRYPT_CONTEXT sigCheckContext,
 					   IN_PTR const SIG_DATA_INFO *sigDataInfo,
 					   OUT_OPT_HANDLE_OPT CRYPT_CERTIFICATE *iExtraData,
@@ -314,6 +323,6 @@ int checkSignaturePGP( IN_BUFFER( signatureLength ) const void *signature,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readPgpOnepassSigPacket( INOUT_PTR STREAM *stream, 
-							 INOUT_PTR QUERY_INFO *queryInfo );
+							 OUT_PTR QUERY_INFO *queryInfo );
 
 #endif /* _MECHANISM_DEFINED */

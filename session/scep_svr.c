@@ -154,9 +154,9 @@ static int getPkiUserInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 #ifdef USE_ERRMSGS
 		char userID[ CRYPT_MAX_TEXTSIZE + 8 ];
-		int userIDlen;
+		const int userIDlen = min( userNamePtr->valueLength, \
+								   CRYPT_MAX_TEXTSIZE );
 
-		userIDlen = min( userNamePtr->valueLength, CRYPT_MAX_TEXTSIZE );
 		REQUIRES( rangeCheck( userIDlen, 1, CRYPT_MAX_TEXTSIZE ) );
 		memcpy( userID, userNamePtr->value, userIDlen );
 #endif /* USE_ERRMSGS */
@@ -164,7 +164,7 @@ static int getPkiUserInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
 					 "Couldn't find PKI user information for %s",
 					 sanitiseString( userID, CRYPT_MAX_TEXTSIZE, 
-									 userIDlen ) ) );
+									 userNamePtr->valueLength ) ) );
 		}
 	protocolInfo->iPkiUser = getkeyInfo.cryptHandle;
 	DEBUG_DUMP_CERT( "scep_pkiuser", protocolInfo->iPkiUser );
@@ -268,7 +268,8 @@ static int processAdditionalScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		STREAM stream;
 
-		sMemOpen( &stream, sessionInfoPtr->receiveBuffer, 1024 );
+		sMemOpen( &stream, sessionInfoPtr->receiveBuffer, 
+				  min( 1024, sessionInfoPtr->receiveBufSize ) );
 		if( algoAvailable( CRYPT_ALGO_AES ) )
 			swrite( &stream, "AES\n", 4 );
 		swrite( &stream, "POSTPKIOperation\n", 17 );
@@ -477,12 +478,11 @@ static int checkScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											  protocolInfo->transIDsize ) ) )
 		{
 		krnlSendNotifier( iCmsAttributes, IMESSAGE_DECREFCOUNT );
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO,
-				  "SCEP request has invalid transaction ID '%s'",
-				  sanitiseString( protocolInfo->transID, 
-								  protocolInfo->transIDsize,
-				  				  protocolInfo->transIDsize ) ) );
+		retExtSan( CRYPT_ERROR_BADDATA,
+				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO,
+					 "SCEP request has invalid transaction ID '%s'",
+					 protocolInfo->transID, protocolInfo->transIDsize,
+					 NULL, 0, NULL, 0 ) );
 		}
 	status = updateSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME, 
 								protocolInfo->transID, 
@@ -733,6 +733,7 @@ static int issueCertFromRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  getCertHolderName( sessionInfoPtr->iCertRequest, 
 									 certName, CRYPT_MAX_TEXTSIZE ) ) );
 		}
+	zeroise( requestPassword, CRYPT_MAX_TEXTSIZE );
 
 	/* If the subject only knows their CN, they may send a CN-only subject DN 
 	   in the hope that we can fill it in for them.  In addition there may be 
@@ -915,7 +916,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
 	SCEP_PROTOCOL_INFO protocolInfo;
 	STREAM stream;
-	BOOLEAN requestDataOK, processedAdditionalRequest = TRUE;
+	BOOLEAN requestDataOK, processedAdditionalRequest = FALSE;
 	BOOLEAN caSignOnlyKey = FALSE;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 	LOOP_INDEX requestCount;

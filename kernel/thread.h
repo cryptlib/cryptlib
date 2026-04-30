@@ -402,8 +402,8 @@ extern RETURN_CODE_TYPE dummyRetCode;
 				status = CRYPT_OK; \
 				} \
 			}
-#define THREAD_EXIT( sync )		STOP_SELF(); \
-								SIGNAL_SEMAPHORE( sync, &dummyRetCode ); \
+#define THREAD_EXIT( sync )		SIGNAL_SEMAPHORE( sync, &dummyRetCode ); \
+								STOP_SELF(); \
 								return
 #define THREAD_INITIALISER		0
 #define THREAD_SELF()			threadSelf()
@@ -2476,7 +2476,8 @@ typedef void ( *SMX_THREAD_FNTR )( uint arg );
 				status = CRYPT_OK; \
 				} \
 			}
-#define THREAD_EXIT( sync )		smx_TaskStop( ct, NO_CHG )
+#define THREAD_EXIT( sync )		smx_MutexRelease( sync ); \
+								smx_TaskStop( ct, NO_CHG )
 #define THREAD_INITIALISER		NULL
 #define THREAD_SELF()			smx_GetCurrentTask()
 #define THREAD_IS_CURRENT( thread )	\

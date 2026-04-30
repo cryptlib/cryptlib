@@ -31,12 +31,22 @@ BOOLEAN sanityCheckPKCInfo( const PKC_INFO *pkcInfo )
 	assert( isReadPtr( pkcInfo, sizeof( PKC_INFO ) ) );
 
 	/* Check the PKC info metadata */
-	if( !CHECK_FLAGS( pkcInfo->flags, PKCINFO_FLAG_NONE, 
+	if( !isPkcAlgo( pkcInfo->cryptAlgo ) || \
+		!CHECK_FLAGS( pkcInfo->flags, PKCINFO_FLAG_NONE, 
 					  PKCINFO_FLAG_MAX ) )
 		return( FALSE );
-	if( pkcInfo->keySizeBits < 0 || \
-		pkcInfo->keySizeBits > bytesToBits( CRYPT_MAX_PKCSIZE ) )
-		return( FALSE );
+	if( isPqcAlgo( pkcInfo->cryptAlgo ) )
+		{
+		if( pkcInfo->keySizeBits < 0 || \
+			pkcInfo->keySizeBits > bytesToBits( MAX_PKCSIZE_PQC ) )
+			return( FALSE );
+		}
+	else
+		{
+		if( pkcInfo->keySizeBits < 0 || \
+			pkcInfo->keySizeBits > bytesToBits( CRYPT_MAX_PKCSIZE ) )
+			return( FALSE );
+		}
 	if( pkcInfo->publicKeyInfo == NULL )
 		{
 		if( pkcInfo->publicKeyInfoSize != 0 )
@@ -56,7 +66,7 @@ BOOLEAN sanityCheckPKCInfo( const PKC_INFO *pkcInfo )
 	if( TEST_FLAG( pkcInfo->flags, PKCINFO_FLAG_DUMMY ) )
 		return( TRUE );
 
-	/* Check the PKC info bignums */
+	/* Check the PKC info bignums, first the shared values */
 	if( !sanityCheckBignum( &pkcInfo->param1 ) || \
 		!sanityCheckBignum( &pkcInfo->param2 ) || \
 		!sanityCheckBignum( &pkcInfo->param3 ) || \
@@ -71,6 +81,27 @@ BOOLEAN sanityCheckPKCInfo( const PKC_INFO *pkcInfo )
 		!sanityCheckBignum( &pkcInfo->tmp2 ) || \
 		!sanityCheckBignum( &pkcInfo->tmp3 ) )
 		return( FALSE );
+
+	/* Some algorithms don't use any of the remaining values so we exit
+	   now */
+#if defined( USE_X25519 ) || defined( USE_ED25519 ) 
+	if( isBernsteinAlgo( pkcInfo->cryptAlgo ) )
+		return( TRUE );
+#endif /* USE_X25519 || USE_ED25519 */
+#ifdef USE_MLKEM 
+	if( isPqcAlgo( pkcInfo->cryptAlgo ) )
+		{
+		/* ML-KEM uses somewhat different key storage than the standard 
+		   PKCs */
+		if( pkcInfo->mlkemKey != ( MLKEM_KEY_INFO * ) &pkcInfo->bnCTX || \
+			pkcInfo->mlkemKeySize != sizeof( MLKEM_KEY_INFO ) )
+			return( FALSE );
+			
+		return( TRUE );
+		}
+#endif /* USE_MLKEM */
+
+	/* Check the remaining bignums */
 	if( !sanityCheckBNCTX( &pkcInfo->bnCTX ) )
 		return( FALSE );
 	if( !sanityCheckBNMontCTX( &pkcInfo->montCTX1 ) || \
@@ -95,10 +126,19 @@ void clearTempBignums( INOUT_PTR PKC_INFO *pkcInfo )
 	{
 	assert( isWritePtr( pkcInfo, sizeof( PKC_INFO ) ) );
 
+	/* Some algorithms don't use the bignums but store their own data in the
+	   space so we don't want to touch them */
+#if defined( USE_X25519 ) || defined( USE_ED25519 ) || defined( USE_MLKEM )
+	if( isBernsteinAlgo( pkcInfo->cryptAlgo ) || \
+		isPqcAlgo( pkcInfo->cryptAlgo ) )
+		return;
+#endif /* USE_X25519 || USE_ED25519 || USE_MLKEM */
+
 	BN_clear( &pkcInfo->tmp1 ); BN_clear( &pkcInfo->tmp2 );
 	BN_clear( &pkcInfo->tmp3 );
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
-	if( pkcInfo->isECC )
+	if( isEccAlgo( pkcInfo->cryptAlgo ) && \
+		!isBernsteinAlgo( pkcInfo->cryptAlgo ) )
 		{
 		BN_clear( &pkcInfo->eccParam_tmp4 ); 
 		BN_clear( &pkcInfo->eccParam_tmp5 );
@@ -119,6 +159,7 @@ int initContextBignums( INOUT_PTR PKC_INFO *pkcInfo,
 
 	/* Initialise the overall PKC information */
 	memset( pkcInfo, 0, sizeof( PKC_INFO ) );
+	pkcInfo->cryptAlgo = cryptAlgo;
 	INIT_FLAGS( pkcInfo->flags, PKCINFO_FLAG_NONE );
 
 	/* Initialise the bignum information.  The values aren't used for all
@@ -131,30 +172,63 @@ int initContextBignums( INOUT_PTR PKC_INFO *pkcInfo,
 	BN_init( &pkcInfo->blind1 ); BN_init( &pkcInfo->blind2 );
 	BN_init( &pkcInfo->tmp1 ); BN_init( &pkcInfo->tmp2 );
 	BN_init( &pkcInfo->tmp3 );
-#if defined( USE_ECDH ) || defined( USE_ECDSA )
-	if( cryptAlgo == CRYPT_ALGO_ECDH || cryptAlgo == CRYPT_ALGO_ECDSA )
+	switch( pkcInfo->cryptAlgo )
 		{
-		pkcInfo->isECC = TRUE;
-		pkcInfo->ecCTX = EC_GROUP_new( EC_GFp_simple_method() );
-		pkcInfo->ecPoint = EC_POINT_new( pkcInfo->ecCTX );
-		pkcInfo->tmpPoint = EC_POINT_new( pkcInfo->ecCTX );
-		if( pkcInfo->ecCTX == NULL || pkcInfo->ecPoint == NULL || \
-			pkcInfo->tmpPoint == NULL )
-			{
-			if( pkcInfo->tmpPoint != NULL )
-				EC_POINT_free( pkcInfo->tmpPoint );
-			if( pkcInfo->ecPoint != NULL )
-				EC_POINT_free( pkcInfo->ecPoint );
-			if( pkcInfo->ecCTX != NULL )
-				EC_GROUP_free( pkcInfo->ecCTX );
-			return( CRYPT_ERROR_MEMORY );
-			}
-		}
+#if defined( USE_ECDH ) || defined( USE_ECDSA )
+		case CRYPT_ALGO_ECDSA:
+		case CRYPT_ALGO_ECDH:
+			pkcInfo->ecCTX = EC_GROUP_new( EC_GFp_simple_method() );
+			pkcInfo->ecPoint = EC_POINT_new( pkcInfo->ecCTX );
+			pkcInfo->tmpPoint = EC_POINT_new( pkcInfo->ecCTX );
+			if( pkcInfo->ecCTX == NULL || pkcInfo->ecPoint == NULL || \
+				pkcInfo->tmpPoint == NULL )
+				{
+				if( pkcInfo->tmpPoint != NULL )
+					EC_POINT_free( pkcInfo->tmpPoint );
+				if( pkcInfo->ecPoint != NULL )
+					EC_POINT_free( pkcInfo->ecPoint );
+				if( pkcInfo->ecCTX != NULL )
+					EC_GROUP_free( pkcInfo->ecCTX );
+				return( CRYPT_ERROR_MEMORY );
+				}
+			STDC_FALLTHROUGH;
 #endif /* USE_ECDH || USE_ECDSA */
-	BN_CTX_init( &pkcInfo->bnCTX );
-	BN_MONT_CTX_init( &pkcInfo->montCTX1 );
-	BN_MONT_CTX_init( &pkcInfo->montCTX2 );
-	BN_MONT_CTX_init( &pkcInfo->montCTX3 );
+
+		case CRYPT_ALGO_RSA:
+		case CRYPT_ALGO_DH:
+		case CRYPT_ALGO_DSA:
+		case CRYPT_ALGO_ELGAMAL:
+			BN_CTX_init( &pkcInfo->bnCTX );
+			BN_MONT_CTX_init( &pkcInfo->montCTX1 );
+			BN_MONT_CTX_init( &pkcInfo->montCTX2 );
+			BN_MONT_CTX_init( &pkcInfo->montCTX3 );
+			break;
+
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
+		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
+			/* The 25519 parameters are just a block of memory that was 
+			   cleared as part of the overall PKC_INFO clearing and don't 
+			   need any initialisation */
+			break;
+#endif /* USE_X25519 || defined( USE_ED25519 */
+
+#ifdef USE_MLKEM
+		case CRYPT_ALGO_MLKEM:
+			{
+			/* PQC keys, which are enormous, are stored in the otherwise 
+			   unused bnCTX storage.  This is just an unstructured block of
+			   memory, the actual size used will be set by the caller */
+			pkcInfo->mlkemKey = ( MLKEM_KEY_INFO * ) &pkcInfo->bnCTX;
+			pkcInfo->mlkemKeySize = sizeof( MLKEM_KEY_INFO );
+			memset( pkcInfo->mlkemKey, 0, sizeof( MLKEM_KEY_INFO ) );
+			break;
+			}
+#endif /* USE_MLKEM */
+
+		default:
+			retIntError();
+		}
 
 	ENSURES( sanityCheckPKCInfo( pkcInfo ) );
 
@@ -174,32 +248,63 @@ void endContextBignums( INOUT_PTR PKC_INFO *pkcInfo,
 
 	REQUIRES_V( isBooleanValue( isDummyContext ) );
 
-	if( !isDummyContext )
+	/* If it's a dummy context then there's nothing to do except optionally
+	   free the encoded publicKeyInfo */
+	if( isDummyContext )
 		{
-		BN_clear( &pkcInfo->param1 ); BN_clear( &pkcInfo->param2 );
-		BN_clear( &pkcInfo->param3 ); BN_clear( &pkcInfo->param4 );
-		BN_clear( &pkcInfo->param5 ); BN_clear( &pkcInfo->param6 );
-		BN_clear( &pkcInfo->param7 ); BN_clear( &pkcInfo->param8 );
-		BN_clear( &pkcInfo->blind1 ); BN_clear( &pkcInfo->blind2 );
-		BN_clear( &pkcInfo->tmp1 ); BN_clear( &pkcInfo->tmp2 );
-		BN_clear( &pkcInfo->tmp3 );
+		if( pkcInfo->publicKeyInfo != NULL )
+			clFree( "endContextBignums", pkcInfo->publicKeyInfo );
+		return;
+		}
+
+	/* Clear the bignum information.  The values aren't used for all
+	   algorithm types but we clear everything in any case to keep things
+	   clean */
+	BN_clear( &pkcInfo->param1 ); BN_clear( &pkcInfo->param2 );
+	BN_clear( &pkcInfo->param3 ); BN_clear( &pkcInfo->param4 );
+	BN_clear( &pkcInfo->param5 ); BN_clear( &pkcInfo->param6 );
+	BN_clear( &pkcInfo->param7 ); BN_clear( &pkcInfo->param8 );
+	BN_clear( &pkcInfo->blind1 ); BN_clear( &pkcInfo->blind2 );
+	BN_clear( &pkcInfo->tmp1 ); BN_clear( &pkcInfo->tmp2 );
+	BN_clear( &pkcInfo->tmp3 );
+	switch( pkcInfo->cryptAlgo )
+		{
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
-		if( pkcInfo->isECC )
-			{
+		case CRYPT_ALGO_ECDSA:
+		case CRYPT_ALGO_ECDH:
 			EC_POINT_free( pkcInfo->tmpPoint );
 			EC_POINT_free( pkcInfo->ecPoint );
 			EC_GROUP_free( pkcInfo->ecCTX );
-			}
+			STDC_FALLTHROUGH;
 #endif /* USE_ECDH || USE_ECDSA */
-		BN_CTX_final( &pkcInfo->bnCTX );
-#if defined( USE_ECDH ) || defined( USE_ECDSA )
-		if( !pkcInfo->isECC )
-#endif /* USE_ECDH || USE_ECDSA */
-			{
+
+		case CRYPT_ALGO_RSA:
+		case CRYPT_ALGO_DH:
+		case CRYPT_ALGO_DSA:
+		case CRYPT_ALGO_ELGAMAL:
+			BN_CTX_final( &pkcInfo->bnCTX );
 			BN_MONT_CTX_free( &pkcInfo->montCTX1 );
 			BN_MONT_CTX_free( &pkcInfo->montCTX2 );
 			BN_MONT_CTX_free( &pkcInfo->montCTX3 );
-			}
+			break;
+
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
+		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
+			/* The 25519 parameters are just a block of memory that's
+			   cleared as part of the overall PKC_INFO clearing and don't 
+			   need any cleanup */
+			break;
+#endif /* USE_X25519 || defined( USE_ED25519 */
+
+#ifdef USE_MLKEM
+		case CRYPT_ALGO_MLKEM:
+			zeroise( pkcInfo->mlkemKey, pkcInfo->mlkemKeySize );
+			break;
+#endif /* USE_MLKEM */
+
+		default:
+			retIntError_Void();
 		}
 	if( pkcInfo->publicKeyInfo != NULL )
 		clFree( "endContextBignums", pkcInfo->publicKeyInfo );
@@ -245,6 +350,8 @@ static int checksumBignumData( IN_BUFFER( length ) const void *data,
 	*( checksum ) = checksumBignumData( bignum, sizeof( BIGNUM ), *( checksum ) )
 #define BN_checksum_montgomery( montCTX, checksum ) \
 	*( checksum ) = checksumBignumData( montCTX, sizeof( BN_MONT_CTX ), *( checksum ) )
+#define Keydata_checksum( data, length, checksum ) \
+	*( checksum ) = checksumBignumData( data, length, *( checksum ) )
 
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
 
@@ -297,9 +404,8 @@ static void BN_checksum_ec_point( IN_PTR const EC_POINT *point,
 
 /* Calculate a bignum checksum */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int bignumChecksum( INOUT_PTR PKC_INFO *pkcInfo, 
-						   IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 						   IN_BOOL const BOOLEAN isPrivateKey,
 						   OUT_PTR int *checksum )
 	{
@@ -308,73 +414,83 @@ static int bignumChecksum( INOUT_PTR PKC_INFO *pkcInfo,
 	assert( isWritePtr( pkcInfo, sizeof( PKC_INFO ) ) );
 	assert( isWritePtr( checksum, sizeof( int ) ) );
 
-	REQUIRES( isPkcAlgo( cryptAlgo ) );
 	REQUIRES( isBooleanValue( isPrivateKey ) );
 
 	/* Clear return value */
 	*checksum = 0;
 
 	/* Calculate the key data checksum */
-#if defined( USE_ECDH ) || defined( USE_ECDSA )
-	if( isEccAlgo( cryptAlgo ) )
+	switch( pkcInfo->cryptAlgo )
 		{
-  #if defined( USE_25519 ) || defined( USE_ED25519 )
-		if( cryptAlgo == CRYPT_ALGO_25519 || \
-			cryptAlgo == CRYPT_ALGO_ED25519 )
-			{
-			BN_checksum( &pkcInfo->curve25519Param_pub, &value );
+		case CRYPT_ALGO_DH:
+		case CRYPT_ALGO_DSA:
+		case CRYPT_ALGO_ELGAMAL:
+			BN_checksum( &pkcInfo->dlpParam_p, &value );
+			BN_checksum( &pkcInfo->dlpParam_g, &value );
+			BN_checksum( &pkcInfo->dlpParam_q, &value );
+			BN_checksum( &pkcInfo->dlpParam_y, &value );
+			if( pkcInfo->cryptAlgo == CRYPT_ALGO_DH )
+				BN_checksum( &pkcInfo->dhParam_yPrime, &value );
+			if( isPrivateKey )
+				BN_checksum( &pkcInfo->dlpParam_x, &value );
+			BN_checksum_montgomery( &pkcInfo->dlpParam_mont_p, &value );
+			break;
+		
+		case CRYPT_ALGO_RSA:
+			/* Note that we don't checksum the (optional) blinding values 
+			   rsaParam_blind_k and rsaParam_blind_kInv since these are 
+			   updated on every RSA operation so the checksum would change 
+			   every time they're used.  Since these are random values, a 
+			   fault will only make them even more random */
+			BN_checksum( &pkcInfo->rsaParam_n, &value );
+			BN_checksum( &pkcInfo->rsaParam_e, &value );
+			BN_checksum_montgomery( &pkcInfo->rsaParam_mont_n, &value );
 			if( isPrivateKey )
 				{
-				BN_checksum( &pkcInfo->curve25519Param_priv, &value );
-				BN_checksum( &pkcInfo->curve25519Param_s, &value );
+				BN_checksum( &pkcInfo->rsaParam_d, &value );
+				BN_checksum( &pkcInfo->rsaParam_p, &value );
+				BN_checksum( &pkcInfo->rsaParam_q, &value );
+				BN_checksum( &pkcInfo->rsaParam_u, &value );
+				BN_checksum( &pkcInfo->rsaParam_exponent1, &value );
+				BN_checksum( &pkcInfo->rsaParam_exponent2, &value );
+				BN_checksum_montgomery( &pkcInfo->rsaParam_mont_p, &value );
+				BN_checksum_montgomery( &pkcInfo->rsaParam_mont_q, &value );
 				}
-			}
-		else
-  #endif /* USE_25519 || defined( USE_ED25519 */
-			{
+			break;
+		
+#if defined( USE_ECDH ) || defined( USE_ECDSA )
+		case CRYPT_ALGO_ECDSA:
+		case CRYPT_ALGO_ECDH:
 			BN_checksum( &pkcInfo->eccParam_qx, &value );
 			BN_checksum( &pkcInfo->eccParam_qy, &value );
 			if( isPrivateKey )
 				BN_checksum( &pkcInfo->eccParam_d, &value );
 			BN_checksum_ec_group( pkcInfo->ecCTX, &value );
 			BN_checksum_ec_point( pkcInfo->ecPoint, &value );
-			}
-		}
-	else
+			break;
 #endif /* USE_ECDH || USE_ECDSA */
-	if( isDlpAlgo( cryptAlgo ) )
-		{
-		BN_checksum( &pkcInfo->dlpParam_p, &value );
-		BN_checksum( &pkcInfo->dlpParam_g, &value );
-		BN_checksum( &pkcInfo->dlpParam_q, &value );
-		BN_checksum( &pkcInfo->dlpParam_y, &value );
-		if( cryptAlgo == CRYPT_ALGO_DH )
-			BN_checksum( &pkcInfo->dhParam_yPrime, &value );
-		if( isPrivateKey )
-			BN_checksum( &pkcInfo->dlpParam_x, &value );
-		BN_checksum_montgomery( &pkcInfo->dlpParam_mont_p, &value );
-		}
-	else
-		{
-		/* Note that we don't checksum the (optional) blinding values 
-		   rsaParam_blind_k and rsaParam_blind_kInv since these are updated
-		   on every RSA operation so the checksum would change every time 
-		   they're used.  Since these are random values, a fault will only
-		   make them even more random */
-		BN_checksum( &pkcInfo->rsaParam_n, &value );
-		BN_checksum( &pkcInfo->rsaParam_e, &value );
-		BN_checksum_montgomery( &pkcInfo->rsaParam_mont_n, &value );
-		if( isPrivateKey )
-			{
-			BN_checksum( &pkcInfo->rsaParam_d, &value );
-			BN_checksum( &pkcInfo->rsaParam_p, &value );
-			BN_checksum( &pkcInfo->rsaParam_q, &value );
-			BN_checksum( &pkcInfo->rsaParam_u, &value );
-			BN_checksum( &pkcInfo->rsaParam_exponent1, &value );
-			BN_checksum( &pkcInfo->rsaParam_exponent2, &value );
-			BN_checksum_montgomery( &pkcInfo->rsaParam_mont_p, &value );
-			BN_checksum_montgomery( &pkcInfo->rsaParam_mont_q, &value );
-			}
+		
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
+		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
+			BN_checksum( &pkcInfo->curve25519Param_pub, &value );
+			if( isPrivateKey )
+				{
+				BN_checksum( &pkcInfo->curve25519Param_priv, &value );
+				BN_checksum( &pkcInfo->curve25519Param_s, &value );
+				}
+			break;
+#endif /* USE_X25519 || defined( USE_ED25519 */
+
+#ifdef USE_MLKEM
+		case CRYPT_ALGO_MLKEM:
+			Keydata_checksum( pkcInfo->mlkemKey, pkcInfo->mlkemKeySize, 
+							  &value );
+			break;
+#endif /* USE_MLKEM */
+
+		default:
+			retIntError();
 		}
 	*checksum = value;
 
@@ -383,18 +499,16 @@ static int bignumChecksum( INOUT_PTR PKC_INFO *pkcInfo,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int checksumContextData( INOUT_PTR PKC_INFO *pkcInfo, 
-						 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 						 IN_BOOL const BOOLEAN isPrivateKey )
 	{
 	int checksum, status;
 
 	assert( isWritePtr( pkcInfo, sizeof( PKC_INFO ) ) );
 
-	REQUIRES( isPkcAlgo( cryptAlgo ) );
 	REQUIRES( isBooleanValue( isPrivateKey ) );
 
 	/* Set or update the data checksum */
-	status = bignumChecksum( pkcInfo, cryptAlgo, isPrivateKey, &checksum );
+	status = bignumChecksum( pkcInfo, isPrivateKey, &checksum );
 	ENSURES( cryptStatusOK( status ) );
 	if( pkcInfo->checksum == 0L )
 		pkcInfo->checksum = checksum;
@@ -407,13 +521,9 @@ int checksumContextData( INOUT_PTR PKC_INFO *pkcInfo,
 	/* Check static domain parameters if required */
 	if( pkcInfo->domainParams != NULL )
 		{
-#if defined( USE_ECDH ) || defined( USE_ECDSA )
-		if( !checksumDomainParameters( pkcInfo->domainParams, pkcInfo->isECC ) )
+		if( !checksumDomainParameters( pkcInfo->domainParams, 
+									   pkcInfo->cryptAlgo ) )
 			return( CRYPT_ERROR );
-#else
-		if( !checksumDomainParameters( pkcInfo->domainParams, FALSE ) )
-			return( CRYPT_ERROR );
-#endif /* USE_ECDH || USE_ECDSA */
 		}
 
 	return( CRYPT_OK );
@@ -674,13 +784,14 @@ static BOOLEAN checksumDHParameters( const DH_DOMAINPARAMS *domainParams )
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN checksumDomainParameters( IN_PTR const void *domainParams, 
-								  IN_BOOL const BOOLEAN isECC )
+								  IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	REQUIRES( isBooleanValue( isECC ) );
+	REQUIRES_B( isPkcAlgo( cryptAlgo ) );
 
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
-	return( isECC ? checksumECCParameters( domainParams ) : \
-					checksumDHParameters( domainParams ) );
+	return( isEccAlgo( cryptAlgo ) ? \
+			checksumECCParameters( domainParams ) : \
+			checksumDHParameters( domainParams ) );
 #else
 	return( checksumDHParameters( domainParams ) );
 #endif /* USE_ECDH || USE_ECDSA */

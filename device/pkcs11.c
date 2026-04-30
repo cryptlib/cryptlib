@@ -876,6 +876,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		zeroise( contextInfoPtr->ctxConv->userKey, keyLength );
 		contextInfoPtr->ctxConv->userKeyLength = 0;
 		}
+	REQUIRES( !checkOverflowMul( sizeof( CK_ATTRIBUTE ), templateCount ) );
 	zeroise( keyTemplate, sizeof( CK_ATTRIBUTE ) * templateCount );
 	krnlReleaseObject( iCryptDevice );
 	return( cryptStatus );
@@ -1027,6 +1028,7 @@ static int generateKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		contextInfoPtr->deviceObject = hObject;
 		}
+	REQUIRES( !checkOverflowMul( sizeof( CK_ATTRIBUTE ), templateCount ) );
 	zeroise( keyTemplate, sizeof( CK_ATTRIBUTE ) * templateCount );
 	krnlReleaseObject( iCryptDevice );
 	return( cryptStatus );
@@ -1184,6 +1186,7 @@ static int cipherEncrypt( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			   calls */
 			REQUIRES( length >= ivSize );
 
+			REQUIRES( !checkOverflowSub( length, ivSize ) );
 			REQUIRES( rangeCheck( ivSize, 1, CRYPT_MAX_IVSIZE ) );
 			memcpy( contextInfoPtr->ctxConv->currentIV, \
 					( BYTE * ) buffer + length - ivSize, ivSize );
@@ -1226,6 +1229,7 @@ static int cipherDecrypt( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		mechanism.pParameter = contextInfoPtr->ctxConv->currentIV;
 		mechanism.ulParameterLen = ivSize;
 
+		REQUIRES( !checkOverflowSub( length, ivSize ) );
 		REQUIRES( rangeCheck( ivSize, 1, CRYPT_MAX_IVSIZE ) );
 		memcpy( ivBuffer, ( BYTE * ) buffer + length - ivSize, ivSize );
 		}

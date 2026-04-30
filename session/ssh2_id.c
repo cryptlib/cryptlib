@@ -76,6 +76,9 @@ static int checkPreAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Make sure that the pre-authentication value looks valid.  We don't do 
 	   anything with the decoded value since we work with the encoded form, 
 	   it's just used as a check for valid data */
+	REQUIRES( !checkOverflowAdd( preAuthPosition, 2 ) );
+	REQUIRES( !checkOverflowSub( versionStringLength, 
+								 preAuthPosition + 2 ) );
 	preAuthLength = versionStringLength - ( preAuthPosition + 2 );
 	if( !isShortIntegerRangeMin( preAuthLength, 
 								 SSH_PREAUTH_NONCE_ENCODEDSIZE ) )
@@ -98,6 +101,11 @@ static int checkPreAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		const int remainderPos = \
 						preAuthPosition + 2 + SSH_PREAUTH_NONCE_ENCODEDSIZE;
 
+		REQUIRES( !checkOverflowSub( preAuthLength, 
+									 SSH_PREAUTH_NONCE_ENCODEDSIZE ) );
+		REQUIRES( !checkOverflowAdd( preAuthPosition,
+									 2 + SSH_PREAUTH_NONCE_ENCODEDSIZE ) );
+
 		/* There's more data following the pre-authentication value, check 
 		   that it follows the form ',X=...' to match the general pattern
 		   'C=abcdefg,X=....,Y=.....' */
@@ -116,29 +124,18 @@ static int checkPreAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusError( status ) )
 		{
-		const int preAuthDataLen = min( preAuthLength, CRYPT_MAX_TEXTSIZE );
-#ifdef USE_ERRMSGS
-		char preAuthBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
-
-#endif /* USE_ERRMSGS */
-		if( preAuthDataLen <= 0 )
+		if( preAuthLength <= 0 )
 			{
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 					  "%s sent empty pre-authentication value", 
 					  peerType ) );
 			}
-#ifdef USE_ERRMSGS
-		REQUIRES( rangeCheck( preAuthDataLen, 1, CRYPT_MAX_TEXTSIZE ) );
-		memcpy( preAuthBuffer, versionString + preAuthPosition, 
-				preAuthDataLen );
-#endif /* USE_ERRMSGS */
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "%s sent invalid pre-authentication value '%s'", 
-				  peerType,
-				  sanitiseString( preAuthBuffer, CRYPT_MAX_TEXTSIZE, 
-								  preAuthLength ) ) );
+		retExtSan( CRYPT_ERROR_BADDATA,
+				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+					 "%s sent invalid pre-authentication value '%s'", 
+					 peerType, 0, versionString + preAuthPosition, 
+					 preAuthLength, NULL, 0 ) );
 		}
 
 	/* Remember the challenge or response.  The server records the value as
@@ -626,6 +623,7 @@ static int processVersionID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* There's a vendor ID present, skip the ' ' separator */
 		vendorIDString++;
+		REQUIRES( !checkOverflowDec( vendorIDStringLength ) );
 		vendorIDStringLength--;
 		}
 	ENSURES( vendorIDStringLength >= 0 && \
@@ -907,11 +905,11 @@ int readSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			break;
 
 		default:
-			retExt( CRYPT_ERROR_BADDATA,
-					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-					  "Invalid SSH version '%s'",
-					  sanitiseString( &sessionInfoPtr->receiveBuffer[ SSH_ID_SIZE ],
-									  CRYPT_MAX_TEXTSIZE, 1 ) ) );
+			retExtSan( CRYPT_ERROR_BADDATA,
+					   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+						 "Invalid SSH version '%s'",
+						 sessionInfoPtr->receiveBuffer + SSH_ID_SIZE, 1,
+						 NULL, 0, NULL, 0 ) );
 		}
 
 	/* Find the end of the protocol version substring, i.e. locate whatever 
@@ -926,6 +924,7 @@ int readSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		const int startOffset = SSH_ID_SIZE + position + 1;	/* Skip '-' */
 
 		versionStringPtr = sessionInfoPtr->receiveBuffer + startOffset;
+		REQUIRES( !checkOverflowSub( length, startOffset ) );
 		versionStringLength = length - startOffset;
 		}
 	if( cryptStatusError( status ) || \
@@ -937,14 +936,15 @@ int readSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   There exists a very broken implementation that sends 'SSH-2.0-""'
 		   as its ID which gets rejected by this check, for obvious reasons 
 		   there's no way to identify or fingerprint this one */
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "%s sent malformed identifier string '%s'", peerType,
-				  sanitiseString( sessionInfoPtr->receiveBuffer, 
-								  CRYPT_MAX_TEXTSIZE, length ) ) );
+		retExtSan( CRYPT_ERROR_BADDATA,
+				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+					 "%s sent malformed identifier string '%s'", 
+					 peerType, 0, sessionInfoPtr->receiveBuffer, length,
+					 NULL, 0 ) );
 		}
 	ENSURES( versionStringLength >= 3 && \
 			 versionStringLength < SSH_ID_MAX_SIZE );	/* From earlier checks */
+	ANALYSER_HINT( versionStringPtr != NULL );
 
 	/* Check whether the peer is using cryptlib */
 	if( versionStringLength >= 8 && \
@@ -976,6 +976,7 @@ int readSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( !cryptStatusError( status ) && position > 0 )
 		{
 		versionStringPtr += position + 1;	/* Skip ' ' */
+		REQUIRES( !checkOverflowSub( versionStringLength, position + 1 ) );
 		versionStringLength -= position + 1;
 		if( isShortIntegerRangeMin( versionStringLength, 
 									2 + SSH_PREAUTH_NONCE_ENCODEDSIZE ) )
@@ -1103,6 +1104,7 @@ int writeSSHID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		sNetGetErrorInfo( &sessionInfoPtr->stream,
 						  &sessionInfoPtr->errorInfo );
 		}
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufPos, 2 ) );
 	sessionInfoPtr->sendBufPos -= 2;
 	DEBUG_DUMP_DATA_LABEL( "Wrote SSH ID string:\n",
 						   sessionInfoPtr->sendBuffer, 

@@ -321,7 +321,11 @@ static int copyChar( OUT_BUFFER( bufMaxLen, *bufPos ) char *buffer,
 	   we strip gazintas.  Since ODBC uses '{' and '}' as escape delimiters 
 	   we also strip these */
 	if( ch != '|' && ch != '{' && ch != '}' )
+		{
 		buffer[ position++ ] = intToByte( ch );
+		if( position >= bufMaxLen )
+			return( CRYPT_ERROR_OVERFLOW );
+		}
 
 	/* Make sure that we haven't overflowed the output buffer.  This 
 	   overflowing can be done deliberately, for example by using large 
@@ -370,6 +374,7 @@ static int copyStringArg( OUT_BUFFER( bufMaxLen, *bufPos ) char *buffer,
 						   TRUE );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( position, charsWritten ) );
 		position += charsWritten;
 		if( position > bufMaxLen )
 			{
@@ -463,6 +468,7 @@ int dbmsFormatQuery( OUT_BUFFER( outMaxLength, *outLength ) char *output,
 													   inputLength - 1 ) );
 				}
 			ENSURES( LOOP_BOUND_OK_ALT );
+			REQUIRES( !checkOverflowSub( inPos, fieldPos ) );
 			length = inPos - fieldPos;
 			if( length <= 0 || length > 5 )
 				{
@@ -501,11 +507,13 @@ int dbmsFormatQuery( OUT_BUFFER( outMaxLength, *outLength ) char *output,
 			/* Just copy the character over, with a length check.  We don't 
 			   escape single quotes in this case because we use these 
 			   ourselves in SQL queries */
+			REQUIRES( !checkOverflowSub( outMaxLength, outPos ) );
 			status = copyChar( output + outPos, outMaxLength - outPos, 
 							   &length, input[ inPos++ ], FALSE );
 			}
 		if( cryptStatusError( status ) )
 			break;
+		REQUIRES( !checkOverflowAdd( outPos, length ) );
 		outPos += length;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -584,6 +592,7 @@ int dbmsParseName( OUT_PTR DBMS_NAME_INFO *nameInfo,
 	ENSURES( name[ offset ] == ':' || name[ offset ] == '@' );
 	if( name[ offset++ ] == ':' )
 		{
+		REQUIRES( !checkOverflowSub( nameLen, offset ) );
 		offset2 = strFindCh( name + offset, nameLen - offset, '@' );
 		if( offset2 < 0 )
 			offset2 = nameLen - offset;	/* Password is rest of string */
@@ -594,12 +603,14 @@ int dbmsParseName( OUT_PTR DBMS_NAME_INFO *nameInfo,
 		memcpy( nameInfo->passwordBuffer, name + offset, length );
 		nameInfo->password = nameInfo->passwordBuffer;
 		nameInfo->passwordLen = length;
+		REQUIRES( !checkOverflowAdd( offset, offset2 + 1 ) );
 		offset += offset2 + 1;
 		if( offset >= nameLen )
 			return( CRYPT_OK );
 		}
 
 	/* Separate the server and database name if necessary */
+	REQUIRES( !checkOverflowSub( nameLen, offset ) );
 	offset2 = strFindCh( name + offset, nameLen - offset, '/' );
 	if( offset2 >= 0 )
 		{
@@ -612,12 +623,14 @@ int dbmsParseName( OUT_PTR DBMS_NAME_INFO *nameInfo,
 		memcpy( nameInfo->serverBuffer, name + offset, length );
 		nameInfo->server = nameInfo->serverBuffer;
 		nameInfo->serverLen = length;
+		REQUIRES( !checkOverflowAdd( offset, offset2 + 1 ) );
 		offset += offset2 + 1;
 		}
 
 	/* Extract the database name if there is one */
 	if( offset < nameLen )
 		{
+		REQUIRES( !checkOverflowSub( nameLen, offset ) );
 		length = nameLen - offset;
 		if( length <= 0 || length > CRYPT_MAX_TEXTSIZE )
 			return( CRYPT_ERROR_OPEN );

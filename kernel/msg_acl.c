@@ -1265,6 +1265,7 @@ int preDispatchSignalDependentObjects( IN_HANDLE const int objectHandle,
 	int status;
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) && \
 			  objectHandle >= NO_SYSTEM_OBJECTS );
 	REQUIRES( sanityCheckObject( objectInfoPtr ) );
@@ -1326,6 +1327,7 @@ int preDispatchCheckAttributeAccess( IN_HANDLE const int objectHandle,
 			/* Only in debug build, see comment in attr_acl.c */
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( sanityCheckObject( objectInfoPtr ) );
 	REQUIRES( isAttributeMessage( localMessage ) );
 	REQUIRES( isAttribute( messageValue ) || \
@@ -1774,6 +1776,7 @@ int preDispatchCheckCompareParam( IN_HANDLE const int objectHandle,
 	const COMPARE_ACL *compareACL;
 
 	/* Precondition: It's a valid compare message type */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidMessage( message & MESSAGE_MASK ) );
 	REQUIRES( fullObjectCheck( objectHandle, message ) );
 	REQUIRES( isEnumRange( messageValue, MESSAGE_COMPARE ) );
@@ -1805,7 +1808,8 @@ int preDispatchCheckCompareParam( IN_HANDLE const int objectHandle,
 	   invalid parameter for the reason given above */
 	if( paramInfo( compareACL, 0 ).valueType == PARAM_VALUE_OBJECT )
 		{
-		const CRYPT_HANDLE iCryptHandle = *( ( CRYPT_HANDLE * ) messageDataPtr );
+		const CRYPT_HANDLE iCryptHandle = \
+							*( ( CRYPT_HANDLE * ) messageDataPtr );
 
 		REQUIRES( fullObjectCheck( iCryptHandle, message ) && \
 				  isSameOwningObject( objectHandle, iCryptHandle ) );
@@ -1857,6 +1861,7 @@ int preDispatchCheckCheckParam( IN_HANDLE const int objectHandle,
 	int status;
 
 	/* Precondition: It's a valid check message type */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidMessage( message & MESSAGE_MASK ) );
 	REQUIRES( fullObjectCheck( objectHandle, message ) );
 	REQUIRES( isEnumRange( messageValue, MESSAGE_CHECK ) );
@@ -1937,6 +1942,7 @@ int preDispatchCheckActionAccess( IN_HANDLE const int objectHandle,
 	int status;
 
 	/* Precondition: It's a valid access */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isActionMessage( localMessage ) );
 	REQUIRES( sanityCheckObject( objectInfoPtr ) );
@@ -1988,6 +1994,7 @@ int preDispatchCheckState( IN_HANDLE const int objectHandle,
 	const MESSAGE_TYPE localMessage = message & MESSAGE_MASK;
 
 	/* Precondition: It's a valid access */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isValidMessage( localMessage ) );
 
@@ -2034,6 +2041,7 @@ int preDispatchCheckParamHandleOpt( IN_HANDLE const int objectHandle,
 
 	/* Preconditions: The access is valid and we've been supplied a valid
 	   check ACL */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isValidMessage( message & MESSAGE_MASK ) );
 	REQUIRES( messageACL->type == ( message & MESSAGE_MASK ) );
@@ -2086,6 +2094,7 @@ int preDispatchCheckStateParamHandle( IN_HANDLE const int objectHandle,
 
 	/* Preconditions: The access is valid and we've been supplied a valid
 	   check ACL */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidMessage( message & MESSAGE_MASK ) );
 	REQUIRES( fullObjectCheck( objectHandle, message ) );
 	REQUIRES( messageACL->type == ( message & MESSAGE_MASK ) );
@@ -2134,6 +2143,7 @@ int preDispatchCheckExportAccess( IN_HANDLE const int objectHandle,
 	LOOP_INDEX i;
 
 	/* Precondition */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isValidMessage( message & MESSAGE_MASK ) );
 	REQUIRES( messageDataPtr != NULL );
@@ -2191,6 +2201,7 @@ int preDispatchCheckData( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( MESSAGE_DATA ) ) );
 
 	/* Precondition */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isValidMessage( localMessage ) );
 
@@ -2248,6 +2259,7 @@ int preDispatchCheckCreate( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( MESSAGE_CREATEOBJECT_INFO ) ) );
 
 	/* Precondition */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( fullObjectCheck( objectHandle, message ) && \
 			  objectTable[ objectHandle ].type == OBJECT_TYPE_DEVICE );
 	REQUIRES( localMessage == MESSAGE_DEV_CREATEOBJECT || \
@@ -2389,6 +2401,7 @@ int preDispatchCheckUserMgmtAccess( IN_HANDLE const int objectHandle,
 							getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
 	const MESSAGE_TYPE localMessage = message & MESSAGE_MASK;
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( fullObjectCheck( objectHandle, message ) && \
 			  objectTable[ objectHandle ].type == OBJECT_TYPE_USER );
 	REQUIRES( localMessage == MESSAGE_USER_USERMGMT );
@@ -2436,6 +2449,7 @@ int preDispatchCheckTrustMgmtAccess( IN_HANDLE const int objectHandle,
 						  sizeof( CRYPT_HANDLE ) ) ) || \
 			( isReadPtr( messageDataPtr, sizeof( CRYPT_HANDLE ) ) ) );
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( fullObjectCheck( objectHandle, message ) && \
 			  objectTable[ objectHandle ].type == OBJECT_TYPE_USER );
 	REQUIRES( localMessage == MESSAGE_USER_TRUSTMGMT );
@@ -2472,6 +2486,7 @@ int postDispatchSignalDependentDevices( IN_HANDLE const int objectHandle,
 	int status;
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) && \
 			  objectHandle >= NO_SYSTEM_OBJECTS );
 	REQUIRES( sanityCheckObject( objectInfoPtr ) );
@@ -2514,6 +2529,7 @@ int postDispatchMakeObjectExternal( STDC_UNUSED const int dummy,
 	int status;
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( localMessage == MESSAGE_GETATTRIBUTE || \
 			  localMessage == MESSAGE_DEV_CREATEOBJECT || \
 			  localMessage == MESSAGE_DEV_CREATEOBJECT_INDIRECT || \
@@ -2724,6 +2740,8 @@ int postDispatchForwardToDependentObject( IN_HANDLE const int objectHandle,
 
 	/* Precondition: It's an appropriate message type being forwarded to a
 	   dependent object */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( ( message & MESSAGE_MASK ) == MESSAGE_CHECK );
 	REQUIRES( isEnumRange( messageValue, MESSAGE_CHECK ) );
@@ -2779,6 +2797,7 @@ int postDispatchUpdateUsageCount( IN_HANDLE const int objectHandle,
 	ORIGINAL_INT_VAR( usageCt, objectInfoPtr->usageCount );
 
 	/* Precondition: It's a context with a nonzero usage count */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) && \
 			  objectInfoPtr->type == OBJECT_TYPE_CONTEXT );
 	REQUIRES( objectInfoPtr->usageCount == CRYPT_UNUSED || \
@@ -2787,7 +2806,10 @@ int postDispatchUpdateUsageCount( IN_HANDLE const int objectHandle,
 
 	/* If there's an active usage count present, update it */
 	if( objectInfoPtr->usageCount > 0 )
+		{
+		REQUIRES( !checkOverflowDec( objectInfoPtr->usageCount ) );
 		objectInfoPtr->usageCount--;
+		}
 
 	/* Postcondition: If there was a usage count it's been decremented and
 	   is >= 0 (the ground state) */
@@ -2817,6 +2839,7 @@ int postDispatchChangeState( IN_HANDLE const int objectHandle,
 
 	/* Precondition: Object is in the low state so a state change message is
 	   valid */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( !isInHighState( objectHandle ) );
 
@@ -2846,6 +2869,8 @@ int postDispatchChangeStateOpt( IN_HANDLE const int objectHandle,
 	/* Precondition.  If we're closing down then a background polling thread
 	   may still be trying to send entropy data to the system object, so we
 	   don't complain if this is the case */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( ( krnlData->shutdownLevel >= SHUTDOWN_LEVEL_THREADS && \
 			    objectHandle == SYSTEM_OBJECT_HANDLE && \
 			    messageValue == CRYPT_IATTRIBUTE_ENTROPY ) || \
@@ -2891,6 +2916,8 @@ int postDispatchHandleZeroise( IN_HANDLE const int objectHandle,
 	const MESSAGE_TYPE localMessage = message & MESSAGE_MASK;
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( fullObjectCheck( objectHandle, message ) && \
 			  objectTable[ objectHandle ].type == OBJECT_TYPE_USER );
 	REQUIRES( localMessage == MESSAGE_USER_USERMGMT );

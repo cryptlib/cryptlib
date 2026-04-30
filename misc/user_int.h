@@ -48,11 +48,12 @@ typedef struct OI {
 	BOOLEAN dirty;					/* Whether option has been changed */
 	} OPTION_INFO;
 
-/* The size of the variable-length configuration data, used when we allocate
-   storage for it and initialise it from the builtinOptionInfo template */
+/* The total number of configuration options.  The reason for the -1 portion 
+   of the expression is that all enums are bracketed by CRYPT_xxx_FIRST and 
+   CRYPT_xxx_LAST, so CRYPT_xxx_LAST is one past the last valid value.  To 
+   deal with this we need to adjust the total count by one */
 
-#define OPTION_INFO_SIZE	( sizeof( OPTION_INFO ) * \
-							  CRYPT_OPTION_CONFIGCHANGED - CRYPT_OPTION_FIRST )
+#define OPTION_INFO_COUNT	( ( CRYPT_OPTION_LAST - 1 ) - CRYPT_OPTION_FIRST )
 
 /* Sometimes when we change an option this can affect other related options,
    for example changing CRYPT_OPTION_ENCR_HASH can affect 

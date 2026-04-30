@@ -259,7 +259,7 @@ int initHttpInfo( OUT_PTR HTTP_DATA_INFO *httpDataInfo,
 	assert( isWritePtr( httpDataInfo, sizeof( HTTP_DATA_INFO ) ) );
 	assert( buffer == NULL || isReadPtr( buffer, bufSize ) );
 	assert( reqInfo == NULL || isReadPtr( reqInfo, sizeof( HTTP_REQ_INFO ) ) );
-	assert( uriInfo == NULL || isReadPtr( uriInfo, sizeof( HTTP_URI_INFO ) ) );
+	assert( uriInfo == NULL || isWritePtr( uriInfo, sizeof( HTTP_URI_INFO ) ) );
 
 	REQUIRES( isBufsizeRange( dataLength ) && dataLength <= bufSize );
 	REQUIRES( ( buffer == NULL && bufSize == 0 && dataLength == 0 ) || \
@@ -295,7 +295,7 @@ const HTTP_STATUS_INFO *getHTTPStatusInfo( IN_INT const int httpStatus )
 	LOOP_INDEX i;
 
 	REQUIRES_N( httpStatus >= MIN_HTTP_STATUS && \
-				httpStatus < MAX_HTTP_STATUS );
+				httpStatus <= MAX_HTTP_STATUS );
 
 	/* Find the HTTP error string that corresponds to the HTTP status
 	   value */
@@ -355,7 +355,9 @@ int checkHTTPID( IN_BUFFER( dataLength ) const char *data,
 *																			*
 ****************************************************************************/
 
-/* Exit with extended error information after a readTextLine() call */
+/* Exit with extended error information after a readTextLine() call.  This 
+   is always called with literal format strings, however some analysis tools
+   will warn about possible format-string attacks */
 
 STDC_NONNULL_ARG( ( 1, 4 ) ) \
 int retTextLineError( INOUT_PTR STREAM *stream, 
@@ -402,22 +404,18 @@ int retTextLineError( INOUT_PTR STREAM *stream,
    and write code but needs access to the HTTP status decoding table, which 
    is part of the parsing code */
 
-STDC_NONNULL_ARG( ( 1, 2 ) ) \
+STDC_NONNULL_ARG( ( 1 ) ) \
 int sendHTTPError( INOUT_PTR STREAM *stream, 
-   				   OUT_BUFFER_FIXED( headerBufMaxLen ) char *headerBuffer, 
-				   IN_LENGTH_SHORT_MIN( MIN_LINEBUF_SIZE ) \
-						const int headerBufMaxLen, 
 				   IN_INT const int httpStatus )
 	{
 	const NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
 	const HTTP_STATUS_INFO *httpStatusInfoPtr;
-	STREAM headerStream;
+	STREAM httpStream;
+	BYTE buffer[ MIN_LINEBUF_SIZE + 8 ];
 	int length DUMMY_INIT, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtrDynamic( headerBuffer, headerBufMaxLen ) );
 
-	REQUIRES( isShortIntegerRangeMin( headerBufMaxLen, MIN_LINEBUF_SIZE ) );
 	REQUIRES( httpStatus >= 0 && httpStatus < 600 );
 	REQUIRES( netStream != NULL && sanityCheckNetStream( netStream ) );
 
@@ -427,15 +425,15 @@ int sendHTTPError( INOUT_PTR STREAM *stream,
 	REQUIRES( httpStatusInfoPtr != NULL );
 
 	/* Send the error message to the peer */
-	sMemOpen( &headerStream, headerBuffer, headerBufMaxLen );
-	swrite( &headerStream, isHTTP10( netStream ) ? \
+	sMemOpen( &httpStream, buffer, MIN_LINEBUF_SIZE );
+	swrite( &httpStream, isHTTP10( netStream ) ? \
 			"HTTP/1.0 " : "HTTP/1.1 ", 9 );
-	swrite( &headerStream, httpStatusInfoPtr->httpStatusString, 
+	swrite( &httpStream, httpStatusInfoPtr->httpStatusString, 
 			HTTP_STATUSSTRING_LENGTH );
-	sputc( &headerStream, ' ' );
-	swrite( &headerStream, httpStatusInfoPtr->httpErrorString, 
+	sputc( &httpStream, ' ' );
+	swrite( &httpStream, httpStatusInfoPtr->httpErrorString, 
 			httpStatusInfoPtr->httpErrorStringLength );
-	swrite( &headerStream, "\r\n", 2 );
+	swrite( &httpStream, "\r\n", 2 );
 	if( httpStatus == 501 )
 		{
 		/* Since the assumption on the web is that anything listening for
@@ -444,19 +442,18 @@ int sendHTTPError( INOUT_PTR STREAM *stream,
 		   request.  This is also useful for some browsers that hang around
 		   forever waiting for content if they don't see anything following
 		   the HTTP error status */
-		swrite( &headerStream, "Content-Length: 139\r\n\r\n", 23 );
-		swrite( &headerStream,
+		swrite( &httpStream, "Content-Length: 139\r\n\r\n", 23 );
+		swrite( &httpStream,
 				"<html><head><title>Invalid PKI Server Request</title></head>"
 				"<body>This is a PKI messaging service, not a standard web "
 				"server.</body></html>", 139 );
 		}
-	status = swrite( &headerStream, "\r\n", 2 );
+	status = swrite( &httpStream, "\r\n", 2 );
 	if( cryptStatusOK( status ) )
-		length = stell( &headerStream );
-	sMemDisconnect( &headerStream );
+		length = stell( &httpStream );
+	sMemDisconnect( &httpStream );
 	ENSURES( cryptStatusOK( status ) );
 	ENSURES( isBufsizeRangeNZ( length ) );
-	return( sendHTTPData( stream, headerBuffer, length,
-						  TRANSPORT_FLAG_FLUSH ) );
+	return( sendHTTPData( stream, buffer, length, TRANSPORT_FLAG_FLUSH ) );
 	}
 #endif /* USE_HTTP */

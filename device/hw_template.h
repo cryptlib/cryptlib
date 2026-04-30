@@ -63,7 +63,7 @@ typedef struct {
 
 	/* Key data storage */
 	union {
-		BYTE convKeyInfo[ CRYPT_MAX_KEYSIZE ];
+		BYTE convKeyInfo[ CRYPT_MAX_KEYSIZE + 8 ];
 		BIGNUM_STORAGE pkcKeyInfo[ NO_BIGNUMS ];
 		} keyInfo;
 	} PERSONALITY_INFO;

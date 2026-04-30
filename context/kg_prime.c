@@ -147,6 +147,7 @@ static int witnessOld( INOUT_PTR PKC_INFO *pkcInfo, INOUT_PTR BIGNUM *a,
 	   begin we have to convert a to this form as well */
 	if( !BN_to_montgomery( mont_a, a, montCTX_n, &pkcInfo->bnCTX ) )
 		{
+		REQUIRES( !checkOverflowDec( ctx->tos ) );
 		ctx->tos--;
 		return( CRYPT_ERROR_FAILED );
 		}
@@ -162,6 +163,7 @@ static int witnessOld( INOUT_PTR PKC_INFO *pkcInfo, INOUT_PTR BIGNUM *a,
 			( !BN_cmp( yPrime, mont_1 ) && \
 			  BN_cmp( y, mont_1 ) && BN_cmp( y, mont_n1 ) ) )
 			{
+			REQUIRES( !checkOverflowDec( ctx->tos ) );
 			ctx->tos--;
 			return( TRUE );
 			}
@@ -173,6 +175,7 @@ static int witnessOld( INOUT_PTR PKC_INFO *pkcInfo, INOUT_PTR BIGNUM *a,
 									   &pkcInfo->bnCTX ) );
 			if( bnStatusError( bnStatus ) )
 				{
+				REQUIRES( !checkOverflowDec( ctx->tos ) );
 				ctx->tos--;
 				return( TRUE );
 				}
@@ -186,6 +189,7 @@ static int witnessOld( INOUT_PTR PKC_INFO *pkcInfo, INOUT_PTR BIGNUM *a,
 			tmp = y; y = yPrime; yPrime = tmp;
 			}
 		}
+	REQUIRES( !checkOverflowDec( ctx->tos ) );
 	ctx->tos--;
 
 	/* Finally we have y = a^u mod n.  If y == 1 (mod n) it's prime,
@@ -912,6 +916,7 @@ int generateBignumEx( OUT_PTR BIGNUM *bignum,
 		buffer[ 1 ] |= ( high << ( noBits & 7 ) ) & 0xFF;
 
 	/* Turn the contents of the buffer into a bignum */
+	REQUIRES( !checkOverflowSub( noBytes, 8 ) );
 	status = importBignum( bignum, buffer, noBytes, max( noBytes - 8, 1 ),
 						   CRYPT_MAX_PKCSIZE, NULL, BIGNUM_CHECK_VALUE );
 	zeroise( buffer, CRYPT_MAX_PKCSIZE );

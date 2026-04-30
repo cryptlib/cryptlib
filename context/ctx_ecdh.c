@@ -306,8 +306,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 	pkcInfo->checksum = 0L;
-	status = checksumContextData( contextInfoPtr->ctxPKC, CRYPT_ALGO_ECDH, 
-								  TRUE );
+	status = checksumContextData( contextInfoPtr->ctxPKC, TRUE );
 	ENSURES( cryptStatusOK( status ) );
 	ENSURES( verifyECCPointImport( &pkcInfo->eccParam_qx, 
 								   &pkcInfo->eccParam_qy,
@@ -415,7 +414,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		if( eccKey->isPublicKey )
 			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPUBLICKEY );
 		else
-			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPRIVATEKEY );
+			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 #if 0	/* We don't allow explicit ECC parameters since all curves are 
 		   predefined */
 		if( eccKey->curveType == CRYPT_ECCCURVE_NONE )

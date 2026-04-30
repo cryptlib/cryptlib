@@ -124,10 +124,11 @@ int calculatePrivkeyStorage( OUT_BUFFER_ALLOC_OPT( *newPrivKeyDataSize ) \
 	*newPrivKeyDataSize = 0;
 
 	/* Calculate the new private-key data size */
-	*newPrivKeyDataSize = sizeofObject( privKeyAttributeSize + \
-										sizeofObject( \
-											sizeofObject( privKeySize ) + \
-											extraDataSize ) );
+	*newPrivKeyDataSize = \
+		sizeofShortObject( privKeyAttributeSize + \
+						   sizeofShortObject( \
+								sizeofShortObject( privKeySize ) + \
+								extraDataSize ) );
 	ENSURES( isBufsizeRangeNZ( *newPrivKeyDataSize ) );
 
 	/* If the new data will fit into the existing storage, we're done */
@@ -193,8 +194,8 @@ void updatePrivKeyAttributes( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 	   key data itself is unchanged so we just memcpy() it across verbatim */
 	sMemOpen( &stream, newPrivKeyData, newPrivKeyDataSize );
 	writeConstructed( &stream, privKeyAttributeSize + \
-							   sizeofObject( \
-									sizeofObject( privKeyInfoSize ) ), 
+							   sizeofShortObject( \
+									sizeofShortObject( privKeyInfoSize ) ), 
 					  keyTypeTag );
 	swrite( &stream, privKeyAttributes, privKeyAttributeSize );
 	writeConstructed( &stream, sizeofShortObject( privKeyInfoSize ),
@@ -506,7 +507,7 @@ static int writeWrappedSessionKey( INOUT_PTR STREAM *stream,
 									  iCryptContext, errorInfo );
 			}
 		if( cryptStatusOK( status ) )
-			status = sSkip( stream, exportedKeySize, MAX_INTLENGTH_SHORT );
+			status = sExtend( stream, exportedKeySize, MAX_INTLENGTH_SHORT );
 		}
 
 	/* Clean up */
@@ -680,7 +681,7 @@ static int addPrivateKeyMetadata( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 	MESSAGE_DATA msgData;
 	BYTE storageID[ KEYID_SIZE + 8 ];
 	void *newPrivKeyData = pkcs15infoPtr->privKeyData;
-	const int privKeySize = sizeofObject( KEYID_SIZE );
+	const int privKeySize = sizeofShortObject( KEYID_SIZE );
 	int newPrivKeyDataSize, newPrivKeyOffset DUMMY_INIT;
 	int extraDataSize = 0;
 	int status;
@@ -719,7 +720,8 @@ static int addPrivateKeyMetadata( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 #ifdef USE_RSA_EXTRAPARAM
 	if( privKeyParams->pkcCryptAlgo == CRYPT_ALGO_RSA )
 		{
-		/* RSA keys have an extra element for PKCS #11 compatibility */
+		/* RSA keys have an extra element for PKCS #11 compatibility, only
+		   required for pre-PKCS #15 v1.2 */
 		extraDataSize = sizeofShortInteger( \
 							bytesToBits( privKeyParams->modulusSize ) );
 		}
@@ -727,7 +729,7 @@ static int addPrivateKeyMetadata( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 	status = calculatePrivkeyStorage( &newPrivKeyData, &newPrivKeyDataSize, 
 									  pkcs15infoPtr->privKeyData,
 									  pkcs15infoPtr->privKeyDataSize,
-									  sizeofObject( privKeySize ),
+									  sizeofShortObject( privKeySize ),
 									  privKeyParams->privKeyAttributeSize, 
 									  extraDataSize );
 	if( cryptStatusError( status ) )
@@ -737,19 +739,21 @@ static int addPrivateKeyMetadata( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 
 	/* Write the outer header, attributes, and storage reference */
 	writeConstructed( &stream, privKeyParams->privKeyAttributeSize + \
-							   sizeofObject( \
-									sizeofObject( \
-										sizeofObject( privKeySize ) + \
+							   sizeofShortObject( \
+									sizeofShortObject( \
+										sizeofShortObject( privKeySize ) + \
 										extraDataSize ) ),
 					  privKeyParams->keyTypeTag );
 	swrite( &stream, privKeyParams->privKeyAttributes, 
 			privKeyParams->privKeyAttributeSize );
 	writeConstructed( &stream, 
-					  sizeofObject( \
-							sizeofObject( privKeySize + extraDataSize ) ), 
+					  sizeofShortObject( \
+							sizeofShortObject( \
+								privKeySize + extraDataSize ) ), 
 					  CTAG_OB_TYPEATTR );
 	status = writeSequence( &stream, 
-							sizeofObject( privKeySize + extraDataSize ) );
+							sizeofShortObject( \
+								privKeySize + extraDataSize ) );
 	if( cryptStatusOK( status ) )
 		{
 		newPrivKeyOffset = stell( &stream );
@@ -762,7 +766,8 @@ static int addPrivateKeyMetadata( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 			privKeyParams->pkcCryptAlgo == CRYPT_ALGO_RSA )
 			{
 			/* RSA keys have an extra element for PKCS #11 compability that 
-			   we need to kludge onto the end of the private-key data */
+			   we need to kludge onto the end of the private-key data, only
+		   required for pre-PKCS #15 v1.2 */
 			status = writeShortInteger( &stream, 
 								bytesToBits( privKeyParams->modulusSize ), 
 								DEFAULT_TAG );
@@ -875,7 +880,8 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 				( status, errorInfo,
 				  "Couldn't calculate size of wrapped private key" ) );
 		}
-	ENSURES( privKeySize >= 16 && privKeySize <= 256 + MAX_PRIVATE_KEYSIZE );
+	ENSURES( privKeySize >= 16 && \
+			 privKeySize <= 256 + MAX_PRIVATE_KEYSIZE );
 
 	/* Determine the size of the MAC value */
 	status = krnlSendMessage( privKeyParams->iMacContext, 
@@ -883,7 +889,7 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 							  CRYPT_CTXINFO_BLOCKSIZE );
 	if( cryptStatusError( status ) )
 		return( status );
-	macSize = sizeofObject( macSize );
+	macSize = sizeofShortObject( macSize );
 
 	/* Write the CMS envelope header for the wrapped private key except for 
 	   the outermost wrapper, which we have to defer writing until later 
@@ -914,6 +920,8 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 		}
 	envelopeHeaderSize = stell( &stream );
 	REQUIRES_SC( isShortIntegerRangeNZ( envelopeHeaderSize ) );
+	REQUIRES_SC( !checkOverflowAdd3( envelopeHeaderSize, privKeySize,
+									 macSize ) );
 	envelopeContentSize = envelopeHeaderSize + privKeySize + macSize;
 	sMemDisconnect( &stream );
 
@@ -926,7 +934,8 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 #ifdef USE_RSA_EXTRAPARAM
 	if( privKeyParams->pkcCryptAlgo == CRYPT_ALGO_RSA )
 		{
-		/* RSA keys have an extra element for PKCS #11 compatibility */
+		/* RSA keys have an extra element for PKCS #11 compatibility, only
+		   required for pre-PKCS #15 v1.2 */
 		extraDataSize = sizeofShortInteger( privKeyParams->modulusSize );
 		}
 #endif /* USE_RSA_EXTRAPARAM */
@@ -942,6 +951,7 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 	   information alongside the payload data to prevent an attacker from 
 	   manipulating the algorithm parameters to cause corruption that won't 
 	   be detected by the MAC on the payload data */
+	REQUIRES( !checkOverflowSub( envelopeHeaderSize, macDataOffset ) );
 	sMemConnect( &stream, envelopeHeaderBuffer + macDataOffset, 
 				 envelopeHeaderSize - macDataOffset );
 	readSequenceI( &stream, NULL );		/* Outer encapsulation */
@@ -973,13 +983,14 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 
 	/* Write the outer header and attributes */
 	writeConstructed( &stream, privKeyParams->privKeyAttributeSize + \
-							   sizeofObject( sizeofObject( privKeySize ) + \
-											 extraDataSize ),
+							   sizeofShortObject( \
+									sizeofShortObject( privKeySize ) + \
+									extraDataSize ),
 					  privKeyParams->keyTypeTag );
 	swrite( &stream, privKeyParams->privKeyAttributes, 
 			privKeyParams->privKeyAttributeSize );
 	writeConstructed( &stream, 
-					  sizeofObject( privKeySize + extraDataSize ), 
+					  sizeofShortObject( privKeySize + extraDataSize ), 
 					  CTAG_OB_TYPEATTR );
 	status = writeSequence( &stream, privKeySize + extraDataSize );
 	if( cryptStatusOK( status ) )
@@ -1024,7 +1035,7 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 										 isPrivKeyExt );
 		}
 	if( cryptStatusOK( status ) )
-		status = sSkip( &stream, privKeySize, MAX_INTLENGTH_SHORT );
+		status = sExtend( &stream, privKeySize, MAX_INTLENGTH_SHORT );
 	if( cryptStatusError( status ) )
 		{
 		sMemClose( &stream );
@@ -1056,7 +1067,8 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 
 #ifdef USE_RSA_EXTRAPARAM
 	/* RSA keys have an extra element for PKCS #11 compability that we need 
-	   to kludge onto the end of the private-key data */
+	   to kludge onto the end of the private-key data, only required for 
+	   pre-PKCS #15 v1.2  */
 	if( privKeyParams->pkcCryptAlgo == CRYPT_ALGO_RSA )
 		{
 		status = writeShortInteger( &stream, privKeyParams->modulusSize, 
@@ -1334,19 +1346,22 @@ int pkcs15AddPrivateKey( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 		}
 	envelopeHeaderSize = stell( &stream );
 	REQUIRES( isShortIntegerRangeNZ( envelopeHeaderSize ) );
+	REQUIRES( !checkOverflowAdd( envelopeHeaderSize, privKeySize ) );
 	envelopeContentSize = envelopeHeaderSize + privKeySize;
 	sMemDisconnect( &stream );
 
 	/* Since we haven't been able to write the outer CMS envelope wrapper 
 	   yet we need to adjust the overall size for the additional level of
 	   encapsulation */
+	REQUIRES( !checkOverflowAdd( privKeySize, envelopeHeaderSize ) );
 	privKeySize = sizeofShortObject( privKeySize + envelopeHeaderSize );
 
 	/* Calculate the private-key storage size */
 #ifdef USE_RSA_EXTRAPARAM
 	if( pkcCryptAlgo == CRYPT_ALGO_RSA )
 		{
-		/* RSA keys have an extra element for PKCS #11 compatibility */
+		/* RSA keys have an extra element for PKCS #11 compatibility, only
+		   required for pre-PKCS #15 v1.2 */
 		extraDataSize = sizeofShortInteger( modulusSize );
 		}
 #endif /* USE_RSA_EXTRAPARAM */
@@ -1364,11 +1379,14 @@ int pkcs15AddPrivateKey( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 
 	/* Write the outer header and attributes */
 	writeConstructed( &stream, privKeyAttributeSize + \
-							   sizeofObject( sizeofObject( privKeySize ) + \
-											 extraDataSize ),
+							   sizeofShortObject( \
+									sizeofShortObject( privKeySize ) + \
+									extraDataSize ),
 					  keyTypeTag );
 	swrite( &stream, privKeyAttributes, privKeyAttributeSize );
-	writeConstructed( &stream, sizeofObject( privKeySize + extraDataSize ), 
+	REQUIRES( !checkOverflowAdd( privKeySize, extraDataSize ) );
+	writeConstructed( &stream, 
+					  sizeofShortObject( privKeySize + extraDataSize ), 
 					  CTAG_OB_TYPEATTR );
 	status = writeSequence( &stream, privKeySize + extraDataSize );
 	if( cryptStatusOK( status ) )
@@ -1407,12 +1425,13 @@ int pkcs15AddPrivateKey( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 			}
 		}
 	if( cryptStatusOK( status ) )
-		status = sSkip( &stream, privKeySize, MAX_INTLENGTH_SHORT );
+		status = sExtend( &stream, privKeySize, MAX_INTLENGTH_SHORT );
 #ifdef USE_RSA_EXTRAPARAM
 	if( cryptStatusOK( status ) && pkcCryptAlgo == CRYPT_ALGO_RSA )
 		{
 		/* RSA keys have an extra element for PKCS #11 compability that we
-		   need to kludge onto the end of the private-key data */
+		   need to kludge onto the end of the private-key data, only
+		   required for pre-PKCS #15 v1.2 */
 		status = writeShortInteger( &stream, modulusSize, DEFAULT_TAG );
 		}
 #endif /* USE_RSA_EXTRAPARAM */

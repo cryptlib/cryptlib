@@ -99,8 +99,12 @@ static void appendErrorString( INOUT_PTR ERROR_INFO *errorInfo,
 				extErrorStringLength <= MAX_ERRMSG_SIZE );
 
 	/* If there's no room to store the full strings, truncate the second one,
-	   which is secondary and therefore less important than the first one */
-	if( errorInfo->errorStringLength + \
+	   which is secondary and therefore less important than the first one.  
+	   This can't overflow since we've just checked the lengths above, the
+	   overflow check is present purely for documetation purposes */
+	if( checkOverflowAdd( errorInfo->errorStringLength, 
+						  secondStringLength ) || \
+		errorInfo->errorStringLength + \
 							secondStringLength >= MAX_ERRMSG_SIZE - 8 )
 		{
 		/* If there's nothing much to be added by appending the second 
@@ -122,11 +126,16 @@ static void appendErrorString( INOUT_PTR ERROR_INFO *errorInfo,
 							 secondStringLength, MAX_ERRMSG_SIZE ) );
 	memcpy( errorInfo->errorString + errorInfo->errorStringLength,
 			extErrorString, secondStringLength );
+	REQUIRES_V( !checkOverflowAdd( errorInfo->errorStringLength, 
+								   secondStringLength ) );
 	errorInfo->errorStringLength += secondStringLength;
 	if( appendDots )
 		{
+		REQUIRES_V( boundsCheck( errorInfo->errorStringLength, 3, 
+								 MAX_ERRMSG_SIZE ) );
 		memcpy( errorInfo->errorString + errorInfo->errorStringLength,
 				"...", 3 );
+		REQUIRES_V( !checkOverflowAdd( errorInfo->errorStringLength, 3 ) );
 		errorInfo->errorStringLength += 3;
 		}
 #ifndef NDEBUG
@@ -193,7 +202,7 @@ void copyErrorInfo( OUT_PTR ERROR_INFO *destErrorInfo,
 
 /* Read error information from an object into an error-info structure */
 
-STDC_NONNULL_ARG( ( 1 ) ) \
+RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readErrorInfo( OUT_PTR ERROR_INFO *errorInfo, 
 				   IN_HANDLE const CRYPT_HANDLE objectHandle )
 	{
@@ -378,6 +387,8 @@ int retExtErrFn( IN_ERROR const int status,
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 	assert( isReadPtr( existingErrorInfo, sizeof( ERROR_INFO ) ) );
 	assert( isReadPtr( format, 4 ) );
+	
+	REQUIRES( cryptStatusError( status ) );
 
 	/* We can't clear the return value at this point because errorInfo
 	   could be the same as existingErrorInfo */
@@ -410,12 +421,6 @@ int retExtErrFn( IN_ERROR const int status,
 	va_start( argPtr, format );
 	errorStringOK = formatErrorString( errorInfo, format, argPtr );
 	va_end( argPtr );
-	if( extErrorStringLength <= 0 )
-		{
-		/* If there's no lower-level error information present then we just
-		   act like the standard retExt() */
-		return( status );
-		}
 	if( !errorStringOK )
 		{
 		/* If we couldn't format the basic error string then there's no 
@@ -424,6 +429,11 @@ int retExtErrFn( IN_ERROR const int status,
 		   here */
 		return( status );
 		}
+
+	/* If there's no lower-level error information present then we just act 
+	   like the standard retExt() */
+	if( extErrorStringLength <= 0 )
+		return( status );
 
 	/* Append the additional status string */
 	appendErrorString( errorInfo, ": ", 2 );
@@ -445,6 +455,8 @@ int retExtAdditionalFn( IN_ERROR const int status,
 
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 	assert( isReadPtr( format, 4 ) );
+
+	REQUIRES( cryptStatusError( status ) );
 
 	/* This function is typically used when the caller wants to convert 
 	   something like "Low-level error string" into "Low-level error string,
@@ -502,6 +514,83 @@ int retExtAdditionalFn( IN_ERROR const int status,
 	return( status );
 	}
 
+CHECK_RETVAL STDC_NONNULL_ARG( ( 2, 3, 4 ) ) \
+int retExtSanFn( IN_ERROR const int status, 
+				 OUT_PTR ERROR_INFO *errorInfo,
+				 FORMAT_STRING const char *formatString,
+				 IN_BUFFER( string1Length ) const BYTE *string1,
+				 IN_LENGTH_SHORT_Z const int string1Length,
+				 IN_BUFFER_OPT( string2Length ) const BYTE *string2,
+				 IN_LENGTH_SHORT_Z const int string2Length,
+				 IN_BUFFER_OPT( string3Length ) const BYTE *string3,
+				 IN_LENGTH_SHORT_Z const int string3Length )
+	{
+	char string1Buffer[ CRYPT_MAX_TEXTSIZE + 8 ];
+	char string2Buffer[ CRYPT_MAX_TEXTSIZE + 8 ];
+	char string3Buffer[ CRYPT_MAX_TEXTSIZE + 8 ];
+	const char *string1Ptr = string1, *string2Ptr = string2;
+	const char *string3Ptr = string3;
+
+	assert( isReadPtr( formatString, 16 ) );
+	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
+	assert( ( string1Length == 0 && isReadPtr( string1, 4 ) ) || \
+			isReadPtrDynamic( string1, string1Length ) );
+	assert( string2 == NULL || \
+			( string2 != NULL && string2Length == 0 ) || \
+			isReadPtrDynamic( string2, string2Length ) );
+	assert( string3 == NULL || \
+			( string3 != NULL && string3Length == 0 ) || \
+			isReadPtrDynamic( string3, string3Length ) );
+
+	REQUIRES( cryptStatusError( status ) );
+	REQUIRES( string1 != NULL && \
+			  isShortIntegerRange( string1Length ) );
+	REQUIRES( ( string2 == NULL && string2Length == 0 ) || \
+			  ( string2 != NULL && \
+				isShortIntegerRange( string2Length ) ) );
+	REQUIRES( ( string3 == NULL && string3Length == 0 ) || \
+			  ( string3 != NULL && \
+				isShortIntegerRange( string3Length ) ) );
+
+	/* Clear return value */
+	clearErrorInfo( errorInfo );
+
+	/* Set up the various strings that we'll need in the error message.  The 
+	   string2 and string3 arguments are optional, in addition any of the
+	   arguments can be literal strings denoted by the length being 0 so we
+	   only sanitise them if they're present and it's required */
+	if( string1Length > 0 )
+		{
+		const int stringLength = min( string1Length, CRYPT_MAX_TEXTSIZE );
+
+		REQUIRES( rangeCheck( stringLength, 1, CRYPT_MAX_TEXTSIZE ) );
+		memcpy( string1Buffer, string1, stringLength );
+		sanitiseString( string1Buffer, CRYPT_MAX_TEXTSIZE, string1Length );
+		string1Ptr = string1Buffer;
+		}
+	if( string2 != NULL && string2Length > 0 )
+		{
+		const int stringLength = min( string2Length, CRYPT_MAX_TEXTSIZE );
+
+		REQUIRES( rangeCheck( stringLength, 1, CRYPT_MAX_TEXTSIZE ) );
+		memcpy( string2Buffer, string2, stringLength );
+		sanitiseString( string2Buffer, CRYPT_MAX_TEXTSIZE, string2Length );
+		string2Ptr = string2Buffer;
+		}
+	if( string3 != NULL && string3Length > 0 )
+		{
+		const int stringLength = min( string3Length, CRYPT_MAX_TEXTSIZE );
+
+		REQUIRES( rangeCheck( stringLength, 1, CRYPT_MAX_TEXTSIZE ) );
+		memcpy( string3Buffer, string3, stringLength );
+		sanitiseString( string3Buffer, CRYPT_MAX_TEXTSIZE, string3Length );
+		string3Ptr = string3Buffer;
+		}
+	retExt( status,
+			( status, errorInfo, formatString, string1Ptr, 
+			  string2Ptr, string3Ptr ) );
+	}
+
 /****************************************************************************
 *																			*
 *								Helper Functions							*
@@ -548,7 +637,7 @@ const char *getStatusName( IN_STATUS const int errorStatus )
 		{ CRYPT_ERROR_NOTFOUND, "CRYPT_ERROR_NOTFOUND" },
 		{ CRYPT_ERROR_DUPLICATE, "CRYPT_ERROR_DUPLICATE" },
 		{ CRYPT_ENVELOPE_RESOURCE, "CRYPT_ENVELOPE_RESOURCE" },
-		{ CRYPT_OK, "<Unknown>" }, { CRYPT_OK, "<Unknown>" },
+			{ CRYPT_OK, "<Unknown>" }, { CRYPT_OK, "<Unknown>" },
 		};
 
 	REQUIRES_EXT( cryptStatusError( errorStatus ), "<Unknown>" );
@@ -631,7 +720,8 @@ const char *getModeName( IN_MODE const CRYPT_MODE_TYPE cryptMode )
 		{ CRYPT_MODE_CBC, "CBC" },
 		{ CRYPT_MODE_CFB, "CFB" },
 		{ CRYPT_MODE_GCM, "GCM" },
-		{ CRYPT_ALGO_NONE, "<Unknown>" }, { CRYPT_ALGO_NONE, "<Unknown>" },
+			{ CRYPT_MODE_NONE, "<Unknown>" }, 
+			{ CRYPT_MODE_NONE, "<Unknown>" },
 		};
 
 	REQUIRES_EXT( cryptMode > CRYPT_MODE_NONE && \
@@ -655,7 +745,8 @@ const char *getKeyIDName( IN_KEYID const CRYPT_KEYID_TYPE keyIDtype )
 		{ CRYPT_IKEYID_SUBJECTID, "subject DN ID" },
 		{ CRYPT_IKEYID_ISSUERID, "issuerAndSerialNumber ID" },
 		{ CRYPT_IKEYID_ISSUERANDSERIALNUMBER, "issuerAndSerialNumber" },
-		{ CRYPT_KEYID_NONE, "<Unknown>" }, { CRYPT_KEYID_NONE, "<Unknown>" },
+			{ CRYPT_KEYID_NONE, "<Unknown>" }, 
+			{ CRYPT_KEYID_NONE, "<Unknown>" },
 		};
 
 	REQUIRES_EXT( isEnumRange( keyIDtype, CRYPT_KEYID ), "<Unknown>" );
@@ -710,7 +801,7 @@ const char *getCertHolderName( const CRYPT_CERTIFICATE iCryptCert,
 	if( cryptStatusOK( status ) )
 		sanitiseString( buffer, bufSize, msgData.length );
 	else
-		memcpy( buffer, "<Unknown>", 10 );	/* String + '\0' */
+		memcpy( buffer, "<Unknown>", 9 + 1 );	/* String + '\0' */
 
 	return( buffer );
 	}
@@ -748,21 +839,29 @@ void formatHexData( OUT_BUFFER_FIXED( hexTextMaxLen ) char *hexText,
 			{
 			ENSURES_V( LOOP_INVARIANT_SMALL( i, 0, hexDataLen - 2 ) );
 
+			REQUIRES_V( !checkOverflowSub( hexTextMaxLen, offset ) );
 			REQUIRES_V( isShortIntegerRangeNZ( hexTextMaxLen - offset ) );
 			length = sprintf_s( hexText + offset, hexTextMaxLen - offset, 
 								"%02X ", byteToInt( hexData[ i ] ) );
-			ENSURES_V( rangeCheck( length, 2, hexTextMaxLen - 1 ) );
+			ENSURES_V( rangeCheck( length, 2, \
+								   hexTextMaxLen - ( offset + 1 ) ) );
+			REQUIRES_V( !checkOverflowAdd( offset, length ) );
 			offset += length;
 			}
 		ENSURES_V( LOOP_BOUND_OK );
-		ENSURES_V( rangeCheck( offset, 12, hexTextMaxLen - 1 ) );
+		ENSURES_V( rangeCheck( offset, 3 * 3, hexTextMaxLen - 1 ) );
+							   /* 4 - 1 bytes, 3 chars output */
 
+		REQUIRES_V( !checkOverflowSub( hexTextMaxLen, offset ) );
 		REQUIRES_V( isShortIntegerRangeNZ( hexTextMaxLen - offset ) );
-		sprintf_s( hexText + offset, hexTextMaxLen - offset, "%02X", 
-				   byteToInt( hexData[ i ] ) );
+		length = sprintf_s( hexText + offset, hexTextMaxLen - offset, 
+							"%02X", byteToInt( hexData[ i ] ) );
+		ENSURES_V( rangeCheck( length, 2, \
+							   hexTextMaxLen - ( offset + 1 ) ) );
 		
 		return;
 		}
+	ENSURES_V( hexDataLen > 10 );
 
 	/* It's more than 10 bytes, only output the first 6 and last 4 bytes.  
 	   The potential expansion factor is ( hexDataLen * 3 ) + 1 (+3 for the 

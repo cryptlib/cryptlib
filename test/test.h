@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Test Routines Header File					*
-*						Copyright Peter Gutmann 1995-2022					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -372,8 +372,9 @@
   #define THREAD_HANDLE		pthread_t
   #define THREAD_EXIT()		pthread_exit( ( void * ) 0 )
   #define THREAD_SELF()		pthread_self()
-  #define THREAD_SLEEP( ms ) { struct timeval tv = { 0 }; \
-							  tv.tv_usec = ( ms ) * 1000; \
+  #define THREAD_SLEEP( ms ) \
+							{ struct timeval tv = { 0 }; \
+							  tv.tv_sec = ( ms ) / 1000; \
 							  select( 1, NULL, NULL, NULL, &tv ); }
   typedef void * ( *THREAD_FUNC )( void *arg );
 #else
@@ -569,6 +570,8 @@ typedef enum {
 #define CURVE25519_PRIVKEY_LABEL TEXT( "Test 25519 private key" )
 #define ED25519_PUBKEY_LABEL	TEXT( "Test Ed25519 sigcheck key" )
 #define ED25519_PRIVKEY_LABEL	TEXT( "Test Ed25519 signing key" )
+#define MLKEM_PUBKEY_LABEL		TEXT( "Test ML-KEM encapsulation key" )
+#define MLKEM_PRIVKEY_LABEL		TEXT( "Test ML-KEM decapsulation key" )
 #define CA_PRIVKEY_LABEL		TEXT( "Test RSA private key" )
 #define USER_PRIVKEY_LABEL		TEXT( "Test user key" )
 #define DUAL_SIGNKEY_LABEL		TEXT( "Test signing key" )
@@ -718,7 +721,7 @@ CRYPT_ALGO_TYPE selectCipher( const CRYPT_ALGO_TYPE algorithm );
 CRYPT_ALGO_TYPE getDefaultPkcAlgo( void );
 BOOLEAN loadPkcContexts( CRYPT_CONTEXT *pubKeyContext,
 						 CRYPT_CONTEXT *privKeyContext );
-const char *algoName( const CRYPT_ALGO_TYPE algorithm );
+const char *algoToName( const CRYPT_ALGO_TYPE algorithm );
 void printHex( const char *prefix, const BYTE *value, const int length );
 void dumpHexDataPart( const BYTE *data, const int dataLen );
 void dumpHexData( const BYTE *data, const int dataLen );
@@ -759,8 +762,6 @@ int initOCSP( CRYPT_CERTIFICATE *cryptOCSPRequest,
 
 BOOLEAN checkTestBuffers( const BYTE *buffer1, const BYTE *buffer2, 
 						  const int bufferSize );
-BOOLEAN loadDHKey( const CRYPT_DEVICE cryptDevice,
-				   CRYPT_CONTEXT *cryptContext );
 BOOLEAN loadRSAContextsEx( const CRYPT_DEVICE cryptDevice,
 						   CRYPT_CONTEXT *cryptContext,
 						   CRYPT_CONTEXT *decryptContext,
@@ -795,9 +796,18 @@ BOOLEAN loadECDSAContextsEx( const CRYPT_DEVICE cryptDevice,
 							 CRYPT_CONTEXT *signContext,
 							 const C_STR sigCheckContextLabel,
 							 const C_STR signContextLabel );
-BOOLEAN load25519Contexts( const CRYPT_DEVICE cryptDevice,
-						   CRYPT_CONTEXT *sigCheckContext,
-						   CRYPT_CONTEXT *signContext );
+BOOLEAN loadECDHContexts( const CRYPT_DEVICE cryptDevice,
+						  CRYPT_CONTEXT *cryptContext,
+						  CRYPT_CONTEXT *decryptContext );
+BOOLEAN loadX25519Contexts( const CRYPT_DEVICE cryptDevice,
+							CRYPT_CONTEXT *cryptContext,
+							CRYPT_CONTEXT *decryptContext );
+BOOLEAN loadEd25519Contexts( const CRYPT_DEVICE cryptDevice,
+							 CRYPT_CONTEXT *sigCheckContext,
+							 CRYPT_CONTEXT *signContext );
+BOOLEAN loadMLKEMContexts( const CRYPT_DEVICE cryptDevice,
+						   CRYPT_CONTEXT *encContext,
+						   CRYPT_CONTEXT *decContext );
 void destroyContexts( const CRYPT_DEVICE cryptDevice,
 					  const CRYPT_CONTEXT cryptContext,
 					  const CRYPT_CONTEXT decryptContext );
@@ -984,6 +994,8 @@ int testKeygen( void );
 int testKeyExportImportCMS( void );
 int testSignDataCMS( void );
 int testMidLevelDebugCheck( void );
+int testRSAContexts( const CRYPT_CONTEXT cryptContext,
+					 const CRYPT_CONTEXT decryptContext );
 
 /* Prototypes for functions in devices.c */
 
@@ -1248,6 +1260,8 @@ int testSessionTLSBadSSL( void );
   int testSessionTLS13ClientServerEd25519Key( void );
   int testSessionTLS13ClientCertClientServer( void );
   int testSessionTLS13ForceTLS13ClientServer( void );
+  int testSessionTLS13Client12ClientServer( void );
+  int testSessionTLS13Server12ClientServer( void );
   int testSessionTLSClientServerDualThread( void );
   int testSessionTLSClientServerMultiThread( void );
   int testSessionTLSClientServerDebugCheck( void );

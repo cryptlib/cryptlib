@@ -130,7 +130,8 @@ int connectViaSocksProxy( INOUT_PTR STREAM *stream )
 			result = sprintf_s( netStream->errorInfo->errorString + 20 + ( i * 3 ),
 								MAX_ERRMSG_SIZE - ( 20 + ( i * 3 ) ), " %02X", 
 								socksBuffer[ i ] );
-			ENSURES( isShortIntegerRangeNZ( result ) );
+			ENSURES( rangeCheck( result, 2, \
+								 MAX_ERRMSG_SIZE - ( 20 + ( i * 3 ) + 1 ) ) );
 			}
 		ENSURES( LOOP_BOUND_OK );
 		strlcat_s( netStream->errorInfo->errorString, MAX_ERRMSG_SIZE, "." );
@@ -410,6 +411,7 @@ int findProxyUrl( OUT_BUFFER( proxyMaxLen, *proxyLen ) char *proxy,
 		{
 		strlcpy_s( urlBuffer, MAX_DNS_SIZE, "http://" );
 		offset = 7;
+		REQUIRES( !checkOverflowSub( MAX_DNS_SIZE, offset ) );
 		length = MAX_DNS_SIZE - offset;
 		}
 	else
@@ -420,6 +422,7 @@ int findProxyUrl( OUT_BUFFER( proxyMaxLen, *proxyLen ) char *proxy,
 		}
 	REQUIRES( boundsCheck( offset, length, MAX_DNS_SIZE ) );
 	memcpy( urlBuffer + offset, url, length );
+	REQUIRES( !checkOverflowAdd( offset, length ) );
 	urlBuffer[ offset + length ] = '\0';
 
 	/* Locate the proxy used for accessing the resource at the supplied URL.

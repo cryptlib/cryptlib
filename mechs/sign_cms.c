@@ -159,6 +159,10 @@ static int writeCmsSignerInfo( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Write the outer SEQUENCE wrapper and version number */
+	REQUIRES( !checkOverflowAdd3( dynLength( iAndSDB ), sizeofHashAlgoID,
+								  attributeSize ) );
+	REQUIRES( !checkOverflowAdd3( dynLength( iAndSDB ) + sizeofHashAlgoID + \
+									attributeSize, signatureSize, 1024 ) );
 	writeSequence( stream, sizeofShortInteger( CMS_VERSION ) + \
 						   dynLength( iAndSDB ) + sizeofHashAlgoID + \
 						   attributeSize + signatureSize + \
@@ -354,7 +358,7 @@ static void addSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttribu
 	CRYPT_CERTIFICATE iCryptCert;
 	MESSAGE_DATA msgData DUMMY_INIT_STRUCT;
 	BYTE essCertID[ ESSCERTIDv2_HEADER_SIZE + CRYPT_MAX_HASHSIZE + 8 ];
-	int status;
+	int fingerprintSize, status;
 
 	REQUIRES_V( isHandleRangeValid( iCmsAttributes ) );
 	REQUIRES_V( isHandleRangeValid( iSignContext ) );
@@ -396,10 +400,13 @@ static void addSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttribu
 							  MESSAGE_VALUE_FALSE, CRYPT_IATTRIBUTE_LOCKED );
 	if( cryptStatusError( status ) )
 		return;
+	fingerprintSize = msgData.length;
 
 	/* Add the ESSCertIDv2 for the signing certificate */
+	REQUIRES_V( !checkOverflowAdd( ESSCERTIDv2_HEADER_SIZE, 
+								   fingerprintSize ) );
 	setMessageData( &msgData, essCertID, 
-					ESSCERTIDv2_HEADER_SIZE + msgData.length );
+					ESSCERTIDv2_HEADER_SIZE + fingerprintSize );
 	( void ) krnlSendMessage( iCmsAttributes, IMESSAGE_SETATTRIBUTE_S,
 							  &msgData, 
 							  CRYPT_CERTINFO_CMS_SIGNINGCERTV2_ESSCERTIDV2 );
@@ -1117,6 +1124,7 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 		   countersignature, the enveloping code has to fall back to using
 		   indefinite-length encoding (see envelope/cms_envpre.c), so the
 		   length value that we return here is ignored */
+		REQUIRES( !checkOverflowAdd( length, MIN_BUFFER_SIZE ) );
 		length += MIN_BUFFER_SIZE;
 		}
 	*signatureLength = length;
@@ -1134,7 +1142,7 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4, 7 ) ) \
 int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature, 
-					   IN_DATALENGTH const int signatureLength,
+					   IN_LENGTH_SHORT_MIN( 40 ) const int signatureLength,
 					   IN_HANDLE const CRYPT_CONTEXT sigCheckContext,
 					   IN_PTR const SIG_DATA_INFO *sigDataInfo,
 					   OUT_OPT_HANDLE_OPT CRYPT_CERTIFICATE *iExtraData,
@@ -1163,7 +1171,7 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 			isWritePtr( iExtraData, sizeof( CRYPT_CERTIFICATE ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
-	REQUIRES( isBufsizeRangeMin( signatureLength, 40 ) );
+	REQUIRES( isShortIntegerRangeMin( signatureLength, 40 ) );
 	REQUIRES( isHandleRangeValid( sigCheckContext ) );
 	REQUIRES( sanityCheckSigDataInfo( sigDataInfo, SIGNATURE_CMS, TRUE ) );
 	REQUIRES( isHandleRangeValid( iSigCheckKey ) );
@@ -1280,6 +1288,7 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 							  ( BYTE * ) setTag, sizeof( BYTE ) );
 	if( cryptStatusOK( status ) )
 		{
+		REQUIRES( !checkOverflowSub( queryInfo.attributeLength, 1 ) );
 		status = krnlSendMessage( localSigDataInfo.hashContext, 
 						IMESSAGE_CTX_HASH,
 						( BYTE * ) signature + queryInfo.attributeStart + 1,

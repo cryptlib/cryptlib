@@ -453,7 +453,7 @@ typedef enum {
 #define FAULTACTION_SESSION_CORRUPT_TRANSACTIONID_SCEP_1 \
 		if( isServer( sessionInfoPtr ) ) \
 			{ \
-			BYTE buffer[ CRYPT_MAX_HASHSIZE ]; \
+			BYTE buffer[ CRYPT_MAX_HASHSIZE + 8 ]; \
 			int length; \
 			\
 			status = decodePKIUserValue( buffer, CRYPT_MAX_HASHSIZE, \
@@ -585,10 +585,11 @@ void injectMemoryFaults( void );
 
 #else
 
-#ifndef CONFIG_FAULTS
-  #define INJECT_FAULT( type, action )
-  #define INJECT_MEMORY_FAULTS()
+#ifdef CONFIG_FAULTS
+  #error Fault injection shouldn't be enabled in a relase build
 #endif /* CONFIG_FAULTS */
+#define INJECT_FAULT( type, action )
+#define INJECT_MEMORY_FAULTS()
 
 #ifndef CONFIG_FUZZ
   #define FUZZ_EXIT()

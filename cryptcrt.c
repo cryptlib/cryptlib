@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Certificate Management Routines				*
-*						Copyright Peter Gutmann 1996-2016					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -203,7 +203,7 @@ static BOOLEAN compareCertInfo( const CERT_INFO *certInfoPtr,
 							   fingerprintMapTable,
 							   FAILSAFE_ARRAYSIZE( fingerprintMapTable, \
 												   MAP_TABLE ) );
-			ENSURES( cryptStatusOK( status ) );
+			ENSURES_B( cryptStatusOK( status ) );
 
 			/* If the certificate hasn't been signed yet we can't compare 
 			   the fingerprint */
@@ -227,7 +227,7 @@ static BOOLEAN compareCertInfo( const CERT_INFO *certInfoPtr,
 						  !memcmp( data, fingerPrint, fingerPrintLength ) ) ? \
 						TRUE : FALSE );
 				}
-			REQUIRES( isHandleRangeValid( iCryptCert ) );
+			REQUIRES_B( isHandleRangeValid( iCryptCert ) );
 
 			/* It's a full certificate compare, compare the encoded 
 			   certificate data via the fingerprints */
@@ -624,10 +624,11 @@ int iCryptVerifyID( IN_HANDLE const CRYPT_CERTIFICATE iCertificate,
 			break;
 
 		case CRYPT_IKEYID_PGPKEYID:
-			/* This key ID has two subtypes, the PGP and the OpenPGP ID.  To
-			   deal with this we try for the PGP one now and then fall back
-			   to a second check with the OpenPGP one if this one fails */
-			compareType = MESSAGE_COMPARE_KEYID_PGP;
+			/* This key ID has two subtypes, the current OpenPGP and the 
+			   older PGP 2.x ID.  To deal with this we try for the OpenPGP 
+			   one now and fall back to a second check with the older PGP 
+			   2.x one if that fails */
+			compareType = MESSAGE_COMPARE_KEYID_OPENPGP;
 			break;
 
 		case CRYPT_IKEYID_CERTID:
@@ -699,12 +700,12 @@ int iCryptVerifyID( IN_HANDLE const CRYPT_CERTIFICATE iCertificate,
 	if( cryptStatusOK( status ) )
 		return( CRYPT_OK );
 
-	/* If we were looking for a PGP keyID and the comparison on the OpenPGP
-	   ID failed, fall back to checking the older PGP 2.x ID */
-	if( keyIDtype == CRYPT_IKEYID_PGPKEYID )
+	/* If we were looking for an OpenPGP keyID and the comparison failed, 
+	   fall back to checking the older PGP 2.x ID */
+	if( compareType == MESSAGE_COMPARE_KEYID_OPENPGP )
 		{
 		status = krnlSendMessage( iCertificate, IMESSAGE_COMPARE, &msgData, 
-								  MESSAGE_COMPARE_KEYID_OPENPGP );
+								  MESSAGE_COMPARE_KEYID_PGP );
 		if( cryptStatusOK( status ) )
 			return( CRYPT_OK );
 		}
@@ -1922,6 +1923,9 @@ int createCertificateIndirect( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 			  ( createInfo->arg3 & ~KEYMGMT_MASK_CERTOPTIONS ) == 0 );
 	REQUIRES( createInfo->arg2 == 0 || createInfo->arg3 == 0 );
 
+	/* Clear return value */
+	createInfo->cryptHandle = CRYPT_ERROR;
+
 	/* Allocate a buffer for the encoded certificate data and create and 
 	   initialise the certificate object associated with it */
 	REQUIRES( isIntegerRangeMin( createInfo->strArgLen1, 16 ) );
@@ -1967,8 +1971,13 @@ int createCertificateIndirect( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 								  MESSAGE_VALUE_UNUSED, 
 								  CRYPT_IATTRIBUTE_INITIALISED );
 		}
-	if( cryptStatusOK( status ) )
-		createInfo->cryptHandle = iCertificate;
-	return( status );
+	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( iCertificate, IMESSAGE_DESTROY );
+		return( status );
+		}
+
+	createInfo->cryptHandle = iCertificate;
+	return( CRYPT_OK );
 	}
 #endif /* USE_CERTIFICATES */

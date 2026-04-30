@@ -101,6 +101,9 @@
 	!defined( USE_GCM ) || !defined( USE_PSS )
   #error TLS 1.3 needs ECDH, ECDSA, AES-GCM, and RSA-PSS enabled.
 #endif /* !( USE_ECDH && USE_ECDSA && USE_GCM && USE_PSS ) */
+#if defined( USE_MLKEM ) && !defined( USE_X25519 )
+  #error TLS 1.3 ML-KEM needs X25519 enabled.
+#endif /* USE_MLKEM && !USE_X25519 */
 
 /****************************************************************************
 *																			*
@@ -980,8 +983,9 @@ int loadHSKeysTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Complete the keyex */
 	sMemConnect( &stream, handshakeInfo->tls13KeyexValue, 
 				 handshakeInfo->tls13KeyexValueLen );
-	status = completeTLSKeyex( handshakeInfo, &stream, FALSE, TRUE,
-							   SESSION_ERRINFO );
+	status = completeTLSKeyex( handshakeInfo, &stream, 
+						isServer( sessionInfoPtr ) ? TRUE : FALSE,
+						FALSE, TRUE, SESSION_ERRINFO );
 	sMemDisconnect( &stream );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1064,9 +1068,12 @@ void testTLS13Zoo( void )
 	handshakeInfo.md5context = handshakeInfo.sha1context = \
 		handshakeInfo.sha2context = handshakeInfo.keyexContext = \
 		handshakeInfo.keyexEcdhContext = CRYPT_ERROR;
-  #ifdef USE_25519
+  #ifdef USE_X25519
 	handshakeInfo.keyex25519Context = CRYPT_ERROR;
-  #endif /* USE_25519 */
+  #endif /* USE_X25519 */
+  #ifdef USE_MLKEM
+	handshakeInfo.keyexAltContext = CRYPT_ERROR;
+  #endif /* USE_MLKEM */
 	setMessageCreateObjectInfo( &createInfo, CRYPT_ALGO_SHA2 );
 	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,
 							  IMESSAGE_DEV_CREATEOBJECT, &createInfo,

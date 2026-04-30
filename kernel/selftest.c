@@ -139,11 +139,11 @@ static BOOLEAN testSafetyMechanisms( void )
 	   fall prey to optimiser inlining but it'll still statically check that
 	   they work as expected.
 
-	   The checkOverflowSub() checks are a bit of a no-op because of the way 
-	   the overflow check is done, see the comment in misc/safety.h for 
-	   details.  That is, checkOverflowSub() performs a pre-arithmetic check 
-	   that catches any attempt to exercise the arithmetic check before 
-	   control flow can get to it */
+	   The checkOverflowSub() checks around INT_MIN are a bit of a no-op 
+	   because of the way the overflow check is done, see the comment in 
+	   misc/safety.h for details.  That is, checkOverflowSub() performs a 
+	   pre-arithmetic check that catches any attempt to exercise the 
+	   arithmetic check before control flow can get to it */
 	if( !checkOverflowAdd( maxInt, 1 ) || \
 		!checkOverflowAdd( maxInt, 10 ) || \
 		!checkOverflowAdd( maxInt, maxInt ) || \
@@ -152,9 +152,14 @@ static BOOLEAN testSafetyMechanisms( void )
 		!checkOverflowAdd( maxIntSub10, 11 ) || \
 		!checkOverflowAdd( maxIntSub10, maxInt ) )
 		return( FALSE );
-	if( !checkOverflowSub( -maxIntSub10, 10 ) || \
+	if( checkOverflowSub( maxInt, maxInt - 1 ) || \
+		checkOverflowSub( maxInt, maxIntSub10 ) || \
+		!checkOverflowSub( maxInt - 1, maxInt ) || \
+		!checkOverflowSub( maxIntSub10, maxInt ) || \
+		!checkOverflowSub( -maxIntSub10, 10 ) || \
 		!checkOverflowSub( -maxIntSub10, 11 ) || \
 		!checkOverflowSub( -maxIntSub10, maxInt ) || \
+		!checkOverflowSub( 1, maxInt ) || \
 		!checkOverflowSub( 0, maxInt ) )
 		return( FALSE );
 	if( checkOverflowMul( maxIntDiv10, 9) || \
@@ -169,6 +174,12 @@ static BOOLEAN testSafetyMechanisms( void )
 		!checkOverflowAdd3( maxIntDiv2, maxIntDiv2, 1 ) || \
 		checkOverflowAdd3( maxIntSub10, 8, 1 ) || \
 		!checkOverflowAdd3( maxIntSub10, 9, 1 ) )
+		return( FALSE );
+	if( checkOverflowInc( maxInt - 2 ) || \
+		!checkOverflowInc( maxInt - 1 ) || \
+		!checkOverflowInc( maxInt ) || \
+		checkOverflowDec( 1 ) || \
+		!checkOverflowDec( 0 ) )
 		return( FALSE );
 	CFI_CHECK_UPDATE( "Overflow" ); 
 
@@ -681,7 +692,8 @@ static BOOLEAN checkTimeRange( IN_HANDLE const CRYPT_CONTEXT iCryptCertificate )
 	if( krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE_S, &msgData,
 						 CRYPT_CERTINFO_VALIDFROM ) != CRYPT_OK )
 		return( FALSE );
-	timeVal = roundUp( timeVal, 0x10000000L );	/* Mid-range */
+	timeVal = MAX_TIME_VALUE - ( ( MAX_TIME_VALUE - MIN_TIME_VALUE ) / 2 );	
+									/* Mid-range */
 	krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
 					 CRYPT_CERTINFO_VALIDFROM );
 	if( krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE_S, &msgData,

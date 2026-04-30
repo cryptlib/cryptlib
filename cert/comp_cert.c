@@ -1018,7 +1018,7 @@ static int writeOCSPID( INOUT_PTR STREAM *stream,
 	/* Write the request data */
 	writeSequence( stream,
 			sizeofAlgoID( CRYPT_ALGO_SHA1 ) + \
-			sizeofObject( hashSize ) + sizeofObject( hashSize ) + \
+			sizeofShortObject( hashSize ) + sizeofShortObject( hashSize ) + \
 			sizeofInteger( certInfoPtr->cCertCert->serialNumber,
 						   certInfoPtr->cCertCert->serialNumberLength ) );
 	writeAlgoID( stream, CRYPT_ALGO_SHA1, DEFAULT_TAG );

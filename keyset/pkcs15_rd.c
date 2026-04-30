@@ -222,7 +222,8 @@ static int readObject( INOUT_PTR STREAM *stream,
 
 	/* Read the current object's data */
 	status = readRawObjectAlloc( stream, &objectData, &objectLength,
-								 MIN_OBJECT_SIZE, MAX_INTLENGTH_SHORT - 1 );
+								 MIN_P15_OBJECT_SIZE, 
+								 MAX_INTLENGTH_SHORT - 1 );
 	if( cryptStatusError( status ) )
 		{
 		retExt( status, 
@@ -255,7 +256,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
 int readPkcs15Keyset( INOUT_PTR STREAM *stream, 
 					  OUT_ARRAY( maxNoPkcs15objects ) PKCS15_INFO *pkcs15info, 
 					  IN_LENGTH_SHORT const int maxNoPkcs15objects, 
-					  IN_LENGTH const long endPos,
+					  IN_LENGTH const int endPos,
 					  INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	int status, LOOP_ITERATOR;
@@ -274,7 +275,8 @@ int readPkcs15Keyset( INOUT_PTR STREAM *stream,
 
 	/* Scan all of the objects in the keyset */
 	LOOP_MED_INITCHECK( status = CRYPT_OK, 
-						cryptStatusOK( status ) && stell( stream ) < endPos )
+						cryptStatusOK( status ) && \
+							stell( stream ) < endPos )
 		{
 		static const MAP_TABLE tagToTypeTbl[] = {
 			{ CTAG_PO_PRIVKEY, PKCS15_OBJECT_PRIVKEY },
@@ -328,7 +330,7 @@ int readPkcs15Keyset( INOUT_PTR STREAM *stream,
 			pkcs15Free( pkcs15info, maxNoPkcs15objects );
 			return( status );
 			}
-		if( !isBufsizeRangeMin( innerEndPos, MIN_OBJECT_SIZE ) )
+		if( !isBufsizeRangeMin( innerEndPos, MIN_P15_OBJECT_SIZE ) )
 			{
 			pkcs15Free( pkcs15info, maxNoPkcs15objects );
 			retExt( CRYPT_ERROR_BADDATA, 
@@ -336,6 +338,7 @@ int readPkcs15Keyset( INOUT_PTR STREAM *stream,
 					  "Invalid PKCS #15 object data size %d", 
 					  innerEndPos ) );
 			}
+		REQUIRES( !checkOverflowAdd( innerEndPos, stell( stream ) ) );
 		innerEndPos += stell( stream );
 		REQUIRES( isIntegerRangeNZ( innerEndPos ) );
 

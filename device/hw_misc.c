@@ -262,7 +262,7 @@ static int dlpGenerateComponents( OUT_PTR CRYPT_PKCINFO_DLP *dlpKeyInfo,
 #endif /* USE_DH || USE_DSA || USE_ELGAMAL */
 
 #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	defined( USE_25519 ) || defined( USE_ED25519 )
+	defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int eccGenerateComponents( OUT_PTR CRYPT_PKCINFO_ECC *eccKeyInfo,
@@ -307,7 +307,7 @@ static int eccGenerateComponents( OUT_PTR CRYPT_PKCINFO_ECC *eccKeyInfo,
 
 	return( status );
 	}
-#endif /* USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 */
+#endif /* USE_ECDSA || USE_ECDH || USE_X25519 || USE_ED25519 */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int generatePKCcomponents( INOUT_PTR CONTEXT_INFO *contextInfoPtr, 
@@ -342,14 +342,14 @@ int generatePKCcomponents( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #endif /* USE_DH || USE_DSA || USE_ELGAMAL */
 
 #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	defined( USE_ECDSA ) || defined( USE_25519 )
+	defined( USE_ECDSA ) || defined( USE_X25519 )
 		case CRYPT_ALGO_ECDSA:
 		case CRYPT_ALGO_ECDH:
 		case CRYPT_ALGO_25519:
 		case CRYPT_ALGO_ED25519:
 			return( eccGenerateComponents( keyInfo, capabilityInfoPtr, 
 										   keySizeBits ) );
-#endif /* USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 */
+#endif /* USE_ECDSA || USE_ECDH || USE_X25519 || USE_ED25519 */
 
 		default:
 			return( CRYPT_ERROR_NOTAVAIL );
@@ -448,7 +448,7 @@ int setPKCinfo( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #endif /* USE_DH || USE_DSA || USE_ELGAMAL */
 
 #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	defined( USE_25519 ) || defined( USE_ED25519 )
+	defined( USE_X25519 ) || defined( USE_ED25519 )
 		case CRYPT_ALGO_ECDSA:
 		case CRYPT_ALGO_ECDH:
 		case CRYPT_ALGO_25519:
@@ -474,7 +474,7 @@ int setPKCinfo( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 						NULL, 0, NULL, 0 );
 			break;
 			}
-#endif /* USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 */
+#endif /* USE_ECDSA || USE_ECDH || USE_X25519 || USE_ED25519 */
 
 		default:
 			retIntError();
@@ -663,7 +663,7 @@ static int eccGetComponents( const CONTEXT_INFO *contextInfoPtr,
 	}
 #endif /* USE_ECDSA || USE_ECDH */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int curve25519GetComponents( const CONTEXT_INFO *contextInfoPtr, 
@@ -677,7 +677,7 @@ static int curve25519GetComponents( const CONTEXT_INFO *contextInfoPtr,
 		eccKeyInfo->isPublicKey = TRUE; 
 	retIntError();
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int getPKCinfo( const CONTEXT_INFO *contextInfoPtr, 
@@ -735,7 +735,7 @@ int getPKCinfo( const CONTEXT_INFO *contextInfoPtr,
 			}
 #endif /* USE_ECDSA || USE_ECDH */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 		case CRYPT_ALGO_25519:
 		case CRYPT_ALGO_ED25519:
 			{
@@ -743,7 +743,7 @@ int getPKCinfo( const CONTEXT_INFO *contextInfoPtr,
 
 			return( curve25519GetComponents( contextInfoPtr, eccKeyInfo ) );
 			}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 
 		default:
 			retIntError();

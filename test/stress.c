@@ -33,7 +33,7 @@
 #ifdef CONFIG_CONSERVE_MEMORY
   #define NO_OBJECTS	60	/* Can't exceed MAX_NO_OBJECTS in cryptkrn.h */
 #else
-  #define NO_OBJECTS	500	/* Can't exceed MAX_NO_OBJECTS in cryptkrn.h */
+  #define NO_OBJECTS	240	/* Can't exceed MAX_NO_OBJECTS in cryptkrn.h */
 #endif /* CONFIG_CONSERVE_MEMORY */
 
 static int testStressObjects( void )
@@ -333,7 +333,7 @@ static int testProcessing( const CRYPT_ALGO_TYPE cryptAlgo,
 
 	/* Process the data using various block sizes */
 	fprintf( outputStream, "Testing %s algorithm, mode %s, for %d-byte "
-			 "buffer with\n  block count ", algoName( cryptAlgo ), 
+			 "buffer with\n  block count ", algoToName( cryptAlgo ), 
 			 modeNames[ cryptMode ], DATABUFFER_SIZE );
 	for( i = 1; i <= MAX_BLOCKS; i++ )
 		{
@@ -510,7 +510,7 @@ static int testDataProcessing( void )
 				if( cryptStatusError( status ) )
 					{
 					fprintf( outputStream, "\n%s-ECB processing failed "
-							 "with status %d.\n", algoName( cryptAlgo ), 
+							 "with status %d.\n", algoToName( cryptAlgo ), 
 							 status );
 					if( status == CRYPT_ERROR_NOTAVAIL )
 						{
@@ -525,7 +525,7 @@ static int testDataProcessing( void )
 				if( cryptStatusError( status ) )
 					{
 					fprintf( outputStream, "\n%s-CBC processing failed "
-							 "with status %d.\n", algoName( cryptAlgo ), 
+							 "with status %d.\n", algoToName( cryptAlgo ), 
 							 status );
 					if( status == CRYPT_ERROR_NOTAVAIL )
 						{
@@ -542,7 +542,7 @@ static int testDataProcessing( void )
 					if( cryptStatusError( status ) )
 						{
 						fprintf( outputStream, "\n%s-GCM processing failed "
-								 "with status %d.\n", algoName( cryptAlgo ), 
+								 "with status %d.\n", algoToName( cryptAlgo ), 
 								 status );
 						if( status == CRYPT_ERROR_NOTAVAIL )
 							{
@@ -559,7 +559,7 @@ static int testDataProcessing( void )
 			if( cryptStatusError( status ) )
 				{
 				fprintf( outputStream, "\n%s-CFB processing failed with "
-						 "status %d.\n", algoName( cryptAlgo ), status );
+						 "status %d.\n", algoToName( cryptAlgo ), status );
 				if( status == CRYPT_ERROR_NOTAVAIL )
 					{
 					fputs( "  (This appears to be due to the mode not being "
@@ -588,7 +588,7 @@ static int testDataProcessing( void )
 			if( cryptStatusError( status ) )
 				{
 				fprintf( outputStream, "\n%s processing failed with status "
-						 "%d.\n", algoName( cryptAlgo ), status );
+						 "%d.\n", algoToName( cryptAlgo ), status );
 				errorCount++;
 				}
 			}
@@ -611,7 +611,7 @@ static int testDataProcessing( void )
 			if( cryptStatusError( status ) )
 				{
 				fprintf( outputStream, "\n%s processing failed with status "
-						 "%d.\n", algoName( cryptAlgo ), status );
+						 "%d.\n", algoToName( cryptAlgo ), status );
 				errorCount++;
 				}
 			}

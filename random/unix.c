@@ -869,6 +869,7 @@ static int getKstatData( void )
 			}
 		else
 			addRandomData( randomState, ksp->ks_data, ksp->ks_data_size );
+		REQUIRES_EXT( !checkOverflowInc( noEntries ), 0 );
 		noEntries++;
 		}
 	kstat_close( kc );
@@ -952,6 +953,7 @@ static int getProcData( void )
 						  ( "PIOCSTATUS contributed %d bytes.\n", 
 							sizeof( prstatus_t ) ));
 		addRandomData( randomState, &prStatus, sizeof( prstatus_t ) );
+		REQUIRES_EXT( !checkOverflowInc( noEntries ), 0 );
 		noEntries++;
 		}
 #endif /* PIOCSTATUS */
@@ -962,6 +964,7 @@ static int getProcData( void )
 						  ( "PIOCPSINFO contributed %d bytes.\n",
 							sizeof( prpsinfo_t ) ));
 		addRandomData( randomState, &prMisc, sizeof( prpsinfo_t ) );
+		REQUIRES_EXT( !checkOverflowInc( noEntries ), 0 );
 		noEntries++;
 		}
 #endif /* PIOCPSINFO */
@@ -972,6 +975,7 @@ static int getProcData( void )
 						  ( "PIOCUSAGE contributed %d bytes.\n",
 							sizeof( prusage_t ) ));
 		addRandomData( randomState, &prUsage, sizeof( prusage_t ) );
+		REQUIRES_EXT( !checkOverflowInc( noEntries ), 0 );
 		noEntries++;
 		}
 #endif /* PIOCUSAGE */
@@ -983,6 +987,7 @@ static int getProcData( void )
 						  ( "PIOCACINFO contributed %d bytes.\n",
 							sizeof( struct pracinfo ) ));
 		addRandomData( randomState, &pracInfo, sizeof( struct pracinfo ) );
+		REQUIRES_EXT( !checkOverflowInc( noEntries ), 0 );
 		noEntries++;
 		}
 #endif /* PIOCACINFO */
@@ -1310,6 +1315,7 @@ static int addStaticSystemInfo( void )
 		if( auxVal == 0 )
 			continue;
 		addRandomValue( randomState, auxVal );
+		REQUIRES_EXT( !checkOverflowInc( quality ), 0 );
 		quality++;
 		}
 
@@ -1648,12 +1654,14 @@ static int getSysFSdata( void )
 		close( sysfsFD );
 		if( count <= 0 )
 			continue;
+		ENSURES_EXT( count >= 1, 0 );
 
 		/* Some sysfs reads return a value as "<value>" and some return it
 		   as "<value>\n", so before we continue we have to strip trailing
 		   '\n's */
 		if( sysfsBuffer[ count - 1 ] == '\n' )
 			{
+			REQUIRES_EXT( !checkOverflowDec( count ), 0 );
 			count--;
 			if( count <= 0 )
 				continue;
@@ -2292,11 +2300,12 @@ static void my_sched_yield( void )
 	  
 #define CHILD_EXIT( status )	_exit( status )
 
-/* A special form of the ENSURES() predicate used in the forked child 
-   process, which calls CHILD_EXIT() rather than returning */
+/* A special form of the REQUIRES()/ENSURES() predicates used in the forked 
+   child process, which call CHILD_EXIT() rather than returning */
 
-#define ENSURES_EXIT( x ) \
+#define REQUIRES_EXIT( x ) \
 		if( !( x ) ) { assert( INTERNAL_ERROR ); CHILD_EXIT( -1 ); }
+#define ENSURES_EXIT			REQUIRES_EXIT 
 
 /* Under SunOS 4.x popen() doesn't record the pid of the child process.  When
    pclose() is called, instead of calling waitpid() for the correct child, it
@@ -2528,11 +2537,15 @@ static int getEntropySourceData( INOUT_PTR DATA_SOURCE_INFO *dataSource,
 			if( dataSource->usefulness < 0 )
 				{
 				/* Absolute rating, 1024 / -n */
+				REQUIRES( !checkOverflowDiv( 1025, 
+											 -dataSource->usefulness ) );
 				total = 1025 / -dataSource->usefulness;
 				}
 			else
 				{
 				/* Relative rating, 1024 * n */
+				REQUIRES_EXT( !checkOverflowDiv( dataSource->length,
+												 dataSource->usefulness ), 0 );
 				total = dataSource->length / dataSource->usefulness;
 				}
 			}
@@ -2554,7 +2567,7 @@ static int getEntropySourceData( INOUT_PTR DATA_SOURCE_INFO *dataSource,
 		}
 
 	/* Run-length compress the input byte sequence */
-	while( bufReadPos < noBytes )
+	while( bufReadPos < noBytes && bufWritePos < bufSize )
 		{
 		const int ch = byteToInt( bufPtr[ bufReadPos ] );
 
@@ -2582,6 +2595,7 @@ static int getEntropySourceData( INOUT_PTR DATA_SOURCE_INFO *dataSource,
 
 	/* Remember the number of (compressed) bytes of input that we obtained */
 	*bufPos += bufWritePos;
+	REQUIRES_EXT( !checkOverflowAdd( dataSource->length, noBytes ), 0 );
 	dataSource->length += noBytes;
 
 	return( 0 );
@@ -2766,6 +2780,7 @@ static void childPollingProcess( const int existingEntropy )
 			if( dataSources[ i ].pipe != NULL && \
 				FD_ISSET( dataSources[ i ].pipeFD, &fds ) )
 				{
+				REQUIRES_EXIT( !checkOverflowSub( gathererBufSize, bufPos ) );
 				usefulness += getEntropySourceData( &dataSources[ i ],
 													gathererBuffer + bufPos,
 													gathererBufSize - bufPos,
@@ -2865,6 +2880,11 @@ static void externalSourcesPoll( const int existingEntropy )
 	{
 	const int pageSize = getSysVar( SYSVAR_PAGESIZE );
 
+	/* We don't check for a maximum page size in order to deal with large 
+	   pages, the code further down that works with pageSize clamps the 
+	   maximum data size to SHARED_BUFSIZE */
+	REQUIRES_V( pageSize >= 512 );
+
 	/* Check whether a non-default SIGCHLD handler is present.  This is 
 	   necessary because if the program that cryptlib is a part of installs 
 	   its own handler it will end up reaping the cryptlib children before
@@ -2913,9 +2933,16 @@ static void externalSourcesPoll( const int existingEntropy )
 	   deal with this, we fit the amount that we're requesting into the page 
 	   size if pages are more or less standard-sized, but don't try and do 
 	   anything if pages are huge */
-	gathererBufSize = ( pageSize <= SHARED_BUFSIZE ) ? \
-					  ( ( SHARED_BUFSIZE + pageSize - 1 ) / pageSize ) * pageSize : \
-					  SHARED_BUFSIZE;
+	if( pageSize > SHARED_BUFSIZE ) 
+		gathererBufSize = SHARED_BUFSIZE;
+	else
+		{
+		REQUIRES_V( !checkOverflowAdd( SHARED_BUFSIZE, pageSize - 1 ) );
+		REQUIRES_V( !checkOverflowDiv( SHARED_BUFSIZE + pageSize - 1,
+									   pageSize ) );
+		gathererBufSize = ( ( SHARED_BUFSIZE + \
+							  pageSize - 1 ) / pageSize ) * pageSize;
+		}
 
 	/* Set up the shared memory */
 	clearErrno();
@@ -3046,6 +3073,7 @@ static int externalSourcesPollComplete( IN_BOOL const BOOLEAN force )
 			{
 			int status;
 
+			REQUIRES( !checkOverflowMul( gathererInfo->usefulness, 5 ) );
 			quality = min( gathererInfo->usefulness * 5, 100 );	/* 0-20 -> 0-100 */
 			setMessageData( &msgData, gathererBuffer, gathererInfo->noBytes );
 			status = krnlSendMessage( SYSTEM_OBJECT_HANDLE,

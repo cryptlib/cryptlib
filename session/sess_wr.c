@@ -120,6 +120,8 @@ BOOLEAN sanityCheckSessionWrite( const SESSION_INFO *sessionInfoPtr )
 		DEBUG_PUTS(( "sanityCheckSessionWrite: Send buffer partial position" ));
 		return( FALSE );
 		}
+	REQUIRES_B( !checkOverflowAdd( sessionInfoPtr->sendBufStartOfs,
+								   sessionInfoPtr->maxPacketSize ) ); 
 	if( !sessionInfoPtr->partialWrite && \
 		sessionInfoPtr->sendBufPos > sessionInfoPtr->sendBufStartOfs + \
 									 sessionInfoPtr->maxPacketSize )
@@ -159,8 +161,12 @@ static int getRemainingBufferSpace( const SESSION_INFO *sessionInfoPtr )
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionWrite( sessionInfoPtr ) );
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufPos, 
+								 sessionInfoPtr->sendBufStartOfs ) );
 	REQUIRES( isBufsizeRange( currentByteCount ) && \
 			  currentByteCount <= sessionInfoPtr->maxPacketSize );
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->maxPacketSize, 
+								 currentByteCount ) );
 	remainingByteCount = sessionInfoPtr->maxPacketSize - currentByteCount;
 	ENSURES( isBufsizeRange( remainingByteCount ) );
 
@@ -254,17 +260,27 @@ static int flushData( SESSION_INFO *sessionInfoPtr )
 			{
 			int newLength;
 
+			REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize,
+										 sessionInfoPtr->sendBufStartOfs ) );
+			REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufPos,
+										 sessionInfoPtr->sendBufStartOfs ) );
 			status = newLength = \
 				prepareInnerPacketFunction( sessionInfoPtr,
-						sessionInfoPtr->sendBuffer + sessionInfoPtr->sendBufStartOfs, 
-						sessionInfoPtr->sendBufSize - sessionInfoPtr->sendBufStartOfs,
-						sessionInfoPtr->sendBufPos - sessionInfoPtr->sendBufStartOfs );
+								sessionInfoPtr->sendBuffer + \
+										sessionInfoPtr->sendBufStartOfs, 
+								sessionInfoPtr->sendBufSize - \
+										sessionInfoPtr->sendBufStartOfs,
+								sessionInfoPtr->sendBufPos - \
+										sessionInfoPtr->sendBufStartOfs );
 			if( cryptStatusError( status ) )
 				return( status );
 			ENSURES( newLength > 0 && \
 					 sessionInfoPtr->sendBufStartOfs + newLength <= \
 												sessionInfoPtr->sendBufPos );
-			sessionInfoPtr->sendBufPos = sessionInfoPtr->sendBufStartOfs + newLength;
+			REQUIRES( !checkOverflowAdd( sessionInfoPtr->sendBufStartOfs, 
+										 newLength ) );
+			sessionInfoPtr->sendBufPos = sessionInfoPtr->sendBufStartOfs + \
+										 newLength;
 			ENSURES( sessionInfoPtr->sendBufPos > 0 && \
 					 sessionInfoPtr->sendBufPos <= sessionInfoPtr->sendBufSize );
 			}
@@ -284,6 +300,8 @@ static int flushData( SESSION_INFO *sessionInfoPtr )
 		ENSURES( sessionInfoPtr->sendBufPos > 0 && \
 				 sessionInfoPtr->sendBufPos <= sessionInfoPtr->sendBufSize );
 		}
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufPos,
+								 sessionInfoPtr->sendBufPartialBufPos ) );
 	bytesToWrite = sessionInfoPtr->sendBufPos - \
 				   sessionInfoPtr->sendBufPartialBufPos;
 	ENSURES( isBufsizeRangeNZ( bytesToWrite ) );
@@ -346,6 +364,8 @@ static int flushData( SESSION_INFO *sessionInfoPtr )
 		{
 		/* We wrote at least some part of the packet, adjust the partial-
 		   write position by the amount that we wrote */
+		REQUIRES( !checkOverflowAdd( sessionInfoPtr->sendBufPartialBufPos,
+									 length ) );
 		sessionInfoPtr->sendBufPartialBufPos += length;
 		sessionInfoPtr->partialWrite = TRUE;
 		ENSURES( sanityCheckSessionWrite( sessionInfoPtr ) );
@@ -367,6 +387,8 @@ static int flushData( SESSION_INFO *sessionInfoPtr )
 	if( TEST_FLAG( sessionInfoPtr->flags, 
 				   SESSION_FLAG_SUBPROTOCOL_ACTIVE ) )
 		{
+		REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize,
+									 sessionInfoPtr->sendBufPos ) );
 		status = length = \
 			writeInnerHeaderFunction( sessionInfoPtr,
 									  sessionInfoPtr->sendBuffer + \
@@ -375,6 +397,7 @@ static int flushData( SESSION_INFO *sessionInfoPtr )
 										sessionInfoPtr->sendBufPos );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( sessionInfoPtr->sendBufPos, length ) );
 		sessionInfoPtr->sendBufPos += length;
 		}
 #endif /* USE_WEBSOCKETS */
@@ -445,6 +468,8 @@ int putSessionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   layer) there's no extended error information set for it so we 
 		   have to set the error information here when we turn the partial
 		   write into a timeout error */
+		REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufPartialBufPos, 
+									 oldBufPos ) );
 		bytesWritten = sessionInfoPtr->sendBufPartialBufPos - oldBufPos;
 		if( bytesWritten > 0 )
 			{
@@ -500,9 +525,13 @@ int putSessionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   sessionInfoPtr->sendBufSize ) );
 			memcpy( sessionInfoPtr->sendBuffer + sessionInfoPtr->sendBufPos,
 					dataPtr, availableBuffer );
+			REQUIRES( !checkOverflowAdd( sessionInfoPtr->sendBufPos, 
+										 availableBuffer ) );
 			sessionInfoPtr->sendBufPos += availableBuffer;
 			dataPtr += availableBuffer;
+			REQUIRES( !checkOverflowSub( length, availableBuffer ) );
 			length -= availableBuffer;
+			REQUIRES( !checkOverflowAdd( *bytesCopied, availableBuffer ) );
 			*bytesCopied += availableBuffer;
 			}
 		status = flushData( sessionInfoPtr );
@@ -551,7 +580,9 @@ int putSessionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							    sessionInfoPtr->sendBufSize ) );
 		memcpy( sessionInfoPtr->sendBuffer + sessionInfoPtr->sendBufPos,
 				dataPtr, length );
+		REQUIRES( !checkOverflowAdd( sessionInfoPtr->sendBufPos, length ) );
 		sessionInfoPtr->sendBufPos += length;
+		REQUIRES( !checkOverflowAdd( *bytesCopied, length ) );
 		*bytesCopied += length;
 		}
 

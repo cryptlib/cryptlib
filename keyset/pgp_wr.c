@@ -225,17 +225,22 @@ static int getUserID( IN_HANDLE const CRYPT_CONTEXT cryptHandle,
 	
 	/* If there isn't room to append the email address to the name, in the
 	   form "name <email>", then we're done */
+	REQUIRES( !checkOverflowAdd( nameLength, 2 + msgData.length + 1 ) );
 	if( nameLength + 2 + msgData.length + 1 > userIDmaxLength )
 		return( CRYPT_OK );
 
 	/* Construct the userID as name + " <" + email + ">" */
+	REQUIRES( !checkOverflowSub( userIDmaxLength, nameLength ) );
 	sMemOpen( &stream, ( BYTE * ) userID + nameLength, 
 			  userIDmaxLength - nameLength );
 	swrite( &stream, " <", 2 );
 	swrite( &stream, nameBuffer, msgData.length );
 	status = swrite( &stream, ">", 1 );
 	if( cryptStatusOK( status ) )
+		{
+		REQUIRES( !checkOverflowAdd( *userIDlength, stell( &stream ) ) );
 		*userIDlength += stell( &stream );
+		}
 	sMemDisconnect( &stream );
 	ENSURES( cryptStatusOK( status ) );
 
@@ -502,6 +507,10 @@ static int createSubpacketSignature( OUT_BUFFER( sigMaxLength, \
 		user ID, (EC)DSA binding signature
 		Elgamal/ECDH key, (EC)DSA binding signature	-- Secondary key 
 
+   Because this can modify the data in the PGP_INFO structure, it's passed 
+   in as a non-const value even though it's a write rather than read 
+   function.
+
    The following code assumes that various checks and the storing of the
    Elgamal/ECDH key data have already been performed by higher-level code,
    and concerns itself purely with the generation of signatures and encoding
@@ -601,11 +610,16 @@ int pgpWritePubkey( INOUT_PTR PGP_INFO *pgpInfoPtr,
 						 "Couldn't create PGP secondary key subpacket "
 						 "signature" ) );
 			}
+		REQUIRES( !checkOverflowAdd3( 16, pgpInfoPtr->keyDataLen, 
+									  secondaryKeySigLen ) );
 		altKeyDataLength = 16 + pgpInfoPtr->keyDataLen + secondaryKeySigLen;
 		}
 	krnlSendNotifier( iKeyHash, IMESSAGE_DECREFCOUNT );
 
 	/* Allocate storage to write the keyring data */
+	REQUIRES( !checkOverflowAdd3( 16 + 16, primaryKeyDataLen, userIDlen ) );
+	REQUIRES( !checkOverflowAdd3( 16 + primaryKeyDataLen + 16 + userIDlen,
+								  userIDsigLen, altKeyDataLength ) );
 	keyDataLength = 16 + primaryKeyDataLen + 16 + userIDlen + \
 					userIDsigLen + altKeyDataLength;
 	REQUIRES( isShortIntegerRangeNZ( keyDataLength ) );

@@ -1092,6 +1092,8 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 		const char *tokenName = name + i + 2;	/* Skip '::' */
 		const int tokenNameLength = nameLength - ( i + 2 );
 
+		REQUIRES( !checkOverflowSub( nameLength, i + 2 ) );
+
 		if( tokenNameLength <= 0 )
 			return( CRYPT_ARGERROR_STR1 );
 

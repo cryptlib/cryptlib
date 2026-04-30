@@ -108,6 +108,7 @@ int setSerialNumber( INOUT_PTR CERT_INFO *certInfoPtr,
 		if( cryptStatusError( status ) )
 			return( status );
 		bufPos = 2;		/* Skip INTEGER tag + length at the start */
+		REQUIRES( !checkOverflowSub( length, 2 ) );
 		length -= 2;
 
 		/* Now that we've canonicalised the serial number, check that its 
@@ -214,6 +215,7 @@ BOOLEAN compareSerialNumber( IN_BUFFER( canonSerialNumberLength ) \
 	if( canonSerialNumberPtr[ 0 ] == 0 )
 		{
 		canonSerialNumberPtr++;
+		REQUIRES_B( !checkOverflowDec( canonSerialLength ) );
 		canonSerialLength--;
 		}
 	ENSURES_B( canonSerialLength == 0 || canonSerialNumberPtr[ 0 ] != 0 );
@@ -224,10 +226,10 @@ BOOLEAN compareSerialNumber( IN_BUFFER( canonSerialNumberLength ) \
 					serialLength > 0 && serialNumberPtr[ 0 ] == 0,
 					( serialLength--, serialNumberPtr++ ) )
 		{
-		ENSURES( LOOP_INVARIANT_REV( serialLength, 1, 
-									 serialNumberLength ) );
+		ENSURES_B( LOOP_INVARIANT_REV( serialLength, 1, 
+									   serialNumberLength ) );
 		}
-	ENSURES( LOOP_BOUND_LARGE_REV_OK );
+	ENSURES_B( LOOP_BOUND_LARGE_REV_OK );
 
 	/* Finally we've got them in a form where we can compare them */
 	if( canonSerialLength != serialLength )

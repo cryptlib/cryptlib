@@ -1971,8 +1971,7 @@ int testPathProcessingRS( void )
 
 	/* Process each certificate path and make sure that it succeeds or fails 
 	   as required */
-//	for( i = 0; pathTestInfoRS[ i ].fileMajor != 0; i++ )
-	for( i = 3; pathTestInfoRS[ i ].fileMajor != 0; i++ )
+	for( i = 0; pathTestInfoRS[ i ].fileMajor != 0; i++ )
 		{
 		if( !testPathRS( &pathTestInfoRS[ i ] ) )
 			break;
@@ -2077,12 +2076,15 @@ int xxxCertImport( const char *fileName )
 #elif 0
 	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CERT_COMPLIANCELEVEL,
 					   CRYPT_COMPLIANCELEVEL_OBLIVIOUS );
+#elif 1
+	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CERT_COMPLIANCELEVEL, 
+					   CRYPT_COMPLIANCELEVEL_PKIX_FULL );
 #endif /* 0 */
 	status = cryptImportCert( bufPtr, count, CRYPT_UNUSED, &cryptCert );
-	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CERT_COMPLIANCELEVEL,
-					   complianceLevel );
 	if( cryptStatusError( status ) )
 		{
+		cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CERT_COMPLIANCELEVEL,
+						   complianceLevel );
 		fprintf( outputStream, "Certificate import failed, status = %d.\n", 
 				 status );
 		if( bufPtr != buffer )
@@ -2093,6 +2095,15 @@ int xxxCertImport( const char *fileName )
 	if( bufPtr != buffer )
 		free( bufPtr );
 	printCertChainInfo( cryptCert );
+	status = cryptSetAttribute( cryptCert,
+								CRYPT_CERTINFO_CURRENT_CERTIFICATE,
+								CRYPT_CURSOR_LAST );
+	if( cryptStatusOK( status ) )
+		{
+		status = cryptSetAttribute( cryptCert,
+									CRYPT_CERTINFO_TRUSTED_IMPLICIT, 1 );
+		}
+	assert( cryptStatusOK( status ) );
 	status = cryptCheckCert( cryptCert, CRYPT_UNUSED );	/* Opportunistic only */
 	if( cryptStatusError( status ) )
 		{
@@ -2100,7 +2111,10 @@ int xxxCertImport( const char *fileName )
 				 "status = %d.\n", status );
 		printErrorAttributeInfo( cryptCert );
 		}
+	cryptSetAttribute( cryptCert, CRYPT_CERTINFO_TRUSTED_IMPLICIT, 0 );
 	cryptDestroyCert( cryptCert );
+	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CERT_COMPLIANCELEVEL,
+					   complianceLevel );
 
 	return( cryptStatusOK( status ) ? TRUE : FALSE );
 	}

@@ -220,6 +220,7 @@ static int hmacBegin( sha2_ctx *sha2Info,
 	memcpy( hashBuffer, key, keyLength );
 	if( keyLength < SHA256_BLOCK_SIZE )
 		{
+		REQUIRES( !checkOverflowSub( SHA256_BLOCK_SIZE, keyLength ) );
 		REQUIRES( rangeCheck( keyLength, 1, SHA256_BLOCK_SIZE - 1 ) );
 		memset( hashBuffer + keyLength, 0, SHA256_BLOCK_SIZE - keyLength );
 		}
@@ -432,6 +433,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			memcpy( macInfo->userKey, key, keyLength );
 			if( keyLength < CRYPT_MAX_KEYSIZE )
 				{
+				REQUIRES( !checkOverflowSub( CRYPT_MAX_KEYSIZE, keyLength ) );
 				REQUIRES( rangeCheck( keyLength, 1, 
 									  CRYPT_MAX_KEYSIZE - 1 ) );
 				memset( macInfo->userKey + keyLength, 0, 

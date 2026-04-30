@@ -50,7 +50,7 @@ static BOOLEAN sanityCheckFunctionality( const CAPABILITY_INFO *capabilityInfoPt
 
 	assert( isReadPtr( capabilityInfoPtr, sizeof( CAPABILITY_INFO ) ) );
 
-	REQUIRES( isEnumRange( cryptAlgo, CRYPT_ALGO ) );
+	REQUIRES_B( isEnumRange( cryptAlgo, CRYPT_ALGO ) );
 
 	/* Generic-secret algorithms are non-capabilities used to to store
 	   keying data, but that can't perform any operations themselves */
@@ -319,10 +319,12 @@ BOOLEAN sanityCheckCapability( const CAPABILITY_INFO *capabilityInfoPtr )
 		{
 		const int minKeySize = isEccAlgo( cryptAlgo ) ? \
 							   MIN_PKCSIZE_ECC : MIN_PKCSIZE;
+		const int maxKeySize = isPqcAlgo( cryptAlgo ) ? \
+							   1536 : CRYPT_MAX_PKCSIZE;
 
 		if( capabilityInfoPtr->blockSize != 0 || \
 			( capabilityInfoPtr->minKeySize < minKeySize || \
-			  capabilityInfoPtr->maxKeySize > CRYPT_MAX_PKCSIZE ) )
+			  capabilityInfoPtr->maxKeySize > maxKeySize ) )
 			{
 			DEBUG_PUTS(( "sanityCheckCapability: PKC key size" ));
 			return( FALSE );

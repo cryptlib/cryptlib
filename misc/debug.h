@@ -258,11 +258,15 @@ void vsAssert( const char *exprString, const char *fileName,
 #endif /* !DEBUG_PRINT */
 
 /* Output an I-am-here to the debugging outout (see above), useful when 
-   tracing errors in code without debug symbols available.  Because 
-   __func__ is a predefined string literal rather than a predefined 
-   macro/preprocessor symbol, it's a native-charset string on non-ASCII 
-   systems so we have to use a custom format specifier to make sure that 
-   it's displayed properly */
+   tracing errors in code without debug symbols available.  Because __func__ 
+   is a predefined string literal rather than a predefined macro/
+   preprocessor symbol, it's a native-charset string on non-ASCII systems so 
+   we have to use a custom format specifier to make sure that it's displayed 
+   properly.
+   
+   Note that DEBUG_EXIT() references the status value, since this exists to
+   report the value of the exist status value we know that it's always
+   present */
 
 #if defined( __MVS__ ) || defined( __VMCMS__ ) || defined( __ILEC400__ )
   #define NATIVE_STR_FORMAT		"%e"
@@ -560,7 +564,7 @@ const char *getErrorInfoString( const ERROR_INFO *errorInfo );
   #define HIRES_FORMAT_SPECIFIER	"%lld"
 #else
   typedef unsigned long HIRES_TIME;
-  #define HIRES_FORMAT_SPECIFIER	"%ld"
+  #define HIRES_FORMAT_SPECIFIER	"%lu"
   #if ( ( LONG_MAX >> 16 ) > 0xFFFF )
 	#define HIRES_TIME_64BIT
   #endif /* 64-bit HIRES_TIME */

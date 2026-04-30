@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TLS Session Write Routines					*
-*						Copyright Peter Gutmann 1998-2022					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -97,9 +97,11 @@ static int startPacketStream( INOUT_PTR STREAM *stream,
 		BYTE iv[ CRYPT_MAX_IVSIZE + 8 ];
 
 		setMessageData( &msgData, iv, ivLength );
-		krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_GETATTRIBUTE_S, 
-						 &msgData, CRYPT_IATTRIBUTE_RANDOM_NONCE );
-		status = swrite( stream, iv, ivLength );
+		status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, 
+								  IMESSAGE_GETATTRIBUTE_S, &msgData, 
+								  CRYPT_IATTRIBUTE_RANDOM_NONCE );
+		if( cryptStatusOK( status ) )
+			status = swrite( stream, iv, ivLength );
 		}
 	return( status );
 	}
@@ -142,8 +144,8 @@ int openPacketStreamTLS( OUT_PTR STREAM *stream,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 int continuePacketStreamTLS( INOUT_PTR STREAM *stream, 
 							 IN_PTR const SESSION_INFO *sessionInfoPtr, 
-							 IN_RANGE( TLS_HAND_FIRST, \
-									   TLS_HAND_LAST ) const int packetType,
+							 IN_RANGE( TLS_MSG_FIRST, \
+									   TLS_MSG_LAST ) const int packetType,
 							 OUT_LENGTH_SHORT_Z int *packetOffset )
 	{
 	const int offset = stell( stream );
@@ -174,7 +176,7 @@ int completePacketStreamTLS( INOUT_PTR STREAM *stream,
 							 IN_LENGTH_Z const int offset )
 	{
 	const int packetEndOffset = stell( stream );
-	int status;
+	int packetPayloadLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -187,12 +189,16 @@ int completePacketStreamTLS( INOUT_PTR STREAM *stream,
 
 	/* Update the length field at the start of the packet */
 	REQUIRES( !checkOverflowAdd( offset, ID_SIZE + VERSIONINFO_SIZE ) );
+	status = sseek( stream, offset + ID_SIZE + VERSIONINFO_SIZE );
+	ENSURES( cryptStatusOK( status ) );
 	REQUIRES( !checkOverflowSub3( packetEndOffset, offset, \
 								  TLS_HEADER_SIZE ) );
-	sseek( stream, offset + ID_SIZE + VERSIONINFO_SIZE );
-	status = writeUint16( stream, ( packetEndOffset - offset ) - \
-								  TLS_HEADER_SIZE );
-	sseek( stream, packetEndOffset );
+	packetPayloadLength = ( packetEndOffset - offset ) - TLS_HEADER_SIZE;
+	ENSURES( rangeCheck( packetPayloadLength, \
+						 0, MAX_PACKET_SIZE + EXTRA_PACKET_SIZE ) );
+	status = writeUint16( stream, packetPayloadLength );
+	if( cryptStatusOK( status ) )
+		status = sseek( stream, packetEndOffset );
 
 	return( status );
 	}
@@ -238,24 +244,31 @@ int completeHSPacketStream( INOUT_PTR STREAM *stream,
 							IN_LENGTH const int offset )
 	{
 	const int packetEndOffset = stell( stream );
-	int status;
+	int packetPayloadLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	REQUIRES( !checkOverflowSub( packetEndOffset, ID_SIZE + LENGTH_SIZE ) );
 	REQUIRES( offset >= TLS_HEADER_SIZE && \
+			  !checkOverflowSub( packetEndOffset, \
+								 ID_SIZE + LENGTH_SIZE ) && \
 			  offset <= packetEndOffset - ( ID_SIZE + LENGTH_SIZE ) );
 			  /* HELLO_DONE has size zero so 
 			     offset == packetEndOffset - HDR_SIZE */
 	REQUIRES( isShortIntegerRangeMin( packetEndOffset, TLS_HEADER_SIZE ) );
 
 	/* Update the length field at the start of the packet */
+	REQUIRES( !checkOverflowAdd( offset, ID_SIZE + LENGTH_SIZE ) );
+	status = sseek( stream, offset + ID_SIZE );
+	ENSURES( cryptStatusOK( status ) );
 	REQUIRES( !checkOverflowSub( packetEndOffset, \
 								 offset + ID_SIZE + LENGTH_SIZE ) );
-	sseek( stream, offset + ID_SIZE );
-	status = writeUint24( stream, packetEndOffset - \
-								  ( offset + ID_SIZE + LENGTH_SIZE ) );
-	sseek( stream, packetEndOffset );
+	packetPayloadLength = packetEndOffset - ( offset + ID_SIZE + \
+											  LENGTH_SIZE );
+	ENSURES( rangeCheck( packetPayloadLength, \
+						 0, MAX_PACKET_SIZE + EXTRA_PACKET_SIZE ) );
+	status = writeUint24( stream, packetPayloadLength );
+	if( cryptStatusOK( status ) )
+		status = sseek( stream, packetEndOffset );
 	DEBUG_PRINT_BEGIN();
 	DEBUG_PRINT(( "Wrote %s (%d) handshake packet, length %d.\n", \
 				  getTLSHSPacketName( DEBUG_GET_STREAMBYTE( stream, offset ) ), 
@@ -359,12 +372,12 @@ static int wrapPacketTLSStd( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		REQUIRES( sessionInfoPtr->sendBufStartOfs >= TLS_HEADER_SIZE + \
 													 tlsInfo->ivSize && \
 				  sessionInfoPtr->sendBufStartOfs <= sessionInfoPtr->sendBufSize );
-		REQUIRES( !checkOverflowAdd( payloadLength, tlsInfo->ivSize ) );
-		REQUIRES( !checkOverflowAdd( bufMaxLen, tlsInfo->ivSize ) );
 		dataPtr -= tlsInfo->ivSize;
+		REQUIRES( !checkOverflowAdd( payloadLength, tlsInfo->ivSize ) );
 		payloadLength += tlsInfo->ivSize;
+		REQUIRES( !checkOverflowAdd( bufMaxLen, tlsInfo->ivSize ) );
 		effectiveBufMaxLen = bufMaxLen + tlsInfo->ivSize;
-		ENSURES( payloadLength > 0 && payloadLength <= effectiveBufMaxLen )
+		ENSURES( payloadLength > 0 && payloadLength <= effectiveBufMaxLen );
 		}
 	DEBUG_PRINT_BEGIN();
 	DEBUG_PRINT(( "Wrote %s (%d) packet, length %d.\n", 
@@ -451,13 +464,13 @@ static int wrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			REQUIRES( sessionInfoPtr->sendBufStartOfs >= TLS_HEADER_SIZE + \
 														 tlsInfo->ivSize && \
 					  sessionInfoPtr->sendBufStartOfs <= sessionInfoPtr->sendBufSize );
-			REQUIRES( !checkOverflowAdd( payloadLength, tlsInfo->ivSize ) );
-			REQUIRES( !checkOverflowAdd( bufMaxLen, tlsInfo->ivSize ) );
 
 			dataPtr -= tlsInfo->ivSize;
+			REQUIRES( !checkOverflowAdd( payloadLength, tlsInfo->ivSize ) );
 			payloadLength += tlsInfo->ivSize;
+			REQUIRES( !checkOverflowAdd( bufMaxLen, tlsInfo->ivSize ) );
 			effectiveBufMaxLen = bufMaxLen + tlsInfo->ivSize;
-			ENSURES( payloadLength > 0 && payloadLength <= effectiveBufMaxLen )
+			ENSURES( payloadLength > 0 && payloadLength <= effectiveBufMaxLen );
 			}
 		}
 	DEBUG_PRINT_BEGIN();
@@ -626,6 +639,16 @@ static int wrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							payloadLength, packetType );
 	if( cryptStatusError( status ) )
 		return( status );
+	if( checkOverflowInc( tlsInfo->writeSeqNo ) )
+		{
+		/* This is a should-never-occur condition so in theory we could just
+		   make it an ENSURES() condition */
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO,
+				  "Packet write sequence number overflow writing %s (%d) "
+				  "packet, length %d", getTLSPacketName( packetType ), 
+				  packetType, payloadLength ));
+		}
 	tlsInfo->writeSeqNo++;
 	DEBUG_PRINT_BEGIN();
 	DEBUG_PRINT(( "Wrote %s (%d) packet, length %d.\n", 
@@ -763,8 +786,8 @@ int wrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Sync the stream information to match the new payload size */
 	REQUIRES( !checkOverflowAdd( tlsInfo->ivSize, payloadLength ) && \
 			  !checkOverflowSub( length, tlsInfo->ivSize + payloadLength ) );
-	return( sSkip( stream, length - ( tlsInfo->ivSize + payloadLength ),
-				   SSKIP_MAX ) );
+	return( sExtend( stream, length - ( tlsInfo->ivSize + payloadLength ),
+					 SSKIP_MAX ) );
 	}
 
 #ifdef USE_TLS13
@@ -773,7 +796,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int wrapPacketTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 					 INOUT_PTR STREAM *stream, 
 					 IN_LENGTH_Z const int offset,
-					 IN_RANGE( TLS_HAND_FIRST, TLS_HAND_LAST ) \
+					 IN_RANGE( TLS_MSG_FIRST, TLS_MSG_LAST ) \
 						const int packetType )
 	{
 	BYTE *dataPtr;
@@ -787,6 +810,7 @@ int wrapPacketTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						 SESSION_FLAG_ISSECURE_WRITE ) );
 	REQUIRES( sStatusOK( stream ) );
 	REQUIRES( isBufsizeRange( offset ) );
+	REQUIRES( packetType >= TLS_MSG_FIRST && packetType <= TLS_MSG_LAST );
 
 	/* Add the TLS 1.3 inner packet information.  Since this may be a read-
 	   only stream we can't just write it onto the end of the existing data
@@ -795,7 +819,7 @@ int wrapPacketTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusOK( status ) )
 		{
 		*dataPtr = intToByte( packetType );
-		status = sSkip( stream, 1, SSKIP_MAX );
+		status = sExtend( stream, 1, SSKIP_MAX );
 		}
 	if( cryptStatusError( status ) )
 		return( status );

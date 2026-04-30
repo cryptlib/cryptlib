@@ -440,6 +440,8 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		if( stateInfo->keystreamPos > 0 )
 			{
 			/* Find out how much keystream material we can use */
+			REQUIRES( !checkOverflowSub( CHACHA20_BLOCK_SIZE,
+										 stateInfo->keystreamPos ) );
 			bytesToUse = CHACHA20_BLOCK_SIZE - stateInfo->keystreamPos;
 			if( noBytes < bytesToUse )
 				bytesToUse = noBytes;
@@ -456,8 +458,11 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			ENSURES( LOOP_BOUND_OK );
 
 			/* Adjust the byte count and buffer position */
+			REQUIRES( !checkOverflowSub( noBytes, bytesToUse ) );
 			noBytes -= bytesToUse;
 			buffer += bytesToUse;
+			REQUIRES( !checkOverflowAdd( stateInfo->keystreamPos, 
+										 bytesToUse ) );
 			stateInfo->keystreamPos += bytesToUse;
 
 			/* If we've satisfied the request from the existing keystream, 
@@ -488,6 +493,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			buffer[ i ] ^= stateInfo->keystream[ i ];
 			}
 		ENSURES( LOOP_BOUND_OK );
+		REQUIRES( !checkOverflowSub( noBytes, bytesToUse ) );
 		noBytes -= bytesToUse;
 		buffer += bytesToUse;
 

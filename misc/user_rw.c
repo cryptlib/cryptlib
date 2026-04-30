@@ -209,6 +209,7 @@ static int sizeofConfigData( IN_ARRAY( configOptionsCount ) \
 						  sizeofBoolean() ) );
 			}
 		ENSURES( isShortIntegerRangeNZ( lengthValue ) );
+		REQUIRES( !checkOverflowAdd( dataLength, lengthValue ) );
 		dataLength += lengthValue;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -643,7 +644,7 @@ int commitConfigData( IN_STRING const char *fileName,
 		status = krnlSendMessage( iTrustedCertUserObject, 
 								  IMESSAGE_SETATTRIBUTE,
 								  &createInfo.cryptHandle,
-								  CRYPT_IATTRUBUTE_CERTKEYSET );
+								  CRYPT_IATTRIBUTE_CERTKEYSET );
 		}
 	krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
 	if( cryptStatusError( status ) )

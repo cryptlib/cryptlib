@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					 cryptlib PGP De-enveloping Routines					*
-*					 Copyright Peter Gutmann 1996-2020						*
+*					 Copyright Peter Gutmann 1996-2024						*
 *																			*
 ****************************************************************************/
 
@@ -110,7 +110,7 @@ static int getPacketInfo( INOUT_PTR STREAM *stream,
 	assert( lengthType == NULL || \
 			isWritePtr( lengthType, sizeof( PGP_LENGTH_TYPE ) ) );
 
-	ENSURES( isShortIntegerRangeNZ( minPacketSize ) );
+	REQUIRES( isShortIntegerRangeNZ( minPacketSize ) );
 	REQUIRES( isBooleanValue( checkPacketDataPresent ) );
 
 	/* Clear return values */
@@ -135,7 +135,7 @@ static int getPacketInfo( INOUT_PTR STREAM *stream,
 		{
 		if( status != OK_SPECIAL )
 			return( status );
-		ENSURES( lengthType != NULL );
+		REQUIRES( lengthType != NULL );
 
 		/* Remember that the packet uses an indefinite-length encoding */
 		*lengthType = PGP_LENGTH_INDEFINITE;
@@ -258,6 +258,8 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		{
 		CONTENT_ENCR_INFO *encrInfo;
 
+		/* Allocate memory for the new content list item and copy 
+		   information on the item across */
 		status = createContentListItem( &contentListItem, 
 										envelopeInfoPtr->memPoolState,
 										CONTENT_CRYPT, CRYPT_FORMAT_PGP, 
@@ -272,7 +274,8 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		status = appendContentListItem( envelopeInfoPtr, contentListItem );
 		if( cryptStatusError( status ) )
 			{
-			clFree( "addContentListItem", contentListItem );
+			deleteContentListItem( envelopeInfoPtr->memPoolState, 
+								   contentListItem );
 			return( status );
 			}
 
@@ -339,10 +342,9 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		return( status );
 		}
 
-	/* Allocate memory for the new content list item and copy information
-	   on the item across.  This attaches 'object' to the content list item
-	   so we no longer need to explicitly free it on error beyond thns 
-	   point */
+	/* Allocate memory for the new content list item and copy information on
+	   the item across.  After this point 'object' is part of the 
+	   contentListItem so will be freed when that is freed */
 	status = createContentListItem( &contentListItem, 
 							envelopeInfoPtr->memPoolState, 
 							( queryInfo.type == CRYPT_OBJECT_SIGNATURE ) ? \
@@ -376,10 +378,10 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		   start and then another packet with more data at the end, so we
 		   can't guarantee the presence of object data unless it's the 
 		   second of the two */
-		ENSURES( objectPtr != NULL || \
-				 ( queryInfo.iAndSStart == 0 && \
-				   queryInfo.attributeStart == 0 && \
-				   queryInfo.unauthAttributeStart == 0 ) );
+		REQUIRES( objectPtr != NULL || \
+				  ( queryInfo.iAndSStart == 0 && \
+					queryInfo.attributeStart == 0 && \
+					queryInfo.unauthAttributeStart == 0 ) );
 
 		/* Remember details of the enveloping info that we require to 
 		   continue */
@@ -438,6 +440,8 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				{
 				DEBUG_DIAG(( "Insecure S2K type 0 encountered" ));
 				assert_nofuzz( DEBUG_WARN );
+				deleteContentListItem( envelopeInfoPtr->memPoolState, 
+									   contentListItem );
 				return( CRYPT_ERROR_BADDATA );
 				}
 			contentListItem->envInfo = CRYPT_ENVINFO_PASSWORD;
@@ -641,6 +645,8 @@ static int stripLiteralHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	   here */
 	if( envelopeInfoPtr->segmentSize > 0 )
 		{
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentSize, 
+									 length ) );
 		envelopeInfoPtr->segmentSize -= length;
 		ENSURES( isIntegerRange( envelopeInfoPtr->segmentSize ) );
 
@@ -722,7 +728,10 @@ static int adjustNestedDataInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		ENSURES( isBufsizeRangeNZ( streamPos ) );
 
 		if( checkOverflowAdd( streamPos, encapsPacketLength ) )
+			{
+			/* Make sure that the calculations that follow work */
 			return( CRYPT_ERROR_OVERFLOW );
+			}
 		envelopeInfoPtr->segmentSize = streamPos + encapsPacketLength;
 		REQUIRES( isIntegerRangeMin( envelopeInfoPtr->segmentSize, 
 									 encapsPacketLength ) );
@@ -759,6 +768,8 @@ static int adjustNestedDataInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 						  "%d bytes but got %ld", PGP_MDC_PACKET_SIZE, 
 						  envelopeInfoPtr->segmentSize ) );
 				}
+			REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentSize, 
+										 PGP_MDC_PACKET_SIZE ) );
 			envelopeInfoPtr->segmentSize -= PGP_MDC_PACKET_SIZE;
 			}
 		envelopeInfoPtr->dataLeft = envelopeInfoPtr->segmentSize;
@@ -811,6 +822,8 @@ static int adjustNestedDataInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 						  "%d bytes but got %ld", PGP_MDC_PACKET_SIZE, 
 						  envelopeInfoPtr->segmentSize ) );
 				}
+			REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentSize, 
+										 PGP_MDC_PACKET_SIZE ) );
 			envelopeInfoPtr->segmentSize -= PGP_MDC_PACKET_SIZE;
 			}
 		envelopeInfoPtr->dataLeft = envelopeInfoPtr->segmentSize;
@@ -1002,8 +1015,11 @@ static int processEncapsDataHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				{
 				envelopeInfoPtr->oobDataLeft = stell( &headerStream ) + \
 											   filenameLen + 4;
-				REQUIRES( isIntegerRangeMin( envelopeInfoPtr->oobDataLeft, 
-											 filenameLen + 4 ) );
+
+				REQUIRES( !checkOverflowAdd3( stell( &headerStream ),
+											  filenameLen, 4 ) );
+				ENSURES( isIntegerRangeMin( envelopeInfoPtr->oobDataLeft, 
+											filenameLen + 4 ) );
 				}
 			}
 		sMemDisconnect( &headerStream );
@@ -1019,6 +1035,7 @@ static int processEncapsDataHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		   PGP_DEENVSTATE_DATA_HEADER state since we can encounter a
 		   (recoverable) error between reading the out-of-band data header
 		   and reading the out-of-band data itself */
+		REQUIRES( !checkOverflowDec( envelopeInfoPtr->oobEventCount ) );
 		envelopeInfoPtr->oobEventCount--;
 
 		return( CRYPT_OK );
@@ -1156,6 +1173,12 @@ static int processPacketHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			status = length = sgetc( stream );
 			if( !cryptStatusError( status ) )
 				status = sSkip( stream, length + 4, MAX_INTLENGTH_SHORT );
+			if( cryptStatusOK( status ) && \
+				1 + 1 + length + 4 > packetLength )
+				{
+				/* Make sure that the calculations that follow work */
+				status = CRYPT_ERROR_BADDATA;
+				}
 			if( cryptStatusError( status ) )
 				{
 				retExt( status,
@@ -1166,6 +1189,8 @@ static int processPacketHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			/* Remember that this is a pure data packet, record the content 
 			   length, and move on to the payload */
 			envelopeInfoPtr->contentType = CRYPT_CONTENT_DATA;
+			REQUIRES( !checkOverflowSub( packetLength,
+										 1 + 1 + length + 4 ) );
 			payloadSize = packetLength - ( 1 + 1 + length + 4 );
 			if( !isIntegerRangeNZ( payloadSize ) )
 				return( CRYPT_ERROR_BADDATA );
@@ -1351,7 +1376,13 @@ static int processPacketHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				   that what's left is valid.  In theory this check isn't
 				   necessary because getPacketInfo() has enforced a minimum
 				   length, but we do it anyway just to be sure */
-				packetLength--;
+				if( packetLength <= 0 )
+					packetLength = UNDERFLOW_MARKER;
+				else
+					{
+					REQUIRES( !checkOverflowDec( packetLength ) );
+					packetLength--;
+					}
 				if( !isIntegerRange( packetLength ) )
 					status = CRYPT_ERROR_BADDATA;
 				}
@@ -1502,7 +1533,11 @@ static int processEncryptedPacket( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	   inner size info present, adjust it by the data that we've just 
 	   processed */
 	if( envelopeInfoPtr->payloadSize != CRYPT_UNUSED )
+		{
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->payloadSize, 
+									 stell( stream ) ) );
 		envelopeInfoPtr->payloadSize -= stell( stream );
+		}
 
 	return( CRYPT_OK );
 	}
@@ -1557,6 +1592,8 @@ static int processMDC( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	REQUIRES( processExtraDataFunction != NULL );
 
 	/* Make sure that there's an MDC packet present */
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos,
+								 envelopeInfoPtr->dataLeft ) );
 	if( envelopeInfoPtr->bufPos - \
 			envelopeInfoPtr->dataLeft < PGP_MDC_PACKET_SIZE )
 		{
@@ -1586,7 +1623,7 @@ static int processMDC( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	/* Make sure that the MDC value matches our calculated hash value */
 	setMessageData( &msgData, bufPtr + 2, PGP_MDC_PACKET_SIZE - 2 );
 	actionListPtr = findAction( envelopeInfoPtr, ACTION_HASH );
-	ENSURES( actionListPtr != NULL );
+	REQUIRES( actionListPtr != NULL );
 	REQUIRES( sanityCheckActionList( actionListPtr ) );
 	status = krnlSendMessage( actionListPtr->iCryptHandle, IMESSAGE_COMPARE, 
 							  &msgData, MESSAGE_COMPARE_HASH );
@@ -1970,6 +2007,7 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 
 	/* Consume the input that we've processed so far by moving everything 
 	   past the current position down to the start of the envelope buffer */
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos, streamPos ) );
 	remainder = envelopeInfoPtr->bufPos - streamPos;
 	REQUIRES( isBufsizeRange( remainder ) && \
 			  streamPos + remainder <= envelopeInfoPtr->bufSize );
@@ -1977,8 +2015,8 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		{
 		REQUIRES( boundsCheck( streamPos, remainder, 
 							   envelopeInfoPtr->bufSize ) );
-		memmove( envelopeInfoPtr->buffer, envelopeInfoPtr->buffer + streamPos,
-				 remainder );
+		memmove( envelopeInfoPtr->buffer, 
+				 envelopeInfoPtr->buffer + streamPos, remainder );
 		}
 	envelopeInfoPtr->bufPos = remainder;
 	if( cryptStatusError( status ) )
@@ -2046,6 +2084,8 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		   First we make sure that there's enough data left in the stream 
 		   to do something with.  We require a minimum of 44 bytes, the size
 		   of the DSA signature payload */
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos,
+									 envelopeInfoPtr->dataLeft ) );
 		if( envelopeInfoPtr->bufPos - \
 				envelopeInfoPtr->dataLeft < PGP_MAX_HEADER_SIZE + 44 )
 			{

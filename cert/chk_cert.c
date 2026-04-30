@@ -411,6 +411,8 @@ static BOOLEAN wildcardMatch( IN_DATAPTR const DATAPTR constrainedAttribute,
 	   
 	   If the constraining string is longer than the constrained string 
 	   (making startPos negative), it can never match */
+	REQUIRES_B( !checkOverflowSub( constrainedStringLength, 
+								   constrainingStringLength ) );
 	startPos = constrainedStringLength - constrainingStringLength;
 	if( !isShortIntegerRange( startPos ) )
 		return( FALSE );
@@ -472,7 +474,9 @@ static BOOLEAN wildcardMatch( IN_DATAPTR const DATAPTR constrainedAttribute,
 			/* Adjust the constrained string information to contain only the 
  			   DNS name portion of the URI */
 			constrainedString = urlInfo.host;
-			startPos = urlInfo.hostLen - constrainingStringLength;
+			REQUIRES_B( !checkOverflowSub( urlInfo.hostLen, 
+										   constrainingStringLength ) );
+  			startPos = urlInfo.hostLen - constrainingStringLength;
 			if( !isShortIntegerRange( startPos ) )
 				return( FALSE );
 			ENSURES_B( boundsCheckZ( startPos, constrainingStringLength, \
@@ -584,7 +588,7 @@ static BOOLEAN checkAltnameConstraints( IN_DATAPTR \
 		LOOP_INDEX_PTR_ALT DATAPTR_ATTRIBUTE attributeCursor;
 		BOOLEAN isMatch = FALSE;
 
-		ENSURES( LOOP_INVARIANT_LARGE_GENERIC() );
+		ENSURES_B( LOOP_INVARIANT_LARGE_GENERIC() );
 
 		/* Step through the constraining attributes checking if any match 
 		   the constrained attribute.  If it's an excluded subtree then none 
@@ -595,7 +599,7 @@ static BOOLEAN checkAltnameConstraints( IN_DATAPTR \
 						attributeCursor = \
 							findNextFieldInstance( attributeCursor ) )
 			{
-			ENSURES( LOOP_INVARIANT_LARGE_ALT_GENERIC() );
+			ENSURES_B( LOOP_INVARIANT_LARGE_ALT_GENERIC() );
 
 			isMatch = matchAltnameComponent( constrainedAttributePtr,
 											 attributeCursor,
@@ -785,7 +789,7 @@ static BOOLEAN containsAnyPolicy( IN_DATAPTR \
 				DATAPTR_ISSET( attributeCursor ),
 				attributeCursor = findNextFieldInstance( attributeCursor ) )
 		{
-		ENSURES( LOOP_INVARIANT_LARGE_GENERIC() );
+		ENSURES_B( LOOP_INVARIANT_LARGE_GENERIC() );
 
 		if( isAnyPolicy( attributeCursor ) )
 			return( TRUE );
@@ -809,7 +813,7 @@ static BOOLEAN checkPolicyType( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 	assert( isWritePtr( hasPolicy, sizeof( BOOLEAN ) ) );
 	assert( isWritePtr( hasAnyPolicy, sizeof( BOOLEAN ) ) );
 
-	REQUIRES( DATAPTR_ISVALID( attributePtr ) );
+	REQUIRES_B( DATAPTR_ISVALID( attributePtr ) );
 	REQUIRES_B( isBooleanValue( inhibitAnyPolicy ) );
 
 	/* Clear return values */
@@ -824,7 +828,7 @@ static BOOLEAN checkPolicyType( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 	LOOP_LARGE_CHECKINC( DATAPTR_ISSET( attributeCursor ), 
 						 attributeCursor = findNextFieldInstance( attributeCursor ) )
 		{
-		ENSURES( LOOP_INVARIANT_LARGE_GENERIC() );
+		ENSURES_B( LOOP_INVARIANT_LARGE_GENERIC() );
 
 		if( isAnyPolicy( attributeCursor ) )
 			*hasAnyPolicy = TRUE;
@@ -869,7 +873,7 @@ BOOLEAN isPolicyPresent( const DATAPTR_ATTRIBUTE subjectAttributes,
 		void *subjectPolicyValuePtr;
 		int subjectPolicyValueLength;
 
-		ENSURES( LOOP_INVARIANT_LARGE_GENERIC() );
+		ENSURES_B( LOOP_INVARIANT_LARGE_GENERIC() );
 
 		status = getAttributeDataPtr( attributeCursor, &subjectPolicyValuePtr, 
 									  &subjectPolicyValueLength );

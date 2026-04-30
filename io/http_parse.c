@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib HTTP Parsing Routines						*
-*					  Copyright Peter Gutmann 1998-2017						*
+*					  Copyright Peter Gutmann 1998-2024						*
 *																			*
 ****************************************************************************/
 
@@ -189,16 +189,21 @@ static int getEncodedChar( IN_BUFFER( bufSize ) const char *buffer,
 
 /* Decode a string as per RFC 1866 */
 
-CHECK_RETVAL_LENGTH_SHORT STDC_NONNULL_ARG( ( 1 ) ) \
-static int decodeRFC1866( IN_BUFFER( bufSize ) char *buffer, 
-						  IN_LENGTH_SHORT const int bufSize )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+static int decodeRFC1866( INOUT_BUFFER( bufSize, *newBufSize ) char *buffer, 
+						  IN_LENGTH_SHORT const int bufSize,
+						  OUT_LENGTH_SHORT_Z int *newBufSize )
 	{
 	LOOP_INDEX srcIndex;
 	int destIndex = 0;
 
 	assert( isWritePtrDynamic( buffer, bufSize ) );
+	assert( isWritePtr( newBufSize, sizeof( int ) ) );
 
 	REQUIRES( isShortIntegerRangeNZ( bufSize ) );
+
+	/* Clear return value */
+	*newBufSize = 0;
 
 	LOOP_MAX_INITCHECK( srcIndex = 0, srcIndex < bufSize )
 		{
@@ -217,21 +222,24 @@ static int decodeRFC1866( IN_BUFFER( bufSize ) char *buffer,
 			const int bytesLeft = bufSize - srcIndex;
 			int status;
 
+			REQUIRES( !checkOverflowSub( bufSize, srcIndex ) );
+
 			if( bytesLeft <= 0 )
 				return( CRYPT_ERROR_BADDATA );
 			status = ch = getEncodedChar( buffer + srcIndex, bytesLeft );
 			if( cryptStatusError( status ) )
 				return( status );
+			REQUIRES( !checkOverflowAdd( srcIndex, 2 ) );
 			srcIndex += 2;
 			}
 		buffer[ destIndex++ ] = intToByte( ch );
 		}
 	ENSURES( LOOP_BOUND_OK );
+	*newBufSize = destIndex;
 
 	/* If we've processed an escape sequence (causing the data to change
-	   size), tell the caller the new length, otherwise tell them that
-	   nothing's changed */
-	return( ( destIndex < srcIndex ) ? destIndex : OK_SPECIAL );
+	   size), tell the caller, otherwise tell them that nothing's changed */
+	return( ( destIndex < srcIndex ) ? OK_SPECIAL : CRYPT_OK );
 	}
 
 /* Convert a hex ASCII string used with chunked encoding into a numeric
@@ -281,7 +289,9 @@ static int getChunkLength( IN_BUFFER( dataLength ) const char *data,
 	return( chunkLength );
 	}
 
-/* Exit with extended error information relating to header-line parsing */
+/* Exit with extended error information relating to header-line parsing.  
+   This is always called with literal format strings, however some analysis 
+   tools will warn about possible format-string attacks */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int retHeaderError( INOUT_PTR STREAM *stream, 
@@ -292,7 +302,7 @@ static int retHeaderError( INOUT_PTR STREAM *stream,
 	{
 #ifdef USE_ERRMSGS
 	NET_STREAM_INFO *netStream = DATAPTR_GET( stream->netStream );
-	BYTE argBuffer[ CRYPT_MAX_TEXTSIZE + 1 + 8 ];
+	BYTE argBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
 	const int argBufPos = min( strArgLen, CRYPT_MAX_TEXTSIZE );
 #endif /* USE_ERRMSGS */
 
@@ -308,12 +318,11 @@ static int retHeaderError( INOUT_PTR STREAM *stream,
 	memcpy( argBuffer, strArg, argBufPos ); 
 #endif /* USE_ERRMSGS */
 
-	/* Format the error information.  We add one to the argument length to 
-	   accommodate the trailing '\0', and two to the line number since it's 
-	   zero-based and the header counts as an extra line */
+	/* Format the error information.  We add two to the line number since 
+	   it's zero-based and the header counts as an extra line */
 	retExt( CRYPT_ERROR_BADDATA,
 			( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, format,
-			  sanitiseString( argBuffer, argBufPos + 1, argBufPos ),
+			  sanitiseString( argBuffer, CRYPT_MAX_TEXTSIZE, strArgLen ),
 			  lineNo + 2 ) );
 	}
 
@@ -421,7 +430,8 @@ static int getUriSegmentLength( IN_BUFFER( dataMaxLength ) const char *data,
 
 	/* Finally, if we're expecting further data to follow the current URI 
 	   segment, make sure that it's present */
-	if( dataMaxLength - i < uriParseInfo->dataToFollow )
+	if( checkOverflowSub( dataMaxLength, i ) || \
+		dataMaxLength - i < uriParseInfo->dataToFollow )
 		return( CRYPT_ERROR_BADDATA );
 
 	*dataLength = i;
@@ -466,25 +476,24 @@ int parseUriInfo( INOUT_BUFFER( dataInLength, *dataOutLength ) char *data,
 	*dataOutLength = 0;
 
 	/* Decode the URI text.  Since there can be multiple nested levels of
-	   encoding, we keep iteratively decoding in-place until either 
+	   encoding we keep iteratively decoding in-place until either 
 	   decodeRFC1866() cries Uncle or we hit the sanity-check limit */
 	LOOP_SMALL( i = 0, i < 5, i++ )
 		{
-		int decodedLength;
-
 		ENSURES( LOOP_INVARIANT_SMALL( i, 0, 4 ) );
 
-		status = decodedLength = decodeRFC1866( data, length );
-		if( cryptStatusError( status ) )
+		status = decodeRFC1866( data, length, &length );
+		if( cryptStatusOK( status ) )
 			{
-			if( status == OK_SPECIAL )
-				{
-				/* There's been no further change in the data, exit */
-				break;
-				}
-			return( CRYPT_ERROR_BADDATA );
+			/* We're done, exit */
+			break;
 			}
-		length = decodedLength;	/* Record the new length of the decoded data */
+		if( status == OK_SPECIAL )
+			{
+			/* The length has changed, try again */
+			continue;
+			}
+		return( status );
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( i >= 5 )
@@ -510,9 +519,10 @@ int parseUriInfo( INOUT_BUFFER( dataInLength, *dataOutLength ) char *data,
 	REQUIRES( rangeCheck( segmentLength, 1, CRYPT_MAX_TEXTSIZE ) );
 	memcpy( uriInfo->location, bufPtr, segmentLength );
 	uriInfo->locationLen = segmentLength;
-	ENSURES( !checkOverflowSub( length, segmentLength + 1 ) );
 	bufPtr += segmentLength + 1;	/* Skip delimiter */
+	REQUIRES( !checkOverflowSub( length, segmentLength + 1 ) );
 	length -= segmentLength + 1;
+	REQUIRES( !checkOverflowAdd( segmentLength, 1 ) );
 	parsedLength = segmentLength + 1;
 	status = getUriSegmentLength( bufPtr, length, &segmentLength,
 								  &attributeParseInfo, NULL );
@@ -521,9 +531,10 @@ int parseUriInfo( INOUT_BUFFER( dataInLength, *dataOutLength ) char *data,
 	REQUIRES( rangeCheck( segmentLength, 1, CRYPT_MAX_TEXTSIZE ) );
 	memcpy( uriInfo->attribute, bufPtr, segmentLength );
 	uriInfo->attributeLen = segmentLength;
-	ENSURES( !checkOverflowSub( length, segmentLength + 1 ) );
 	bufPtr += segmentLength + 1;	/* Skip delimiter */
+	REQUIRES( !checkOverflowSub( length, segmentLength + 1 ) );
 	length -= segmentLength + 1;
+	REQUIRES( !checkOverflowAdd( parsedLength, segmentLength + 1 ) );
 	parsedLength += segmentLength + 1;
 	status = getUriSegmentLength( bufPtr, length, &segmentLength,
 								  &valueParseInfo, &altDelimiterFound );
@@ -532,9 +543,10 @@ int parseUriInfo( INOUT_BUFFER( dataInLength, *dataOutLength ) char *data,
 	REQUIRES( rangeCheck( segmentLength, 1, CRYPT_MAX_TEXTSIZE ) );
 	memcpy( uriInfo->value, bufPtr, segmentLength );
 	uriInfo->valueLen = segmentLength;
-	ENSURES( !checkOverflowSub( length, segmentLength + 1 ) );
 	bufPtr += segmentLength + 1;	/* Skip delimiter */
+	REQUIRES( !checkOverflowSub( length, segmentLength + 1 ) );
 	length -= segmentLength + 1;
+	REQUIRES( !checkOverflowAdd( parsedLength, segmentLength + 1 ) );
 	parsedLength += segmentLength + 1;
 	if( altDelimiterFound )
 		{
@@ -550,6 +562,7 @@ int parseUriInfo( INOUT_BUFFER( dataInLength, *dataOutLength ) char *data,
 		REQUIRES( rangeCheck( segmentLength, 1, CRYPT_MAX_TEXTSIZE ) );
 		memcpy( uriInfo->extraData, bufPtr, segmentLength );
 		uriInfo->extraDataLen = segmentLength;
+		REQUIRES( !checkOverflowAdd( parsedLength, segmentLength + 1 ) );
 		parsedLength += segmentLength + 1;
 		}
 
@@ -573,7 +586,6 @@ static int readHTTPStatus( IN_BUFFER( dataLength ) const char *data,
 	{
 	const HTTP_STATUS_INFO *httpStatusInfo;
 	const BOOLEAN isResponseStatus = ( httpStatus != NULL ) ? TRUE : FALSE;
-	BYTE dataBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
 	int value, remainderLength, offset, status;
 
 	assert( isReadPtrDynamic( data, dataLength ) );
@@ -592,26 +604,23 @@ static int readHTTPStatus( IN_BUFFER( dataLength ) const char *data,
 	   characters followed by a space */
 	if( dataLength < 3 || strSkipNonWhitespace( data, dataLength ) != 3 )
 		{
-		memcpy( dataBuffer, data, min( dataLength, CRYPT_MAX_TEXTSIZE ) );
-		retExt( CRYPT_ERROR_BADDATA, 
-				( CRYPT_ERROR_BADDATA, errorInfo, 
-				  "Invalid/missing HTTP %sstatus code '%s'", 
-				  isResponseStatus ? "response " : "",
-				  sanitiseString( dataBuffer, 3, CRYPT_MAX_TEXTSIZE ) ) );
+		retExtSan( CRYPT_ERROR_BADDATA, 
+				   ( CRYPT_ERROR_BADDATA, errorInfo, 
+					 "Invalid/missing HTTP %sstatus code '%s'", 
+					 isResponseStatus ? "response " : "", 0,
+					 data, dataLength, NULL, 0 ) );
 		}
 
 	/* Process the three-digit numeric status code */
 	status = strGetNumeric( data, 3, &value, 1, 999 );
 	if( cryptStatusError( status ) || \
-		value < MIN_HTTP_STATUS || value >= MAX_HTTP_STATUS )
+		value < MIN_HTTP_STATUS || value > MAX_HTTP_STATUS )
 		{
-		memcpy( dataBuffer, data, 3 );
-		retExt( CRYPT_ERROR_BADDATA, 
-				( CRYPT_ERROR_BADDATA, errorInfo, 
-				  "Invalid HTTP %sstatus code '%s'", 
-				  isResponseStatus ? "response " : "",
-				  sanitiseString( dataBuffer, dataLength, \
-								  CRYPT_MAX_TEXTSIZE ) ) );
+		retExtSan( CRYPT_ERROR_BADDATA, 
+				   ( CRYPT_ERROR_BADDATA, errorInfo, 
+					 "Invalid HTTP %sstatus code '%s'", 
+					 isResponseStatus ? "response " : "", 0,
+					 data, 3, NULL, 0 ) );
 		}
 	if( httpStatus != NULL )
 		*httpStatus = value;
@@ -631,9 +640,11 @@ static int readHTTPStatus( IN_BUFFER( dataLength ) const char *data,
 
 	/* We're doing a status read from an HTTP response, make sure that 
 	   there's status text present alongside the status code */
+	REQUIRES( !checkOverflowSub( dataLength, 3 ) );
 	remainderLength = dataLength - 3;
 	if( remainderLength < 2 || \
 		( offset = strSkipWhitespace( data + 3, remainderLength ) ) < 0 || \
+		checkOverflowSub( dataLength, offset ) || \
 		dataLength - offset < 1 )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
@@ -673,7 +684,7 @@ static int processHeaderLine( IN_BUFFER( dataLength ) const char *data,
 							  IN_RANGE( 1, 999 ) const int errorLineNo )
 	{
 	const HTTP_HEADER_PARSE_INFO *headerParseInfoPtr = NULL;
-	const int firstChar = toUpper( *data );
+	const int firstChar = toUpper( data[ 0 ] );
 	LOOP_INDEX i;
 	int processedLength, dataLeft;
 
@@ -717,6 +728,7 @@ static int processHeaderLine( IN_BUFFER( dataLength ) const char *data,
 		return( 0 );
 		}
 	processedLength = headerParseInfoPtr->headerStringLen;
+	REQUIRES( !checkOverflowSub( dataLength, processedLength ) );
 	dataLeft = dataLength - processedLength;
 
 	/* Make sure that there's an attribute value present.  At this point we 
@@ -739,7 +751,10 @@ static int processHeaderLine( IN_BUFFER( dataLength ) const char *data,
 				{
 				/* We skipped some whitespace before the attribute value, 
 				   adjust the consumed/remaining byte counts */
+				REQUIRES( !checkOverflowSub( dataLeft, extraLength ) );
 				dataLeft -= extraLength;
+				REQUIRES( !checkOverflowAdd( processedLength, 
+											 extraLength ) );
 				processedLength += extraLength;
 				}
 			}
@@ -806,20 +821,17 @@ int readFirstHeaderLine( INOUT_PTR STREAM *stream,
 		   was sent if possible */
 		if( strIsPrintable( dataBuffer, length ) )
 			{
-			retExt( status, 
-					( status, NETSTREAM_ERRINFO, 
-					"Expected HTTP header, got '%s'",
-					sanitiseString( dataBuffer, length,
-									min( MAX_ERRMSG_SIZE - 64, 
-										 dataMaxLength ) ) ) );
+			retExtSan( status, 
+					   ( status, NETSTREAM_ERRINFO, 
+						 "Expected HTTP header, got '%s'",
+						 dataBuffer, length, NULL, 0, NULL, 0 ) );
 			}
-		retExt( status, 
-				( status, NETSTREAM_ERRINFO, 
-				  "Invalid HTTP ID/version '%s'",
-				  sanitiseString( dataBuffer, length, 
-								  min( CRYPT_MAX_TEXTSIZE, 
-									   dataMaxLength ) ) ) );
+		retExtSan( status, 
+				   ( status, NETSTREAM_ERRINFO, 
+					 "Invalid HTTP ID/version '%s'",
+					 dataBuffer, length, NULL, 0, NULL, 0 ) );
 		}
+	REQUIRES( !checkOverflowSub( length, processedLength ) );
 	dataLeft = length - processedLength;
 
 	/* Skip the whitespace between the HTTP ID and status info.  As before
@@ -841,18 +853,18 @@ int readFirstHeaderLine( INOUT_PTR STREAM *stream,
 			{
 			/* We skipped some whitespace before the HTTP status info, 
 			   adjust the consumed/remaining byte counts */
+			REQUIRES( !checkOverflowSub( dataLeft, extraLength ) );
 			dataLeft -= extraLength;
+			REQUIRES( !checkOverflowAdd( processedLength, extraLength ) );
 			processedLength += extraLength;
 			}
 		}
 	if( dataLeft < 1 )
 		{
-		retExt( CRYPT_ERROR_BADDATA, 
-				( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
-				  "Missing HTTP status code '%s'",
-				  sanitiseString( dataBuffer, length, 
-								  min( CRYPT_MAX_TEXTSIZE, 
-									   dataMaxLength ) ) ) );
+		retExtSan( CRYPT_ERROR_BADDATA, 
+				   ( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
+					 "Missing HTTP status code '%s'",
+					 dataBuffer, length, NULL, 0, NULL, 0 ) );
 		}
 
 	/* Read the HTTP status info */
@@ -983,6 +995,7 @@ int readHeaderLines( INOUT_PTR STREAM *stream,
 		if( cryptStatusError( status ) )
 			return( status );
 		lineBufPtr = lineBuffer + length;
+		REQUIRES( !checkOverflowSub( lineLength, length ) );
 		lineLength -= length;
 		ENSURES( lineLength > 0 );	/* Guaranteed by processHeaderLine() */
 		switch( headerType )
@@ -1021,12 +1034,21 @@ int readHeaderLines( INOUT_PTR STREAM *stream,
 										&contentLength, 1, MAX_BUFFER_SIZE );
 				if( cryptStatusError( status ) )
 					{
+#ifdef USE_ERRMSGS
+					char stringBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
+					int stringBufferLength;
+
+					stringBufferLength = min( lineLength, 
+											  CRYPT_MAX_TEXTSIZE );
+					REQUIRES( rangeCheck( stringBufferLength, \
+										  1, CRYPT_MAX_TEXTSIZE ) );
+					memcpy( stringBuffer, lineBufPtr, stringBufferLength );
+#endif /* USE_ERRMSGS */
 					retExt( CRYPT_ERROR_BADDATA, 
 							( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
 							  "Invalid HTTP content length '%s', line %d",
-							  sanitiseString( lineBufPtr, lineLength, 
-											  min( CRYPT_MAX_TEXTSIZE,
-												   lineBufMaxLen - length ) ),
+							  sanitiseString( stringBuffer, 
+									CRYPT_MAX_TEXTSIZE, lineLength ), 
 							  lineCount + 2 ) );
 					}
 				seenLength = TRUE;
@@ -1088,8 +1110,9 @@ int readHeaderLines( INOUT_PTR STREAM *stream,
 								lineBufPtr, lineLength, lineCount ) );
 					}
 				contentType = lineBufPtr;
-				ENSURES( !checkOverflowSub( lineLength, contentTypeLen + 1 ) );
 				lineBufPtr += contentTypeLen + 1;	/* Skip delimiter */
+				REQUIRES( !checkOverflowSub( lineLength, 
+											 contentTypeLen + 1 ) );
 				lineLength -= contentTypeLen + 1;
 				status = getUriSegmentLength( lineBufPtr, lineLength, 
 											  &subTypeLen, 
@@ -1302,10 +1325,7 @@ int readHeaderLines( INOUT_PTR STREAM *stream,
 				   at the higher-level protocol layer */
 				if( lineLength >= 12 && \
 					!strCompare( lineBufPtr, "100-Continue", 12 ) )
-					{
-					( void ) sendHTTPError( stream, lineBufPtr, 
-											lineBufMaxLen, 100 );
-					}
+					sendHTTPError( stream, 100 );
 				break;
 
 #ifdef USE_WEBSOCKETS
@@ -1464,17 +1484,27 @@ int readHeaderLines( INOUT_PTR STREAM *stream,
 			{
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
-					  "Missing HTTP chunk length, line %d", lineCount + 2 ) );
+					  "Missing HTTP chunk length, line %d", 
+					  lineCount + 2 ) );
 			}
 		status = contentLength = getChunkLength( lineBuffer, lineLength );
 		if( cryptStatusError( status ) )
 			{
+#ifdef USE_ERRMSGS
+			char stringBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
+			int stringBufferLength;
+
+			stringBufferLength = min( lineLength, CRYPT_MAX_TEXTSIZE );
+			REQUIRES( rangeCheck( stringBufferLength, \
+								  1, CRYPT_MAX_TEXTSIZE ) );
+			memcpy( stringBuffer, lineBuffer, stringBufferLength );
+#endif /* USE_ERRMSGS */
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
 					  "Invalid length '%s' for HTTP chunked encoding, line "
-					  "%d", sanitiseString( lineBuffer, lineLength, 
-											min( CRYPT_MAX_TEXTSIZE, 
-												 lineBufMaxLen ) ),
+					  "%d", 
+					  sanitiseString( lineBuffer, CRYPT_MAX_TEXTSIZE,
+									  lineLength ), 
 					  lineCount + 2 ) );
 			}
 		}

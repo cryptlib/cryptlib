@@ -20,7 +20,7 @@
 #	cfarm93 = RiscV64 JH7110, vanished mid-2025, using cfarm94.
 #	cfarm203 = PPC64, retired late 2025, using cfarm121
 
-HOSTS="27 70 94 95 104 110 111 112 121 185 210 211 215 216 220 230 231 240 400"
+HOSTS="27 70 94 95 104 112 121 185 210 211 215 216 220 230 231 240 400 439 440"
 HOSTPREFIX="cfarm"
 HOSTSUFFIX="cfarm.net"
 USER="peter"
@@ -61,6 +61,17 @@ if [ ! -s ./beta.zip ] ; then
 	exit 1 ;
 fi
 
+# Some tests hang, install a Ctrl-C handler that lets us know how far we got.
+
+DISPLAYHOST=""
+trap ctrlc INT
+
+ctrlc()
+	{
+	printf "\n**** Error testing on %s: Ctrl-C ****\n" "$DISPLAYHOST" >&2 ;
+	exit ;
+	}
+
 # Upload and build the code on each host.  We use a here document for this
 # rather than pulling it in from another file with 'ssh [...] < commands.sh'
 # to keep everything in one place.  The script is fairly conservative in
@@ -84,6 +95,9 @@ for host in $HOSTS ; do
 	else
 		HOSTNAME=$host ;
 	fi
+
+	# Remember which host we got to
+	DISPLAYHOST=$HOSTNAME
 
 	# A few hosts only allow for -j2 rather than the default -j4.  In theory
 	# we could do a per-host lookup for number of cores vs. host but that's
@@ -114,12 +128,12 @@ for host in $HOSTS ; do
 #		'93') echo "cfarm93: RiscV64 (VisionFive) little-endian Linux clang." ;;
 		'94') echo "cfarm94: RiscV64 (JH7110) little-endian Linux clang." ;;
 		'95') echo "cfarm95: RiscV64 (X60) little-endian Linux clang." ;;
-		'104') echo "cfarm104: Apple M1 Arm64 little-endian OS X clang.  Hangs on SSH connect test." ;;
-		'110') echo "cfarm110: PPC64 big-endian Linux clang." ;;
-		'111') echo "cfarm111: PPC64 big-endian AIX xlc.  Hangs on SSH connect test." ;;
+		'104') echo "cfarm104: Apple M1 Arm64 little-endian OS X clang." ;;
+#		'110') echo "cfarm110: PPC64 big-endian Linux clang." ;;
+#		'111') echo "cfarm111: PPC64 big-endian AIX xlc." ;;
 		'112') echo "cfarm112: PPC64 little-endian Linux gcc.  Broken clang install." ;;
 		'121') echo "cfarm121: PPC64 big-endian Linux clang." ;;
-		'185') echo "cfarm185: Arm64 little-endian Linux clang.  Hangs on SSH connect test." ;;
+		'185') echo "cfarm185: Arm64 little-endian Linux clang." ;;
 #		'203') echo "cfarm203: PPC64 big-endian Linux clang." ;;
 		'210') echo "cfarm210: Sparc64 big-endian Solaris 10 SunPro.  OpenCSW." ;;
 		'211') echo "cfarm211: Sparc64 big-endian Solaris 11 SunPro.  OpenCSW." ;;
@@ -130,6 +144,8 @@ for host in $HOSTS ; do
 		'231') echo "cfarm231: MIPS64 big-endian OpenBSD clang" ;;
 		'240') echo "cfarm240: ARM Morello CheriBSD/FreeBSD, 64-bit word, 128-bit pointers." ;;
 		'400') echo "cfarm400: Loongson64 little-endian Linux clang." ;;
+		'439') echo "cfarm439: PPC64 little-endian FreeBSD clang." ;;
+		'440') echo "cfarm440: PPC64 big-endian FreeBSD clang." ;;
 		*) echo "Error: Unknown host $host" >&2 ;
 		   exit 1 ;;
 	esac

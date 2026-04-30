@@ -319,11 +319,17 @@ int initSieve( IN_ARRAY( sieveSize ) BOOLEAN *sieveArray,
 		if( bnStatusError( bnStatus ) )
 			return( getBnStatus( bnStatus ) );
 		if( sieveIndex & 1 )
+			{
+			REQUIRES( !checkOverflowSub( step, sieveIndex ) );
 			sieveIndex = ( step - sieveIndex ) / 2;
+			}
 		else
 			{
 			if( sieveIndex > 0 )
+				{
+				REQUIRES( !checkOverflowSub( step * 2, sieveIndex ) );
 				sieveIndex = ( ( step * 2 ) - sieveIndex ) / 2;
+				}
 			}
 
 		/* If the start index falls outside the sieve, don't go any 
@@ -419,7 +425,7 @@ BOOLEAN primeCheckQuick( const BIGNUM *candidate )
 			{
 			ENSURES_B( LOOP_INVARIANT_MAX( i, 1, QUICK_CHECK_PRIMES - 1 ) );
 
-			ANALYSER_HINT( primeTbl[ i ] != 0 );
+			REQUIRES_B( !checkOverflowDiv( candidateWord, primeTbl[ i ] ) );
 			if( candidateWord % primeTbl[ i ] == 0 )
 				return( FALSE );
 			}

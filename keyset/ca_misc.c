@@ -176,6 +176,7 @@ int updateCertLog( INOUT_PTR DBMS_INFO *dbmsInfo,
 		strlcat_s( sqlBuffer, MAX_SQL_QUERY_SIZE, ", certData" );
 	strlcat_s( sqlBuffer, MAX_SQL_QUERY_SIZE, ") VALUES (" );
 	sqlOffset = strnlen_s( sqlBuffer, MAX_SQL_QUERY_SIZE );
+	REQUIRES( !checkOverflowSub( MAX_SQL_QUERY_SIZE, sqlOffset ) );
 	sqlLength = MAX_SQL_QUERY_SIZE - sqlOffset;
 	ENSURES( isShortIntegerRangeMin( sqlLength, 16 ) );
 	result = sprintf_s( sqlBuffer + sqlOffset, sqlLength, "%d, ?, ?", 
@@ -203,9 +204,11 @@ int updateCertLog( INOUT_PTR DBMS_INFO *dbmsInfo,
 		status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_GETATTRIBUTE_S,
 								  &msgData, CRYPT_IATTRIBUTE_RANDOM_NONCE );
 		if( cryptStatusOK( status ) )
+			{
 			status = base64encode( certIDbuffer, ENCODED_DBXKEYID_SIZE, 
 								   &localCertIDlength, nonce, DBXKEYID_SIZE, 
 								   CRYPT_CERTTYPE_NONE );
+			}
 		if( cryptStatusError( status ) )
 			{
 			/* Normally this is a should-never-occur error, however if
@@ -227,11 +230,15 @@ int updateCertLog( INOUT_PTR DBMS_INFO *dbmsInfo,
 	setBoundData( boundDataPtr, 1, certID, localCertIDlength );
 	boundDataIndex = 2;
 	if( reqCertID != NULL )
+		{
 		setBoundData( boundDataPtr, boundDataIndex++, reqCertID, 
 					  reqCertIDlength );
+		}
 	if( subjCertID != NULL )
+		{
 		setBoundData( boundDataPtr, boundDataIndex++, subjCertID, 
 					  subjCertIDlength );
+		}
 	if( data != NULL )
 		{
 		if( hasBinaryBlobs( dbmsInfo ) )

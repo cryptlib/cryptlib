@@ -23,7 +23,7 @@
 
 #define SCVP_PFLAG_NONE			0x00	/* No protocol-specific flags */
 #define SCVP_PFLAG_VALPOLICY	0x01	/* Got ValidationPolicy from server */
-#define SCVP_PFLAG_MAX			0x3F	/* Maximum possible flag value */
+#define SCVP_PFLAG_MAX			0x01	/* Maximum possible flag value */
 
 /* SCVP wantBack flags */
 

@@ -47,14 +47,14 @@ typedef struct {
 
 static const ALLOWED_ATTRIBUTE_TYPES allowedTypesTbl[] = {
 	{ PKCS15_OBJECT_PUBKEY,
-	  { BER_SEQUENCE, MAKE_CTAG( CTAG_PK_ECC ), MAKE_CTAG( CTAG_PK_DH ), 
-	    MAKE_CTAG( CTAG_PK_DSA ), MAKE_CTAG( CTAG_PK_BERNSTEIN ), 
+	  { BER_SEQUENCE, MAKE_CTAG( CTAG_KP_ECC ), MAKE_CTAG( CTAG_KP_DH ), 
+	    MAKE_CTAG( CTAG_KP_DSA ), MAKE_CTAG( CTAG_KP_BERNSTEIN ), 
 		CRYPT_ERROR, CRYPT_ERROR } },
 	{ PKCS15_OBJECT_PRIVKEY,
-	  { BER_SEQUENCE, MAKE_CTAG( CTAG_PR_ECC ), MAKE_CTAG( CTAG_PR_DH ), 
-	    MAKE_CTAG( CTAG_PR_DSA ), MAKE_CTAG( CTAG_PR_RSA_EXT ),
-		MAKE_CTAG( CTAG_PR_ECC_EXT ), MAKE_CTAG( CTAG_PR_DLP_EXT ),
-		MAKE_CTAG( CTAG_PR_BERNSTEIN_EXT ),
+	  { BER_SEQUENCE, MAKE_CTAG( CTAG_KR_ECC ), MAKE_CTAG( CTAG_KR_DH ), 
+	    MAKE_CTAG( CTAG_KR_DSA ), MAKE_CTAG( CTAG_KR_RSA_EXT ),
+		MAKE_CTAG( CTAG_KR_ECC_EXT ), MAKE_CTAG( CTAG_KR_DLP_EXT ),
+		MAKE_CTAG( CTAG_KR_BERNSTEIN_EXT ),
 		CRYPT_ERROR, CRYPT_ERROR } },
 	{ PKCS15_OBJECT_CERT,
 	  { BER_SEQUENCE, CRYPT_ERROR, CRYPT_ERROR } },
@@ -315,6 +315,7 @@ static int readCertAttributes( INOUT_PTR STREAM *stream,
 		status = readConstructed( stream, &length, CTAG_CA_IDENTIFIERS );
 		if( cryptStatusOK( status ) && length > 0 )
 			{
+			REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 			status = readKeyIdentifiers( stream, pkcs15infoPtr, 
 										 stell( stream ) + length );
 			}
@@ -387,6 +388,7 @@ static int readClassAttributes( INOUT_PTR STREAM *stream,
 		/* For anything else, a zero length is an error */
 		return( CRYPT_ERROR_BADDATA );
 		}
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 
@@ -397,7 +399,7 @@ static int readClassAttributes( INOUT_PTR STREAM *stream,
 		case PKCS15_OBJECT_PRIVKEY:
 			/* It's a public/private-key object, read the ID and assorted 
 			   flags */
-			if( length < sizeofObject( MIN_NAME_LENGTH ) )
+			if( length < sizeofShortObject( MIN_NAME_LENGTH ) )
 				return( CRYPT_ERROR_BADDATA );
 			status = readOctetString( stream, pkcs15infoPtr->iD,
 									  &pkcs15infoPtr->iDlength, 
@@ -413,7 +415,7 @@ static int readClassAttributes( INOUT_PTR STREAM *stream,
 
 		case PKCS15_OBJECT_CERT:
 			/* It's a certificate object, read the ID and assorted flags */
-			if( length < sizeofObject( MIN_NAME_LENGTH ) )
+			if( length < sizeofShortObject( MIN_NAME_LENGTH ) )
 				return( CRYPT_ERROR_BADDATA );
 			status = readOctetString( stream, pkcs15infoPtr->iD,
 									  &pkcs15infoPtr->iDlength, 
@@ -492,6 +494,7 @@ static int readSubclassAttributes( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 	switch( type )
@@ -503,12 +506,13 @@ static int readSubclassAttributes( INOUT_PTR STREAM *stream,
 				status = readUniversal( stream );
 				}
 			if( checkStatusLimitsPeekTag( stream, status, tag, endPos ) && \
-				tag == MAKE_CTAG( CTAG_PK_IDENTIFIERS ) )	/* KeyIDs */
+				tag == MAKE_CTAG( CTAG_IA_IDENTIFIERS ) )	/* KeyIDs */
 				{
 				status = readConstructed( stream, &length, 
-										  CTAG_PK_IDENTIFIERS );
+										  CTAG_IA_IDENTIFIERS );
 				if( cryptStatusOK( status ) && length > 0 )
 					{
+					REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 					status = readKeyIdentifiers( stream, pkcs15infoPtr, 
 												 stell( stream ) + length );
 					}
@@ -567,6 +571,7 @@ static int readTypeAttributes( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 	if( unrecognisedAttribute )
@@ -718,7 +723,7 @@ int readObjectAttributes( INOUT_PTR STREAM *stream,
 	status = tag = peekTag( stream );
 	if( cryptStatusError( status ) )
 		return( status );
-	status = readGenericHole( stream, &outerLength, MIN_OBJECT_SIZE, 
+	status = readGenericHole( stream, &outerLength, MIN_P15_OBJECT_SIZE, 
 							  DEFAULT_TAG );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -769,6 +774,7 @@ int readObjectAttributes( INOUT_PTR STREAM *stream,
 		{
 		const int endPos = stell( stream ) + length;
 
+		REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 		ENSURES( isIntegerRangeMin( endPos, length ) );
 
 		/* Read the label if it's present and skip anything else */

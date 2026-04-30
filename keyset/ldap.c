@@ -22,7 +22,7 @@
    certificate storage at all unless you're absolutely forced to.  LDAP
    is a truly awful mechanism for storing and retrieving certificates,
    technical reasons for this may be found in the Godzilla crypto tutorial
-   and in any database text written within the last 20 years */
+   and in any database text written within the last 40 years */
 
 #if defined( INC_ALL )
   #include "crypt.h"
@@ -39,6 +39,12 @@
 #if defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ )
   #pragma message( "  Building with LDAP enabled." )
 #endif /* Warn with VC++ */
+
+/* Uncomment this to enable LDAP writes, but first see the comment at
+   the start of copyAttribute() which indicates the LDAP write capability
+   has never been used */
+
+/* #define USE_LDAP_WRITE */
 
 /* LDAP requires us to set up complicated structures to handle DN's.  The
    following values define the upper limit for DN string data and the
@@ -470,12 +476,21 @@ static int mapLdapError( const int ldapError, const int defaultError )
 	return( defaultError );
 	}
 
-/* Copy attribute information into an LDAPMod structure so it can be written to
-   the directory */
+/* Copy attribute information into an LDAPMod structure so that it can be 
+   written to the directory.
+   
+   Historical note: Up until early 2026 this function had a bug in which it 
+   incorrectly set up the mod_bvalues field, which means a certificate write
+   would have failed if attempted.  This means that in over 25 years the
+   LDAP write capability was never used past the initial testing done in the 
+   late 1990s.  Because of this the LDAP write capability has been disabled
+   unless explicitly enabled at compile time */
+
+#ifdef USE_LDAP_WRITE
 
 static LDAPMod *copyAttribute( const char *attributeName,
 							   const void *attributeValue,
-							   const int attributeLength )
+							   const BOOLEAN isBValue )
 	{
 	LDAPMod *ldapModPtr;
 
@@ -487,47 +502,46 @@ static LDAPMod *copyAttribute( const char *attributeName,
 
 	/* Set up the pointers to the attribute information.  This differs
 	   slightly depending on whether we're adding text or binary data */
-	if( !attributeLength )
+	if( isBValue )
 		{
-		REQUIRES_N( isShortIntegerRangeNZ( 2 * sizeof( void * ) ) );
-		if( ( ldapModPtr->mod_values = \
-					clAlloc( "copyAttribute", \
-							 2 * sizeof( void * ) ) ) == NULL )
-			{
-			clFree( "copyAttribute", ldapModPtr );
-			return( NULL );
-			}
-		ldapModPtr->mod_op = LDAP_MOD_ADD;
-		ldapModPtr->mod_type = ( char * ) attributeName;
-		ldapModPtr->mod_values[ 0 ] = ( char * ) attributeValue;
-		ldapModPtr->mod_values[ 1 ] = NULL;
-		}
-	else
-		{
-		REQUIRES_N( isShortIntegerRangeNZ( 2 * sizeof( struct berval ) ) );
+		REQUIRES_N( isShortIntegerRangeNZ( 2 * sizeof( struct berval * ) ) );
 		if( ( ldapModPtr->mod_bvalues = \
 					clAlloc( "copyAttribute", \
-							 2 * sizeof( struct berval ) ) ) == NULL )
+							 2 * sizeof( struct berval * ) ) ) == NULL )
 			{
 			clFree( "copyAttribute", ldapModPtr );
 			return( NULL );
 			}
 		ldapModPtr->mod_op = LDAP_MOD_ADD | LDAP_MOD_BVALUES;
 		ldapModPtr->mod_type = ( char * ) attributeName;
-		ldapModPtr->mod_bvalues[ 0 ]->bv_len = attributeLength;
-		ldapModPtr->mod_bvalues[ 0 ]->bv_val = ( char * ) attributeValue;
+		ldapModPtr->mod_bvalues[ 0 ] = attributeValue;
 		ldapModPtr->mod_bvalues[ 1 ] = NULL;
+
+		return( ldapModPtr );
 		}
+	REQUIRES_N( isShortIntegerRangeNZ( 2 * sizeof( void * ) ) );
+	if( ( ldapModPtr->mod_values = \
+					clAlloc( "copyAttribute", \
+							 2 * sizeof( void * ) ) ) == NULL )
+		{
+		clFree( "copyAttribute", ldapModPtr );
+		return( NULL );
+		}
+	ldapModPtr->mod_op = LDAP_MOD_ADD;
+	ldapModPtr->mod_type = ( char * ) attributeName;
+	ldapModPtr->mod_values[ 0 ] = ( char * ) attributeValue;
+	ldapModPtr->mod_values[ 1 ] = NULL;
 
 	return( ldapModPtr );
 	}
+#endif /* USE_LDAP_WRITE */
 
 /* Encode DN information in the RFC 1779 reversed format.  We don't have to
    explicitly check for overflows (which will lead to truncation of the 
    resulting encoded DN) because the certificate management code limits the 
    size of each component to a small fraction of the total buffer size.  
-   Besides which, it's LDAP, anyone using this crap as a certificate store 
-   is asking for it anyway */
+   Besides which, it's LDAP, anyone using this rubbish as a certificate 
+   store is pretty much asking for it anyway */
 
 static void catComponent( char *dest, const int destLen, char *src )
 	{
@@ -662,6 +676,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		if( ( offset = strFindCh( urlInfo.userInfo, 
 								  userInfoLen, ':' ) ) >= 0 )
 			{
+			REQUIRES( !checkOverflowSub( userInfoLen, 2 ) );
 			if( offset < 1 || offset > userInfoLen - 2 || \
 				offset > CRYPT_MAX_TEXTSIZE )
 				return( CRYPT_ARGERROR_STR1 );
@@ -1010,6 +1025,8 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	return( CRYPT_OK );
 	}
 
+#ifdef USE_LDAP_WRITE
+
 /* Add an entry/attribute to an LDAP directory.  The LDAP behaviour differs
    somewhat from DAP in that assigning a value to a nonexistant attribute
    implicitly creates the required attribute.  In addition deleting the last
@@ -1024,6 +1041,7 @@ static int addCert( KEYSET_INFO *keysetInfoPtr,
 	LDAP_INFO *ldapInfo = keysetInfoPtr->keysetLDAP;
 	LDAPMod *ldapMod[ MAX_LDAP_ATTRIBUTES + 8 ];
 	MESSAGE_DATA msgData;
+	struct berval bValue;
 	BYTE keyData[ MAX_CERT_SIZE + 8 ];
 	char dn[ MAX_DN_STRINGSIZE + 8 ];
 	char C[ CRYPT_MAX_TEXTSIZE + 1 + 8 ], SP[ CRYPT_MAX_TEXTSIZE + 1 + 8 ],
@@ -1124,34 +1142,34 @@ static int addCert( KEYSET_INFO *keysetInfoPtr,
 	   will try and look for, once enough other software uses the CA 
 	   certificate attribute this can be switched over */
 	if( ( ldapMod[ 0 ] = copyAttribute( ldapInfo->nameObjectClass,
-										"certPerson", 0 ) ) == NULL )
+										"certPerson", FALSE ) ) == NULL )
 		return( CRYPT_ERROR_MEMORY );
-	if( ( ldapMod[ ldapModIndex++ ] = copyAttribute( ldapInfo->nameCert,
-										keyData, keyDataLength ) ) == NULL )
+	bValue.bv_val = keyData;
+	bValue.bv_len = keyDataLength;
+	if( ( ldapMod[ ldapModIndex++ ] = copyAttribute( ldapInfo->nameCert, &bValue, TRUE ) ) == NULL )
 		status = CRYPT_ERROR_MEMORY;
 
 	/* Set up the DN/identification information */
 	if( cryptStatusOK( status ) && *email && \
-		( ldapMod[ ldapModIndex++ ] = \
-				copyAttribute( ldapInfo->nameEmail, email, 0 ) ) == NULL )
+		( ldapMod[ ldapModIndex++ ] = copyAttribute( ldapInfo->nameEmail, email, FALSE ) ) == NULL )
 		status = CRYPT_ERROR_MEMORY;
 	if( cryptStatusOK( status ) && *CN && \
-		( ldapMod[ ldapModIndex++ ] = copyAttribute( "CN", CN, 0 ) ) == NULL )
+		( ldapMod[ ldapModIndex++ ] = copyAttribute( "CN", CN, FALSE ) ) == NULL )
 		status = CRYPT_ERROR_MEMORY;
 	if( cryptStatusOK( status ) && *OU && \
-		( ldapMod[ ldapModIndex++ ] = copyAttribute( "OU", OU, 0 ) ) == NULL )
+		( ldapMod[ ldapModIndex++ ] = copyAttribute( "OU", OU, FALSE ) ) == NULL )
 		status = CRYPT_ERROR_MEMORY;
 	if( cryptStatusOK( status ) && *O && \
-		( ldapMod[ ldapModIndex++ ] = copyAttribute( "O", O, 0 ) ) == NULL )
+		( ldapMod[ ldapModIndex++ ] = copyAttribute( "O", O, FALSE ) ) == NULL )
 		status = CRYPT_ERROR_MEMORY;
 	if( cryptStatusOK( status ) && *L && \
-		( ldapMod[ ldapModIndex++ ] = copyAttribute( "L", L, 0 ) ) == NULL )
+		( ldapMod[ ldapModIndex++ ] = copyAttribute( "L", L, FALSE ) ) == NULL )
 		status = CRYPT_ERROR_MEMORY;
 	if( cryptStatusOK( status ) && *SP && \
-		( ldapMod[ ldapModIndex++ ] = copyAttribute( "SP", SP, 0 ) ) == NULL )
+		( ldapMod[ ldapModIndex++ ] = copyAttribute( "SP", SP, FALSE ) ) == NULL )
 		status = CRYPT_ERROR_MEMORY;
 	if( cryptStatusOK( status ) && *C && \
-		( ldapMod[ ldapModIndex++ ] = copyAttribute( "C", C, 0 ) ) == NULL )
+		( ldapMod[ ldapModIndex++ ] = copyAttribute( "C", C, FALSE ) ) == NULL )
 		status = CRYPT_ERROR_MEMORY;
 	ldapMod[ ldapModIndex ] = NULL;
 
@@ -1274,6 +1292,29 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 
 	return( status );
 	}
+#else
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
+							IN_HANDLE const CRYPT_HANDLE iCryptHandle,
+							IN_ENUM( KEYMGMT_ITEM ) \
+								const KEYMGMT_ITEM_TYPE itemType,
+							STDC_UNUSED const char *password, 
+							STDC_UNUSED const int passwordLength,
+							IN_FLAGS( KEYMGMT ) const int flags )
+	{
+	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
+
+	REQUIRES( sanityCheckKeyset( keysetInfoPtr ) );
+	REQUIRES( keysetInfoPtr->type == KEYSET_LDAP );
+	REQUIRES( isHandleRangeValid( iCryptHandle ) );
+	REQUIRES( itemType == KEYMGMT_ITEM_PUBLICKEY );
+	REQUIRES( password == NULL && passwordLength == 0 );
+	REQUIRES( flags == KEYMGMT_FLAG_NONE );
+
+	return( CRYPT_ERROR_NOTAVAIL );
+	}
+#endif /* USE_LDAP_WRITE */
 
 /* Delete an entry from an LDAP directory */
 

@@ -290,6 +290,8 @@ static int beginSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	   record which data had been encoded into the buffer and whether the
 	   blockBuffer data had been copied into the buffer, so to keep it
 	   simple we require enough room to do everything at once */
+	REQUIRES( !checkOverflowAdd3( envelopeInfoPtr->bufPos, segHeaderSize,
+								  envelopeInfoPtr->blockBufferPos ) );
 	if( envelopeInfoPtr->bufPos + segHeaderSize + \
 			envelopeInfoPtr->blockBufferPos >= envelopeInfoPtr->bufSize )
 		return( CRYPT_ERROR_OVERFLOW );
@@ -306,6 +308,8 @@ static int beginSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		   turning it into a longer segment.  For this reason we rely on
 		   completeSegment() to get the length right and move any data down
 		   as required */
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, 
+									 segHeaderSize ) );
 		envelopeInfoPtr->bufPos += segHeaderSize;
 		}
 	envelopeInfoPtr->segmentDataStart = envelopeInfoPtr->bufPos;
@@ -322,7 +326,10 @@ static int beginSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 							    envelopeInfoPtr->blockBufferPos,
 							    envelopeInfoPtr->bufSize ) );
 		memcpy( envelopeInfoPtr->buffer + envelopeInfoPtr->bufPos,
-				envelopeInfoPtr->blockBuffer, envelopeInfoPtr->blockBufferPos );
+				envelopeInfoPtr->blockBuffer, 
+				envelopeInfoPtr->blockBufferPos );
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos,
+									 envelopeInfoPtr->blockBufferPos ) );
 		envelopeInfoPtr->bufPos += envelopeInfoPtr->blockBufferPos;
 		}
 	envelopeInfoPtr->blockBufferPos = 0;
@@ -359,7 +366,11 @@ static int encodeSegmentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	int hdrLen, remainder = 0, status;
 
 	REQUIRES( sanityCheckEnvEncode( envelopeInfoPtr ) );
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentDataStart,
+								 envelopeInfoPtr->segmentStart ) );
 	REQUIRES( isShortIntegerRange( oldHdrLen ) );
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos,
+								 envelopeInfoPtr->segmentDataStart ) );
 	REQUIRES( isBufsizeRange( dataLen ) );
 
 	/* If we're adding PKCS #5 padding try and add one block's worth of
@@ -377,9 +388,15 @@ static int encodeSegmentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		   To make things easier we ignore this possibility at the expense of
 		   emitting one more segment than is necessary in a few very rare
 		   cases */
+		REQUIRES( !checkOverflowAdd3( envelopeInfoPtr->segmentDataStart,
+									  dataLen, envelopeInfoPtr->blockSize ) );
 		if( envelopeInfoPtr->segmentDataStart + dataLen + \
 			envelopeInfoPtr->blockSize < envelopeInfoPtr->bufSize )
+			{
+			REQUIRES( !checkOverflowAdd( dataLen, 
+										 envelopeInfoPtr->blockSize ) );
 			dataLen += envelopeInfoPtr->blockSize;
+			}
 		else
 			needsPadding = FALSE;
 		}
@@ -415,11 +432,15 @@ static int encodeSegmentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		   account for this */
 		threshold = findThreshold( quantisedTotalLen );
 		if( quantisedTotalLen <= threshold && dataLen > threshold )
+			{
+			REQUIRES( !checkOverflowDec( hdrLen ) );
 			hdrLen--;
+			}
 
 		/* Remember how many bytes we can't fit into the current block
 		   (these will be copied into the block buffer for later use), and
 		   the new size of the data due to quantisation */
+		REQUIRES( !checkOverflowSub( dataLen, quantisedTotalLen ) );
 		remainder = dataLen - quantisedTotalLen;
 		dataLen = quantisedTotalLen;
 		}
@@ -467,6 +488,7 @@ static int encodeSegmentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		{
 		const int delta = oldHdrLen - hdrLen;
 
+		REQUIRES( !checkOverflowSub( oldHdrLen, hdrLen ) );
 		REQUIRES( isShortIntegerRangeNZ( delta ) );
 
 		/* If there's no data in the segment yet then there's nothing to do */
@@ -479,10 +501,14 @@ static int encodeSegmentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 								   envelopeInfoPtr->bufPos - \
 										envelopeInfoPtr->segmentDataStart, 
 								   envelopeInfoPtr->bufSize ) );
+			REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos,
+										 envelopeInfoPtr->segmentDataStart ) );
 			memmove( segmentDataPtr + hdrLen, segmentDataPtr + oldHdrLen,
 					 envelopeInfoPtr->bufPos - envelopeInfoPtr->segmentDataStart );
 			}
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos, delta ) );
 		envelopeInfoPtr->bufPos -= delta;
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentDataStart, delta ) );
 		envelopeInfoPtr->segmentDataStart -= delta;
 		}
 	ENSURES( sanityCheckEnvEncode( envelopeInfoPtr ) );
@@ -501,6 +527,8 @@ static int encodeSegmentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		const int padSize = envelopeInfoPtr->blockSize - remainder;
 		LOOP_INDEX i;
 
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->blockSize, 
+									 remainder ) );
 		ENSURES( padSize > 0 && padSize <= envelopeInfoPtr->blockSize && \
 				 envelopeInfoPtr->bufPos + \
 						padSize <= envelopeInfoPtr->bufSize );
@@ -515,6 +543,7 @@ static int encodeSegmentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 												intToByte( padSize );
 			}
 		ENSURES( LOOP_BOUND_OK );
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, padSize ) );
 		envelopeInfoPtr->bufPos += padSize;
 		CLEAR_FLAG( envelopeInfoPtr->dataFlags, ENVDATA_FLAG_NEEDSPADDING );
 		ENSURES( envelopeInfoPtr->bufPos >= 0 && \
@@ -527,11 +556,13 @@ static int encodeSegmentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		if( remainder > 0 )
 			{
 			REQUIRES( envelopeInfoPtr->bufPos > remainder );
+			REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos,
+										 remainder ) );
 			memcpy( envelopeInfoPtr->blockBuffer,
 					envelopeInfoPtr->buffer + envelopeInfoPtr->bufPos - \
 											  remainder, remainder );
 			envelopeInfoPtr->blockBufferPos = remainder;
-			envelopeInfoPtr->bufPos -= remainder;
+			envelopeInfoPtr->bufPos -= remainder;	/* Checked above */
 			}
 		}
 
@@ -610,6 +641,8 @@ static int completeSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		const int dataLen = envelopeInfoPtr->bufPos - \
 							envelopeInfoPtr->segmentDataStart;
 
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos,
+									 envelopeInfoPtr->segmentDataStart ) );
 		REQUIRES( isBufsizeRange( dataLen ) );
 
 		status = krnlSendMessage( envelopeInfoPtr->iCryptContext,
@@ -684,6 +717,8 @@ static int flushEnvelopeData( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			}
 
 		/* Flush any remaining compressed data into the envelope buffer */
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize, 
+									 envelopeInfoPtr->bufPos ) );
 		bytesToCopy = envelopeInfoPtr->bufSize - envelopeInfoPtr->bufPos;
 		REQUIRES( isBufsizeRange( bytesToCopy ) );
 		envelopeInfoPtr->zStream.next_in = NULL;
@@ -703,6 +738,11 @@ static int flushEnvelopeData( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		   the zStream.  We don't have to check for the output buffer being
 		   full because this case is already handled by the check of the
 		   deflate() return value */
+		REQUIRES( !checkOverflowSub( bytesToCopy,
+									 envelopeInfoPtr->zStream.avail_out ) );
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos,
+									 bytesToCopy - \
+										envelopeInfoPtr->zStream.avail_out ) );
 		envelopeInfoPtr->bufPos += bytesToCopy - \
 								   envelopeInfoPtr->zStream.avail_out;
 		ENSURES( envelopeInfoPtr->bufPos >= 0 && \
@@ -864,6 +904,8 @@ static int copyToEnvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 	/* Copy over as much as we can fit into the envelope buffer */
 	bufPtr = envelopeInfoPtr->buffer + envelopeInfoPtr->bufPos;
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize,
+								 envelopeInfoPtr->bufPos ) );
 	bytesToCopy = envelopeInfoPtr->bufSize - envelopeInfoPtr->bufPos;
 	ENSURES( bytesToCopy > 0 && \
 			 envelopeInfoPtr->bufPos + \
@@ -886,8 +928,15 @@ static int copyToEnvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 		/* Adjust the status information based on the data copied into the
 		   zStream and flushed from the zStream into the buffer */
+		REQUIRES( !checkOverflowSub( bytesToCopy,
+									 envelopeInfoPtr->zStream.avail_out ) );
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos,
+									 bytesToCopy - \
+										envelopeInfoPtr->zStream.avail_out ) );
 		envelopeInfoPtr->bufPos += bytesToCopy - \
 								   envelopeInfoPtr->zStream.avail_out;
+		REQUIRES( !checkOverflowSub( length, 
+									 envelopeInfoPtr->zStream.avail_in ) );
 		bytesToCopy = length - envelopeInfoPtr->zStream.avail_in;
 
 		/* If the buffer is full (there's no more room left for further
@@ -904,6 +953,8 @@ static int copyToEnvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		REQUIRES( boundsCheckZ( envelopeInfoPtr->bufPos, bytesToCopy, 
 								envelopeInfoPtr->bufSize ) );
 		memcpy( bufPtr, buffer, bytesToCopy );
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, 
+									 bytesToCopy ) );
 		envelopeInfoPtr->bufPos += bytesToCopy;
 
 		/* Hash the data if necessary */
@@ -923,7 +974,11 @@ static int copyToEnvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 	/* Adjust the bytes-left counter if necessary */
 	if( envelopeInfoPtr->payloadSize != CRYPT_UNUSED )
+		{
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentSize, 
+									 bytesToCopy ) );
 		envelopeInfoPtr->segmentSize -= bytesToCopy;
+		}
 
 	ENSURES( sanityCheckEnvEncode( envelopeInfoPtr ) );
 
@@ -993,6 +1048,7 @@ static int copyFromEnvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		if( envelopeInfoPtr->segmentDataEnd < bytesToCopy )
 			bytesToCopy = envelopeInfoPtr->segmentDataEnd;
 		}
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos, bytesToCopy ) );
 	remainder = envelopeInfoPtr->bufPos - bytesToCopy;
 	ENSURES( bytesToCopy >= 0 && bytesToCopy <= envelopeInfoPtr->bufPos );
 	ENSURES( remainder >= 0 && remainder <= envelopeInfoPtr->bufPos );
@@ -1021,12 +1077,24 @@ static int copyFromEnvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		   completed segment is moved past the start of the buffer.  If this
 		   happens we set them to a safe value of zero to ensure that they
 		   pass the sanity checks elsewhere in the code */
-		envelopeInfoPtr->segmentStart -= bytesToCopy;
-		if( envelopeInfoPtr->segmentStart < 0 )
+		if( envelopeInfoPtr->segmentStart < bytesToCopy )
 			envelopeInfoPtr->segmentStart = 0;
-		envelopeInfoPtr->segmentDataStart -= bytesToCopy;
-		if( envelopeInfoPtr->segmentDataStart < 0 )
+		else
+			{		
+			REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentStart, 
+										 bytesToCopy ) );
+			envelopeInfoPtr->segmentStart -= bytesToCopy;
+			}
+		if( envelopeInfoPtr->segmentDataStart < bytesToCopy )
 			envelopeInfoPtr->segmentDataStart = 0;
+		else
+			{		
+			REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentDataStart, 
+										 bytesToCopy ) );
+			envelopeInfoPtr->segmentDataStart -= bytesToCopy;
+			}
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentDataEnd, 
+									 bytesToCopy ) );
 		envelopeInfoPtr->segmentDataEnd -= bytesToCopy;
 		ENSURES( isBufsizeRange( envelopeInfoPtr->segmentDataEnd ) );
 		}

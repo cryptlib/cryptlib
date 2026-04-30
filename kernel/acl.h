@@ -109,7 +109,7 @@
 								  ST_SESS_SCEP | ST_SESS_SCEP_SVR | \
 								  ST_SESS_CERT_SVR )
 #define ST_SESS_ANY_SEC			( ST_SESS_ANY_DATA | \
-								  ST_SESS_CMP | ST_SESSION_CMP_SVR )
+								  ST_SESS_CMP | ST_SESS_CMP_SVR )
 #define ST_SESS_ANY				( ST_SESS_ANY_CLIENT | ST_SESS_ANY_SVR )
 
 #define ST_USER_NORMAL			SUBTYPE_USER_NORMAL
@@ -766,7 +766,7 @@ typedef struct {
 /* End-of-mechanism-ACL marker */
 
 #define MKACP_END() \
-			{ PARAM_VALUE_NONE, 0, 0, 0, 0, 0 }
+			{ PARAM_VALUE_NONE, 0, 0, 0, 0, 0, 0 }
 
 /* Macro to access the parameter ACL information for a given parameter in a
    list of parameter ACLs */

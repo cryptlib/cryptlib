@@ -65,7 +65,8 @@ static int writeRADIUS( INOUT_PTR STREAM *stream,
 	REQUIRES( isShortIntegerRangeNZ( length ) );
 	REQUIRES( ( extraData == NULL && extraLength == 0 ) || \
 			  ( extraData != NULL && isShortIntegerRangeNZ( extraLength ) ) );
-	REQUIRES( isShortIntegerRangeNZ( totalLength ) );
+	REQUIRES( !checkOverflowAdd( length, extraLength ) );
+	ENSURES( isShortIntegerRangeNZ( totalLength ) );
 
 	/* Write a RADIUS TLV value as one or more TLV packets.  This is 
 	   complicated by the fact that the payload may be split across two lots
@@ -105,11 +106,13 @@ static int writeRADIUS( INOUT_PTR STREAM *stream,
 		/* Write as much of the payload data as we can from the current 
 		   buffer */
 		sputc( stream, type );
+		REQUIRES( !checkOverflowAdd( RADIUS_TLV_HEADER_SIZE, packetLength ) );
 		sputc( stream, RADIUS_TLV_HEADER_SIZE + packetLength );
 		status = swrite( stream, currDataPtr, currBytesToWrite );
 		if( cryptStatusError( status ) )
 			return( status );
 		currDataPtr += currBytesToWrite;
+		REQUIRES( !checkOverflowSub( currDataLen, currBytesToWrite ) );
 		currDataLen -= currBytesToWrite;
 
 		/* If we've exhausted the data in the current buffer, switch to the
@@ -123,6 +126,8 @@ static int writeRADIUS( INOUT_PTR STREAM *stream,
 				const int remainderBytes = packetLength - currBytesToWrite;
 
 				REQUIRES( currDataPtr != NULL );
+				REQUIRES( !checkOverflowSub( packetLength, 
+											 currBytesToWrite ) );
 				ENSURES( isShortIntegerRangeNZ( remainderBytes ) );
 
 				/* There's more data to be written, complete the current TLV 
@@ -131,9 +136,12 @@ static int writeRADIUS( INOUT_PTR STREAM *stream,
 				if( cryptStatusError( status ) )
 					return( status );
 				currDataPtr += remainderBytes;
+				REQUIRES( !checkOverflowSub( currDataLen, 
+											 remainderBytes ) );
 				currDataLen -= remainderBytes;
 				}
 			}
+		REQUIRES( !checkOverflowSub( subpacketLength, packetLength ) );
 		subpacketLength -= packetLength;
 		}
 	ENSURES( LOOP_BOUND_MED_REV_OK );
@@ -556,6 +564,8 @@ int writeRADIUSPing( INOUT_PTR STREAM *stream,
 		{
 		/* Remember the Message Authenticator position and write an empty
 		   TLV that'll be filled later with the authenticator */
+		REQUIRES( !checkOverflowAdd( stell( &radiusStream ), 
+									 RADIUS_TLV_HEADER_SIZE ) );
 		messageAuthPos = stell( &radiusStream ) + RADIUS_TLV_HEADER_SIZE;
 		status = writeRADIUS( &radiusStream, RADIUS_SUBTYPE_MESSAGEAUTH, 
 							  "\x00\x00\x00\x00\x00\x00\x00\x00"

@@ -55,11 +55,11 @@ static int calculatePubkeyStorage( const PKCS15_INFO *pkcs15infoPtr,
 	REQUIRES( isShortIntegerRange( extraDataSize ) );
 
 	/* Calculate the new private-key data size */
-	*newPubKeyDataSize = sizeofObject( \
+	*newPubKeyDataSize = sizeofShortObject( \
 							pubKeyAttributeSize + \
-							sizeofObject( \
-								sizeofObject( \
-									sizeofObject( pubKeySize ) + \
+							sizeofShortObject( \
+								sizeofShortObject( \
+									sizeofShortObject( pubKeySize ) + \
 									extraDataSize ) ) );
 	ENSURES( isBufsizeRangeNZ( *newPubKeyDataSize ) );
 
@@ -95,14 +95,16 @@ static int calculateCertStorage( const PKCS15_INFO *pkcs15infoPtr,
 
 	/* Calculate the new certificate data size */
 #ifdef USE_PKCS15V12_FORM
-	*newCertDataSize = sizeofObject( certAttributeSize + \
-									 sizeofObject( \
-									   sizeofObject( \
-										 sizeofObject( certSize ) ) ) );
+	*newCertDataSize = sizeofShortObject( \
+								certAttributeSize + \
+								sizeofShortObject( \
+									sizeofShortObject( \
+										sizeofShortObject( certSize ) ) ) );
 #else
-	*newCertDataSize = sizeofObject( certAttributeSize + \
-									 sizeofObject( \
-									   sizeofObject( certSize ) ) );
+	*newCertDataSize = sizeofShortObject( \
+								certAttributeSize + \
+								sizeofShortObject( \
+									sizeofShortObject( certSize ) ) );
 #endif /* USE_PKCS15V12_FORM */
 	ENSURES( isBufsizeRangeNZ( *newCertDataSize ) );
 
@@ -314,6 +316,8 @@ int pkcs15AddCert( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 		/* Since we're re-using pre-encoded private key data the extra 
 		   information is already present in encoded form so we set the 
 		   extraDataSize parameter to zero */
+		REQUIRES( !checkOverflowSub( pkcs15infoPtr->privKeyDataSize,
+									 pkcs15infoPtr->privKeyOffset ) );
 		privKeyInfoSize = pkcs15infoPtr->privKeyDataSize - \
 						  pkcs15infoPtr->privKeyOffset;
 		status = calculatePrivkeyStorage( &newPrivKeyData, &newPrivKeyDataSize, 
@@ -347,20 +351,22 @@ int pkcs15AddCert( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 	sMemOpen( &stream, newCertData, newCertDataSize );
 #ifdef USE_PKCS15V12_FORM
 	writeSequence( &stream, certAttributeSize + \
-							sizeofObject( \
-							  sizeofObject( \
-								sizeofObject( certInfoSize ) ) ) );
+							sizeofShortObject( \
+								sizeofShortObject( \
+									sizeofShortObject( \
+										certInfoSize ) ) ) );
 	swrite( &stream, certAttributes, certAttributeSize );
-	writeConstructed( &stream, sizeofObject( \
-								 sizeofObject( certInfoSize ) ), 
+	writeConstructed( &stream, sizeofShortObject( \
+									sizeofShortObject( certInfoSize ) ), 
 					  CTAG_OB_TYPEATTR );
-	writeSequence( &stream, sizeofObject( certInfoSize ) );
+	writeSequence( &stream, sizeofShortObject( certInfoSize ) );
 	status = writeConstructed( &stream, certInfoSize, CTAG_OV_DIRECT );
 #else
 	writeSequence( &stream, certAttributeSize + \
-							sizeofObject( sizeofObject( certInfoSize ) ) );
+							sizeofShortObject( \
+								sizeofShortObject( certInfoSize ) ) );
 	swrite( &stream, certAttributes, certAttributeSize );
-	writeConstructed( &stream, sizeofObject( certInfoSize ), 
+	writeConstructed( &stream, sizeofShortObject( certInfoSize ), 
 					  CTAG_OB_TYPEATTR );
 	status = writeSequence( &stream, certInfoSize );
 #endif /* USE_PKCS15V12_FORM */
@@ -583,17 +589,18 @@ int pkcs15AddPublicKey( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 	/* Write the public key data */
 	sMemOpen( &stream, newPubKeyData, newPubKeyDataSize );
 	writeConstructed( &stream, pubKeyAttributeSize + \
-							   sizeofObject( \
-								 sizeofObject( \
-								   sizeofObject( pubKeySize ) + \
-								   extraDataSize ) ),
+							   sizeofShortObject( \
+									sizeofShortObject( \
+										sizeofShortObject( pubKeySize ) + \
+										extraDataSize ) ),
 					  keyTypeTag );
 	swrite( &stream, pubKeyAttributes, pubKeyAttributeSize );
-	writeConstructed( &stream, sizeofObject( \
-								sizeofObject( pubKeySize ) + \
-								extraDataSize ),
+	writeConstructed( &stream, sizeofShortObject( \
+									sizeofShortObject( pubKeySize ) + \
+									extraDataSize ),
 					  CTAG_OB_TYPEATTR );
-	writeSequence( &stream, sizeofObject( pubKeySize ) + extraDataSize );
+	writeSequence( &stream, sizeofShortObject( pubKeySize ) + \
+							extraDataSize );
 	status = writeConstructed( &stream, pubKeySize, CTAG_OV_DIRECT );
 	if( cryptStatusOK( status ) )
 		{

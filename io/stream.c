@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Stream I/O Functions							*
-*						Copyright Peter Gutmann 1993-2015					*
+*						Copyright Peter Gutmann 1993-2025					*
 *																			*
 ****************************************************************************/
 
@@ -118,6 +118,9 @@ static BOOLEAN sanityCheckStream( const STREAM *stream )
 			   bufPos, bufEnd, and bufSize are checked further down in the 
 			   general stream checks */
 			if( stream->bufCount < 0 || \
+				checkOverflowMul( stream->bufCount, stream->bufSize ) || \
+				checkOverflowSub( MAX_BUFFER_SIZE, 
+								  stream->bufCount * stream->bufSize ) || \
 				MAX_BUFFER_SIZE - ( stream->bufCount * \
 									stream->bufSize ) <= stream->bufPos ) 
 				{
@@ -142,7 +145,7 @@ static BOOLEAN sanityCheckStream( const STREAM *stream )
 				DEBUG_PUTS(( "sanityCheckStream: Net stream pointer" ));
 				return( FALSE );
 				}
-			ENSURES( netStream != NULL );
+			ENSURES_B( netStream != NULL );
 
 			/* If it's an unbuffered network stream then all buffer values 
 			   must be zero */
@@ -240,6 +243,7 @@ static int refillStream( INOUT_PTR STREAM *stream )
 	if( TEST_FLAG( stream->flags, STREAM_FFLAG_POSCHANGED ) && \
 		!TEST_FLAG( stream->flags, STREAM_FFLAG_POSCHANGED_NOSKIP ) )
 		{
+		REQUIRES_S( !checkOverflowMul( stream->bufCount, stream->bufSize ) );
 		status = fileSeek( stream, stream->bufCount * stream->bufSize );
 		if( cryptStatusError( status ) )
 			return( sSetError( stream, status ) );
@@ -252,10 +256,9 @@ static int refillStream( INOUT_PTR STREAM *stream )
 	/* If we've reached EOF then we can't refill the stream */
 	if( TEST_FLAG( stream->flags, STREAM_FFLAG_EOF ) )
 		{
-		/* If partial reads are allowed return an indication of how much 
-		   data we got.  This only works once, after this the persistent 
-		   error state will return an underflow error before we get to this
-		   point */
+		/* If partial reads are allowed let the caller know.  This only 
+		   works once, after this the persistent error state will return an 
+		   underflow error before we get to this point */
 		stream->status = CRYPT_ERROR_UNDERFLOW;
 		return( TEST_FLAG( stream->flags, STREAM_FLAG_PARTIALREAD ) ? \
 				OK_SPECIAL : CRYPT_ERROR_UNDERFLOW );
@@ -273,10 +276,9 @@ static int refillStream( INOUT_PTR STREAM *stream )
 		if( length == 0 )
 			{
 			/* We ran out of input on an exact buffer boundary, if partial 
-			   reads are allowed return an indication of how much data we 
-			   got.  This only works once, after this the persistent error 
-			   state will return an underflow error before we get to this 
-			   point */
+			   reads are allowed let the caller know.  This only works once, 
+			   after this the persistent error state will return an 
+			   underflow error before we get to this point */
 			stream->status = CRYPT_ERROR_UNDERFLOW;
 			return( TEST_FLAG( stream->flags, STREAM_FLAG_PARTIALREAD ) ? \
 					OK_SPECIAL : CRYPT_ERROR_UNDERFLOW );
@@ -290,6 +292,7 @@ static int refillStream( INOUT_PTR STREAM *stream )
 	   that's where the new position would be past the EOF */
 	if( !TEST_FLAG( stream->flags, STREAM_FFLAG_POSCHANGED ) )
 		{
+		REQUIRES( !checkOverflowInc( stream->bufCount ) );
 		stream->bufCount++;
 		stream->bufPos = 0;
 		}
@@ -351,6 +354,7 @@ static int emptyStream( INOUT_PTR STREAM *stream,
 	CLEAR_FLAG( stream->flags, STREAM_FFLAG_POSCHANGED );
 	if( !forcedFlush )
 		{
+		REQUIRES( !checkOverflowInc( stream->bufCount ) );
 		stream->bufCount++;
 		stream->bufPos = 0;
 		}
@@ -388,6 +392,8 @@ static int expandVirtualFileStream( INOUT_PTR STREAM *stream,
 	else
 		{
 		/* Increase the stream buffer size in STREAM_VFILE_BUFSIZE steps */
+		REQUIRES_S( !checkOverflowAdd( stream->bufSize, 
+									   STREAM_VFILE_BUFSIZE ) );
 		newSize = stream->bufSize + STREAM_VFILE_BUFSIZE;
 		}
 
@@ -449,6 +455,7 @@ int sgetc( INOUT_PTR STREAM *stream )
 			/* Read the data from the stream buffer */
 			if( stream->bufPos >= stream->bufEnd )
 				return( sSetError( stream, CRYPT_ERROR_UNDERFLOW ) );
+			REQUIRES( !checkOverflowInc( stream->bufPos ) );
 			ch = byteToInt( stream->buffer[ stream->bufPos++ ] );
 			break;
 
@@ -463,8 +470,12 @@ int sgetc( INOUT_PTR STREAM *stream )
 				{
 				int status = refillStream( stream );
 				if( cryptStatusError( status ) )
-					return( ( status == OK_SPECIAL ) ? 0 : status );
+					{
+					return( ( status == OK_SPECIAL ) ? \
+							CRYPT_ERROR_UNDERFLOW : status );
+					}
 				}
+			REQUIRES( !checkOverflowInc( stream->bufPos ) );
 			ch = byteToInt( stream->buffer[ stream->bufPos++ ] );
 			break;
 #endif /* USE_FILES */
@@ -539,6 +550,8 @@ int sread( INOUT_PTR STREAM *stream,
 				{
 				REQUIRES_S( sIsVirtualFileStream( stream ) );
 
+				REQUIRES_S( !checkOverflowSub( stream->bufEnd,
+											   stream->bufPos ) );
 				localLength = stream->bufEnd - stream->bufPos;
 				if( localLength > length )
 					localLength = length;
@@ -586,15 +599,17 @@ int sread( INOUT_PTR STREAM *stream,
 #endif /* CONFIG_FUZZ */
 
 			/* Read the data from the stream buffer */
-			if( stream->bufPos + localLength > stream->bufEnd )
+			if( checkOverflowAdd( stream->bufPos, localLength ) || \
+				stream->bufPos + localLength > stream->bufEnd )
 				{
-				REQUIRES( isIntegerRangeNZ( length ) ); 
+				REQUIRES_S( isIntegerRangeNZ( length ) ); 
 				memset( buffer, 0, min( 16, length ) );	/* Clear output buffer */
 				return( sSetError( stream, CRYPT_ERROR_UNDERFLOW ) );
 				}
 			REQUIRES_S( boundsCheckZ( stream->bufPos, localLength, 
 									  stream->bufEnd ) );
 			memcpy( buffer, stream->buffer + stream->bufPos, localLength );
+			REQUIRES_S( !checkOverflowAdd( stream->bufPos, localLength ) );
 			stream->bufPos += localLength;
 
 			/* Usually reads are atomic so we just return an all-OK 
@@ -643,15 +658,20 @@ int sread( INOUT_PTR STREAM *stream,
 					}
 
 				/* Copy as much data as we can out of the stream buffer */
+				REQUIRES_S( !checkOverflowSub( stream->bufEnd, 
+											   stream->bufPos ) );
 				bytesToCopy = min( dataLength, \
 								   stream->bufEnd - stream->bufPos );
 				REQUIRES_S( boundsCheckZ( stream->bufPos, bytesToCopy, 
 										  stream->bufEnd ) );
 				memcpy( bufPtr, stream->buffer + stream->bufPos, 
 						bytesToCopy );
+				REQUIRES_S( !checkOverflowAdd( stream->bufPos, bytesToCopy ) );
 				stream->bufPos += bytesToCopy;
 				bufPtr += bytesToCopy;
+				REQUIRES_S( !checkOverflowAdd( bytesCopied, bytesToCopy ) );
 				bytesCopied += bytesToCopy;
+				REQUIRES_S( !checkOverflowSub( dataLength, bytesToCopy ) );
 				dataLength -= bytesToCopy;
 				ENSURES_S( dataLength < oldDataLength );
 				}
@@ -803,6 +823,7 @@ int sputc( INOUT_PTR STREAM *stream, IN_BYTE const int ch )
 		{
 		case STREAM_TYPE_NULL:
 			/* It's a null stream, just record the write and return */
+			REQUIRES( !checkOverflowInc( stream->bufPos ) );
 			stream->bufPos++;
 			if( stream->bufEnd < stream->bufPos )
 				stream->bufEnd = stream->bufPos;
@@ -825,6 +846,7 @@ int sputc( INOUT_PTR STREAM *stream, IN_BYTE const int ch )
 #endif /* VIRTUAL_FILE_STREAM */
 					return( sSetError( stream, CRYPT_ERROR_OVERFLOW ) );
 				}
+			REQUIRES( !checkOverflowInc( stream->bufPos ) );
 			stream->buffer[ stream->bufPos++ ] = intToByte( ch );
 			if( stream->bufEnd < stream->bufPos )
 				stream->bufEnd = stream->bufPos;
@@ -852,6 +874,7 @@ int sputc( INOUT_PTR STREAM *stream, IN_BYTE const int ch )
 				if( cryptStatusError( status ) )
 					return( status );
 				}
+			REQUIRES( !checkOverflowInc( stream->bufPos ) );
 			stream->buffer[ stream->bufPos++ ] = intToByte( ch );
 			SET_FLAG( stream->flags, STREAM_FLAG_DIRTY );
 			break;
@@ -911,6 +934,7 @@ int swrite( INOUT_PTR STREAM *stream,
 		{
 		case STREAM_TYPE_NULL:
 			/* It's a null stream, just record the write and return */
+			REQUIRES_S( !checkOverflowAdd( stream->bufPos, length ) );
 			stream->bufPos += length;
 			if( stream->bufEnd < stream->bufPos )
 				stream->bufEnd = stream->bufPos;
@@ -919,7 +943,8 @@ int swrite( INOUT_PTR STREAM *stream,
 
 		case STREAM_TYPE_MEMORY:
 			/* Write the data to the stream buffer */
-			if( stream->bufPos + length > stream->bufSize )
+			if( checkOverflowAdd( stream->bufPos, length ) || \
+				stream->bufPos + length > stream->bufSize )
 				{
 #ifdef VIRTUAL_FILE_STREAM 
 				if( sIsVirtualFileStream( stream ) )
@@ -935,6 +960,7 @@ int swrite( INOUT_PTR STREAM *stream,
 			REQUIRES_S( boundsCheckZ( stream->bufPos, length, 
 									  stream->bufSize ) );
 			memcpy( stream->buffer + stream->bufPos, buffer, length );
+			REQUIRES_S( !checkOverflowAdd( stream->bufPos, length ) );
 			stream->bufPos += length;
 			if( stream->bufEnd < stream->bufPos )
 				stream->bufEnd = stream->bufPos;
@@ -964,7 +990,11 @@ int swrite( INOUT_PTR STREAM *stream,
 				const int bytesToCopy = \
 						min( dataLength, stream->bufSize - stream->bufPos );
 
-				ENSURES_S( LOOP_INVARIANT_LARGE_REV_XXX( dataLength, 1, length ) );
+				ENSURES_S( LOOP_INVARIANT_LARGE_REV_XXX( dataLength, 1, 
+														 length ) );
+
+				ENSURES_S( !checkOverflowSub( stream->bufSize, 
+											  stream->bufPos ) );
 
 				if( bytesToCopy > 0 )
 					{
@@ -972,8 +1002,12 @@ int swrite( INOUT_PTR STREAM *stream,
 											  stream->bufSize ) );
 					memcpy( stream->buffer + stream->bufPos, bufPtr, 
 							bytesToCopy );
+					REQUIRES_S( !checkOverflowAdd( stream->bufPos, 
+												   bytesToCopy ) );
 					stream->bufPos += bytesToCopy;
 					bufPtr += bytesToCopy;
+					REQUIRES_S( !checkOverflowSub( dataLength, 
+												   bytesToCopy ) );
 					dataLength -= bytesToCopy;
 					}
 				if( stream->bufPos >= stream->bufSize )
@@ -1180,11 +1214,12 @@ BOOLEAN sIsNullStream( const STREAM *stream )
 	return( ( stream->type == STREAM_TYPE_NULL ) ? TRUE : FALSE );
 	}
 
-
 /* Move to an absolute position in a stream */
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int sseek( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long position )
+static int seekStream( INOUT_PTR STREAM *stream, 
+					   IN_LENGTH_Z const int position,
+					   IN_BOOL const BOOLEAN allowExtend )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -1197,6 +1232,10 @@ int sseek( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long position )
 				stream->type == STREAM_TYPE_MEMORY || \
 				stream->type == STREAM_TYPE_FILE );
 	REQUIRES_S( isBufsizeRange( position ) );
+	REQUIRES_S( isBooleanValue( allowExtend ) );
+	REQUIRES_S( ( ( stream->type == STREAM_TYPE_NULL || \
+					stream->type == STREAM_TYPE_MEMORY ) && allowExtend ) || \
+				!allowExtend );
 
 	/* If there's a problem with the stream don't try to do anything */
 	if( cryptStatusError( stream->status ) )
@@ -1209,7 +1248,19 @@ int sseek( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long position )
 			   called directly with an sseek() on a memory stream, but end 
 			   up here via a translated sSkip() call */
 			REQUIRES( isIntegerRange( position ) );
-			stream->bufPos = ( int ) position;
+
+			/* If we're only able to seek within existing data in the buffer
+			   then any attempt to move past the end of the data is an 
+			   error */
+			if( !allowExtend && position > stream->bufEnd )
+				{
+				stream->bufPos = stream->bufEnd;
+				return( sSetError( stream, CRYPT_ERROR_UNDERFLOW ) );
+				}
+
+			/* We're either within the data in the buffer or allowExtend is
+			   true and we can seek past EOF */
+			stream->bufPos = position;
 			if( stream->bufEnd < stream->bufPos )
 				stream->bufEnd = stream->bufPos;
 			break;
@@ -1217,12 +1268,25 @@ int sseek( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long position )
 		case STREAM_TYPE_MEMORY:
 			/* Move to the position in the stream buffer */
 			REQUIRES( isIntegerRange( position ) );
-			if( ( int ) position > stream->bufSize )
+
+			/* If we're only able to seek within existing data in the buffer
+			   then any attempt to move past the end of the data is an 
+			   error */
+			if( !allowExtend && position > stream->bufEnd )
+				{
+				stream->bufPos = stream->bufEnd;
+				return( sSetError( stream, CRYPT_ERROR_UNDERFLOW ) );
+				}
+
+			/* We're either within the data in the buffer or allowExtend is
+			   true and we can seek past EOF, however we still can't move 
+			   past the end of the buffer */
+			if( position > stream->bufSize )
 				{
 				stream->bufPos = stream->bufSize;
 				return( sSetError( stream, CRYPT_ERROR_UNDERFLOW ) );
 				}
-			stream->bufPos = ( int ) position;
+			stream->bufPos = position;
 			if( stream->bufEnd < stream->bufPos )
 				stream->bufEnd = stream->bufPos;
 			break;
@@ -1234,6 +1298,9 @@ int sseek( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long position )
 									position / stream->bufSize : 0;
 			const int byteOffset = ( stream->bufSize > 0 ) ? \
 								   position % stream->bufSize : 0;
+
+			ENSURES_S( stream->bufSize == 0 || \
+					   !checkOverflowDiv( position, stream->bufSize ) );
 
 			/* If it's a currently-disconnected file stream then all we can 
 			   do is rewind the stream.  This occurs when we're doing an 
@@ -1265,6 +1332,7 @@ int sseek( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long position )
 
 				/* If we're already positioned to read the next bufferful 
 				   of data we don't have to explicitly skip ahead to it */
+				REQUIRES_S( !checkOverflowAdd( stream->bufCount, 1 ) );
 				if( blockOffset == stream->bufCount + 1 ) 
 					{
 					SET_FLAG( stream->flags, 
@@ -1297,7 +1365,13 @@ int sseek( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long position )
 	return( CRYPT_OK );
 	}
 
-/* Return the current posision in a stream */
+RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int sseek( INOUT_PTR STREAM *stream, IN_LENGTH_Z const int position )
+	{
+	return( seekStream( stream, position, FALSE ) );
+	}
+
+/* Return the current position in a stream */
 
 CHECK_RETVAL_RANGE_NOERROR( 0, MAX_BUFFER_SIZE ) STDC_NONNULL_ARG( ( 1 ) ) \
 int stell( const STREAM *stream )
@@ -1333,6 +1407,11 @@ int stell( const STREAM *stream )
 
 #ifdef USE_FILES
 		case STREAM_TYPE_FILE:
+			REQUIRES_EXT( !checkOverflowMul( stream->bufCount, 
+											 stream->bufSize ), 0 );
+			REQUIRES_EXT( !checkOverflowAdd( stream->bufCount * \
+												stream->bufSize,
+											 stream->bufPos ), 0 );
 			return( ( stream->bufCount * stream->bufSize ) + \
 					stream->bufPos );
 #endif /* USE_FILES */
@@ -1342,11 +1421,19 @@ int stell( const STREAM *stream )
 	}
 
 /* Skip a number of bytes in a stream, with a bounds check on the maximum 
-   allowable offset to skip */
+   allowable offset to skip.  The skip call comes in two variants, sSkip()
+   which moves ahead in the data in a stream, for example to skip an 
+   object of a known size, but can't move past the end of the stream data,
+   and sExtend(), which extends the EOF point in the stream.  This is used 
+   in combination with functions that write directly into the stream buffer, 
+   for example when exporting a certificate, where sExtend() has to then 
+   move the stream position past the deposited certificate */
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int sSkip( INOUT_PTR STREAM *stream, const long offset, 
-		   IN_DATALENGTH const long maxOffset )
+static int skipStream( INOUT_PTR STREAM *stream, 
+					   IN_DATALENGTH const int offset, 
+					   IN_DATALENGTH const int maxOffset,
+					   IN_BOOL const BOOLEAN allowExtend )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -1358,16 +1445,19 @@ int sSkip( INOUT_PTR STREAM *stream, const long offset,
 	REQUIRES_S( stream->type == STREAM_TYPE_NULL || \
 				stream->type == STREAM_TYPE_MEMORY || \
 				stream->type == STREAM_TYPE_FILE );
-	REQUIRES_S( offset > 0 );
+	REQUIRES_S( isBufsizeRangeNZ( offset ) );
 				/* offset is checked against maxOffset below */
 	REQUIRES_S( isBufsizeRangeNZ( maxOffset ) );
+	REQUIRES_S( isBooleanValue( allowExtend ) );
 
 	/* If there's a problem with the stream don't try to do anything */
 	if( cryptStatusError( stream->status ) )
 		return( stream->status );
 
 	/* Make sure that the offset to skip is valid */
-	if( offset > maxOffset || MAX_BUFFER_SIZE - stream->bufPos <= offset )
+	if( offset > maxOffset || \
+		checkOverflowSub( MAX_BUFFER_SIZE, stream->bufPos ) || \
+		MAX_BUFFER_SIZE - stream->bufPos <= offset )
 		return( CRYPT_ERROR_OVERFLOW );
 
 	/* Unlike memory streams, file streams are quantised to the I/O buffer
@@ -1385,21 +1475,40 @@ int sSkip( INOUT_PTR STREAM *stream, const long offset,
 		   from bufCount and bufSize, won't overflow once the offset is
 		   added to it.  This checks:
 
-			( ( bufCount + bufSize ) + bufPos + offset < MAX_BUFFER_SIZE
+			( ( bufCount * bufSize ) + bufPos + offset < MAX_BUFFER_SIZE
 		
 		   in an overflow-safe manner */
-		if( MAX_BUFFER_SIZE - \
-				( ( stream->bufCount * stream->bufSize ) + \
-				    stream->bufPos ) <= offset )
+		if( checkOverflowMul( stream->bufCount, stream->bufSize ) || \
+			checkOverflowAdd3( stream->bufCount * stream->bufSize,
+							   stream->bufPos, offset ) || \
+			( stream->bufCount * stream->bufSize ) + \
+							stream->bufPos + offset >= MAX_BUFFER_SIZE )
 			return( CRYPT_ERROR_OVERFLOW );
 
  		/* Move to the absolute position in the file, taking quantisation 
-		   into account */
+		   into account, calculations overflow-checked above */
 		return( sseek( stream, ( stream->bufCount * stream->bufSize ) + \
 							   stream->bufPos + offset ) );
 		}
 
-	return( sseek( stream, stream->bufPos + offset ) );
+	REQUIRES_S( !checkOverflowAdd( stream->bufPos, offset ) );
+	return( seekStream( stream, stream->bufPos + offset, allowExtend ) );
+	}
+
+RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int sSkip( INOUT_PTR STREAM *stream, 
+		   IN_DATALENGTH const int offset, 
+		   IN_DATALENGTH const int maxOffset )
+	{
+	return( skipStream( stream, offset, maxOffset, FALSE ) );
+	}
+
+RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int sExtend( INOUT_PTR STREAM *stream, 
+			 IN_DATALENGTH const int offset, 
+			 IN_DATALENGTH const int maxOffset )
+	{
+	return( skipStream( stream, offset, maxOffset, TRUE ) );
 	}
 
 /* Peek at the next data value in a stream */
@@ -1442,9 +1551,12 @@ int sPeek( INOUT_PTR STREAM *stream )
 			if( stream->bufPos >= stream->bufEnd || \
 				TEST_FLAG( stream->flags, STREAM_FFLAG_POSCHANGED ) )
 				{
-				int status = refillStream( stream );
+				const int status = refillStream( stream );
 				if( cryptStatusError( status ) )
-					return( ( status == OK_SPECIAL ) ? 0 : status );
+					{
+					return( ( status == OK_SPECIAL ) ? \
+							CRYPT_ERROR_UNDERFLOW : status );
+					}
 				}
 			return( stream->buffer[ stream->bufPos ] );
 #endif /* USE_FILES */
@@ -1527,6 +1639,12 @@ int sioctlSet( INOUT_PTR STREAM *stream,
 	if( sIsPseudoStream( stream ) )
 		return( CRYPT_OK );
 #endif /* !CONFIG_CONSERVE_MEMORY_EXTRA */
+
+	/* Unlike the read/write functions, the IOCTL functions can be used on 
+	   streams in an error state, however if the error has caused the stream
+	   to be shut down then there won't be anything present to IOCTL */
+	if( stream->type == STREAM_TYPE_NONE )
+		return( CRYPT_ERROR_NOTINITED );
 
 	REQUIRES_S( sanityCheckStream( stream ) );
 	REQUIRES_S( ( ( stream->type == STREAM_TYPE_FILE || \
@@ -1701,6 +1819,12 @@ int sioctlSetString( INOUT_PTR STREAM *stream,
 	if( !isWritePtr( stream, sizeof( STREAM ) ) )
 		retIntError();
 
+	/* Unlike the read/write functions, the IOCTL functions can be used on 
+	   streams in an error state, however if the error has caused the stream
+	   to be shut down then there won't be anything present to IOCTL */
+	if( stream->type == STREAM_TYPE_NONE )
+		return( CRYPT_ERROR_NOTINITED );
+
 	REQUIRES_S( sanityCheckStream( stream ) );
 #if defined( CONFIG_CONSERVE_MEMORY_EXTRA )
 	REQUIRES_S( ( ( stream->type == STREAM_TYPE_FILE || \
@@ -1773,6 +1897,12 @@ int sioctlGet( INOUT_PTR STREAM *stream,
 	/* Check that the input parameters are in order */
 	if( !isWritePtr( stream, sizeof( STREAM ) ) )
 		retIntError();
+
+	/* Unlike the read/write functions, the IOCTL functions can be used on 
+	   streams in an error state, however if the error has caused the stream
+	   to be shut down then there won't be anything present to IOCTL */
+	if( stream->type == STREAM_TYPE_NONE )
+		return( CRYPT_ERROR_NOTINITED );
 
 	REQUIRES_S( sanityCheckStream( stream ) );
 	REQUIRES_S( isEnumRange( type, STREAM_IOCTL ) );
@@ -1984,6 +2114,7 @@ int calculateStreamObjectLength( INOUT_PTR STREAM *stream,
 		checkOverflowSub( currentOffset, startOffset ) )
 		return( CRYPT_ERROR_BADDATA );
 
+	REQUIRES( !checkOverflowSub( currentOffset, startOffset ) );
 	*length = currentOffset - startOffset;
 	ENSURES( isBufsizeRangeNZ( *length ) );
 
@@ -2040,7 +2171,8 @@ int sFileToMemStream( OUT_PTR STREAM *memStream,
 		{
 		/* Make sure that there's enough data left in the memory-mapped
 		   stream to reference it as a file stream */
-		if( length > fileStream->bufSize - fileStream->bufPos )
+		if( checkOverflowSub( fileStream->bufSize, fileStream->bufPos ) || \
+			length > fileStream->bufSize - fileStream->bufPos )
 			return( CRYPT_ERROR_UNDERFLOW );
 
 		/* Create a second reference to the memory-mapped stream and advance 

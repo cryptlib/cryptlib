@@ -791,6 +791,7 @@ static int readGenMsgBody( INOUT_PTR STREAM *stream,
 		status = readSequence( stream, &length );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 		endPos = stell( stream ) + length;
 		REQUIRES( isIntegerRangeMin( endPos, length ) );
 		status = readOID( stream, genMessageOIDinfo, 
@@ -894,7 +895,8 @@ static int readErrorBody( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckCMPProtocolInfo( protocolInfo ) );
 	REQUIRES( messageType == CTAG_PB_ERROR );
 	REQUIRES( isShortIntegerRangeNZ( messageLength ) );
-	REQUIRES( isIntegerRangeMin( endPos, messageLength ) );
+	REQUIRES( !checkOverflowAdd( stell( stream ), messageLength ) );
+	ENSURES( isIntegerRangeMin( endPos, messageLength ) );
 
 	/* Read the outer wrapper and PKI status information.  In another one of
 	   CMP's many wonderful features there are two places to communicate 

@@ -90,6 +90,7 @@ static int prfInit( IN_PTR const HASH_FUNCTION hashFunction,
 	if( *processedKeyLength < HMAC_DATASIZE )
 		{
 		REQUIRES( rangeCheck( *processedKeyLength, 1, HMAC_DATASIZE - 1 ) );
+		REQUIRES( !checkOverflowSub( HMAC_DATASIZE, *processedKeyLength ) );
 		memset( hashBuffer + *processedKeyLength, 0, 
 				HMAC_DATASIZE - *processedKeyLength );
 		}
@@ -146,6 +147,7 @@ static int prfEnd( IN_PTR const HASH_FUNCTION hashFunction,
 	if( processedKeyLength < HMAC_DATASIZE )
 		{
 		REQUIRES( rangeCheck( processedKeyLength, 1, HMAC_DATASIZE - 1 ) );
+		REQUIRES( !checkOverflowSub( HMAC_DATASIZE, processedKeyLength ) );
 		memset( hashBuffer + processedKeyLength, 0, 
 				HMAC_DATASIZE - processedKeyLength );
 		}
@@ -337,6 +339,10 @@ int derivePBKDF2( STDC_UNUSED void *dummy,
 		ENSURES( LOOP_INVARIANT_MED_XXX( keyIndex, 0, 
 										 mechanismInfo->dataOutLength - 1 ) );
 
+		REQUIRES( !checkOverflowSub( mechanismInfo->dataOutLength, 
+									 keyIndex ) );
+
+		REQUIRES( !checkOverflowInc( blockCount ) );
 		status = pbkdf2Hash( dataOutPtr, noKeyBytes, 
 							 hashFunction, initialHashInfo, hashSize,
 							 processedKey, processedKeyLength,
@@ -525,6 +531,9 @@ static int deriveHKDF( STDC_UNUSED void *dummy,
 		ENSURES( LOOP_INVARIANT_MED_XXX( keyIndex, 0, 
 										 mechanismInfo->dataOutLength - 1 ) );
 
+		REQUIRES( !checkOverflowSub( mechanismInfo->dataOutLength,
+									 keyIndex ) );
+
 		/* Calculate HMAC( block[ n-1 ] || counter ) */
 		memcpy( hashInfo, initialHashInfo, sizeof( HASHINFO ) );
 		if( keyIndex > 0 )
@@ -543,7 +552,7 @@ static int deriveHKDF( STDC_UNUSED void *dummy,
 						 CRYPT_MAX_HASHSIZE, hkdfKey, hashSize );
 		if( cryptStatusError( status ) )
 			break;
-		counter++;
+		counter++;		/* Byte counter, no checkOverflowInc() */
 		memcpy( dataOutPtr, block, noKeyBytes );
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -709,9 +718,12 @@ static int expandData( OUT_BUFFER_FIXED( destLen ) BYTE *dest,
 
 		ENSURES( LOOP_INVARIANT_MED_XXX( index, 0, destLen - 1 ) );
 
+		REQUIRES( !checkOverflowSub( destLen, index ) );
+
 		REQUIRES( boundsCheckZ( index, bytesToCopy, destLen ) );
 		memcpy( dest, src, bytesToCopy );
 		dest += bytesToCopy;
+		REQUIRES( !checkOverflowAdd( index, bytesToCopy ) );
 		index += bytesToCopy;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -854,6 +866,9 @@ int derivePKCS12( STDC_UNUSED void *dummy,
 
 		ENSURES( LOOP_INVARIANT_MED_XXX( keyIndex, 0, 
 										 mechanismInfo->dataOutLength - 1 ) );
+
+		REQUIRES( !checkOverflowSub( mechanismInfo->dataOutLength,
+									 keyIndex ) );
 
 		/* Hash the keying material the required number of times to obtain the
 		   output value */
@@ -1079,6 +1094,7 @@ int deriveTLS( STDC_UNUSED void *dummy,
 	   HMACing.  The size of each half is given by ceil( dataInLength / 2 ) 
 	   so there's a one-byte overlap if the input is an odd number of bytes 
 	   long */
+	REQUIRES( !checkOverflowSub( mechanismInfo->dataInLength, sLen ) );
 	s1 = mechanismInfo->dataIn;
 	s2 = ( BYTE * ) mechanismInfo->dataIn + \
 		 ( mechanismInfo->dataInLength - sLen );
@@ -1122,11 +1138,15 @@ int deriveTLS( STDC_UNUSED void *dummy,
 				 /* SHA-1 produces more output than MD5 so it can get to
  				    dataOutLength while MD5 is still producing output */
 
+		REQUIRES( !checkOverflowSub( dataOutLength, md5Index ) );
+		REQUIRES( !checkOverflowSub( dataOutLength, shaIndex ) );
+
 		status = tlsPrfHash( dataOutPtr + md5Index, md5NoKeyBytes, 
 							 &md5Info, mechanismInfo->salt, 
 							 mechanismInfo->saltLength );
 		if( cryptStatusError( status ) )
 			break;
+		REQUIRES( !checkOverflowAdd( md5Index, md5NoKeyBytes ) );
 		md5Index += md5NoKeyBytes;
 		if( shaNoKeyBytes > 0 )
 			{
@@ -1138,6 +1158,7 @@ int deriveTLS( STDC_UNUSED void *dummy,
 								 mechanismInfo->saltLength );
 			if( cryptStatusError( status ) )
 				break;
+			REQUIRES( !checkOverflowAdd( shaIndex, shaNoKeyBytes ) );
 			shaIndex += shaNoKeyBytes;
 			}
 		}
@@ -1202,6 +1223,8 @@ int deriveTLS12( STDC_UNUSED void *dummy,
 
 		ENSURES( LOOP_INVARIANT_MED_XXX( keyIndex, 0, dataOutLength - 1 ) );
 				 /* keyIndex is incremented by the number of output bytes */
+
+		REQUIRES( !checkOverflowSub( dataOutLength, keyIndex ) );
 
 		status = tlsPrfHash( dataOutPtr + keyIndex, noKeyBytes, &shaInfo, 
 							 mechanismInfo->salt, mechanismInfo->saltLength );
@@ -1270,8 +1293,9 @@ static int pgpPrfHash( OUT_BUFFER_FIXED( outLength ) BYTE *out,
 	   specially below */
 	if( preloadLength > 0 )
 		{
-		hashFunction( hashInfo, NULL, 0, ( const BYTE * ) "\x00\x00\x00\x00", 
-					  preloadLength, HASH_STATE_START );
+		hashFunction( hashInfo, NULL, 0, 
+					  ( const BYTE * ) "\x00\x00\x00\x00", preloadLength, 
+					  HASH_STATE_START );
 		}
 
 	/* Hash the next round of salt || password.  Since we're being asked to 
@@ -1289,6 +1313,7 @@ static int pgpPrfHash( OUT_BUFFER_FIXED( outLength ) BYTE *out,
 	hashFunction( hashInfo, NULL, 0, salt, saltLength, 
 				  ( preloadLength == 0 ) ? HASH_STATE_START : \
 										   HASH_STATE_CONTINUE );
+	REQUIRES( !checkOverflowSub( count, saltLength ) );
 	count -= saltLength;
 	if( count <= keyLength )
 		{
@@ -1298,6 +1323,7 @@ static int pgpPrfHash( OUT_BUFFER_FIXED( outLength ) BYTE *out,
 		return( CRYPT_OK );
 		}
 	hashFunction( hashInfo, NULL, 0, key, keyLength, HASH_STATE_CONTINUE );
+	REQUIRES( !checkOverflowSub( count, keyLength ) );
 	count -= keyLength;
 	ENSURES( isIntegerRangeNZ( count ) );
 
@@ -1793,7 +1819,7 @@ static const MECHANISM_TEST_INFO kdfMechanismTestInfo[] = {
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int kdfSelftest( STDC_UNUSED void *dummy, 
-				 STDC_UNUSED MECHANISM_DERIVE_INFO *mechanismInfo )
+				 STDC_UNUSED MECHANISM_KDF_INFO *mechanismInfo )
 	{
 	BYTE buffer[ MECHANISM_OUTPUT_SIZE_TLS + 8 ];
 	LOOP_INDEX i;

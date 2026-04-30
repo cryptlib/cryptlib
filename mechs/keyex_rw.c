@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Key Exchange Read/Write Routines					*
-*						Copyright Peter Gutmann 1992-2019					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -126,6 +126,7 @@ static int readKeyDerivationInfo( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 	readOctetString( stream, queryInfo->salt, &queryInfo->saltLength, 
@@ -238,6 +239,7 @@ static int writeKeyDerivationInfo( INOUT_PTR STREAM *stream,
 			status = prfAlgoIDsize = sizeofAlgoID( prfAlgo );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( derivationInfoSize, prfAlgoIDsize ) );
 		derivationInfoSize += prfAlgoIDsize;
 		}
 
@@ -452,7 +454,7 @@ static int readCryptlibKek( INOUT_PTR STREAM *stream,
 		}
 	if( cryptStatusError( status ) )
 		return( status );
-	REQUIRES( isIntegerRangeNZ( queryInfo->dataStart ) );
+	ENSURES( isIntegerRangeNZ( queryInfo->dataStart ) );
 
 	/* Make sure that the remaining key data is present */
 	return( sSkip( stream, queryInfo->dataLength, MAX_INTLENGTH_SHORT ) );
@@ -533,6 +535,7 @@ static int writeCryptlibKek( STREAM *stream,
 	ENSURES( isShortIntegerRangeNZ( kekInfoSize ) );
 
 	/* Write the algorithm identifiers and encrypted key */
+	REQUIRES( !checkOverflowAdd3( derivationInfoSize, kekInfoSize, 64 ) );
 	writeConstructed( stream, sizeofShortInteger( PWRI_VERSION ) + \
 							  derivationInfoSize + kekInfoSize + \
 							  sizeofShortObject( encryptedKeyLength ),
@@ -649,6 +652,7 @@ static int writePgpKek( INOUT_PTR STREAM *stream,
 	   16, the remainder is just log2 of what's left of the iteration
 	   count */
 	REQUIRES( keySetupIterations % 16 == 0 );
+	REQUIRES( !checkOverflowDiv( keySetupIterations, 32 ) );
 	keySetupIterations /= 32;	/* Remove fixed offset before log2 op.*/
 	LOOP_MED( count = 0, keySetupIterations > 0,
 			  ( count++, keySetupIterations >>= 1 ) )
@@ -656,7 +660,7 @@ static int writePgpKek( INOUT_PTR STREAM *stream,
 		ENSURES( LOOP_INVARIANT_MED_XXX( count, 0, 64 ) );
 		}
 	ENSURES( LOOP_BOUND_OK );
-	count <<= 4;				/* Exponent comes first */
+	count <<= 4;				/* Exponent comes first, base = 0 */
 	ENSURES( count >= 0 && count <= 0xFF );
 
 	/* Write the SKE packet */
@@ -764,7 +768,7 @@ static int readCmsKeytrans( INOUT_PTR STREAM *stream,
 		}
 	if( cryptStatusError( status ) )
 		return( status );
-	REQUIRES( isIntegerRangeNZ( queryInfo->iAndSStart ) );
+	ENSURES( isIntegerRangeNZ( queryInfo->iAndSStart ) );
 	queryInfo->iAndSLength = length;
 	status = sSkip( stream, length, MAX_INTLENGTH_SHORT );
 	if( cryptStatusOK( status ) )
@@ -791,7 +795,7 @@ static int readCmsKeytrans( INOUT_PTR STREAM *stream,
 		}
 	if( cryptStatusError( status ) )
 		return( status );
-	REQUIRES( isIntegerRangeNZ( queryInfo->dataStart ) );
+	ENSURES( isIntegerRangeNZ( queryInfo->dataStart ) );
 
 	/* Make sure that the remaining key data is present */
 	return( sSkip( stream, queryInfo->dataLength, MAX_INTLENGTH_SHORT ) );
@@ -837,6 +841,7 @@ static int writeKeytransCMS( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 
+	REQUIRES( !checkOverflowAdd3( auxInfoLength, algoIdInfoSize, 64 ) );
 	writeSequence( stream, sizeofShortInteger( KEYTRANS_VERSION ) + \
 						   auxInfoLength + algoIdInfoSize + \
 						   sizeofShortObject( encryptedKeyLength ) );
@@ -947,7 +952,7 @@ static int readCryptlibKeytrans( INOUT_PTR STREAM *stream,
 		}
 	if( cryptStatusError( status ) )
 		return( status );
-	REQUIRES( isIntegerRangeNZ( queryInfo->dataStart ) );
+	ENSURES( isIntegerRangeNZ( queryInfo->dataStart ) );
 
 	/* Make sure that the remaining key data is present */
 	return( sSkip( stream, queryInfo->dataLength, MAX_INTLENGTH_SHORT ) );
@@ -1113,8 +1118,10 @@ static int readPgpKeytrans( INOUT_PTR STREAM *stream,
 			}
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowSub( objectSize, 
+									 queryInfo->dataLength ) );
 		queryInfo->dataStart = objectSize - queryInfo->dataLength;
-		REQUIRES( isIntegerRangeNZ( queryInfo->dataStart ) );
+		ENSURES( isIntegerRangeNZ( queryInfo->dataStart ) );
 		}
 	else
 		{
@@ -1144,7 +1151,8 @@ static int readPgpKeytrans( INOUT_PTR STREAM *stream,
 			}
 		if( cryptStatusError( status ) )
 			return( status );
-		REQUIRES( isIntegerRangeNZ( queryInfo->dataLength ) );
+		ENSURES( isIntegerRangeNZ( queryInfo->dataLength ) );
+		REQUIRES( !checkOverflowSub( dataStartPos, startPos ) );
 		queryInfo->dataStart = dataStartPos - startPos;
 		}
 

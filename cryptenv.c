@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Enveloping Routines						*
-*					  Copyright Peter Gutmann 1996-2012						*
+*					  Copyright Peter Gutmann 1996-2025						*
 *																			*
 ****************************************************************************/
 
@@ -470,6 +470,8 @@ static int deenvelopePush( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			const int bytesToCopy = min( envelopeInfoPtr->bufSize - \
 										 envelopeInfoPtr->bufPos, bytesIn );
 
+			REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize, 
+										 envelopeInfoPtr->bufPos ) );
 			ENSURES( bytesToCopy >= 0 && bytesToCopy <= length && \
 					 envelopeInfoPtr->bufPos + \
 						bytesToCopy <= envelopeInfoPtr->bufSize );
@@ -479,7 +481,10 @@ static int deenvelopePush( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 										envelopeInfoPtr->bufSize ) );
 				memcpy( envelopeInfoPtr->buffer + envelopeInfoPtr->bufPos,
 						bufPtr, bytesToCopy );
-				envelopeInfoPtr->bufPos += bytesToCopy;
+				REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, 
+											 bytesToCopy ) );
+  				envelopeInfoPtr->bufPos += bytesToCopy;
+  				REQUIRES( !checkOverflowSub( bytesIn, bytesToCopy ) );
 				bytesIn -= bytesToCopy;
 				*bytesCopied = bytesToCopy;
 				bufPtr += bytesToCopy;
@@ -555,7 +560,9 @@ static int deenvelopePush( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 					envelopeInfoPtr->errorState = byteCount;
 				return( byteCount );
 				}
+			REQUIRES( !checkOverflowAdd( *bytesCopied, byteCount ) );
 			*bytesCopied += byteCount;
+			REQUIRES( !checkOverflowSub( bytesIn, byteCount ) );
 			bytesIn -= byteCount;
 			bufPtr += byteCount;
 			}
@@ -609,6 +616,8 @@ static int deenvelopePush( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			const int bytesToCopy = min( envelopeInfoPtr->bufSize - \
 										 envelopeInfoPtr->bufPos, bytesIn );
 
+			REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize,
+										 envelopeInfoPtr->bufPos ) );
 			ENSURES( bytesToCopy >= 0 && bytesToCopy <= bytesIn && \
 					 envelopeInfoPtr->bufPos + \
 						bytesToCopy <= envelopeInfoPtr->bufSize );
@@ -618,7 +627,11 @@ static int deenvelopePush( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 										envelopeInfoPtr->bufSize ) );
 				memcpy( envelopeInfoPtr->buffer + envelopeInfoPtr->bufPos,
 						bufPtr, bytesToCopy );
+				REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, 
+											 bytesToCopy ) );
 				envelopeInfoPtr->bufPos += bytesToCopy;
+				REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, 
+											 bytesToCopy ) );
 				*bytesCopied += bytesToCopy;
 				}
 			}
@@ -794,7 +807,8 @@ static int envelopePop( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			return( CRYPT_ERROR_UNDERFLOW );
 		}
 
-	/* Copy the data from the envelope to the output */
+	/* Copy the data from the envelope to the output.  There are no 
+	   recoverable errors for enveloping so we make all errors persistent */
 	status = copyFromEnvelopeFunction( envelopeInfoPtr, buffer, length, 
 									   bytesCopied, ENVCOPY_FLAG_NONE );
 	if( cryptStatusError( status ) )
@@ -1257,7 +1271,9 @@ static int initEnvelope( OUT_HANDLE_OPT CRYPT_ENVELOPE *iCryptEnvelope,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* Set up any internal objects to contain invalid handles */
+	/* Set up any internal objects to contain invalid handles.  We also set 
+	   the payload size to CRYPT_UNUSED, the default indefinite length 
+	   setting unless the caller tells us how long the payload should be */
 	envelopeInfoPtr->iCryptContext = \
 		envelopeInfoPtr->iExtraCertChain = CRYPT_ERROR;
 	envelopeInfoPtr->iSigCheckKeyset = envelopeInfoPtr->iEncryptionKeyset = \

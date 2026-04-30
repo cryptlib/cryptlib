@@ -45,14 +45,14 @@
 * @throws CryptException This exception returns an integer status code and a string error message '
 
 
-, 'Encrypt'	:'The cryptEncrypt function is used to encrypt or hash data.<p><b>Remarks</b>: Public-key encryption and signature algorithms have special data formatting requirements that need to be taken into account when this function is called. You shouldn’t use this function with these algorithm types, but instead should use the higher-level functions cryptCreateSignature, cryptCheckSignature, cryptExportKey, and cryptImportKey.\n\
+, 'Encrypt'	:'The cryptEncrypt function is used to encrypt or hash data.<p><b>Remarks</b>: Public-key encryption and signature algorithms have special data formatting requirements that need to be taken into account when this function is called. You shouldn’t use this function with these algorithm types, but instead should use the higher-level functions cryptCreateSignature, cryptCheckSignature, cryptWrapKey, and cryptUnwrapKey.\n\
 * @param cryptContext The encryption context to use to encrypt or hash the data.\n\
 * @param buffer The address of the data to be encrypted or hashed.\n\
 * @param length The length in bytes of the data to be encrypted or hashed.\n\
 * @throws CryptException This exception returns an integer status code and a string error message '
 
 
-, 'Decrypt'	:'The cryptDecrypt function is used to decrypt or hash data.<p><b>Remarks</b>: Public-key encryption and signature algorithms have special data formatting requirements that need to be taken into account when this function is called. You shouldn’t use this function with these algorithm types, but instead should use the higher-level functions cryptCreateSignature, cryptCheckSignature, cryptExportKey, and cryptImportKey.\n\
+, 'Decrypt'	:'The cryptDecrypt function is used to decrypt or hash data.<p><b>Remarks</b>: Public-key encryption and signature algorithms have special data formatting requirements that need to be taken into account when this function is called. You shouldn’t use this function with these algorithm types, but instead should use the higher-level functions cryptCreateSignature, cryptCheckSignature, cryptWrapKey, and cryptUnwrapKey.\n\
 * @param cryptContext The encryption context to use to decrypt or hash the data.\n\
 * @param buffer The address of the data to be decrypted or hashed.\n\
 * @param length The length in bytes of the data to be decrypted or hashed.\n\
@@ -101,49 +101,43 @@
 * @throws CryptException This exception returns an integer status code and a string error message '
 
 
-, 'QueryObject'	:'The cryptQueryObject function is used to obtain information about an exported key object created with cryptExportKey or a signature object created with cryptCreateSignature. It returns information such as the type and algorithms used by the object.<p><b>Remarks</b>: Any fields in the CRYPT_OBJECT_INFO structure that don’t apply to the object being queried are set to CRYPT_ERROR, null or zero as appropriate.\n\
-* @param objectData The address of a buffer that contains the object created by cryptExportKey or\n\
+, 'QueryObject'	:'The cryptQueryObject function is used to obtain information about an exported key object created with cryptWrapKey or a signature object created with cryptCreateSignature. It returns information such as the type and algorithms used by the object.<p><b>Remarks</b>: Any fields in the CRYPT_OBJECT_INFO structure that don’t apply to the object being queried are set to CRYPT_ERROR, null or zero as appropriate.\n\
+* @param objectData The address of a buffer that contains the object created by cryptWrapKey or\n\
 * @param objectDataLength The length in bytes of the object data.\n\
 * @return The address of a CRYPT_OBJECT_INFO structure that contains information on the exported key or signature.\n\
 * @throws CryptException This exception returns an integer status code and a string error message '
 
 
-, 'ExportKey'	:'The cryptExportKey function is used to share a session key between two parties by either exporting a session key from a context in a secure manner or by establishing a new shared key. The exported/shared key is placed in a buffer in a portable format that allows it to be imported back into a context using cryptImportKey.\n\
-<p> If an existing session key is to be shared, it can be exported using either a public key or key certificate or a conventional encryption key. If a new session key is to be established, it can be done using a Diffie-Hellman encryption context.\n\
-<p><b>Remarks</b>: A session key can be shared in one of two ways, either by one party exporting an existing key and the other party importing it, or by both parties agreeing on a key to use. The export/import process requires an existing session key and a public/private or conventional encryption context or key certificate object to export/import it with. The key agreement process requires a Diffie-Hellman context and an empty session key context (with no key loaded) that the new shared session key is generated into.\n\
-* @param encryptedKey The address of a buffer to contain the exported key. If you set this parameter to null, cryptExportKey will return the length of the exported key in encryptedKeyLength without actually exporting the key.\n\
-* @param encryptedKeyMaxLength The maximum size in bytes of the buffer to contain the exported key.\n\
-* @return The address of the exported key length.\n\
-* @param exportKey A public-key or conventional encryption context or key certificate object containing the public or conventional key used to export the session key.\n\
-* @param sessionKeyContext An encryption context containing the session key to export (if the key is to be shared) or an empty context with no key loaded (if the key is to be established).\n\
+, 'WrapKey'	:'The cryptWrapKey function is used to share a session key between two parties by wrapping a session key from a context in a secure manner. The wrapped key is placed in a buffer in a portable format that allows it to be unwrapped back into a context using cryptUnwrapKey. A session key can be wrapped using either a public key or key certificate or a conventional encryption key.\n\
+* @param encryptedKey The address of a buffer to contain the wrapped key. If you set this parameter to null, cryptWrapKey will return the length of the wrapped key in encryptedKeyLength without actually wrapping the key.\n\
+* @param encryptedKeyMaxLength The maximum size in bytes of the buffer to contain the wrapped key.\n\
+* @return The address of the wrapped key length.\n\
+* @param exportKey A public-key or conventional encryption context or key certificate object containing the public or conventional key used to wrap the session key.\n\
+* @param sessionKeyContext An encryption context containing the session key to wrap.\n\
 * @throws CryptException This exception returns an integer status code and a string error message '
 
 
-, 'ExportKeyEx'	:'The cryptExportKeyEx function is used to share a session key between two parties by either exporting a session key from a context in a secure manner or by establishing a new shared key, with extended control over the exported key format. The exported/shared key is placed in a buffer in a portable format that allows it to be imported back into a context using cryptImportKey.<p>\n\
-If an existing session key is to be shared, it can be exported using either a public key or key certificate or a conventional encryption key. If a new session key is to be established, it can be done using a Diffie-Hellman encryption context.<p>\n\
-<b>Remarks</b> A session key can be shared in one of two ways, either by one party exporting an existing key and the other party importing it, or by both parties agreeing on a key to use. The export/import process requires an existing session key and a public/private or conventional encryption context or key certificate object to export/import it with. The key agreement process requires a Diffie-Hellman context and an empty session key context (with no key loaded) that the new shared session key is generated into.\n\
-* @param encryptedKey The address of a buffer to contain the exported key. If you set this parameter to null, cryptExportKeyEx will return the length of the exported key in encryptedKeyLength without actually exporting the key.\n\
-* @param encryptedKeyMaxLength The maximum size in bytes of the buffer to contain the exported key.\n\
-* @return The address of the exported key length.\n\
-* @param formatType The format for the exported key.\n\
-* @param exportKey A public-key or conventional encryption context or key certificate object containing the public or conventional key used to export the session key.\n\
-* @param sessionKeyContext An encryption context containing the session key to export (if the key is to be shared) or an empty context with no key loaded (if the key is to be established).\n\
+, 'WrapKeyEx'	:'The cryptWrapKeyEx function is used to share a session key between two parties by wrapping a session key from a context in a secure manner with extended control over the wrapped key format. The wrapped key is placed in a buffer in a portable format that allows it to be unwrapped back into a context using cryptUnwrapKey. A session key can be wrapped using either a public key or key certificate or a conventional encryption key.\n\
+* @param encryptedKey The address of a buffer to contain the wrapped key. If you set this parameter to null, cryptWrapKeyEx will return the length of the wrapped key in encryptedKeyLength without actually wrapping the key.\n\
+* @param encryptedKeyMaxLength The maximum size in bytes of the buffer to contain the wrapped key.\n\
+* @return The address of the wrapped key length.\n\
+* @param formatType The format for the wrapped key.\n\
+* @param exportKey A public-key or conventional encryption context or key certificate object containing the public or conventional key used to wrap the session key.\n\
+* @param sessionKeyContext An encryption context containing the session key to wrap.\n\
 * @throws CryptException This exception returns an integer status code and a string error message '
 
 
-, 'ImportKey'	:'The cryptImportKey function is used to share a session key between two parties by importing an encrypted session key that was previously exported with cryptExportKey into an encryption context.<p>\n\
-If an existing session key being shared, it can be imported using either a private key or a conventional encryption key. If a new session key is being established, it can be done using a Diffie-Hellman encryption context.<p>\n\
-<b>Remarks</b>: A session key can be shared in one of two ways, either by one party exporting an existing key and the other party importing it, or by both parties agreeing on a key to use. The export/import process requires an existing session key and a public/private or conventional encryption context or key certificate object to export/import it with. The key agreement process requires a Diffie-Hellman context and an empty session key context (with no key loaded) that the new shared session key is generated into.\n\
-* @param encryptedKey The address of a buffer that contains the exported key created by cryptExportKey.\n\
+, 'UnwrapKey'	:'The cryptUnwrapKey function is used to share a session key between two parties by unwrapping an encrypted session key that was previously wrapped with cryptWrapKey into an encryption context. A session key is unwrapped using either a private key or a conventional encryption key.\n\
+* @param encryptedKey The address of a buffer that contains the wrapped key created by cryptWrapKey.\n\
 * @param encryptedKeyLength The length in bytes of the encrypted key data.\n\
-* @param importKey A public-key or conventional encryption context containing the private or conventional key required to import the session key.\n\
-* @param sessionKeyContext The context used to contain the imported session key.\n\
+* @param importKey A public-key or conventional encryption context containing the private or conventional key required to unwrap the session key.\n\
+* @param sessionKeyContext The context used to contain the unwrapped session key.\n\
 * @throws CryptException This exception returns an integer status code and a string error message '
 
 
-, 'ImportKeyEx'	:'cryptImportKeyEx takes one extra parameter, a pointer to the imported key, which is required for OpenPGP key import. For all other formats this value is set to NULL, for OpenPGP the imported key parameter is set to CRYPT_UNUSED and the key is returned in the extra parameter:<p>\n\
+, 'UnwrapKeyEx'	:'cryptUnwrapKeyEx takes one extra parameter, a pointer to the wrapped key, which is required for OpenPGP key import. For all other formats this value is set to NULL, for OpenPGP the imported key parameter is set to CRYPT_UNUSED and the key is returned in the extra parameter:<p>\n\
 <code>/* Import a non-PGP format key *\\/ <br>\n\
-cryptImportKeyEx( encryptedKey, encryptedKeyLength, importContext, cryptContext, NULL );<br><br>/* Import a PGP-format key *\\/<br>cryptImportKeyEx( encryptedKey, encryptedKeyLength, importContext, CRYPT_UNUSED, &amp;cryptContext );</code><p>\n\
+cryptUnwrapKeyEx( encryptedKey, encryptedKeyLength, importContext, cryptContext, NULL );<br><br>/* Import a PGP-format key *\\/<br>cryptImportKeyEx( encryptedKey, encryptedKeyLength, importContext, CRYPT_UNUSED, &amp;cryptContext );</code><p>\n\
 This is required because PGP’s handling of keys differs somewhat from that used with other formats.\n\
 * @throws CryptException This exception returns an integer status code and a string error message '
 

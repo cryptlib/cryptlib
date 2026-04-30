@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TLS Crypto Routines						*
-*					 Copyright Peter Gutmann 1998-2022						*
+*					 Copyright Peter Gutmann 1998-2025						*
 *																			*
 ****************************************************************************/
 
@@ -41,7 +41,9 @@ static int writePacketMetadata( OUT_BUFFER( dataMaxLength, *dataLength ) \
 									const int dataMaxLength,
 								OUT_LENGTH_BOUNDED_Z( dataMaxLength ) \
 									int *dataLength,
-								IN_BYTE const int type,
+								IN_RANGE( TLS_PACKETTYPE_FIRST, \
+										  TLS_PACKETTYPE_LAST ) \
+									const int packetType,
 								IN_INT_Z const long seqNo, 
 								IN_RANGE( TLS_MINOR_VERSION_TLS, \
 										  TLS_MINOR_VERSION_TLS13 ) \
@@ -55,7 +57,8 @@ static int writePacketMetadata( OUT_BUFFER( dataMaxLength, *dataLength ) \
 	assert( isWritePtr( dataLength, sizeof( int ) ) );
 
 	REQUIRES( isShortIntegerRangeMin( dataMaxLength, 16 ) );
-	REQUIRES( type >= 0 && type <= 255 );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 	REQUIRES( seqNo >= 0 );
 	REQUIRES( version >= TLS_MINOR_VERSION_TLS && \
 			  version <= TLS_MINOR_VERSION_TLS13 );
@@ -70,7 +73,7 @@ static int writePacketMetadata( OUT_BUFFER( dataMaxLength, *dataLength ) \
 	  information to the output buffer */
 	sMemOpen( &stream, data, dataMaxLength );
 	writeUint64( &stream, seqNo );
-	sputc( &stream, type );
+	sputc( &stream, packetType );
 	sputc( &stream, TLS_MAJOR_VERSION );
 	sputc( &stream, version );
 	status = writeUint16( &stream, payloadLength );
@@ -112,6 +115,7 @@ static int writePacketMetadataTLS13( OUT_BUFFER( dataMaxLength, *dataLength ) \
 	sputc( &stream, TLS_MSG_APPLICATION_DATA );
 	sputc( &stream, TLS_MAJOR_VERSION );
 	sputc( &stream, TLS_MINOR_VERSION_TLS12 );
+	REQUIRES( !checkOverflowAdd( payloadLength, GCMICV_SIZE ) );
 	status = writeUint16( &stream, payloadLength + GCMICV_SIZE );
 	if( cryptStatusOK( status ) )
 		*dataLength = stell( &stream );
@@ -175,7 +179,10 @@ int encryptData( const SESSION_INFO *sessionInfoPtr,
 		const int padSize = paddedSize - payloadLength;
 		LOOP_INDEX i;
 
+		ENSURES( !cryptStatusError( paddedSize ) );
+		REQUIRES( !checkOverflowAdd( payloadLength, 1 ) );
 		ENSURES( isBufsizeRangeMin( paddedSize, 16 ) ); 
+		REQUIRES( !checkOverflowSub( paddedSize, payloadLength ) );
 		ENSURES( padSize > 0 && padSize <= 255 && \
 				 length + padSize <= dataMaxLength );
 
@@ -212,6 +219,8 @@ int encryptData( const SESSION_INFO *sessionInfoPtr,
 								  CRYPT_IATTRIBUTE_ICV );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( *dataLength, 
+									 sessionInfoPtr->authBlocksize ) );
 		*dataLength += sessionInfoPtr->authBlocksize;
 		}
 
@@ -291,11 +300,9 @@ int decryptData( SESSION_INFO *sessionInfoPtr,
 	   
 	   Almost all TLS implementations get it right (even though in TLS 1.0 
 	   there was only a requirement to generate, but not to check, the PKCS 
-	   #5-style padding, so we always check the padding bytes if we're 
-	   talking TLS.
-
-	   First we make sure that the padding information looks OK.  TLS allows 
-	   up to 256 bytes of padding (only GnuTLS actually seems to use this 
+	   #5-style padding, so we always check the padding bytes.  First we 
+	   make sure that the padding information looks OK.  TLS allows up to 
+	   256 bytes of padding (only GnuTLS actually seems to use this 
 	   capability though) so we can't check for a sensible (small) padding 
 	   length.
 
@@ -305,7 +312,16 @@ int decryptData( SESSION_INFO *sessionInfoPtr,
 	   cycles difference won't be measurable in the overall scheme of 
 	   things */
 	padSize = byteToInt( data[ dataLength - 1 ] );
-	length -= padSize + 1;
+	if( length < padSize + 1 )
+		{
+		/* An underflow is caught by the isBufsizeRange() check below so
+		   technically there's no need for an implied checkOverflowSub() 
+		   here, but we add the check to make it explicit rather than making
+		   length go out of range */
+		length = UNDERFLOW_MARKER;
+		}
+	else
+		length -= padSize + 1;
 	if( !isBufsizeRange( length ) )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
@@ -360,7 +376,8 @@ static int macDataTLS( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 					   IN_LENGTH_IV_Z const int ivLength, 
 					   IN_BUFFER_OPT( dataLength ) const void *data, 
 					   IN_DATALENGTH_Z const int dataLength, 
-					   IN_BYTE const int type )
+					   IN_RANGE( TLS_PACKETTYPE_FIRST, \
+								 TLS_PACKETTYPE_LAST ) const int packetType )
 	{
 	BYTE metadataBuffer[ 64 + CRYPT_MAX_IVSIZE + 8 ];
 	int metadataLength, status;
@@ -380,20 +397,26 @@ static int macDataTLS( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 	REQUIRES( ( data == NULL && dataLength == 0 ) || \
 			  ( data != NULL && \
 				dataLength > 0 && dataLength <= MAX_PACKET_SIZE + 512 ) );
-	REQUIRES( type >= 0 && type <= 255 );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 
 	/* Set up the packet metadata to be MACed */
-	status = writePacketMetadata( metadataBuffer, 64, &metadataLength, type, 
-								  seqNo, version, dataLength + ivLength );
+	REQUIRES( !checkOverflowAdd( dataLength, ivLength ) );
+	status = writePacketMetadata( metadataBuffer, 64, &metadataLength, 
+								  packetType, seqNo, version, 
+								  dataLength + ivLength );
 	if( cryptStatusError( status ) )
 		return( status );
 	if( ivLength > 0 )
 		{
+		ANALYSER_HINT( iv != NULL );
+
 		/* If we're using an explicit IV, append it to the metadata for
 		   MAC'ing */
 		REQUIRES( boundsCheck( metadataLength, ivLength, 
 							   64 + CRYPT_MAX_IVSIZE ) );
 		memcpy( metadataBuffer + metadataLength, iv, ivLength );
+		REQUIRES( !checkOverflowAdd( metadataLength, ivLength ) );
 		metadataLength += ivLength;
 		}
 
@@ -418,7 +441,8 @@ int createMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  IN_DATALENGTH const int dataMaxLength, 
 				  OUT_DATALENGTH_Z int *dataLength,
 				  IN_DATALENGTH const int payloadLength, 
-				  IN_BYTE const int type )
+				  IN_RANGE( TLS_PACKETTYPE_FIRST, \
+							TLS_PACKETTYPE_LAST ) const int packetType )
 	{
 	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
 	MESSAGE_DATA msgData;
@@ -432,7 +456,8 @@ int createMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isBufsizeRangeNZ( dataMaxLength ) );
 	REQUIRES( payloadLength > 0 && payloadLength <= MAX_PACKET_SIZE + 512 && \
 			  payloadLength + sessionInfoPtr->authBlocksize <= dataMaxLength );
-	REQUIRES( type >= 0 && type <= 255 );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 
 	/* Clear return values */
 	*dataLength = 0;
@@ -443,9 +468,19 @@ int createMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   the session buffer and so needs to be passed in explicitly */
 	status = macDataTLS( sessionInfoPtr->iAuthOutContext, tlsInfo->writeSeqNo,
 						 sessionInfoPtr->version, NULL, 0, data, 
-						 payloadLength, type );
+						 payloadLength, packetType );
 	if( cryptStatusError( status ) )
 		return( status );
+	if( checkOverflowInc( tlsInfo->writeSeqNo ) )
+		{
+		/* This is a should-never-occur condition so in theory we could just
+		   make it an ENSURES() condition */
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO,
+				  "Packet write sequence number overflow writing %s (%d) "
+				  "packet, length %d", getTLSPacketName( packetType ), 
+				  packetType, payloadLength ));
+		}
 	tlsInfo->writeSeqNo++;
 
 	/* Append the MAC value to the end of the packet */
@@ -458,6 +493,8 @@ int createMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  CRYPT_CTXINFO_HASHVALUE );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( payloadLength, 
+								 sessionInfoPtr->authBlocksize ) );
 	*dataLength = payloadLength + sessionInfoPtr->authBlocksize;
 	INJECT_FAULT( SESSION_CORRUPT_MAC, SESSION_CORRUPT_MAC_TLS_1 );
 
@@ -469,7 +506,9 @@ int checkMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				 IN_BUFFER( dataLength ) const void *data, 
 				 IN_DATALENGTH const int dataLength, 
 				 IN_DATALENGTH_Z const int payloadLength, 
-				 IN_BYTE const int type, 
+				 IN_RANGE( TLS_PACKETTYPE_FIRST, \
+						   TLS_PACKETTYPE_LAST ) \
+						const int packetType,
 				 IN_BOOL const BOOLEAN noReportError )
 	{
 	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
@@ -484,7 +523,8 @@ int checkMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isBufsizeRangeNZ( dataLength ) );
 	REQUIRES( payloadLength >= 0 && payloadLength <= MAX_PACKET_SIZE + 512 && \
 			  payloadLength + sessionInfoPtr->authBlocksize <= dataLength );
-	REQUIRES( type >= 0 && type <= 255 );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 	REQUIRES( isBooleanValue( noReportError ) );
 
 	/* MAC the payload.  If the payload length is zero then there's no data 
@@ -503,16 +543,27 @@ int checkMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		status = macDataTLS( sessionInfoPtr->iAuthInContext, 
 							 tlsInfo->readSeqNo, sessionInfoPtr->version, 
-							 ivPtr, ivLength, NULL, 0, type );
+							 ivPtr, ivLength, NULL, 0, packetType );
 		}
 	else
 		{
 		status = macDataTLS( sessionInfoPtr->iAuthInContext, 
 							 tlsInfo->readSeqNo, sessionInfoPtr->version, 
-							 ivPtr, ivLength, data, payloadLength, type );
+							 ivPtr, ivLength, data, payloadLength, 
+							 packetType );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
+	if( checkOverflowInc( tlsInfo->readSeqNo ) )
+		{
+		/* This is a should-never-occur condition so in theory we could just
+		   make it an ENSURES() condition */
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO,
+				  "Packet read sequence number overflow reading %s (%d) "
+				  "packet, length %d", getTLSPacketName( packetType ), 
+				  packetType, payloadLength ));
+		}
 	tlsInfo->readSeqNo++;
 
 	/* Compare the calculated MAC to the MAC present at the end of the 
@@ -534,7 +585,7 @@ int checkMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		retExt( CRYPT_ERROR_SIGNATURE,
 				( CRYPT_ERROR_SIGNATURE, SESSION_ERRINFO, 
 				  "Bad message MAC for packet type %d, length %d",
-				  type, dataLength ) );
+				  packetType, dataLength ) );
 		}
 
 	return( CRYPT_OK );
@@ -560,7 +611,8 @@ int macDataTLSGCM( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 				   IN_RANGE( TLS_MINOR_VERSION_TLS, \
 							 TLS_MINOR_VERSION_TLS13 ) const int version,
 				   IN_LENGTH_Z const int payloadLength, 
-				   IN_BYTE const int type )
+				   IN_RANGE( TLS_PACKETTYPE_FIRST, \
+							 TLS_PACKETTYPE_LAST ) const int packetType )
 	{
 	MESSAGE_DATA msgData;
 	BYTE metadataBuffer[ 64 + 8 ];
@@ -573,14 +625,16 @@ int macDataTLSGCM( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 	REQUIRES( payloadLength >= 0 && \
 			  payloadLength <= MAX_PACKET_SIZE + \
 						( version >= TLS_MINOR_VERSION_TLS13 ? 1 : 0 ) );
-	REQUIRES( type >= 0 && type <= 255 );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 
 	/* Set up the packet metadata to be MACed */
 #ifdef USE_TLS13
 	if( version <= TLS_MINOR_VERSION_TLS12 )
 		{
 		status = writePacketMetadata( metadataBuffer, 64, &metadataLength, 
-									  type, seqNo, version, payloadLength );
+									  packetType, seqNo, version, 
+									  payloadLength );
 		}
 	else
 		{
@@ -589,7 +643,8 @@ int macDataTLSGCM( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 		}
 #else
 	status = writePacketMetadata( metadataBuffer, 64, &metadataLength, 
-								  type, seqNo, version, payloadLength );
+								  packetType, seqNo, version, 
+								  payloadLength );
 #endif /* USE_TLS13 */
 	if( cryptStatusError( status ) )
 		return( status );
@@ -774,7 +829,9 @@ static int macDataTLSBernstein( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 								IN_BUFFER( payloadLength ) \
 									const void *payload, 
 								IN_LENGTH_Z const int payloadLength, 
-								IN_BYTE const int type )
+								IN_RANGE( TLS_PACKETTYPE_FIRST, \
+										  TLS_PACKETTYPE_LAST ) \
+									const int packetType )
 	{
 	static const BYTE zeroes[ 16 ] = { 0 };
 	BYTE aadBuffer[ 64 + 8 ], lengthBuffer[ 16 + 8 ];
@@ -787,13 +844,14 @@ static int macDataTLSBernstein( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 	REQUIRES( payloadLength >= 0 && \
 			  payloadLength <= MAX_PACKET_SIZE + \
 						( version >= TLS_MINOR_VERSION_TLS13 ? 1 : 0 ) );
-	REQUIRES( type >= 0 && type <= 255 );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 
 	/* Set up the packet metadata to be MACed */
 #ifdef USE_TLS13
 	if( version <= TLS_MINOR_VERSION_TLS12 )
 		{
-		status = writePacketMetadata( aadBuffer, 64, &aadLength, type, 
+		status = writePacketMetadata( aadBuffer, 64, &aadLength, packetType, 
 									  seqNo, version, payloadLength );
 		}
 	else
@@ -802,7 +860,7 @@ static int macDataTLSBernstein( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 										   payloadLength );
 		}
 #else
-	status = writePacketMetadata( aadBuffer, 64, &aadLength, type, 
+	status = writePacketMetadata( aadBuffer, 64, &aadLength, packetType, 
 								  seqNo, version, payloadLength );
 #endif /* USE_TLS13 */
 	if( cryptStatusError( status ) )
@@ -844,7 +902,9 @@ int createMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   IN_DATALENGTH const int dataMaxLength, 
 						   OUT_DATALENGTH_Z int *dataLength,
 						   IN_DATALENGTH const int payloadLength, 
-						   IN_BYTE const int type )
+						   IN_RANGE( TLS_PACKETTYPE_FIRST, \
+									 TLS_PACKETTYPE_LAST ) \
+								const int packetType )
 	{
 	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
 	MESSAGE_DATA msgData;
@@ -858,7 +918,8 @@ int createMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isBufsizeRangeNZ( dataMaxLength ) );
 	REQUIRES( payloadLength > 0 && payloadLength <= MAX_PACKET_SIZE + 512 && \
 			  payloadLength + sessionInfoPtr->authBlocksize <= dataMaxLength );
-	REQUIRES( type >= 0 && type <= 255 );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 
 	/* Clear return values */
 	*dataLength = 0;
@@ -867,9 +928,19 @@ int createMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = macDataTLSBernstein( sessionInfoPtr->iAuthOutContext, 
 								  tlsInfo->writeSeqNo, 
 								  sessionInfoPtr->version, data, 
-								  payloadLength, type );
+								  payloadLength, packetType );
 	if( cryptStatusError( status ) )
 		return( status );
+	if( checkOverflowInc( tlsInfo->writeSeqNo ) )
+		{
+		/* This is a should-never-occur condition so in theory we could just
+		   make it an ENSURES() condition */
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO,
+				  "Packet write sequence number overflow writing %s (%d) "
+				  "packet, length %d", getTLSPacketName( packetType ), 
+				  packetType, payloadLength ));
+		}
 	tlsInfo->writeSeqNo++;
 
 	/* Append the MAC value to the end of the packet */
@@ -882,6 +953,8 @@ int createMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  CRYPT_CTXINFO_HASHVALUE );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( payloadLength,
+								 sessionInfoPtr->authBlocksize ) );
 	*dataLength = payloadLength + sessionInfoPtr->authBlocksize;
 	INJECT_FAULT( SESSION_CORRUPT_MAC, SESSION_CORRUPT_MAC_TLS_1 );
 
@@ -893,7 +966,9 @@ int checkMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  IN_BUFFER( dataLength ) const void *data, 
 						  IN_DATALENGTH const int dataLength, 
 						  IN_DATALENGTH_Z const int payloadLength, 
-						  IN_BYTE const int type )
+						  IN_RANGE( TLS_PACKETTYPE_FIRST, \
+									TLS_PACKETTYPE_LAST ) \
+								const int packetType )
 	{
 	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
 	MESSAGE_DATA msgData;
@@ -906,15 +981,26 @@ int checkMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isBufsizeRangeNZ( dataLength ) );
 	REQUIRES( payloadLength >= 0 && payloadLength <= MAX_PACKET_SIZE + 512 && \
 			  payloadLength + sessionInfoPtr->authBlocksize <= dataLength );
-	REQUIRES( type >= 0 && type <= 255 );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 
 	/* MAC the payload and metadata */
 	status = macDataTLSBernstein( sessionInfoPtr->iAuthInContext, 
 								  tlsInfo->readSeqNo, 
 								  sessionInfoPtr->version, data, 
-								  payloadLength, type );
+								  payloadLength, packetType );
 	if( cryptStatusError( status ) )
 		return( status );
+	if( checkOverflowInc( tlsInfo->readSeqNo ) )
+		{
+		/* This is a should-never-occur condition so in theory we could just
+		   make it an ENSURES() condition */
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO,
+				  "Packet read sequence number overflow reading %s (%d) "
+				  "packet, length %d", getTLSPacketName( packetType ), 
+				  packetType, payloadLength ));
+		}
 	tlsInfo->readSeqNo++;
 
 	/* Compare the calculated MAC to the MAC present at the end of the 
@@ -931,7 +1017,7 @@ int checkMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		retExt( CRYPT_ERROR_SIGNATURE,
 				( CRYPT_ERROR_SIGNATURE, SESSION_ERRINFO, 
 				  "Bad message MAC for packet type %d, length %d",
-				  type, dataLength ) );
+				  packetType, dataLength ) );
 		}
 
 	return( CRYPT_OK );
@@ -1052,6 +1138,7 @@ int hashHSPacketWrite( IN_PTR const TLS_HANDSHAKE_INFO *handshakeInfo,
 
 	REQUIRES( sanityCheckTLSHandshakeInfo( handshakeInfo ) );
 	REQUIRES( isBufsizeRange( offset ) );
+	REQUIRES( !checkOverflowAdd( offset, TLS_HEADER_SIZE ) );
 
 	/* On a write we've just finished writing the packet and everything but
 	   the header needs to be MACd */
@@ -1144,6 +1231,7 @@ int completeTLSHashedMAC( IN_HANDLE const CRYPT_CONTEXT md5context,
 	   purposes:
 
 		TLS_PRF( label || MD5_hash || SHA1_hash ) */
+	REQUIRES( !checkOverflowAdd( labelLength, MD5MAC_SIZE + SHA1MAC_SIZE ) );
 	setMechanismDeriveInfo( &mechanismInfo, hashValues, 
 							TLS_HASHEDMAC_SIZE, ( MESSAGE_CAST ) masterSecret, 
 							masterSecretLen, 
@@ -1217,6 +1305,7 @@ int completeTLS12HashedMAC( IN_HANDLE const CRYPT_CONTEXT sha2context,
 	   we're using TLS-LTS in which case we use the full-size result:
 
 		TLS_PRF( label || SHA2_hash ) */
+	REQUIRES( !checkOverflowAdd( labelLength, macSize ) );
 	setMechanismDeriveInfo( &mechanismInfo, hashValues, hashedMacSize, 
 							( MESSAGE_CAST ) masterSecret, masterSecretLen, 
 							CRYPT_ALGO_SHA2, hashBuffer, 

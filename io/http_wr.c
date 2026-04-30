@@ -117,7 +117,7 @@ static int encodeRFC1866( INOUT_PTR STREAM *headerStream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int sendHTTPData( INOUT_PTR STREAM *stream, 
-				  IN_BUFFER( length ) void *buffer, 
+				  IN_BUFFER( length ) const void *buffer, 
 				  IN_LENGTH const int length, 
 				  IN_FLAGS_Z( TRANSPORT ) const int flags )
 	{
@@ -125,7 +125,7 @@ int sendHTTPData( INOUT_PTR STREAM *stream,
 	int bytesWritten, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtrDynamic( buffer, length ) );
+	assert( isReadPtrDynamic( buffer, length ) );
 
 	REQUIRES( isBufsizeRangeNZ( length ) );
 	REQUIRES( flags == TRANSPORT_FLAG_NONE || \
@@ -142,11 +142,15 @@ int sendHTTPData( INOUT_PTR STREAM *stream,
 		}
 	if( bytesWritten < length )
 		{
-		/* The write timed out, convert the incomplete HTTP header write to 
-		   the appropriate timeout error */
+		/* We timed out before writing all of the data.  Usually this will 
+		   be reported as a CRYPT_ERROR_TIMEOUT by the lower-level write
+		   routines, however due to the multiple layers of I/O layering that 
+		   are possible and various bugs in networking stacks we perform an 
+		   explicit check here to make sure that we got everything */
 		retExt( CRYPT_ERROR_TIMEOUT, 
 				( CRYPT_ERROR_TIMEOUT, NETSTREAM_ERRINFO, 
-				  "HTTP write timed out before all data could be written" ) );
+				  "HTTP write timed out before all data could be written, "
+				  "only wrote %d of %d bytes", bytesWritten, length ) );
 		}
 
 	return( CRYPT_OK );
@@ -622,9 +626,7 @@ static int writeFunction( INOUT_PTR STREAM *stream,
 		   status and exit */
 		if( cryptStatusError( httpDataInfo->reqStatus ) )
 			{
-			char headerBuffer[ HTTP_LINEBUF_SIZE + 8 ];
-
-			status = sendHTTPError( stream, headerBuffer, HTTP_LINEBUF_SIZE,
+			status = sendHTTPError( stream, 
 						( httpDataInfo->reqStatus == CRYPT_ERROR_NOTFOUND ) ? \
 							404 : \
 						( httpDataInfo->reqStatus == CRYPT_ERROR_PERMISSION ) ? \

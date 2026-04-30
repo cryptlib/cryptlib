@@ -76,7 +76,7 @@ static BOOLEAN sanityCheckTrustInfo( const TRUST_INFO *trustInfo )
 		const void *certObjectPtr;
 
 		certObjectPtr = DATAPTR_GET( trustInfo->certObject );
-		ENSURES( certObjectPtr != NULL );
+		ENSURES_B( certObjectPtr != NULL );
 
 		if( !isShortIntegerRangeMin( trustInfo->certObjectLength, 
 									 MIN_CERTSIZE ) )
@@ -305,7 +305,7 @@ BOOLEAN trustedCertsPresent( IN_DATAPTR const DATAPTR trustInfo )
 	const DATAPTR *trustInfoIndex;
 	LOOP_INDEX i;
 
-	REQUIRES( DATAPTR_ISSET( trustInfo ) );
+	REQUIRES_B( DATAPTR_ISSET( trustInfo ) );
 
 	/* Check that the trust information is valid and get a pointer to the
 	   trust information index */
@@ -841,6 +841,8 @@ int initTrustInfo( OUT_DATAPTR DATAPTR *trustInfoPtr )
 
 	assert( isWritePtr( trustInfoPtr, sizeof( DATAPTR ) ) );
 
+	REQUIRES( checkBuiltinStorage( BUILTIN_STORAGE_TRUSTMGR ) );
+
 	/* Clear return value */
 	DATAPTR_SET_PTR( trustInfoPtr, NULL );
 
@@ -858,6 +860,8 @@ int initTrustInfo( OUT_DATAPTR DATAPTR *trustInfoPtr )
 	updateTrustInfoChecksum( *trustInfoPtr );
 
 	ENSURES( getCheckTrustInfo( *trustInfoPtr ) != NULL );
+
+	ENSURES( checkBuiltinStorage( BUILTIN_STORAGE_TRUSTMGR ) );
 
 	return( CRYPT_OK );
 	}

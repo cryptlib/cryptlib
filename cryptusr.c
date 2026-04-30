@@ -373,8 +373,8 @@ static int openUser( OUT_HANDLE_OPT CRYPT_USER *iCryptUser,
 	/* Initialise the config options and trust info */
 #ifdef USE_CERTIFICATES
 	status = initTrustInfo( &userInfoPtr->trustInfo );
-#endif /* USE_CERTIFICATES */
 	if( cryptStatusOK( status ) )
+#endif /* USE_CERTIFICATES */
 		{
 		status = initOptions( &userInfoPtr->configOptions,
 							  &userInfoPtr->configOptionsCount );
@@ -392,7 +392,7 @@ int createUser( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 #ifdef USE_KEYSETS
 	char userFileName[ 16 + 8 ];
 #endif /* USE_KEYSETS */
-	int fileRef, result, initStatus, status;
+	int fileRef, initStatus, status;
 
 	assert( isWritePtr( createInfo, sizeof( MESSAGE_CREATEOBJECT_INFO ) ) );
 
@@ -522,11 +522,12 @@ fileRef = 0;
 	   ACL checking */
 	if( fileRef >= 0 )
 		{
+		int userFileNameLen;
 {
 ENSURES( userInfoPtr != NULL );	/* Due to test code above */
 }
-		result = sprintf_s( userFileName, 16, "u%06x", fileRef );
-		ENSURES( rangeCheck( result, 1, 15 ) );
+		userFileNameLen = sprintf_s( userFileName, 16, "u%06x", fileRef );
+		ENSURES( rangeCheck( userFileNameLen, 1, 15 ) );
 		status = readConfig( iCryptUser, userFileName, 
 							 userInfoPtr->trustInfo );
 		if( cryptStatusError( status ) )
@@ -573,6 +574,11 @@ static int createDefaultUserObject( void )
 		/* If the create object failed, return immediately */
 		if( userInfoPtr == NULL )
 			return( initStatus );
+
+		/* For standard objects we'd enqueue a destroy message for the 
+		   object at this point but this can't be done for system objects, 
+		   the cleanup is handled externally when crytlib shuts down since
+		   failing to create a system object forces an init failure */
 		}
 	ENSURES( iUserObject == DEFAULTUSER_OBJECT_HANDLE );
 

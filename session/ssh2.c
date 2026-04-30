@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib SSHv2 Session Management					*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -118,6 +118,7 @@ int checkKeyexValueLength( const SSH_HANDSHAKE_INFO *handshakeInfo,
 	switch( checkType )
 		{
 		case KEYEX_CHECK_MPI:
+			ANALYSER_HINT( keyAgreeParams != NULL );
 			lengthToCheck = keyAgreeParams->publicValueLen;
 			extraLength = 0;
 			errorInfoString = "phase 1 MPI";
@@ -174,6 +175,116 @@ int checkKeyexValueLength( const SSH_HANDSHAKE_INFO *handshakeInfo,
 			  errorInfoString, handshakeInfo->serverKeySize, 
 			  handshakeInfo->serverKeySize * 8, 
 			  keyexSize, keyexSize * 8 ) );
+	}
+
+/* Check whether a packet trace conforms to the strict KEX requirements.
+   The handshake packet flow that cryptlib allows is:
+
+	Client: Read SSH_MSG_KEXINIT
+			Write SSH_MSG_KEXINIT
+				(Write SSH_MSG_KEX_DH_GEX_REQUEST(_OLD)
+				 Read SSH_MSG_KEX_DH_GEX_GROUP)
+			Write SSH_MSG_KEXDH_INIT / SSH_MSG_KEX_DH_GEX_INIT
+			Read SSH_MSG_KEXDH_REPLY / SSH_MSG_KEX_DH_GEX_REPLY
+			Write SSH_MSG_NEWKEYS
+			Read SSH_MSG_NEWKEYS
+	Server: Write SSH_MSG_KEXINIT
+			Read SSH_MSG_KEXINIT
+				(Read SSH_MSG_KEX_DH_GEX_REQUEST(_OLD)
+				 Write SSH_MSG_KEX_DH_GEX_GROUP)
+			Read SSH_MSG_KEXDH_INIT / SSH_MSG_KEX_DH_GEX_INIT
+			Write SSH_MSG_KEXDH_REPLY / SSH_MSG_KEX_DH_GEX_REPLY
+			Write SSH_MSG_NEWKEYS
+			Read SSH_MSG_NEWKEYS 
+
+   However this is complicated by the fact that some values are overloaded 
+   for multiple message types:
+
+	30: SSH_MSG_KEXDH_INIT, SSH_MSG_KEX_ECDH_INIT, SSH_MSG_KEX_HYBRID_INIT,
+		SSH_MSG_KEX_DH_GEX_REQUEST_OLD
+	31: SSH_MSG_KEXDH_REPLY, SSH_MSG_KEX_ECDH_REPLY, SSH_MSG_KEX_HYBRID_REPLY,
+		SSH_MSG_KEX_DH_GEX_GROUP
+	32: SSH_MSG_KEX_DH_GEX_INIT
+	33: SSH_MSG_KEX_DH_GEX_REPLY
+	34: SSH_MSG_KEX_DH_GEX_REQUEST
+
+   This makes checking difficult because after we've seen the 
+   SSH_MSG_KEXINIT we'll see (server-side) a 30 but don't know whether it's 
+   a SSH_MSG_xxx_INIT or an SSH_MSG_KEX_DH_GEX_REQUEST_OLD, or (client-side) 
+   a 31 but don't know whether it's a SSH_MSG_xxx_REPLY or 
+   SSH_MSG_KEX_DH_GEX_GROUP.  To deal with this we look ahead one packet and 
+   treat a 30 as a SSH_MSG_KEX_DH_GEX_REQUEST_OLD and a 31 as a 
+   SSH_MSG_KEX_DH_GEX_GROUP if they're followed by a 
+   SSH_MSG_KEXDH_INIT/REPLY.
+   
+   Note that the following could actually be replaced by a simple loop that 
+   just looks for packets < 30 or > 34 since the protocol ladder-diagram 
+   implementation enforces the correct packet sequencing, this is just a 
+   belt-and-suspenders check on the packets, alongside an exercise in 
+   documenting the message flow */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN checkStrictKEX( IN_BUFFER( packetTraceLen ) BYTE *packetTrace,
+						IN_LENGTH_SHORT const int packetTraceLen,
+						IN_BOOL const BOOLEAN isServer )
+	{
+	int gexOffset = 0;
+	
+	assert( isReadPtrDynamic( packetTrace, packetTraceLen ) );
+	
+	REQUIRES_B( isShortIntegerRangeNZ( packetTraceLen ) );
+	REQUIRES_B( isBooleanValue( isServer ) );
+	
+	/* We need at least three packets in the trace */
+	if( packetTraceLen < 3 )
+		return( FALSE );
+	
+	/* The first packet must be a SSH_MSG_KEXINIT */
+	if( packetTrace[ 0 ] != SSH_MSG_KEXINIT )
+		return( FALSE );
+	if( isServer )
+		{
+		/* Optional DH parameter negotiation */
+		if( packetTrace[ 1 ] == SSH_MSG_KEX_DH_GEX_REQUEST || \
+			( packetTrace[ 1 ] == SSH_MSG_KEX_DH_GEX_REQUEST_OLD && \
+			  packetTrace[ 2 ] == SSH_MSG_KEX_DH_GEX_INIT ) )
+			{
+			if( packetTraceLen < 4 )
+				return( FALSE );
+			if( packetTrace[ 2 ] != SSH_MSG_KEX_DH_GEX_INIT )
+				return( FALSE );
+			gexOffset = 1;
+			}
+		else
+			{
+			/* Just a straight SSH_MSG_xxx_INIT */
+			if( packetTrace[ 1 ] != SSH_MSG_KEXDH_INIT )
+				return( FALSE );
+			}
+		}
+	else
+		{
+		/* Optional DH parameter negotiation */
+		if( packetTrace[ 1 ] == SSH_MSG_KEX_DH_GEX_GROUP && \
+			packetTrace[ 2 ] == SSH_MSG_KEX_DH_GEX_REPLY )
+			{
+			if( packetTraceLen < 4 )
+				return( FALSE );
+			if( packetTrace[ 2 ] != SSH_MSG_KEX_DH_GEX_REPLY )
+				return( FALSE );
+			gexOffset = 1;
+			}
+		else
+			{
+			/* Just a straight SSH_MSG_KEXDH_REPLY */
+			if( packetTrace[ 1 ] != SSH_MSG_KEXDH_REPLY )
+				return( FALSE );
+			}
+		}
+	if( packetTrace[ 2 + gexOffset ] != SSH_MSG_NEWKEYS )
+		return( FALSE );
+	
+	return( TRUE );
 	}
 
 /****************************************************************************
@@ -451,16 +562,14 @@ int checkPreauthResponse( INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo,
 							  handshakeInfo->receivedResponse,
 							  SSH_PREAUTH_NONCE_ENCODEDSIZE ) != TRUE )
 		{
-		retExt( CRYPT_ERROR_SIGNATURE, 
-				( CRYPT_ERROR_SIGNATURE, errorInfo, 
-				  "Client sent invalid response '%s' to our challenge, "
-				  "should have been '%s'",
-				  sanitiseString( handshakeInfo->receivedResponse,
-								  SSH_PREAUTH_MAX_SIZE,
-								  SSH_PREAUTH_NONCE_ENCODEDSIZE ),
-				  sanitiseString( handshakeInfo->response,
-								  SSH_PREAUTH_MAX_SIZE,
-								  SSH_PREAUTH_NONCE_ENCODEDSIZE ) ) );
+		retExtSan( CRYPT_ERROR_SIGNATURE, 
+				   ( CRYPT_ERROR_SIGNATURE, errorInfo, 
+					 "Client sent invalid response '%s' to our challenge, "
+					 "should have been '%s'",
+					 handshakeInfo->receivedResponse, 
+						SSH_PREAUTH_NONCE_ENCODEDSIZE,
+					 handshakeInfo->response, 
+						SSH_PREAUTH_NONCE_ENCODEDSIZE, NULL, 0 ) );
 		}
 
 	return( CRYPT_OK );
@@ -511,6 +620,8 @@ static int processControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   when we connect the stream, as well as just being good programming 
 	   practice */
 	if( localPayloadLength <= 0 || \
+		checkOverflowSub( sessionInfoPtr->receiveBufEnd, \
+						  sessionInfoPtr->receiveBufPos ) || \
 		localPayloadLength > sessionInfoPtr->receiveBufEnd - \
 							 sessionInfoPtr->receiveBufPos )
 		{
@@ -563,6 +674,7 @@ static int readHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	*readInfo = READINFO_NONE;
 
 	/* Make sure that there's room left to handle the speculative read */
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufSize, 128 ) );
 	if( sessionInfoPtr->receiveBufPos >= \
 								sessionInfoPtr->receiveBufSize - 128 )
 		return( 0 );
@@ -641,6 +753,9 @@ static int readHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( !cryptStatusError( status ) )
 			removedDataLength = stell( &stream );
 		if( cryptStatusError( status ) || \
+			checkOverflowAdd( removedDataLength, sshInfo->padLength ) || \
+			checkOverflowSub( length, 
+							  removedDataLength + sshInfo->padLength ) || \
 			payloadLength != length - ( removedDataLength + \
 										sshInfo->padLength ) )
 			{
@@ -701,6 +816,7 @@ static int readHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   it as part of the payload, remove it, and remember anything that's 
 	   left for later */
 	REQUIRES( isShortIntegerRangeNZ( removedDataLength ) );
+	REQUIRES( !checkOverflowSub( payloadBytesRead, removedDataLength ) );
 	partialPayloadLength = payloadBytesRead - removedDataLength;
 	ENSURES( partialPayloadLength > 0 && \
 			 removedDataLength + partialPayloadLength <= \
@@ -713,6 +829,8 @@ static int readHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Determine how much data we'll be expecting, adjusted for the fixed
 	   information that we've removed and the (implicitly present) MAC data */
+	REQUIRES( !checkOverflowAdd( length, extraLength ) );
+	REQUIRES( !checkOverflowSub( length + extraLength, removedDataLength ) );
 	sessionInfoPtr->pendingPacketLength = \
 			sessionInfoPtr->pendingPacketRemaining = \
 					( length + extraLength ) - removedDataLength;
@@ -746,11 +864,17 @@ static int processBodyFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( readInfo, sizeof( READSTATE_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
+	REQUIRES( !checkOverflowAdd( sessionInfoPtr->receiveBufPos,
+								 sshInfo->partialPacketDataLength ) );
 	REQUIRES( boundsCheck( sessionInfoPtr->receiveBufPos + \
 							sshInfo->partialPacketDataLength,
 						   dataRemainingSize, sessionInfoPtr->receiveBufEnd ) );
-	REQUIRES( dataRemainingSize >= sessionInfoPtr->authBlocksize && \
-			  dataLength >= 0 && dataLength < dataRemainingSize );
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->pendingPacketLength,
+								 sshInfo->partialPacketDataLength ) );
+	REQUIRES( !checkOverflowSub( dataRemainingSize,
+								 sessionInfoPtr->authBlocksize ) );
+	ENSURES( dataRemainingSize >= sessionInfoPtr->authBlocksize && \
+			 dataLength >= 0 && dataLength < dataRemainingSize );
 
 	/* All errors processing the payload are fatal, and for the following 
 	   operations specifically fatal crypto errors */
@@ -832,8 +956,25 @@ static int processBodyFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	*readInfo = READINFO_FATAL;
 
 	/* Strip the padding and MAC and update the state information */
+	REQUIRES( !checkOverflowAdd( sshInfo->padLength,
+								 sessionInfoPtr->authBlocksize ) );
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->pendingPacketLength,
+								 sshInfo->padLength + \
+										sessionInfoPtr->authBlocksize ) );
 	payloadLength = sessionInfoPtr->pendingPacketLength - \
 					( sshInfo->padLength + sessionInfoPtr->authBlocksize );
+	if( checkOverflowInc( sshInfo->readSeqNo ) )
+		{
+		/* This is a should-never-occur condition so in theory we could just
+		   make it an ENSURES() condition */
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO, 
+				  "Packet read sequence number overflow reading %s (%d) "
+				  "packet, length %d", 
+				  getSSHPacketName( sshInfo->packetType ),
+				  sshInfo->packetType,
+				  sshInfo->partialPacketDataLength + dataLength ) );
+		}
 	sshInfo->readSeqNo++;
 	ENSURES( isBufsizeRange( payloadLength ) && \
 			 payloadLength < sessionInfoPtr->pendingPacketLength + dataLength );
@@ -883,8 +1024,11 @@ static int preparePacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( !TEST_FLAG( sessionInfoPtr->flags, 
 						  SESSION_FLAG_SENDCLOSED ) );
-	REQUIRES( isBufsizeRangeNZ( dataLength ) && \
-			  dataLength < sessionInfoPtr->sendBufPos );
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufPos, 
+								 SSH2_HEADER_SIZE + \
+										SSH2_PAYLOAD_HEADER_SIZE ) );
+	ENSURES( isBufsizeRangeNZ( dataLength ) && \
+			 dataLength < sessionInfoPtr->sendBufPos );
 
 	/* Wrap up the payload ready for sending:
 
@@ -909,6 +1053,8 @@ static int preparePacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	ENSURES( cryptStatusOK( status ) );
 	sMemConnect( &stream, sessionInfoPtr->sendBuffer,
 				 sessionInfoPtr->sendBufSize );
+	REQUIRES( !checkOverflowAdd( SSH2_HEADER_SIZE + SSH2_PAYLOAD_HEADER_SIZE, 
+								 dataLength ) );
 	status = sSkip( &stream, SSH2_HEADER_SIZE + SSH2_PAYLOAD_HEADER_SIZE + \
 							 dataLength, SSKIP_MAX );
 	if( cryptStatusOK( status ) )
@@ -931,7 +1077,10 @@ static int preparePacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 		status = length2 = appendChannelData( sessionInfoPtr, length );
 		if( !cryptStatusError( status  ) )
+			{
+			REQUIRES( !checkOverflowAdd( length, length2 ) );
 			length += length2;
+			}
 		}
 
 	return( length );

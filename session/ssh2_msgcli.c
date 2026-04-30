@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib SSHv2 Client-side Channel Message Management		*
-*						Copyright Peter Gutmann 1998-2008					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -132,11 +132,10 @@ static int getOpenFailInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "Channel open failed, reason code %d", 
 				  errorCode ) );
 		}
-	retExt( CRYPT_ERROR_OPEN,
-			( CRYPT_ERROR_OPEN, SESSION_ERRINFO, 
-			  "Channel open failed, error message '%s'",
-			  sanitiseString( stringBuffer, CRYPT_MAX_TEXTSIZE, 
-							  stringLen ) ) );
+	retExtSan( CRYPT_ERROR_OPEN,
+			   ( CRYPT_ERROR_OPEN, SESSION_ERRINFO, 
+				 "Channel open failed, error message '%s'",
+				 stringBuffer, stringLen, NULL, 0, NULL, 0 ) );
 	}
 
 /****************************************************************************
@@ -208,6 +207,8 @@ static int createOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( isEnumRange( serviceType, SERVICE ) );
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize,
+								 EXTRA_PACKET_SIZE ) );
 	REQUIRES( isIntegerRangeNZ( maxPacketSize ) );
 
 	/* Clear return values */
@@ -392,7 +393,9 @@ static int createOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( isEnumRange( serviceType, SERVICE ) );
-	REQUIRES( isIntegerRangeNZ( maxPacketSize ) );
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize,
+								 EXTRA_PACKET_SIZE ) );
+	ENSURES( isIntegerRangeNZ( maxPacketSize ) );
 
 	/* Set the request type to tell the caller what to do after they've sent 
 	   the initial channel open */
@@ -489,7 +492,13 @@ static int createSessionOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = writeString32( stream, arg1String, arg1Len );
 		if( cryptStatusOK( status ) )
 			status = wrapPacketSSH2( sessionInfoPtr, stream, 0, FALSE );
-		return( status );
+		if( cryptStatusError( status ) )
+			{
+			sMemClose( stream );
+			return( status );
+			}
+		
+		return( CRYPT_OK );
 		}
 
 	/* If the caller has requested the use of remote command execution (i.e. 
@@ -523,7 +532,13 @@ static int createSessionOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = writeString32( stream, arg1String, arg1Len );
 		if( cryptStatusOK( status ) )
 			status = wrapPacketSSH2( sessionInfoPtr, stream, 0, FALSE );
-		return( status );
+		if( cryptStatusError( status ) )
+			{
+			sMemClose( stream );
+			return( status );
+			}
+
+		return( CRYPT_OK );
 		}
 #endif /* USE_SSH_EXTENDED */
 
@@ -558,7 +573,10 @@ static int createSessionOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusOK( status ) )
 		status = wrapPacketSSH2( sessionInfoPtr, stream, 0, FALSE );
 	if( cryptStatusError( status ) )
+		{
+		sMemClose( stream );
 		return( status );
+		}
 
 	/*	...
 		byte	type = SSH_MSG_CHANNEL_REQUEST
@@ -571,13 +589,22 @@ static int createSessionOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = continuePacketStreamSSH( stream, SSH_MSG_CHANNEL_REQUEST,
 									  &packetOffset );
 	if( cryptStatusError( status ) )
+		{
+		sMemClose( stream );
 		return( status );
+		}
 	writeUint32( stream, channelNo );
 	writeString32( stream, "shell", 5 );
 	status = sputc( stream, 0 );			/* No reply */
 	if( cryptStatusOK( status ) )
 		status = wrapPacketSSH2( sessionInfoPtr, stream, packetOffset, FALSE );
-	return( status );
+	if( cryptStatusError( status ) )
+		{
+		sMemClose( stream );
+		return( status );
+		}
+
+	return( CRYPT_OK );
 	}
 
 /* Send a channel open */
@@ -592,8 +619,7 @@ int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	BYTE buffer[ UINT32_SIZE + 8 ];
 	const long channelNo = getCurrentChannelNo( sessionInfoPtr,
 												CHANNEL_READ );
-	long currentChannelNo, windowSize;
-	int length, value, status;
+	int currentChannelNo, windowSize, length, value, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
@@ -765,8 +791,8 @@ int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		{
 		/* serviceType == SERVICE_SHELL creates two packets */
 		status = sendPacketSSH2( sessionInfoPtr, &stream );
+		sMemClose( &stream );
 		}
-	sMemDisconnect( &stream );
 	if( cryptStatusError( status ) )
 		return( status );
 	
@@ -779,10 +805,14 @@ int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		/* This isn't really an auth packet any more but to read further 
 		   packets we would have to get into the data-read state machine via
 		   readHeaderFunction()/processBodyFunction() which would be quite
-		   difficult, so we read it as a (pseudo-)auth packet */
+		   difficult, so we read it as a (pseudo-)auth packet,
+		   
+		   See the earlier comment for why we wait for the window adjust but
+		   don't process the length value in it */
 		status = length = \
-			readAuthPacketSSH2( sessionInfoPtr, SSH_MSG_CHANNEL_WINDOW_ADJUST,
-								ID_SIZE + UINT32_SIZE + UINT32_SIZE );
+				readAuthPacketSSH2( sessionInfoPtr, 
+									SSH_MSG_CHANNEL_WINDOW_ADJUST,
+									ID_SIZE + UINT32_SIZE + UINT32_SIZE );
 		if( cryptStatusError( status ) )
 			return( status );
 		sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );

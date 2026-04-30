@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							cryptlib Core Routines							*
-*						Copyright Peter Gutmann 1992-2021					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -344,6 +344,8 @@ static void displayBuildParams( void )
 #endif /* BN_ULLONG */
 	DEBUG_PRINT(( "BIGNUM_BASE_ALLOCSIZE = %d, BIGNUM_ALLOC_WORDS = %d.\n", 
 				  BIGNUM_BASE_ALLOCSIZE, BIGNUM_ALLOC_WORDS ));
+	DEBUG_PRINT(( "BIGNUM size = %d, BN_CTX size = %d, BN_MONT_CTX size = %d.\n", 
+				  sizeof( BIGNUM ), sizeof( BN_CTX ), sizeof( BN_MONT_CTX ) ));
 
 	/* Dump system data information */
 	DEBUG_PRINT(( "System storage: Kernel data = 0x%lX, %d bytes, "
@@ -487,9 +489,9 @@ static void displayBuildParams( void )
 #ifdef USE_CMSATTR_OBSCURE
 	DEBUG_PRINT(( " USE_CMSATTR_OBSCURE" ));
 #endif /* USE_CMSATTR_OBSCURE */
-#ifdef USE_25519
-	DEBUG_PRINT(( " USE_25519" ));
-#endif /* USE_25519 */
+#ifdef USE_X25519
+	DEBUG_PRINT(( " USE_X25519" ));
+#endif /* USE_X25519 */
 #ifdef USE_DEPRECATED_ALGORITHMS
 	DEBUG_PRINT(( " USE_DEPRECATED_ALGORITHMS" ));
 #endif /* USE_DEPRECATED_ALGORITHMS */
@@ -538,18 +540,15 @@ static void displayBuildParams( void )
 #ifdef USE_LDAP
 	DEBUG_PRINT(( " USE_LDAP" ));
 #endif /* USE_LDAP */
+#ifdef USE_MLKEM
+	DEBUG_PRINT(( " USE_MLKEM" ));
+#endif /* USE_MLKEM */
 #ifdef USE_OAEP
 	DEBUG_PRINT(( " USE_OAEP" ));
 #endif /* USE_OAEP */
-#ifdef USE_OBSCURE_ALGORITHMS
-	DEBUG_PRINT(( " USE_OBSCURE_ALGORITHMS" ));
-#endif /* USE_OBSCURE_ALGORITHMS */
 #ifdef USE_ODBC
 	DEBUG_PRINT(( " USE_ODBC" ));
 #endif /* USE_ODBC */
-#ifdef USE_PATENTED_ALGORITHMS
-	DEBUG_PRINT(( " USE_PATENTED_ALGORITHMS" ));
-#endif /* USE_PATENTED_ALGORITHMS */
 #ifdef USE_PGP2
 	DEBUG_PRINT(( " USE_PGP2" ));
 #endif /* USE_PGP2 */
@@ -786,9 +785,9 @@ static BOOLEAN sanityCheckBuild( void )
 	   is going to stderr from an unexpected source we identify what's
 	   generating it in the text message */
 #if defined( NDEBUG ) && defined( USE_UNSAFE_BUILD_OPTIONS )
-	fprintf( stderr, "Warning: cryptlib has unsafe build options enabled "
+	fprintf( stderr, "\nWarning: cryptlib has unsafe build options enabled "
 			 "for a release build, this\n         should only be used for "
-			 "testing and never in production.\n" );
+			 "testing and never in production.\n\n" );
 #endif /* NDEBUG && USE_UNSAFE_BUILD_OPTIONS */
 
 	/* If we're working with a maximum time value beyond Y2038, make sure 
@@ -801,7 +800,7 @@ static BOOLEAN sanityCheckBuild( void )
 		{
 		static const time_t time1 = 0x7FFFFFFFUL, time2 = 0x80000000UL;
 		static const time_t time3 = 0xEFFFFFFFUL;
-		struct tm tmStruct, *tmStructPtr;
+		struct tm tmStruct, *tmStructPtr = &tmStruct;
 		time_t theTime;
 
         tmStructPtr = gmTime_s( &time1, tmStructPtr );

@@ -23,10 +23,10 @@ typedef struct TI {
 	/* Identification information, the checksum and hash of the 
 	   certificate's subjectName and subjectKeyIdentifier */
 	int sCheck;
-	BYTE sHash[ HASH_DATA_SIZE + 4 ];
+	BYTE sHash[ HASH_DATA_SIZE + 8 ];
 #if 0	/* sKID lookup isn't used at present */
 	int kCheck;
-	BYTE kHash[ HASH_DATA_SIZE + 4 ];
+	BYTE kHash[ HASH_DATA_SIZE + 8 ];
 #endif /* 0 */
 
 	/* The trusted certificate.  When we read trusted certificates from a 
@@ -52,7 +52,7 @@ typedef struct TI {
 
 typedef struct {
 	/* Array of pointers to certificate trust information */
-	DATAPTR trustInfo[ TRUSTINFO_SIZE ];	
+	DATAPTR trustInfo[ TRUSTINFO_SIZE + 4 ];	
 
 	/* Checksum for the trust information array */
 	int trustInfoChecksum;

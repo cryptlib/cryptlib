@@ -47,7 +47,9 @@
    generally-used value above 3.  However even this is only used by PGP 2.x, 
    the next minimum is 33 (a weird value used by OpenSSH until mid-2010, see 
    the comment further down), 41 (another weird value used by GPG until 
-   mid-2006), and then 257 or (in practice) F4 / 65537 by everything else */
+   mid-2006), and then 257 or (in practice) F4 / 65537 by everything else.
+   A survey of the web PKI in 2026 indicated 900M certificates using F4 and
+   20 using an oddball set of values all > F4 */
 
 #if defined( USE_PGP ) || defined( USE_PGPKEYS )
   #define MIN_PUBLIC_EXPONENT		17
@@ -810,8 +812,6 @@ int generateRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					IN_LENGTH_SHORT_MIN( MIN_PKCSIZE * 8 ) const int keyBits )
 	{
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
-	const CAPABILITY_INFO *capabilityInfoPtr = \
-								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	BIGNUM *d = &pkcInfo->rsaParam_d, *p = &pkcInfo->rsaParam_p;
 	BIGNUM *q = &pkcInfo->rsaParam_q;
 	BIGNUM *tmp = &pkcInfo->tmp1;
@@ -822,10 +822,10 @@ int generateRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( keyBits >= bytesToBits( MIN_PKCSIZE ) && \
 			  keyBits <= bytesToBits( CRYPT_MAX_PKCSIZE ) );
-	REQUIRES( capabilityInfoPtr != NULL );
 
 	/* Determine how many bits to give to each of p and q */
 	pBits = ( keyBits + 1 ) / 2;
+	REQUIRES( !checkOverflowSub( keyBits, pBits ) );
 	qBits = keyBits - pBits;
 	pkcInfo->keySizeBits = pBits + qBits;
 
@@ -911,8 +911,7 @@ int generateRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	/* Checksum the bignums to try and detect fault attacks.  Since we're
 	   setting the checksum at this point there's no need to check the 
 	   return value */
-	( void ) checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo, 
-								  TRUE );
+	( void ) checksumContextData( pkcInfo, TRUE );
 
 	/* Make sure that the generated values are valid */
 	status = checkRSAPublicKeyComponents( pkcInfo, TRUE );
@@ -923,8 +922,7 @@ int generateRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Make sure that what we generated is still valid */
 	if( cryptStatusError( \
-			checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo, 
-								 TRUE ) ) )
+			checksumContextData( pkcInfo, TRUE ) ) )
 		{
 		DEBUG_DIAG(( "Generated RSA key memory corruption detected" ));
 		return( CRYPT_ERROR_FAILED );
@@ -1001,7 +999,7 @@ int initCheckRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 		   appears to be because the bignum values are read by the calling 
 		   code from their stored form a second time and compared to the 
 		   values that we're checksumming here */
-		( void ) checksumContextData( pkcInfo, CRYPT_ALGO_RSA, FALSE );
+		( void ) checksumContextData( pkcInfo, FALSE );
 
 		ENSURES( sanityCheckPKCInfo( pkcInfo ) );
 
@@ -1076,7 +1074,7 @@ int initCheckRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	   to be because the bignum values are read by the calling code from 
 	   their stored form a second time and compared to the values that we're 
 	   checksumming here */
-	( void ) checksumContextData( pkcInfo, CRYPT_ALGO_RSA, TRUE );
+	( void ) checksumContextData( pkcInfo, TRUE );
 
 	ENSURES( sanityCheckPKCInfo( pkcInfo ) );
 

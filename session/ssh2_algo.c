@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib SSHv2 Algorithm Information Processing				*
-*						Copyright Peter Gutmann 1998-2024					*
+*						Copyright Peter Gutmann 1998-2026					*
 *																			*
 ****************************************************************************/
 
@@ -19,14 +19,20 @@
 
 #ifdef USE_SSH
 
-/* Tables mapping SSHv2 algorithm names to cryptlib algorithm IDs, in 
-   preferred algorithm order. 
+/* Flags for information sent as signalling algorithms */
 
-   ECC support by SSH implementations, some of which can be quite old, is 
-   rather hit-and-miss.  If we were to advertise ECC only (which we never 
-   do), some servers will respond with RSA/DSA keys (even though they're 
-   not specified as being supported), and others will respond with an empty 
-   host key.
+#define SSH_EFLAG_NONE			0x00	/* No information */
+#define SSH_EFLAG_EXT_INFO		0x01	/* Use SSH_MSG_EXT_INFO */
+#define SSH_EFLAG_STRICT_KEX	0x02	/* Use strict keyex */
+
+/* Tables mapping SSHv2 algorithm names to cryptlib algorithm IDs in 
+   preferred-algorithm order. 
+
+   ECC support by SSH implementations, some of which can be quite old and
+   persist forever in SCADA and similar, is rather hit-and-miss.  If we were 
+   to advertise ECC only (which we never do), some servers will respond with 
+   RSA/DSA keys (even though they're not specified as being supported), and 
+   others will respond with an empty host key.
    
    In addition the algorithms aren't just algorithm values but a combination 
    of the algorithm, the key size, and the hash algorithm, with 
@@ -47,7 +53,14 @@
    "diffie-hellman-group14-sha256" and "diffie-hellman-group14-sha1".  
    We distinguish between DH + SHA1/SHA256 and DH + SHA1/SHA256 via the
    addition of an algorithm parameter, which contains the DH key size for 
-   the selected fixed group.  
+   the selected fixed group.
+   
+   Since it's possible to specify the same DH algorithm in two different 
+   ways, either by negotiation via "diffie-hellman-group-exchange-xxx" or as 
+   a fixed value via "diffie-hellman-groupxx-yyy", we have both of them in 
+   the algorithm table, with the fixed algorithm IDs following the
+   negotiated ones at an offset of +2.  Before changing these entries see 
+   the code in writeAlgoStringEx() which relies on this placement.
    
    We don't support the 1024-bit DH group even though it's mandatory because
    it's too obvious a target for an offline attack and (more annoyingly)
@@ -76,16 +89,16 @@
 		Job well done / Good result"
 			- "Wellington Paranormal".
 
-   Specifically, with "kex-strict-c-v00@openssh.com" (client) and
-   "kex-strict-s-v00@openssh.com" (server) exchanged in the SSH2_MSG_KEXINIT 
-   we have to (1) retroactively check whether there were any messages before 
-   the KEXINIT, (2) check whether any optional messages are added during the 
-   keyex, not just the obvious SSH2_MSG_DEBUG and SSH2_MSG_IGNORE but 
-   anything not relevant to the crypto exchange, and since there are 
-   multiple different paths through the negotiation possible that no message 
-   not strictly part of the appropriate flow is present, and (3) that we 
-   keep these checks up until both sides have successfully exchanged their 
-   SSH2_MSG_NEWKEYS.
+   Specifically, with "kex-strict-c-v00@openssh.com" or "kex-strict-c" 
+   (client) and "kex-strict-s-v00@openssh.com" or "kex-strict-s" (server) 
+   exchanged in the SSH2_MSG_KEXINIT we have to (1) retroactively check 
+   whether there were any messages before the KEXINIT, (2) check whether any 
+   optional messages are added during the keyex, not just the obvious 
+   SSH2_MSG_DEBUG and SSH2_MSG_IGNORE but anything not relevant to the 
+   crypto exchange, and since there are multiple different paths through the 
+   negotiation possible that no message not strictly part of the appropriate 
+   flow is present, and (3) that we keep these checks up until both sides 
+   have successfully exchanged their SSH2_MSG_NEWKEYS.
 
    We actually do a lot of this already since we implement the handshake as 
    a ladder diagram rather than a state machine and so enforce flow-dependent
@@ -94,13 +107,19 @@
    State Learning", Fabian Bäumer, Marcel Maehren, Marcus Brinkmann and Jörg 
    Schwenk) and since we're not vulnerable in the first place there doesn't 
    seem much point to adding a vulnerable mechanism and then having to try 
-   and patch around the vulnerability that we've just added */
-
+   and patch around the vulnerability that we've just added,
+   
+   We do however implement strict KEX not because we're vulnerable to the 
+   things that it counters but from a combination of it being good hygiene 
+   and because, as with 1024-bit groups, it means that we won't get pinged 
+   by vulnerability scanners for not defending against something that we're 
+   not vulnerable to in the first place */
+   
 static const ALGO_STRING_INFO algoStringKeyexTbl[] = {
 #ifdef PREFER_ECC
-  #ifdef USE_25519 
+  #ifdef USE_X25519 
 	{ "curve25519-sha256", 17, CRYPT_ALGO_25519, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
-  #endif /* USE_25519 */
+  #endif /* USE_X25519 */
   #ifdef USE_ECDH 
 	{ "ecdh-sha2-nistp256", 18, CRYPT_ALGO_ECDH, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
   #endif /* USE_ECDH */
@@ -110,9 +129,9 @@ static const ALGO_STRING_INFO algoStringKeyexTbl[] = {
 	{ "diffie-hellman-group14-sha256", 29, CRYPT_ALGO_DH, CRYPT_ALGO_SHA2, bitsToBytes( 2048 ) },
 	{ "diffie-hellman-group14-sha1", 27, CRYPT_ALGO_DH, CRYPT_ALGO_SHA1, bitsToBytes( 2048 ) },
 #ifndef PREFER_ECC 
-  #ifdef USE_25519 
+  #ifdef USE_X25519 
 	{ "curve25519-sha256", 17, CRYPT_ALGO_25519, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
-  #endif /* USE_25519 */
+  #endif /* USE_X25519 */
   #ifdef USE_ECDH 
 	{ "ecdh-sha2-nistp256", 18, CRYPT_ALGO_ECDH, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
   #endif /* USE_ECDH */
@@ -185,6 +204,19 @@ static const ALGO_STRING_INFO algoStringCoprTbl[] = {
 	{ NULL, 0, CRYPT_ALGO_NONE }, { NULL, 0, CRYPT_ALGO_NONE }
 	};
 
+static const ALGO_STRING_INFO algoStringSignalAlgoCTbl[] = {
+	{ "ext-info-c", 10, CRYPT_ALGO_NONE, 0, SSH_EFLAG_EXT_INFO },
+	{ "kex-strict-c", 12, CRYPT_ALGO_NONE, 0, SSH_EFLAG_STRICT_KEX },
+	{ "kex-strict-c-v00@openssh.com", 28, CRYPT_ALGO_NONE, 0, SSH_EFLAG_STRICT_KEX },
+	{ NULL, 0, CRYPT_ALGO_NONE }, { NULL, 0, CRYPT_ALGO_NONE }
+	};
+static const ALGO_STRING_INFO algoStringSignalAlgoSTbl[] = {
+	{ "ext-info-s", 10, CRYPT_ALGO_NONE, 0, SSH_EFLAG_EXT_INFO },
+	{ "kex-strict-s", 12, CRYPT_ALGO_NONE, 0, SSH_EFLAG_STRICT_KEX },
+	{ "kex-strict-s-v00@openssh.com", 28, CRYPT_ALGO_NONE, 0, SSH_EFLAG_STRICT_KEX },
+	{ NULL, 0, CRYPT_ALGO_NONE }, { NULL, 0, CRYPT_ALGO_NONE }
+	};
+
 /* A grand unified version of the above, used to write algorithm names */
 
 static const ALGO_STRING_INFO algoStringMapTbl[] = {
@@ -193,9 +225,9 @@ static const ALGO_STRING_INFO algoStringMapTbl[] = {
 	{ "diffie-hellman-group-exchange-sha1", 34, CRYPT_ALGO_DH, CRYPT_ALGO_SHA1 },
 	{ "diffie-hellman-group14-sha256", 29, CRYPT_ALGO_DH, CRYPT_ALGO_SHA2, bitsToBytes( 2048 ) },
 	{ "diffie-hellman-group14-sha1", 27, CRYPT_ALGO_DH, CRYPT_ALGO_SHA1, bitsToBytes( 2048 ) },
-#ifdef USE_25519 
+#ifdef USE_X25519 
 	{ "curve25519-sha256", 17, CRYPT_ALGO_25519, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
-#endif /* USE_25519 */
+#endif /* USE_X25519 */
 #ifdef USE_ECDH
 	{ "ecdh-sha2-nistp256", 18, CRYPT_ALGO_ECDH, CRYPT_ALGO_SHA2, bitsToBytes( 256 ) },
 #endif /* USE_ECDH */
@@ -243,6 +275,60 @@ static const ALGO_STRING_INFO algoStringMapTbl[] = {
 *																			*
 ****************************************************************************/
 
+/* Check for the presence of special-case signalling algorithms.  These are 
+   annoying because they're different depending on whether we're the client 
+   or the server so we have to consult different lookup tables depending on 
+   what we're expecting */
+			
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+static int checkSignalAlgo( IN_BUFFER( nameLength ) const void *name,
+							IN_LENGTH_SHORT const int nameLength,
+							OUT_FLAGS_Z( SSH ) int *flags,
+							IN_BOOL const BOOLEAN isServer )
+	{
+	const ALGO_STRING_INFO *signalAlgoTbl = isServer ? \
+					algoStringSignalAlgoSTbl : algoStringSignalAlgoCTbl;
+	const int signalAlgoTblSize = isServer ? \
+					FAILSAFE_ARRAYSIZE( algoStringSignalAlgoSTbl, \
+										ALGO_STRING_INFO ) : \
+					FAILSAFE_ARRAYSIZE( algoStringSignalAlgoCTbl, \
+										ALGO_STRING_INFO );
+	LOOP_INDEX signalAlgoIndex;
+
+	assert( isReadPtrDynamic( name, nameLength ) );
+	assert( isWritePtr( flags, sizeof( int ) ) );
+	
+	REQUIRES( isBooleanValue( isServer ) );
+				
+	/* Clear return value */
+	*flags = SSH_PFLAG_NONE;
+
+	LOOP_SMALL( signalAlgoIndex = 0, 
+				signalAlgoIndex < signalAlgoTblSize && \
+					signalAlgoTbl[ signalAlgoIndex ].name != NULL,
+				signalAlgoIndex++ )
+		{
+		const ALGO_STRING_INFO *signalAlgoInfoPtr;
+
+		ENSURES( LOOP_INVARIANT_SMALL( signalAlgoIndex, 0, 
+									   signalAlgoTblSize - 1 ) );
+
+		signalAlgoInfoPtr = &signalAlgoTbl[ signalAlgoIndex ];
+		if( signalAlgoInfoPtr->nameLen == nameLength && \
+			!memcmp( signalAlgoInfoPtr->name, name, nameLength ) )
+			{
+			*flags = signalAlgoInfoPtr->parameter;
+
+			/* Let the caller know that we've found a match */
+			return( OK_SPECIAL );
+			}
+		}
+	ENSURES( LOOP_BOUND_OK );
+	ENSURES( signalAlgoIndex < signalAlgoTblSize );
+	
+	return( CRYPT_OK );
+	}
+
 /* Convert an SSH algorithm list to a cryptlib ID in preferred-algorithm 
    order.  For some bizarre reason the algorithm information is communicated 
    as a comma-delimited list stuffed inside what's otherwise a binary 
@@ -285,6 +371,13 @@ typedef enum {
 	GETALGO_LAST			/* Last possible match action */
 	} GETALGO_TYPE;
 
+typedef enum {
+	SIGNAL_ALGO_NONE,		/* No signalling algorithm type */
+	SIGNAL_ALGO_CLIENT,		/* Client signalling algorithm */
+	SIGNAL_ALGO_SERVER,		/* Server signalling algorithm */
+	SIGNAL_ALGO_LAST		/* Last possible signalling algorithm type */
+	} SIGNAL_ALGO_TYPE;
+
 typedef struct {
 	/* Match information passed in by the caller */
 	ARRAY_FIXED( noAlgoInfoEntries ) \
@@ -292,15 +385,15 @@ typedef struct {
 	int noAlgoInfoEntries;
 	CRYPT_ALGO_TYPE preferredAlgo;	/* Preferred algo for first-match */
 	GETALGO_TYPE getAlgoType;		/* Type of match to perform */
+	SIGNAL_ALGO_TYPE signalAlgoType;/* Whether to allow signalling algos */
 	BOOLEAN allowECC;				/* Whether to allow ECC algos */
-	BOOLEAN allowExtIndicator;		/* Whether to allow extension indicator */
 
 	/* Information returned by the read-algorithm function */
 	CRYPT_ALGO_TYPE algo;			/* Matched algorithm */
 	CRYPT_ALGO_TYPE subAlgo;		/* Sub-algorithm (e.g. hash for keyex) */
 	int parameter;					/* Optional algorithm parameter */
 	BOOLEAN prefAlgoMismatch;		/* First match != preferredAlgo */
-	BOOLEAN extensionIndicator;		/* Whether extension indicator was found */
+	SAFE_FLAGS extFlags;			/* Extension indicators found */
 	} ALGOSTRING_INFO;
 
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
@@ -310,7 +403,7 @@ typedef struct {
 #endif /* USE_ECDH || USE_ECDSA */
 
 #define MAX_NO_SUBSTRINGS		32	/* Max.no of algorithm substrings */
-#define MAX_SUBSTRING_SIZE		128	/* Max.size of each substring */
+#define MAX_SUBSTRING_SIZE		80	/* Max.size of each substring */
 
 #define setAlgoStringInfo( algoStringInfo, algoStrInfo, algoStrInfoEntries, getType ) \
 	{ \
@@ -320,7 +413,8 @@ typedef struct {
 	( algoStringInfo )->preferredAlgo = CRYPT_ALGO_NONE; \
 	( algoStringInfo )->getAlgoType = ( getType ); \
 	( algoStringInfo )->allowECC = ALLOW_ECC; \
-	( algoStringInfo )->allowExtIndicator = FALSE; \
+	( algoStringInfo )->signalAlgoType = SIGNAL_ALGO_NONE; \
+	INIT_FLAGS( ( algoStringInfo )->extFlags, 0 ); \
 	}
 #define setAlgoStringInfoEx( algoStringInfo, algoStrInfo, algoStrInfoEntries, prefAlgo, getType ) \
 	{ \
@@ -330,7 +424,8 @@ typedef struct {
 	( algoStringInfo )->preferredAlgo = ( prefAlgo ); \
 	( algoStringInfo )->getAlgoType = ( getType ); \
 	( algoStringInfo )->allowECC = ALLOW_ECC; \
-	( algoStringInfo )->allowExtIndicator = FALSE; \
+	( algoStringInfo )->signalAlgoType = SIGNAL_ALGO_NONE; \
+	INIT_FLAGS( ( algoStringInfo )->extFlags, 0 ); \
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
@@ -356,14 +451,16 @@ static int readAlgoStringEx( INOUT_PTR STREAM *stream,
 				algoStringInfo->preferredAlgo == CRYPT_ALGO_NONE ) || \
 			  ( algoStringInfo->getAlgoType == GETALGO_FIRST_MATCH ) ||
 			  ( algoStringInfo->getAlgoType == GETALGO_FIRST_MATCH_WARN && \
-				isEnumRangeExternal( algoStringInfo->preferredAlgo, CRYPT_ALGO ) ) );
+				isEnumRangeExternal( algoStringInfo->preferredAlgo, \
+									 CRYPT_ALGO ) ) );
 			  /* FIRST_MATCH uses CRYPT_ALGO_NONE on the first match of an
 				 algorithm pair and the first algorithm chosen on the second
 				 match */
-	REQUIRES( algoStringInfo->noAlgoInfoEntries > 0 && \
-			  algoStringInfo->noAlgoInfoEntries < 20 );
+	REQUIRES( algoStringInfo->noAlgoInfoEntries >= 1 && \
+			  algoStringInfo->noAlgoInfoEntries <= 16 );
+	REQUIRES( isEnumRangeOpt( algoStringInfo->signalAlgoType, 
+							  SIGNAL_ALGO ) );
 	REQUIRES( isBooleanValue( algoStringInfo->allowECC ) );
-	REQUIRES( isBooleanValue( algoStringInfo->allowExtIndicator ) );
 
 	/* Get the string length and data and make sure that it's valid */
 	status = stringLen = readUint32( stream );
@@ -387,8 +484,10 @@ static int readAlgoStringEx( INOUT_PTR STREAM *stream,
 	ANALYSER_HINT( string != NULL );
 
 	/* Walk down the string looking for a recognised algorithm.  Since our
-	   preference may not match the other side's preferences we have to walk
-	   down the entire list to find our preferred choice:
+	   preference may not match the other side's preferences, and because in
+	   some cases we have to check for the presence of signalling algorithms
+	   which can be present anywhere in the list but are usually at the end,
+	   we have to walk down the entire list to find our preferred choice:
 
 		  stringPos			stringLen
 			   |			   |
@@ -417,6 +516,11 @@ static int readAlgoStringEx( INOUT_PTR STREAM *stream,
 		ENSURES( LOOP_INVARIANT_SECONDARY( stringPos, 0, 
 										   stringLen - SSH2_MIN_ALGOID_SIZE ) );
 
+		REQUIRES( isShortIntegerRange( stringPos ) );
+		REQUIRES( !checkOverflowSub( stringLen, SSH2_MIN_ALGOID_SIZE ) );
+		REQUIRES( !checkOverflowSub( stringLen, stringPos ) );
+		ENSURES( isShortIntegerRangeNZ( substringMaxLen ) );
+
 		/* Find the length of the next algorithm name */
 		LOOP_LARGE_ALT( substringLen = 0,
 						substringLen < MAX_SUBSTRING_SIZE && \
@@ -428,49 +532,52 @@ static int readAlgoStringEx( INOUT_PTR STREAM *stream,
 											   MAX_SUBSTRING_SIZE - 1 ) );
 			}
 		ENSURES( LOOP_BOUND_OK_ALT );
-		if( substringLen >= MAX_SUBSTRING_SIZE )
+		if( substringLen < SSH2_MIN_ALGOID_SIZE || \
+			substringLen >= MAX_SUBSTRING_SIZE )
 			{
 			retExt( CRYPT_ERROR_OVERFLOW,
 					( CRYPT_ERROR_OVERFLOW, errorInfo, 
-					  "Excessively long (more than %d characters) SSH "
-					  "algorithm string encountered", substringLen ) );
+					  "Invalid (%d characters) SSH algorithm string "
+					  "encountered", substringLen ) );
 			}
-		if( substringLen < SSH2_MIN_ALGOID_SIZE || \
-			substringLen > CRYPT_MAX_TEXTSIZE )
+		if( substringLen > CRYPT_MAX_TEXTSIZE )
 			{
-			/* Empty or too-short algorithm name (or excessively long one), 
-			   continue.  Note that even with an (invalid) zero-length 
-			   substring we'll still progress down the string since the loop
-			   increment is the substring length plus one */
+			/* Excessively long algorithm name, continue.  Note that this is 
+			   still a (potentially) valid name, it's just longer than any
+			   that we know about so not worth checking further */
 			continue;
 			}
+		ENSURES( stringPos + substringLen <= stringLen );
 
-		/* Check for the presence of the special-case extension-info 
-		   indicator if required.  At the moment we only respond to a 
-		   client-side extension indicator so we don't need to distinguish 
-		   between which type we look for */
-#ifdef USE_SSH_EXTENDED
-		if( algoStringInfo->allowExtIndicator )
+		/* Check for the presence of special-case signalling algorithms
+		   if required.  These are annoying because they're different
+		   depending on whether we're the client or the server so we have
+		   to consult different lookup tables depending on what we're
+		   expecting */
+		if( algoStringInfo->signalAlgoType != SIGNAL_ALGO_NONE )
 			{
-			if( substringLen == 10 && \
-				!memcmp( substringPtr, "ext-info-c", 10 ) )
+			int signalFlags;
+			
+			status = checkSignalAlgo( substringPtr, substringLen,
+									  &signalFlags, 
+									  ( algoStringInfo->signalAlgoType == \
+													SIGNAL_ALGO_SERVER ) ? \
+										TRUE : FALSE );
+			if( status == OK_SPECIAL )
 				{
-				algoStringInfo->extensionIndicator = TRUE;
-
-				/* If we've already found matching algorithm information, 
-				   we're done */
-				if( foundMatch )
-					break;
-
+				/* If we get an OK_SPECIAL status then we've found a match 
+				   and can continue on to the next entry */
+				SET_FLAGS( algoStringInfo->extFlags, signalFlags );
 				continue;
 				}
+			if( cryptStatusError( status ) )
+				return( status );
 
-			/* If we've already found a match then all that we're looking 
-			   for is the extension information indicator */
+			/* If we've already found an algorithm match earlier then all that 
+			   we're looking for at this point is further signalling algorithms */
 			if( foundMatch )
 				continue;
 			}
-#endif /* USE_SSH_EXTENDED */
 
 		/* Check whether it's something that we can handle */
 		LOOP_MED_ALT( currentAlgoIndex = 0, 
@@ -497,17 +604,17 @@ static int readAlgoStringEx( INOUT_PTR STREAM *stream,
 			{
 			/* Unrecognised algorithm name, remember to warn the caller if 
 			   we have to match the first algorithm on the list, then move 
-			   on to the next name */
+			   on to the next one */
 			if( algoStringInfo->getAlgoType == GETALGO_FIRST_MATCH_WARN )
 				algoStringInfo->prefAlgoMismatch = TRUE;
 			continue;
 			}
 		DEBUG_PRINT(( "Offered suite: %s.\n", matchedAlgoInfo->name ));
 
-		/* If it's an actual algorithm (rather than an authenticaiton 
-		   mechanism name, for which there's no algorithm type), make sure 
-		   that the required algorithms and optional sub-algorithms are 
-		   available */
+		/* If it's an actual algorithm (rather than an authentication 
+		   mechanism name, coming from session/ssh2_authcli.c, for which 
+		   there's no algorithm type), make sure that the required 
+		   algorithms and optional sub-algorithms are available */
 		if( matchedAlgoInfo->algo != CRYPT_ALGO_NONE )
 			{
 			if( !algoAvailable( matchedAlgoInfo->algo ) )
@@ -524,8 +631,8 @@ static int readAlgoStringEx( INOUT_PTR STREAM *stream,
 
 		/* If this is an ECC algorithm and the use of ECC algorithms has 
 		   been prevented by external conditions such as the server key
-		   not being an ECC key, we can't use it even if ECC algorithms in
-		   general are available */
+		   not being an ECC key then we can't use it even if ECC algorithms 
+		   in general are available */
 		if( algoMatched && !algoStringInfo->allowECC && \
 			isEccAlgo( matchedAlgoInfo->algo ) )
 			algoMatched = FALSE;
@@ -588,10 +695,11 @@ static int readAlgoStringEx( INOUT_PTR STREAM *stream,
 				retIntError();
 			}
 
-		/* If we've found a match, we're done unless we're looking for an 
-		   extension-info indicator, in which case we have to parse the 
-		   entire string */
-		if( foundMatch && !algoStringInfo->allowExtIndicator )
+		/* If we've found a match, we're done unless we're looking for  
+		   signalling algorithms, in which case we have to parse the entire 
+		   string */
+		if( foundMatch && \
+			algoStringInfo->signalAlgoType == SIGNAL_ALGO_NONE )
 			break;	
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -604,22 +712,13 @@ static int readAlgoStringEx( INOUT_PTR STREAM *stream,
 		}
 	if( algoIndex > 50 )	/* Initialisated to 999 at start */
 		{
-		char algoString[ 256 + 8 ];
-		const int algoStringLen = min( stringLen, \
-									   min( MAX_ERRMSG_SIZE - 80, 256 ) );
-
-		REQUIRES( algoStringLen > 0 && \
-				  algoStringLen <= min( MAX_ERRMSG_SIZE - 80, 256 ) );
-
 		/* We couldn't find anything to use, tell the caller what was
 		   available */
-		REQUIRES( rangeCheck( algoStringLen, 1, 256 ) );
-		memcpy( algoString, string, algoStringLen );
-		retExt( CRYPT_ERROR_NOTAVAIL,
-				( CRYPT_ERROR_NOTAVAIL, errorInfo, 
-				  "No algorithm compatible with the remote system's "
-				  "selection was found: '%s'", 
-				  sanitiseString( algoString, 256, stringLen ) ) );
+		retExtSan( CRYPT_ERROR_NOTAVAIL,
+				   ( CRYPT_ERROR_NOTAVAIL, errorInfo, 
+					 "No algorithm compatible with the remote system's "
+					 "selection was found: '%s'", 
+					 string, stringLen, NULL, 0, NULL, 0 ) );
 		}
 
 	/* We found a more-preferred algorithm than the default, go with that */
@@ -649,7 +748,7 @@ int readAlgoString( INOUT_PTR STREAM *stream,
 								 noAlgoStringEntries ) );
 	assert( isWritePtr( algoParam, sizeof( int ) ) );
 
-	REQUIRES( noAlgoStringEntries > 0 && noAlgoStringEntries <= 100 );
+	REQUIRES( noAlgoStringEntries >= 1 && noAlgoStringEntries <= 16 );
 	REQUIRES( isBooleanValue( useFirstMatch ) );
 
 	/* Clear return value */
@@ -703,7 +802,7 @@ static int readAlgoStringPair( INOUT_PTR STREAM *stream,
 								 noAlgoStringEntries ) );
 	assert( isWritePtr( algo, sizeof( CRYPT_ALGO_TYPE ) ) );
 
-	REQUIRES( noAlgoStringEntries > 0 && noAlgoStringEntries <= 100 );
+	REQUIRES( noAlgoStringEntries >= 1 && noAlgoStringEntries <= 16 );
 	REQUIRES( isBooleanValue( isServer ) );
 	REQUIRES( isBooleanValue( allowAsymmetricAlgos ) );
 
@@ -759,28 +858,31 @@ int writeAlgoStringEx( INOUT_PTR STREAM *stream,
 					   IN_ALGO const CRYPT_ALGO_TYPE algo,
 					   IN_INT_SHORT_Z const int subAlgo,
 					   IN_INT_SHORT_OPT const int parameter,
-					   IN_ENUM_OPT( SSH_ALGOSTRINGINFO ) \
-							const SSH_ALGOSTRINGINFO_TYPE algoStringInfo )
+					   IN_BOOL const BOOLEAN useAltDH,
+					   IN_FLAGS_Z( SSH ) const int algoStringFlags )
 	{
 	LOOP_INDEX algoIndex;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
 	REQUIRES( isEnumRangeExternal( algo, CRYPT_ALGO ) );
-	REQUIRES( isEnumRangeExternalOpt( subAlgo, CRYPT_ALGO ) || \
-			  isEnumRange( subAlgo, CRYPT_MODE ) );
+	REQUIRES( ( isPkcAlgo( algo ) && isHashAlgo( subAlgo ) ) || \
+			  ( isConvAlgo( algo ) && \
+			    isEnumRange( subAlgo, CRYPT_MODE ) ) || \
+			  ( isMacAlgo( algo ) && subAlgo == 0 ) );
 	REQUIRES( ( isConvAlgo( algo ) && isShortIntegerRange( parameter ) ) || \
 			  ( isMacAlgo( algo ) && \
 				( ( parameter == TRUE ) || ( parameter == FALSE ) ) ) || \
 			  ( parameter == CRYPT_UNUSED ) );
-	REQUIRES( isEnumRangeOpt( algoStringInfo, SSH_ALGOSTRINGINFO ) );
+	REQUIRES( isBooleanValue( useAltDH ) );
+	REQUIRES( isFlagRangeZ( algoStringFlags, SSH ) );
 
 	/* Locate the name for this algorithm and optional sub-algoritihm and 
 	   encode it as an SSH string */
 	LOOP_MED( algoIndex = 0, 
 			  algoIndex < FAILSAFE_ARRAYSIZE( algoStringMapTbl, \
 											  ALGO_STRING_INFO ) && \
-					algoStringMapTbl[ algoIndex ].algo != CRYPT_ALGO_NONE && \
+					algoStringMapTbl[ algoIndex ].name != NULL && \
 					algoStringMapTbl[ algoIndex ].algo != algo,
 			  algoIndex++ )
 		{
@@ -797,9 +899,10 @@ int writeAlgoStringEx( INOUT_PTR STREAM *stream,
 	   schizophrenically-specified keyex algorithms) then we may need to 
 	   write the name from the second group rather than the first.  The
 	   handling of this is somewhat ugly since it hardcodes knowledge of the
-	   algorithm table, but there's no generalised way to do this without
-	   adding a pile of extra complexity */
-	if( algoStringInfo == SSH_ALGOSTRINGINFO_EXTINFO_ALTDHALGOS )
+	   algorithm table, specifically that the alternative DH algorithms are
+	   located two values further down than the main ones, but there's no 
+	   generalised way to do this without adding a pile of extra complexity */
+	if( useAltDH )
 		{
 		REQUIRES( algoIndex + 2 < FAILSAFE_ARRAYSIZE( algoStringMapTbl, \
 													  ALGO_STRING_INFO ) );
@@ -815,7 +918,7 @@ int writeAlgoStringEx( INOUT_PTR STREAM *stream,
 		{
 		LOOP_MED_CHECKINC( algoIndex < FAILSAFE_ARRAYSIZE( algoStringMapTbl, \
 														   ALGO_STRING_INFO ) && \
-								algoStringMapTbl[ algoIndex ].algo != CRYPT_ALGO_NONE && \
+								algoStringMapTbl[ algoIndex ].name != NULL && \
 								algoStringMapTbl[ algoIndex ].algo == algo && \
 								algoStringMapTbl[ algoIndex ].subAlgo != subAlgo,
 						   algoIndex++ )
@@ -834,7 +937,7 @@ int writeAlgoStringEx( INOUT_PTR STREAM *stream,
 		{
 		LOOP_MED_CHECKINC( algoIndex < FAILSAFE_ARRAYSIZE( algoStringMapTbl, \
 														   ALGO_STRING_INFO ) && \
-								algoStringMapTbl[ algoIndex ].algo != CRYPT_ALGO_NONE && \
+								algoStringMapTbl[ algoIndex ].name != NULL && \
 								algoStringMapTbl[ algoIndex ].algo == algo && \
 								algoStringMapTbl[ algoIndex ].parameter != parameter,
 						   algoIndex++ )
@@ -850,19 +953,18 @@ int writeAlgoStringEx( INOUT_PTR STREAM *stream,
 				 algoStringMapTbl[ algoIndex ].parameter == parameter );
 		}
 
-	/* If we're writing an extension negotiation indicator then we need to 
-	   append it to the algorithm ID.  This is always a client-side indicator
-	   since we don't implement server-side extensions yet */
-#ifdef USE_SSH_EXTENDED
-	if( algoStringInfo == SSH_ALGOSTRINGINFO_EXTINFO || \
-		algoStringInfo == SSH_ALGOSTRINGINFO_EXTINFO_ALTDHALGOS )
+	/* If we're writing signalling algorithm indicators then we need to 
+	   append them to the algorithm ID.  These are always client-side 
+	   algorithms since the server-side is written through 
+	   writeAlgoClassList() */
+	if( algoStringFlags & SSH_PFLAG_STRICT_KEX )
 		{
-		writeUint32( stream, algoStringMapTbl[ algoIndex ].nameLen + 11 );
+		writeUint32( stream, algoStringMapTbl[ algoIndex ].nameLen + 42 );
 		swrite( stream, algoStringMapTbl[ algoIndex ].name, 
 				algoStringMapTbl[ algoIndex ].nameLen );
-		return( swrite( stream, ",ext-info-c", 11 ) );
+		return( swrite( stream, 
+						",kex-strict-c,kex-strict-c-v00@openssh.com", 42 ) );
 		}
-#endif /* USE_SSH_EXTENDED */
 
 	return( writeString32( stream, algoStringMapTbl[ algoIndex ].name, 
 						   algoStringMapTbl[ algoIndex ].nameLen ) );
@@ -870,46 +972,61 @@ int writeAlgoStringEx( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeAlgoString( INOUT_PTR STREAM *stream, 
-					 IN_ALGO const CRYPT_ALGO_TYPE algo )
+					 IN_ALGO const CRYPT_ALGO_TYPE algo,
+					 IN_INT_SHORT_Z const int subAlgo,
+					 IN_INT_SHORT_OPT const int parameter )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
 	REQUIRES( isEnumRangeExternal( algo, CRYPT_ALGO ) );
+	REQUIRES( ( isPkcAlgo( algo ) && isHashAlgo( subAlgo ) ) || \
+			  ( isConvAlgo( algo ) && \
+			    isEnumRange( subAlgo, CRYPT_MODE ) ) || \
+			  ( isMacAlgo( algo ) && subAlgo == 0 ) );
+	REQUIRES( ( isConvAlgo( algo ) && isShortIntegerRange( parameter ) ) || \
+			  ( isMacAlgo( algo ) && \
+				( ( parameter == TRUE ) || ( parameter == FALSE ) ) ) || \
+			  ( parameter == CRYPT_UNUSED ) );
 
-	return( writeAlgoStringEx( stream, algo, CRYPT_ALGO_NONE, 
-							   CRYPT_UNUSED, SSH_ALGOSTRINGINFO_NONE ) );
+	return( writeAlgoStringEx( stream, algo, subAlgo, parameter, 
+							   FALSE, SSH_PFLAG_NONE ) );
 	}
 
 /* Write a list of algorithms */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int writeAlgoList( INOUT_PTR STREAM *stream, 
-				   IN_ARRAY( noAlgoStringInfoEntries ) \
-						const ALGO_STRING_INFO *algoStringInfoTbl,
-				   IN_RANGE( 1, 10 ) const int noAlgoStringInfoEntries )
+static int writeAlgoListEx( INOUT_PTR STREAM *stream, 
+							IN_ARRAY( noAlgoStringInfoEntries ) \
+								const ALGO_STRING_INFO *algoStringInfoTbl,
+							IN_RANGE( 1, 10 ) \
+								const int noAlgoStringInfoEntries,
+							IN_ENUM_OPT( SIGNAL_ALGO ) \
+								const SIGNAL_ALGO_TYPE signalAlgoType )
 	{
-	int availAlgoIndex[ 16 + 8 ];
+	int availAlgoIndex[ 16 + 8 ], signalAlgoIndex[ 8 + 8 ];
 	LOOP_INDEX algoIndex;
-	int noAlgos = 0, length = 0, status;
+	int noAlgos = 0, noSignalAlgos = 0, length = 0, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( algoStringInfoTbl, sizeof( ALGO_STRING_INFO ) * \
 										  noAlgoStringInfoEntries ) );
 
-	REQUIRES( noAlgoStringInfoEntries > 0 && noAlgoStringInfoEntries <= 10 );
+	REQUIRES( noAlgoStringInfoEntries >= 1 && noAlgoStringInfoEntries <= 16 );
+	REQUIRES( isEnumRangeOpt( signalAlgoType, SIGNAL_ALGO ) );
 
 	/* Walk down the list of algorithms remembering the encoded name of each
 	   one that's available for use */
 	LOOP_SMALL( algoIndex = 0,
 				algoIndex < noAlgoStringInfoEntries && \
-					algoStringInfoTbl[ algoIndex ].algo != CRYPT_ALGO_NONE,
+					algoStringInfoTbl[ algoIndex ].name != NULL,
 				algoIndex++ )
 		{
-		const ALGO_STRING_INFO *algoStringInfo = \
-									&algoStringInfoTbl[ algoIndex ];
+		const ALGO_STRING_INFO *algoStringInfo;
 
 		ENSURES( LOOP_INVARIANT_SMALL( algoIndex, 0, 
 									   noAlgoStringInfoEntries - 1 ) );
+
+		algoStringInfo = &algoStringInfoTbl[ algoIndex ];
 
 		/* Make sure that this algorithm is available for use */
 		if( !algoAvailable( algoStringInfo->algo ) )
@@ -923,14 +1040,47 @@ int writeAlgoList( INOUT_PTR STREAM *stream,
 		/* Remember the algorithm details */
 		REQUIRES( noAlgos >= 0 && noAlgos < 16 );
 		availAlgoIndex[ noAlgos++ ] = algoIndex;
+		REQUIRES( !checkOverflowAdd( length, algoStringInfo->nameLen ) );
 		length += algoStringInfo->nameLen;
 		if( noAlgos > 1 )
+			{
+			REQUIRES( !checkOverflowInc( length ) );
 			length++;			/* Room for comma delimiter */
+			}
 		}
 	ENSURES( LOOP_BOUND_OK );
 
 	/* Make sure that we'll be writing at least one algorithm */
 	ENSURES( boundsCheck( noAlgos, 1, 15 ) );
+
+	/* If we're using signalling algorithms, add those as well.  These are 
+	   always server-side algorithms since the client-side is written through
+	   writeAlgoString() */
+	if( signalAlgoType == SIGNAL_ALGO_SERVER )
+		{
+		LOOP_SMALL( algoIndex = 0, 
+					algoIndex < FAILSAFE_ARRAYSIZE( algoStringSignalAlgoSTbl, \
+													ALGO_STRING_INFO ) && \
+						algoStringSignalAlgoSTbl[ algoIndex ].name != NULL,
+					algoIndex++ )
+			{
+			const ALGO_STRING_INFO *signalAlgoInfo;
+
+			ENSURES( LOOP_INVARIANT_SMALL( algoIndex, 0, 
+										   FAILSAFE_ARRAYSIZE( algoStringSignalAlgoSTbl, \
+															   ALGO_STRING_INFO ) - 1 ) );
+
+			signalAlgoInfo = &algoStringSignalAlgoSTbl[ algoIndex ];
+
+			/* Remember the algorithm details */
+			REQUIRES( noSignalAlgos >= 0 && noSignalAlgos < 8 );
+			signalAlgoIndex[ noSignalAlgos++ ] = algoIndex;
+			REQUIRES( !checkOverflowAdd( length, \
+										 signalAlgoInfo->nameLen + 1 ) );
+			length += signalAlgoInfo->nameLen + 1;
+			}		  /* Room for comma delimiter */
+		}
+	ENSURES( LOOP_BOUND_OK );
 
 	/* Encode the list of available algorithms into a comma-separated string */
 	status = writeUint32( stream, length );
@@ -949,7 +1099,37 @@ int writeAlgoList( INOUT_PTR STREAM *stream,
 						 algoStringInfo->nameLen );
 		}
 	ENSURES( LOOP_BOUND_OK );
+	LOOP_SMALL( algoIndex = 0, 
+				algoIndex < noSignalAlgos && cryptStatusOK( status ),
+				algoIndex++ )
+		{
+		const ALGO_STRING_INFO *signalAlgoInfo;
+
+		ENSURES( LOOP_INVARIANT_SMALL( algoIndex, 0, noSignalAlgos - 1 ) );
+
+		signalAlgoInfo = &algoStringSignalAlgoSTbl[ signalAlgoIndex[ algoIndex ] ];
+		sputc( stream, ',' );
+		status = swrite( stream, signalAlgoInfo->name,
+						 signalAlgoInfo->nameLen );
+		}
+	ENSURES( LOOP_BOUND_OK );
 	return( status );
+	}
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int writeAlgoList( INOUT_PTR STREAM *stream, 
+				   IN_ARRAY( noAlgoStringInfoEntries ) \
+						const ALGO_STRING_INFO *algoStringInfoTbl,
+				   IN_RANGE( 1, 10 ) const int noAlgoStringInfoEntries )
+	{
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isReadPtr( algoStringInfoTbl, sizeof( ALGO_STRING_INFO ) * \
+										  noAlgoStringInfoEntries ) );
+
+	REQUIRES( noAlgoStringInfoEntries > 0 && noAlgoStringInfoEntries <= 10 );
+
+	return( writeAlgoListEx( stream, algoStringInfoTbl, 
+							 noAlgoStringInfoEntries, SIGNAL_ALGO_NONE ) );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -961,18 +1141,24 @@ int writeAlgoClassList( INOUT_PTR STREAM *stream,
 
 	REQUIRES( isEnumRange( algoClass, SSH_ALGOCLASS ) );
 
-	/* Write the appropriate algorithm list for this algorithm class */
+	/* Write the appropriate algorithm list for this algorithm class.  The 
+	   keyex algoriths are only written as a list by the server since the 
+	   client only writes a single algorithm as a response to the server's
+	   selection, so we know that we can send the server-side signalling 
+	   algorithms at this point */
 	switch( algoClass )
 		{
 		case SSH_ALGOCLASS_KEYEX:
-			return( writeAlgoList( stream, algoStringKeyexTbl, 
-								   FAILSAFE_ARRAYSIZE( algoStringKeyexTbl, \
-													   ALGO_STRING_INFO ) ) );
+			return( writeAlgoListEx( stream, algoStringKeyexTbl, 
+									 FAILSAFE_ARRAYSIZE( algoStringKeyexTbl, \
+														 ALGO_STRING_INFO ),
+									 SIGNAL_ALGO_SERVER ) );
 
 		case SSH_ALGOCLASS_KEYEX_NOECC:
-			return( writeAlgoList( stream, algoStringKeyexNoECCTbl,
-								   FAILSAFE_ARRAYSIZE( algoStringKeyexNoECCTbl, \
-													   ALGO_STRING_INFO ) ) );
+			return( writeAlgoListEx( stream, algoStringKeyexNoECCTbl,
+									 FAILSAFE_ARRAYSIZE( algoStringKeyexNoECCTbl, \
+														 ALGO_STRING_INFO ),
+									 SIGNAL_ALGO_SERVER ) );
 
 		case SSH_ALGOCLASS_ENCR:
 			return( writeAlgoList( stream, algoStringEncrTbl, 
@@ -1006,7 +1192,9 @@ int writeAlgoClassList( INOUT_PTR STREAM *stream,
 
 /* Process a client/server hello packet.  This function is placed here 
    because it consists primarily of reading and processing algorithm 
-   information */
+   information, which consitutes not so much a negotiation as a runway on
+   which implementers get to parade their particular fashion statements up
+   and down */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 int processHelloSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
@@ -1065,8 +1253,8 @@ int processHelloSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 
 	/* Read the keyex algorithm information.  Since this is the first 
-	   algorithm list read, we also allow the extension indicator at this 
-	   point */
+	   algorithm list read, we also allow signalling algorithm indicators at 
+	   this point */
 	if( isServer )
 		{
 		setAlgoStringInfoEx( &algoStringInfo, algoStringKeyexTbl, 
@@ -1081,9 +1269,7 @@ int processHelloSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   this is more likely an error than anything deliberate) */
 		if( !isEccAlgo( sessionInfoPtr->privateKeyAlgo ) )
 			algoStringInfo.allowECC = FALSE;
-#ifdef USE_SSH_EXTENDED
-		algoStringInfo.allowExtIndicator = TRUE;
-#endif /* USE_SSH_EXTENDED */
+		algoStringInfo.signalAlgoType = SIGNAL_ALGO_CLIENT;
 		}
 	else
 		{
@@ -1091,6 +1277,7 @@ int processHelloSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   FAILSAFE_ARRAYSIZE( algoStringKeyexTbl, \
 											   ALGO_STRING_INFO ),
 						   GETALGO_BEST_MATCH );
+		algoStringInfo.signalAlgoType = SIGNAL_ALGO_SERVER;
 		}
 	status = readAlgoStringEx( &stream, &algoStringInfo, SESSION_ERRINFO );
 	if( cryptStatusError( status ) )
@@ -1125,14 +1312,24 @@ int processHelloSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( algoStringInfo.algo == CRYPT_ALGO_ECDH || \
 		algoStringInfo.algo == CRYPT_ALGO_25519 )
 		{
-		/* If we're using an ECDH cipher suite then we need to switch to the
+		/* If we're using an ECC cipher suite then we need to switch to the
 		   appropriate hash algorithm for the keyex hashing */
 		handshakeInfo->isECDH = TRUE;
 		handshakeInfo->exchangeHashAlgo = algoStringInfo.subAlgo;
 		}
+	if( TEST_FLAG( algoStringInfo.extFlags, SSH_EFLAG_STRICT_KEX ) )
+		{
+		DEBUG_PRINT(( "Enabling strict KEX as signalled by %s.\n", 
+					  isServer ? "client" : "server" ));
+		SET_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_STRICT_KEX );
+		}
 #ifdef USE_SSH_EXTENDED
-	if( algoStringInfo.extensionIndicator )
+	if( TEST_FLAG( algoStringInfo.extFlags, SSH_EFLAG_EXT_INFO ) )
+		{
+		DEBUG_PRINT(( "Enabling extensions as signalled by %s.\n", 
+					  isServer ? "client" : "server" ));
 		handshakeInfo->sendExtInfo = TRUE;
+		}
 #endif /* USE_SSH_EXTENDED */
 
 	/* Read the pubkey (signature) algorithm information */
@@ -1347,6 +1544,7 @@ int checkReadPublicKey( INOUT_PTR STREAM *stream,
 
 	/* Read the public-key data */
 	streamBookmarkSet( stream, *keyDataStart  );
+	ENSURES( streamBookmarkOK( *keyDataStart ) );
 	switch( algoParam )
 		{
 		case CRYPT_ALGO_RSA:

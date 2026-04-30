@@ -220,6 +220,7 @@ static int decryptFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		return( tpmMapError( tssResult, CRYPT_ERROR_WRITE ) );
 
 	/* Create dummy PKCS #1 padding around the recovered key */
+	REQUIRES( !checkOverflowSub( keySize, fapiDataLength ) );
 	padSize = keySize - fapiDataLength;
 	REQUIRES( isShortIntegerRangeNZ( padSize ) );
 
@@ -242,6 +243,7 @@ static int decryptFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   look for any zeroes in the data and fill them with some other value */
 	buffer[ 0 ] = 0;
 	buffer[ 1 ] = 2;
+	REQUIRES( !checkOverflowSub( padSize, 3 ) );
 	setMessageData( &msgData, buffer + 2, padSize - 3 );
 	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_GETATTRIBUTE_S, 
 							  &msgData, CRYPT_IATTRIBUTE_RANDOM_NONCE );
@@ -334,6 +336,7 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Now we're at the encoded message digest, remove the encoding to get 
 	   to the raw hash value */
+	REQUIRES( !checkOverflowSub( noBytes, i ) );
 	sMemConnect( &stream, buffer + i, noBytes - i );
 	status = readMessageDigest( &stream, &hashAlgo, hashValue, 
 								CRYPT_MAX_HASHSIZE, &hashSize );
@@ -604,6 +607,7 @@ static int generateKeyFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		( void ) Fapi_Delete( fapiContext, objectPath );
 		return( status );
 		}
+	REQUIRES( !checkOverflowSub( eSize, 1 + 1 ) );
 	eSize -= 1 + 1;					/* Skip tag + length */
 	eValue = eBuffer + 1 + 1;
 

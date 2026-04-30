@@ -275,11 +275,13 @@ static int readDlpPrivateKey( INOUT_PTR STREAM *stream,
 										 DLPPARAM_MIN_X, DLPPARAM_MAX_X, 
 										 p, BIGNUM_CHECK_VALUE_PKC, 0 );
 			}
-		return( status );
 		}
-	status = readBignumFunction( stream, &dlpKey->dlpParam_x,
-								 DLPPARAM_MIN_X, DLPPARAM_MAX_X, p,
-								 BIGNUM_CHECK_VALUE, DEFAULT_TAG );
+	else
+		{
+		status = readBignumFunction( stream, &dlpKey->dlpParam_x,
+									 DLPPARAM_MIN_X, DLPPARAM_MAX_X, p,
+									 BIGNUM_CHECK_VALUE, DEFAULT_TAG );
+		}
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -340,7 +342,7 @@ static int readEccPrivateKey( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int read25519PrivateKey( INOUT_PTR STREAM *stream, 
@@ -395,7 +397,7 @@ static int read25519PrivateKey( INOUT_PTR STREAM *stream,
 
 	return( CRYPT_OK );
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 #endif /* USE_INT_ASN1 */
 
 /****************************************************************************
@@ -512,13 +514,19 @@ static int readRsaPrivateKeyOld( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Check whether there are any attributes present */
+	REQUIRES( !checkOverflowAdd( startPos, length ) );
 	if( stell( stream ) >= startPos + length )
+		{
+		ENSURES( sanityCheckPKCInfo( rsaKey ) );
+
 		return( CRYPT_OK );
+		}
 
 	/* Read the attribute wrapper */
 	status = readConstructed( stream, &length, 0 );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 
@@ -1048,7 +1056,7 @@ static int readPrivateKeyEccFunction( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readPrivateKey25519Function( INOUT_PTR STREAM *stream, 
@@ -1086,7 +1094,41 @@ static int readPrivateKey25519Function( INOUT_PTR STREAM *stream,
 
 	retIntError();
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
+
+#if defined( USE_MLKEM )
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static int readPrivateKeyMlkemFunction( INOUT_PTR STREAM *stream, 
+										INOUT_PTR CONTEXT_INFO *contextInfoPtr,
+										IN_ENUM( KEYFORMAT )  \
+											const KEYFORMAT_TYPE formatType,
+										IN_BOOL const BOOLEAN checkRead )
+	{
+	const CAPABILITY_INFO *capabilityInfoPtr = \
+								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( capabilityInfoPtr != NULL );
+	REQUIRES( contextInfoPtr->type == CONTEXT_PKC && \
+			  ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_MLKEM ) );
+	REQUIRES( isEnumRange( formatType, KEYFORMAT ) );
+	REQUIRES( isBooleanValue( checkRead ) );
+
+	switch( formatType )
+		{
+#ifdef USE_INT_ASN1
+		case KEYFORMAT_PRIVATE:
+			return( CRYPT_ERROR_NOTAVAIL );
+#endif /* USE_INT_ASN1 */
+		}
+
+	retIntError();
+	}
+#endif /* USE_MLKEM */
 
 /****************************************************************************
 *																			*
@@ -1097,7 +1139,6 @@ static int readPrivateKey25519Function( INOUT_PTR STREAM *stream,
 STDC_NONNULL_ARG( ( 1 ) ) \
 void initPrivKeyRead( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
-	CRYPT_ALGO_TYPE cryptAlgo;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
@@ -1108,30 +1149,44 @@ void initPrivKeyRead( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	REQUIRES_V( contextInfoPtr->type == CONTEXT_PKC );
 	REQUIRES_V( capabilityInfoPtr != NULL );
 
-	cryptAlgo = capabilityInfoPtr->cryptAlgo;
-
 	/* Set the access method pointers */
-	if( isDlpAlgo( cryptAlgo ) )
+	switch( capabilityInfoPtr->cryptAlgo )
 		{
-		FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKeyDlpFunction );
-		return;
-		}
-#if defined( USE_ECDH ) || defined( USE_ECDSA ) || \
-	defined( USE_25519 ) || defined( USE_ED25519 )
-	if( isEccAlgo( cryptAlgo ) )
-		{
-#if defined( USE_25519 ) || defined( USE_ED25519 )
-		if( isBernsteinAlgo( cryptAlgo ) )
-			{
+		case CRYPT_ALGO_RSA:
+			FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKeyRsaFunction );
+			break;
+
+		case CRYPT_ALGO_DH:
+#if defined( USE_DSA ) || defined( USE_ELGAMAL )
+		case CRYPT_ALGO_DSA:
+		case CRYPT_ALGO_ELGAMAL:
+#endif /* USE_DSA || USE_ELGAMAL */
+			FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKeyDlpFunction );
+			break;
+
+#if defined( USE_ECDSA ) || defined( USE_ECDH )
+		case CRYPT_ALGO_ECDSA:
+		case CRYPT_ALGO_ECDH:
+			FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKeyEccFunction );
+			break;
+#endif /* USE_ECDSA || USE_ECDH */
+
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
+		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
 			FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKey25519Function );
-			return;
-			}
-#endif /* USE_25519 || USE_ED25519 */
-		FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKeyEccFunction );
-		return;
+			break;
+#endif /* USE_X25519 || USE_ED25519 */
+
+#if defined( USE_MLKEM ) 
+		case CRYPT_ALGO_MLKEM:
+			FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKeyMlkemFunction );
+			break;
+#endif /* USE_MLKEM */
+
+		default:
+			retIntError_Void();
 		}
-#endif /* USE_ECDH || USE_ECDSA */
-	FNPTR_SET( pkcInfo->readPrivateKeyFunction, readPrivateKeyRsaFunction );
 	}
 #else
 

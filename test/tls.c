@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								cryptlib TLS Routines						*
-*						Copyright Peter Gutmann 1998-2022					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -115,6 +115,8 @@ typedef enum {
 	TLS_TEST_ECC,				/* Use ECC instead of RSA/DH */
 	TLS_TEST_ECC_P384,			/* Use ECC P384 instead of P256 */
 	TLS_TEST_ED25519,			/* Use Ed25519 instead of RSA/DH */
+	TLS_TEST_CLIENT12,			/* Use TLS 1.2 client for TLS 1.3 server */
+	TLS_TEST_SERVER12,			/* Use TLS 1.2 server for TLS 1.3 client */
 	TLS_TEST_STARTTLS,			/* Local client socket speaking STARTTLS/STLS/AUTH TLS */
 	TLS_TEST_LOCALSERVER,		/* Local server socket */
 	TLS_TEST_RESUME,			/* Session resumption */
@@ -411,7 +413,12 @@ typedef enum {
 			   BN_div(), but unable to reproduce across multiple cryptlib
 			   platforms.
 	Server 58: Sends a CertificateRequest larger than the maximum packet 
-			   size.
+			   size.  As of late 2025 no longer sends an insane-length
+			   CertificateRequest but to compensate declares the hash 
+			   algorithm used for its RSA signing certificate to be the
+			   RFC 8422 'intrinsic', meaning no algorithm specified.  
+			   Temporarily hardwiring this to SHA-256 in the code makes the 
+			   handshake succeed.
 	Server 59: Refuses a handshake with anything less than TLS 1.2 but then
 			   uses a certificate with RSA exponent 3.
 	Server 60: Sends an Illegal Parameter TLS alert on connect.
@@ -437,7 +444,7 @@ typedef enum {
 	Server 71: As of 2025 the only known server that does Ed25519 signing.
 	Server 72: Server that still does TLS 1.1 */
 
-#define SSL_SERVER_NO	48	/* Probably extinct, this was last known one */
+#define SSL_SERVER_NO	48	/* Extinct, this was last known one */
 #define TLS_SERVER_NO	4	/* No longer does TLS 1.0 */
 #define TLS11_SERVER_NO	72	/* See note about Google in the 2-4 range */
 #define TLS12_SERVER_NO	23	/* Options = #23, #24, #28, #29/30/31
@@ -563,7 +570,8 @@ static const struct {
 	const C_STR path;
 	const BOOLEAN result;
 	} badSslInfo[] = {
-	{ TLS_TEST_BADSSL_DH512, TEXT( "https://dh512.badssl.com/" ), FALSE },
+	{ TLS_TEST_BADSSL_DH512,
+	  TEXT( "https://dh512.badssl.com/" ), FALSE },
 	{ TLS_TEST_BADSSL_DH1024, 
 	  TEXT( "https://dh1024.badssl.com/" ), TRUE },
 	{ TLS_TEST_BADSSL_DH2048, 
@@ -575,19 +583,21 @@ static const struct {
 #ifdef USE_RSA_SUITES
 	{ TLS_TEST_BADSSL_STATICRSA, 
 	  TEXT( "https://static-rsa.badssl.com/" ), TRUE },
-	{ TLS_TEST_BADSSL_RSA2048, 
-	  TEXT( "https://rsa2048.badssl.com/" ), TRUE },
 #else
 	{ TLS_TEST_BADSSL_STATICRSA, 
 	  TEXT( "https://static-rsa.badssl.com/" ), FALSE },
-	{ TLS_TEST_BADSSL_RSA2048, 
-	  TEXT( "https://rsa2048.badssl.com/" ), FALSE },
 #endif /* USE_RSA_SUITES */
 #if defined( USE_ECDSA ) && defined( USE_ECDH )
+	/* This is actually ECDH with RSA signing, not RSA key transport, so it 
+	   works even if USE_RSA_SUITES isn't defined */
+	{ TLS_TEST_BADSSL_RSA2048, 
+	  TEXT( "https://rsa2048.badssl.com/" ), TRUE },
 	/* However see comment before the include of config.h, this doesn't work 
 	   with mixed debug/release builds */
 	{ TLS_TEST_BADSSL_ECC256, TEXT( "https://ecc256.badssl.com/" ), TRUE },
 #else
+	{ TLS_TEST_BADSSL_RSA2048, 
+	  TEXT( "https://rsa2048.badssl.com/" ), FALSE },
 	{ TLS_TEST_BADSSL_ECC256, TEXT( "https://ecc256.badssl.com/" ), FALSE },
 #endif /* USE_ECDSA && USE_ECDH */
 	{ TLS_TEST_BADSSL_CBC, TEXT( "https://cbc.badssl.com/" ), TRUE },
@@ -3103,63 +3113,6 @@ int testSessionTLSBadSSL( void )
 #ifdef TEST_SESSION_LOOPBACK
 
 #ifdef WINDOWS_THREADS
-  static unsigned __stdcall sslServerThread( void *arg )
-#else
-  static void *sslServerThread( void *arg )
-#endif /* Windows vs. Unix threads */
-	{
-	const int argValue = *( ( int * ) arg );
-
-	connectTLS( CRYPT_SESSION_TLS_SERVER, argValue, 0, CRYPT_UNUSED, 
-				TRUE );
-	THREAD_EXIT();
-	}
-
-static int sslClientServer( const TLS_TEST_TYPE testType )
-	{
-	THREAD_HANDLE hThread;
-#ifdef __WINDOWS__
-	unsigned threadID;
-#endif /* __WINDOWS__ */
-	int arg = testType, status;
-
-	/* If this is a test that requires a database keyset, make sure that one 
-	   is available */
-	if( testType == TLS_TEST_CLIENTCERT && \
-		!checkDatabaseKeysetAvailable() )
-		{
-		fputs( "Skipping test due to unavailability of database "
-			   "keysets.\n\n", outputStream );
-		return( TRUE );
-		}
-
-	/* Start the server */
-	createMutex();
-#ifdef WINDOWS_THREADS
-	hThread = ( HANDLE ) _beginthreadex( NULL, 0, sslServerThread, &arg, 0, 
-										 &threadID );
-#else
-	pthread_create( &hThread, NULL, sslServerThread, &arg );
-#endif /* Windows vs. Unix threads */
-	THREAD_SLEEP( 1000 );
-
-	/* Connect to the local server */
-	status = connectTLS( CRYPT_SESSION_TLS, testType, 0, CRYPT_UNUSED, 
-						 TRUE );
-	waitForThread( hThread );
-	destroyMutex();
-	return( status );
-	}
-int testSessionSSLClientServer( void )
-	{
-	return( sslClientServer( TLS_TEST_NORMAL ) );
-	}
-int testSessionSSLClientCertClientServer( void )
-	{
-	return( sslClientServer( TLS_TEST_CLIENTCERT ) );
-	}
-
-#ifdef WINDOWS_THREADS
   static unsigned __stdcall tlsServerThread( void *arg )
 #else
   static void *tlsServerThread( void *arg )
@@ -3432,9 +3385,12 @@ int testSessionTLS12WebSocketsClientServer( void )
 #endif /* Windows vs. Unix threads */
 	{
 	const int argValue = *( ( int * ) arg );
+	const int serverVersion = ( argValue == TLS_TEST_SERVER12 ) ? 3 : 4;
 
-	connectTLS( CRYPT_SESSION_TLS_SERVER, argValue, 4, CRYPT_UNUSED, 
-				TRUE );
+	connectTLS( CRYPT_SESSION_TLS_SERVER, 
+				( argValue == TLS_TEST_SERVER12 ) ? TLS_TEST_NORMAL : \
+													argValue, 
+				serverVersion, CRYPT_UNUSED, TRUE );
 	THREAD_EXIT();
 	}
 
@@ -3446,6 +3402,7 @@ static int tls13ClientServer( const TLS_TEST_TYPE testType )
 #ifdef __WINDOWS__
 	unsigned threadID;
 #endif /* __WINDOWS__ */
+	const int clientVersion = ( testType == TLS_TEST_CLIENT12 ) ? 3 : 4;
 	int arg = testType, status;
 
 	/* If this is a test that requires a database keyset, make sure that one 
@@ -3469,8 +3426,10 @@ static int tls13ClientServer( const TLS_TEST_TYPE testType )
 	THREAD_SLEEP( 1000 );
 
 	/* Connect to the local server */
-	status = connectTLS( CRYPT_SESSION_TLS, testType, 4, CRYPT_UNUSED, 
-						 TRUE );
+	status = connectTLS( CRYPT_SESSION_TLS, 
+						 ( testType == TLS_TEST_CLIENT12 ) ? TLS_TEST_NORMAL : \
+															 testType, 
+						 clientVersion, CRYPT_UNUSED, TRUE );
 	waitForThread( hThread );
 	destroyMutex();
 	return( status );
@@ -3517,6 +3476,22 @@ int testSessionTLS13ForceTLS13ClientServer( void )
 	if( status == TRUE )
 		status = tls13ClientServer( TLS_TEST_FORCEVER_SVR );
 	return( status );
+#else
+	return( TRUE );
+#endif /* USE_TLS13 */
+	}
+int testSessionTLS13Client12ClientServer( void )
+	{
+#ifdef USE_TLS13
+	return( tls13ClientServer( TLS_TEST_CLIENT12 ) );
+#else
+	return( TRUE );
+#endif /* USE_TLS13 */
+	}
+int testSessionTLS13Server12ClientServer( void )
+	{
+#ifdef USE_TLS13
+	return( tls13ClientServer( TLS_TEST_SERVER12 ) );
 #else
 	return( TRUE );
 #endif /* USE_TLS13 */

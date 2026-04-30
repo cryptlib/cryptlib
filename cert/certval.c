@@ -447,6 +447,7 @@ static int readRtcsRequestEntry( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeNZ( endPos ) );
 
@@ -508,6 +509,8 @@ int readRTCSRequestEntries( INOUT_PTR STREAM *stream,
 					  "Invalid RTCS request entry #%d", noRequestEntries ) );
 			}
 		length -= objectSize;
+				  /* We don't check for a subtract overflow here because the 
+				     length going negative will exit the loop */
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( noRequestEntries >= 100 )
@@ -563,6 +566,8 @@ int sizeofRtcsRequestEntries( IN_DATAPTR const DATAPTR rtcsEntries )
 					sizeofRtcsRequestEntry( validityInfo );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( requestInfoLength, 
+									 requestEntrySize ) );
 		requestInfoLength += requestEntrySize;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -578,7 +583,7 @@ static int writeRtcsRequestEntry( INOUT_PTR STREAM *stream,
 	assert( isReadPtr( rtcsEntry, sizeof( VALIDITY_INFO ) ) );
 
 	/* Write the header and ID information */
-	writeSequence( stream, sizeofObject( KEYID_SIZE ) );
+	writeSequence( stream, sizeofShortObject( KEYID_SIZE ) );
 	return( writeOctetString( stream, rtcsEntry->data, KEYID_SIZE,
 							  DEFAULT_TAG ) );
 	}
@@ -654,6 +659,7 @@ static int readRtcsResponseEntry( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeNZ( endPos ) );
 
@@ -757,6 +763,7 @@ int readRTCSResponseEntries( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 #if 0	/* 11/9/17 See below */
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeNZ( endPos ) );
 #endif /* 0 */
@@ -789,6 +796,8 @@ int readRTCSResponseEntries( INOUT_PTR STREAM *stream,
 						 noResponseEntries ) );
 			}
 		length -= objectSize;
+				  /* We don't check for a subtract overflow here because the 
+				     length going negative will exit the loop */
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( noResponseEntries >= 100 )
@@ -808,6 +817,7 @@ int readRTCSResponseEntries( INOUT_PTR STREAM *stream,
 	/* Read the extensions if there are any present */
 	if( stell( stream ) < endPos )
 		{
+		REQUIRES( !checkOverflowSub( endPos, stell( stream ) ) );
 		status = readAttributes( stream, &certInfoPtr->attributes,
 								 CRYPT_CERTTYPE_RTCS_RESPONSE, 
 								 endPos - stell( stream ), errorInfo, 
@@ -881,6 +891,8 @@ int sizeofRtcsResponseEntries( IN_DATAPTR const DATAPTR rtcsEntries,
 												 isExtendedResponse );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( responseInfoLength, 
+									 responseEntrySize ) );
 		responseInfoLength += responseEntrySize;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -904,7 +916,7 @@ static int writeRtcsResponseEntry( INOUT_PTR STREAM *stream,
 	   object */
 	if( !isExtendedResponse )
 		{
-		writeSequence( stream, sizeofObject( KEYID_SIZE ) +
+		writeSequence( stream, sizeofShortObject( KEYID_SIZE ) +
 							   sizeofBoolean() );
 		writeOctetString( stream, rtcsEntry->data, KEYID_SIZE, DEFAULT_TAG );
 		return( writeBoolean( stream, rtcsEntry->isValid, DEFAULT_TAG ) );
@@ -915,7 +927,8 @@ static int writeRtcsResponseEntry( INOUT_PTR STREAM *stream,
 					   FAILSAFE_ARRAYSIZE( enumToCertStatusMapTbl, 
 										   MAP_TABLE ) );
 	ENSURES( cryptStatusOK( status ) );
-	writeSequence( stream, sizeofObject( KEYID_SIZE ) + sizeofEnumerated( 1 ) );
+	writeSequence( stream, sizeofShortObject( KEYID_SIZE ) + \
+						   sizeofEnumerated( 1 ) );
 	writeOctetString( stream, rtcsEntry->data, KEYID_SIZE, DEFAULT_TAG );
 	status = writeEnumerated( stream, value, DEFAULT_TAG );
 	if( cryptStatusError( status ) || rtcsEntry->attributeSize <= 0 )

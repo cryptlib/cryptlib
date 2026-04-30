@@ -401,6 +401,8 @@ static int getNonce( INOUT_PTR DEVICE_INFO *deviceInfo,
 
 		/* Hash the state and copy the appropriate amount of data to the
 		   output buffer */
+		REQUIRES( !checkOverflowAdd( systemInfo->nonceHashSize,
+									 NONCERNG_PRIVATE_STATESIZE ) );
 		nonceHashFunction( systemInfo->nonceData, CRYPT_MAX_HASHSIZE, 
 						   systemInfo->nonceData,
 						   systemInfo->nonceHashSize + \
@@ -411,6 +413,7 @@ static int getNonce( INOUT_PTR DEVICE_INFO *deviceInfo,
 
 		/* Move on to the next block of the output buffer */
 		noncePtr += bytesToCopy;
+		REQUIRES( !checkOverflowSub( nonceLength, bytesToCopy ) );
 		nonceLength -= bytesToCopy;
 		}
 	ENSURES( LOOP_BOUND_LARGE_REV_OK );
@@ -486,10 +489,11 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 
 	/* Set up the randomness information */
 	randomInfoPtr = getBuiltinStorage( BUILTIN_STORAGE_RANDOM_INFO );
-	ENSURES( randomInfoPtr != NULL );
+	REQUIRES( checkBuiltinStorage( BUILTIN_STORAGE_RANDOM_INFO ) );
 	status = initRandomInfo( randomInfoPtr );
 	if( cryptStatusError( status ) )
 		return( status );
+	ENSURES( checkBuiltinStorage( BUILTIN_STORAGE_RANDOM_INFO ) );
 	DATAPTR_SET( deviceInfo->deviceSystem->randomInfo, randomInfoPtr );
 
 	/* Complete the initialisation and mark the device as active */
@@ -711,12 +715,15 @@ static const GETCAPABILITY_FUNCTION getCapabilityTable[] = {
 #ifdef USE_ECDH
 	getECDHCapability,
 #endif /* USE_ECDH */
-#ifdef USE_25519
+#ifdef USE_X25519
 	getX25519Capability,
-#endif /* USE_25519 */
+#endif /* USE_X25519 */
 #ifdef USE_ED25519
 	getEd25519Capability,
 #endif /* USE_ED25519 */
+#ifdef USE_MLKEM
+	getMLKEMCapability,
+#endif /* USE_MLKEM */
 
 	getGenericSecretCapability,
 

@@ -374,6 +374,8 @@ int cmsPreEnvelopeEncrypt( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 				}
 			hasIndefSizeActions = TRUE;
 			}
+		REQUIRES( !checkOverflowAdd( totalSize, 
+									 actionListPtr->encodedSize ) );
 		totalSize += actionListPtr->encodedSize;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -609,6 +611,8 @@ static int processSignatureAction( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	else
 		{
 		actionListPtr->encodedSize = signatureSize;
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->signActionSize, 
+									 signatureSize ) );
 		envelopeInfoPtr->signActionSize += signatureSize;
 		}
 	if( TEST_FLAG( envelopeInfoPtr->dataFlags, 

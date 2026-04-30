@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Public Key Write Routines						*
-*						Copyright Peter Gutmann 1992-2023					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -78,6 +78,7 @@ static int writeFixedBignum( INOUT_PTR STREAM *stream, const BIGNUM *bignum,
 	/* Extract the bignum data and get its length */
 	status = exportBignum( buffer, CRYPT_MAX_PKCSIZE, &bnLength, bignum );
 	ENSURES( cryptStatusOK( status ) );
+	REQUIRES( !checkOverflowSub( fixedSize, bnLength ) );
 	noZeroes = fixedSize - bnLength;
 	REQUIRES( noZeroes >= 0 && noZeroes < fixedSize );
 
@@ -98,7 +99,7 @@ static int writeFixedBignum( INOUT_PTR STREAM *stream, const BIGNUM *bignum,
 
 /****************************************************************************
 *																			*
-*								Write Public Keys							*
+*							Write X.509 Public Keys							*
 *																			*
 ****************************************************************************/
 
@@ -264,15 +265,14 @@ static int writeEccSubjectPublicKey( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int write25519SubjectPublicKey( INOUT_PTR STREAM *stream, 
-									   const CONTEXT_INFO *contextInfoPtr )
+									   const CONTEXT_INFO *contextInfoPtr,
+									   IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
 	const PKC_INFO *eccKey = contextInfoPtr->ctxPKC;
-	const CAPABILITY_INFO *capabilityInfoPtr = \
-								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	BYTE buffer[ CRYPT_MAX_PKCSIZE + 8 ];
 	int encodedPointSize, totalSize, status;
 
@@ -280,10 +280,8 @@ static int write25519SubjectPublicKey( INOUT_PTR STREAM *stream,
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
-	REQUIRES( capabilityInfoPtr != NULL );
-	REQUIRES( contextInfoPtr->type == CONTEXT_PKC && \
-			  ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_25519 || \
-				capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ED25519 ) );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_25519 || \
+			  cryptAlgo == CRYPT_ALGO_ED25519 );
 	REQUIRES( sanityCheckPKCInfo( eccKey ) );
 
 	/* Get the public value in Bernstein special-snowflake form */
@@ -296,14 +294,14 @@ static int write25519SubjectPublicKey( INOUT_PTR STREAM *stream,
 
 	/* Determine the size of the AlgorithmIdentifier and the BIT STRING-
 	   encapsulated public-key data (the final +1 is for the bitstring) */
-	status = totalSize = sizeofAlgoID( capabilityInfoPtr->cryptAlgo );
+	status = totalSize = sizeofAlgoID( cryptAlgo );
 	if( cryptStatusError( status ) )
 		return( status );
 	totalSize += sizeofShortObject( encodedPointSize + 1 );
 
 	/* Write the SubjectPublicKeyInfo header field */
 	writeSequence( stream, totalSize );
-	writeAlgoID( stream, capabilityInfoPtr->cryptAlgo, DEFAULT_TAG );
+	writeAlgoID( stream, cryptAlgo, DEFAULT_TAG );
 
 	/* Write the BIT STRING wrapper and the PKC information */
 	writeBitStringHole( stream, encodedPointSize, DEFAULT_TAG );
@@ -311,8 +309,49 @@ static int write25519SubjectPublicKey( INOUT_PTR STREAM *stream,
 	zeroise( buffer, CRYPT_MAX_PKCSIZE );
 	return( status );
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
+
+#ifdef USE_MLKEM
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static int writePQCSubjectPublicKey( INOUT_PTR STREAM *stream, 
+									 const CONTEXT_INFO *contextInfoPtr,
+									 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
+	{
+	const PKC_INFO *pqcKey = contextInfoPtr->ctxPKC;
+	const MLKEM_KEY_INFO *mlkemKey = pqcKey->mlkemKey;
+	int totalSize, status;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_MLKEM );
+	REQUIRES( sanityCheckPKCInfo( pqcKey ) );
+
+	/* Determine the size of the AlgorithmIdentifier and the BIT STRING-
+	   encapsulated public-key data (the final +1 is for the bitstring) */
+	status = totalSize = sizeofAlgoID( cryptAlgo );
+	if( cryptStatusError( status ) )
+		return( status );
+	totalSize += sizeofShortObject( mlkemKey->pubKeySize + 1 );
+
+	/* Write the SubjectPublicKeyInfo header field */
+	writeSequence( stream, totalSize );
+	writeAlgoID( stream, cryptAlgo, DEFAULT_TAG );
+
+	/* Write the BIT STRING wrapper and the PKC information */
+	writeBitStringHole( stream, mlkemKey->pubKeySize, DEFAULT_TAG );
+	return( swrite( stream, mlkemKey->pubKey, mlkemKey->pubKeySize ) );
+	}
+#endif /* USE_MLKEM */
 #endif /* USE_INT_ASN1 */
+
+/****************************************************************************
+*																			*
+*								Write SSH Public Keys						*
+*																			*
+****************************************************************************/
 
 #ifdef USE_SSH
 
@@ -483,7 +522,7 @@ static int writeSshEccPublicKey( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int writeSsh25519PublicKey( INOUT_PTR STREAM *stream, 
@@ -530,9 +569,14 @@ static int writeSsh25519PublicKey( INOUT_PTR STREAM *stream,
 	zeroise( buffer, CRYPT_MAX_PKCSIZE );
 	return( status );
 	}
-#endif /* USE_25519 || USE_ED25519 */
-
+#endif /* USE_X25519 || USE_ED25519 */
 #endif /* USE_SSH */
+
+/****************************************************************************
+*																			*
+*								Write TLS Public Keys						*
+*																			*
+****************************************************************************/
 
 #ifdef USE_TLS
 
@@ -553,6 +597,9 @@ static int writeSsh25519PublicKey( INOUT_PTR STREAM *stream,
 		uint16		namedCurve
 	  [	uint8		ecPointLen	-- NB uint8 not uint16 ]
 	  [	byte[]		ecPoint ]
+	  
+	ML-KEM:
+		byte[]		pubKey
 
    The DH y value is nominally attached to the DH p and g values but isn't 
    processed at this level since this is a pure PKCS #3 DH key and not a 
@@ -645,7 +692,35 @@ static int writeTlsEccPublicKey( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
+#ifdef USE_MLKEM
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static int writeTlsPQCPublicKey( INOUT_PTR STREAM *stream, 
+								 const CONTEXT_INFO *contextInfoPtr,
+								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
+	{
+	const PKC_INFO *pqcKey = contextInfoPtr->ctxPKC;
+	const MLKEM_KEY_INFO *mlkemKey = pqcKey->mlkemKey;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_MLKEM );
+	REQUIRES( sanityCheckPKCInfo( pqcKey ) );
+
+	/* The TLS ML-KEM public key is concatenated together with a 25519 keyex
+	   value without any encapsulation so we just write the raw key data */
+	return( swrite( stream, mlkemKey->pubKey, mlkemKey->pubKeySize ) );
+	}
+#endif /* USE_MLKEM */
 #endif /* USE_TLS */
+
+/****************************************************************************
+*																			*
+*								Write PGP Public Keys						*
+*																			*
+****************************************************************************/
 
 #ifdef USE_PGP
 
@@ -789,6 +864,12 @@ static int writePgpEccPublicKey( INOUT_PTR STREAM *stream,
 	return( status );
 	}
 #endif /* USE_PGP */
+
+/****************************************************************************
+*																			*
+*							Public-Key Write Interface						*
+*																			*
+****************************************************************************/
 
 /* Umbrella public-key write functions */
 
@@ -966,7 +1047,7 @@ int writePublicKeyEccFunction( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
 int writePublicKey25519Function( INOUT_PTR STREAM *stream, 
@@ -998,18 +1079,66 @@ int writePublicKey25519Function( INOUT_PTR STREAM *stream,
 		{
 #ifdef USE_INT_ASN1
 		case KEYFORMAT_CERT:
-			return( write25519SubjectPublicKey( stream, contextInfoPtr ) );
+			return( write25519SubjectPublicKey( stream, contextInfoPtr,
+												cryptAlgo ) );
 #endif /* USE_INT_ASN1 */
 
 #ifdef USE_SSH
 		case KEYFORMAT_SSH:
-			return( writeSsh25519PublicKey( stream, contextInfoPtr, cryptAlgo ) );
+			return( writeSsh25519PublicKey( stream, contextInfoPtr, 
+											cryptAlgo ) );
 #endif /* USE_SSH */
 		}
 
 	retIntError();
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
+
+#ifdef USE_MLKEM
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
+int writePublicKeyPQCFunction( INOUT_PTR STREAM *stream, 
+							   const CONTEXT_INFO *contextInfoPtr,
+							   IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
+							   IN_ENUM( KEYFORMAT ) \
+									const KEYFORMAT_TYPE formatType,
+							   IN_BUFFER( accessKeyLen ) \
+									const char *accessKey, 
+							   IN_LENGTH_FIXED( 10 ) \
+									const int accessKeyLen )
+	{
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+	assert( isReadPtrDynamic( accessKey, accessKeyLen ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_MLKEM );
+	REQUIRES( formatType == KEYFORMAT_CERT || \
+			  formatType == KEYFORMAT_TLS );
+	REQUIRES( accessKeyLen == 10 );
+
+	/* Make sure that we really intended to call this function */
+	if( accessKeyLen != 10 || memcmp( accessKey, "public_key", 10 ) )
+		retIntError();
+
+	switch( formatType )
+		{
+#ifdef USE_INT_ASN1
+		case KEYFORMAT_CERT:
+			return( writePQCSubjectPublicKey( stream, contextInfoPtr, 
+											  cryptAlgo ) );
+#endif /* USE_INT_ASN1 */
+
+#ifdef USE_TLS
+		case KEYFORMAT_TLS:
+			return( writeTlsPQCPublicKey( stream, contextInfoPtr, 
+										  cryptAlgo ) );
+#endif /* USE_TLS */
+		}
+
+	retIntError();
+	}
+#endif /* USE_MLKEM */
 
 /****************************************************************************
 *																			*
@@ -1050,7 +1179,7 @@ int writeFlatPublicKey( OUT_BUFFER_OPT( bufMaxSize, *bufSize ) void *buffer,
 	STREAM stream;
 	ALGOID_PARAMS algoIDparams;
 #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	defined( USE_25519 ) || defined( USE_ED25519 )
+	defined( USE_X25519 ) || defined( USE_ED25519 )
 	BYTE encodedPointBuffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
 #endif /* USE_ECDSA || USE_ECDH || USE_ECDSA || USE_ECDH */
 	const int comp1Size = sizeofInteger( component1, component1Length );
@@ -1133,7 +1262,7 @@ int writeFlatPublicKey( OUT_BUFFER_OPT( bufMaxSize, *bufSize ) void *buffer,
 			break;
 
 #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	defined( USE_25519 ) || defined( USE_ED25519 ) 
+	defined( USE_X25519 ) || defined( USE_ED25519 ) 
 		case CRYPT_ALGO_ECDSA:
 		case CRYPT_ALGO_ECDH:
 		case CRYPT_ALGO_25519:

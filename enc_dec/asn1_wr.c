@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								ASN.1 Write Routines						*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -181,7 +181,7 @@ long sizeofObject( IN_LENGTH_Z const long length )
 	{
 	/* If we've been passed an error code as input or we're about to exceed 
 	   the maximum safe length range, don't try and go any further */
-	if( length < 0 || length > MAX_INTLENGTH - 16 )
+	if( length < 0 || checkOverflowAdd( length, 16 ) )
 		{
 		DEBUG_DIAG( ( "Invalid value passed to sizeofObject()" ) );
 		assert( DEBUG_WARN );
@@ -195,7 +195,9 @@ RETVAL_LENGTH_SHORT_NOERROR \
 int sizeofShortObject( IN_LENGTH_SHORT_Z const int length )
 	{
 	/* If we've been passed an error code as input or we're about to exceed 
-	   the maximum safe length range, don't try and go any further */
+	   the maximum safe length range, don't try and go any further.  We
+	   can't use checkOverflowAdd() here because the maximum allowed length
+	   is a short integer, not an integer */
 	if( length < 0 || length > MAX_INTLENGTH_SHORT - 16 )
 		{
 		DEBUG_DIAG( ( "Invalid value passed to sizeofShortObject()" ) );
@@ -214,7 +216,16 @@ int sizeofShortObject( IN_LENGTH_SHORT_Z const int length )
    below MAX_INTLENGTH which means that we can safely apply a series of 
    sizeofObject() operations and add small amounts of extra data like 
    parameters without getting close to INT_MAX, but we provide the check 
-   anyway to document that it's been done */
+   anyway to document that it's been done.
+   
+   Sample usages:
+   
+		sizeofObject( sizeofObject( length ) )
+			-> ( length, 2, 0, 0 )
+		sizeofObject( sizeofObject( length ) + extraLength )
+			-> ( length, 1, extraLength, 1 )
+		sizeofObject( length + extraLength ) )
+			-> ( length + extraLength, 1, 0, 0 ) */
 
 CHECK_RETVAL_LENGTH \
 static long sizeofObjectChecked( IN_LENGTH_Z const long length )
@@ -379,7 +390,7 @@ int writeBignumTag( INOUT_PTR STREAM *stream,
 					IN_PTR TYPECAST( BIGNUM * ) const struct BN *bignum, 
 					IN_TAG const int tag )
 	{
-	BYTE buffer[ CRYPT_MAX_PKCSIZE + 8 ];
+	BYTE buffer[ CRYPT_MAX_PKCSIZE + 16 + 8 ];
 	int length, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -393,8 +404,10 @@ int writeBignumTag( INOUT_PTR STREAM *stream,
 	   writing of key data to memory */
 	if( sIsNullStream( stream ) )
 		{
-		return( sSkip( stream, sizeofBignum( bignum ), 
-					   MAX_INTLENGTH_SHORT ) );
+		length = sizeofBignum( bignum );
+		ENSURES_S( rangeCheck( length, 1, CRYPT_MAX_PKCSIZE + 16 ) );
+		memset( buffer, 0, length );
+		return( swrite( stream, buffer, length ) );
 		}
 
 	status = exportBignum( buffer, CRYPT_MAX_PKCSIZE, &length, bignum );

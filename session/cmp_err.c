@@ -37,6 +37,8 @@
 
 /* CMP error messages */
 
+#ifdef USE_ERRMSGS
+
 typedef struct {
 	const int failureCode;			/* CMP failure code */
 	const int status;				/* cryptlib error status */
@@ -108,6 +110,45 @@ static const FAILURE_INFO failureInfo[] = {
 	{ CRYPT_ERROR, CRYPT_ERROR, "Unknown PKI failure code", 24 }, 
 	{ CRYPT_ERROR, CRYPT_ERROR, "Unknown PKI failure code", 24 }
 	};
+#else
+
+typedef struct {
+	const int failureCode;			/* CMP failure code */
+	const int status;				/* cryptlib error status */
+	} FAILURE_INFO;
+
+static const FAILURE_INFO failureInfo[] = {
+	{ CMPFAILINFO_BADALG, CRYPT_ERROR_NOTAVAIL },
+	{ CMPFAILINFO_BADMESSAGECHECK, CRYPT_ERROR_SIGNATURE },
+	{ CMPFAILINFO_BADREQUEST, CRYPT_ERROR_PERMISSION },
+	{ CMPFAILINFO_BADTIME, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_BADCERTID, CRYPT_ERROR_NOTFOUND },
+	{ CMPFAILINFO_BADDATAFORMAT, CRYPT_ERROR_BADDATA },
+	{ CMPFAILINFO_WRONGAUTHORITY, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_INCORRECTDATA, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_MISSINGTIMESTAMP, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_BADPOP, CRYPT_ERROR_SIGNATURE },
+	{ CMPFAILINFO_CERTREVOKED, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_CERTCONFIRMED, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_WRONGINTEGRITY, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_BADRECIPIENTNONCE, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_TIMENOTAVAILABLE, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_UNACCEPTEDPOLICY, CRYPT_ERROR_INVALID },
+	{ CMPFAILINFO_UNACCEPTEDEXTENSION, CRYPT_ERROR_INVALID },
+	{ CMPFAILINFO_ADDINFONOTAVAILABLE, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_BADSENDERNONCE, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_BADCERTTEMPLATE, CRYPT_ERROR_INVALID },
+	{ CMPFAILINFO_SIGNERNOTTRUSTED, CRYPT_ERROR_WRONGKEY },
+	{ CMPFAILINFO_TRANSACTIONIDINUSE, CRYPT_ERROR_DUPLICATE },
+	{ CMPFAILINFO_UNSUPPORTEDVERSION, CRYPT_ERROR_NOTAVAIL },
+	{ CMPFAILINFO_NOTAUTHORIZED, CRYPT_ERROR_PERMISSION },
+	{ CMPFAILINFO_SYSTEMUNAVAIL, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_SYSTEMFAILURE, CRYPT_ERROR_FAILED },
+	{ CMPFAILINFO_DUPLICATECERTREQ, CRYPT_ERROR_DUPLICATE },
+	{ CRYPT_ERROR, CRYPT_ERROR }, 
+	{ CRYPT_ERROR, CRYPT_ERROR }
+	};
+#endif /* USE_ERRMSGS */
 
 /****************************************************************************
 *																			*
@@ -183,10 +224,12 @@ static int getFailureInfo( OUT_BUFFER_ALLOC_OPT( *stringLength ) \
 
 	/* We've got information for this failure code, return it to the 
 	   caller */
-	*stringPtrPtr = failureInfoPtr->string;
-	*stringLength = failureInfoPtr->stringLength;
 	*failureStatus = failureInfoPtr->status;
 	*failureBitPos = bitPos;
+#ifdef USE_ERRMSGS 
+	*stringPtrPtr = failureInfoPtr->string;
+	*stringLength = failureInfoPtr->stringLength;
+#endif /* USE_ERRMSGS */
 
 	return( CRYPT_OK );
 	}
@@ -300,6 +343,7 @@ int readPkiStatusInfo( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 	status = readShortInteger( stream, &value );
@@ -327,6 +371,7 @@ int readPkiStatusInfo( INOUT_PTR STREAM *stream,
 		status = readSequence( stream, &length );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 		innerEndPos = stell( stream ) + length;
 		ENSURES( isIntegerRangeMin( innerEndPos, length ) );
 		status = readCharacterString( stream, errorMessage, MAX_ERRMSG_SIZE, 

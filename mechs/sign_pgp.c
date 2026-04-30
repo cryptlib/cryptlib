@@ -166,7 +166,11 @@ static int writePgpSigPacketHeader( OUT_BUFFER_OPT( dataMaxLen, *dataLen ) \
 	length = ( 1 + 1 + UINT32_SIZE ) + ( 1 + 1 + PGP_KEYID_SIZE ) + \
 			 sigAttributeLength;
 	if( iAndSlength > 0 )
+		{
+		REQUIRES( !checkOverflowAdd3( length, iAndSHeaderLength, 
+									  iAndSlength ) );
 		length += iAndSHeaderLength + iAndSlength;
+		}
 	writeUint16( &stream, length );
 	sputc( &stream, 1 + UINT32_SIZE );		/* Time */
 	sputc( &stream, PGP_SUBPACKET_TIME );
@@ -285,6 +289,8 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 								  SIGNATURE_PGP, errorInfo );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd3( extraDataLength, signatureDataLength, 
+									  64 ) );
 		*signatureLength = 1 + pgpSizeofLength( extraDataLength + 2 + \
 												signatureDataLength ) + \
 						   extraDataLength + 2 + signatureDataLength;
@@ -300,10 +306,12 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	   because we're allocating a buffer larger than just the attribute in 
 	   order to hold the additional PGP signature data, not the 
 	   same size as the attribute which is what dynCreate() does */
+	REQUIRES( !checkOverflowSub( extraDataLength, 128 ) );
 	if( iAndSlength > extraDataLength - 128 )
 		{
+		REQUIRES( !checkOverflowAdd( 128, iAndSlength ) );
 		extraDataLength = 128 + iAndSlength;
-		REQUIRES( isShortIntegerRangeNZ( extraDataLength ) );
+		ENSURES( isShortIntegerRangeNZ( extraDataLength ) );
 		if( ( extraDataPtr = clDynAlloc( "createSignaturePGP", \
 										 extraDataLength ) ) == NULL )
 			return( CRYPT_ERROR_MEMORY );
@@ -334,6 +342,7 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 		status = krnlSendMessage( sigDataInfo->hashContext, 
 								  IMESSAGE_CTX_HASH, extraData, 
 								  extraDataLength - UINT16_SIZE );
+								  /* Checked earlier */
 		if( status == CRYPT_ERROR_COMPLETE )
 			{
 			/* Unlike standard signatures PGP requires that the hashing not 
@@ -374,7 +383,7 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	sputc( &stream, 0x04 );
 	sputc( &stream, 0xFF );
 	status = writeUint32( &stream, extraDataLength - UINT16_SIZE );
-	if( cryptStatusOK( status ) )
+	if( cryptStatusOK( status ) )  /* Checked earlier */
 		extraTrailerLength = stell( &stream );
 	sMemDisconnect( &stream );
 	if( cryptStatusOK( status ) )
@@ -411,6 +420,8 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 							  sigDataInfo, SIGNATURE_PGP, errorInfo );
 	if( cryptStatusOK( status ) )
 		{
+		REQUIRES( !checkOverflowAdd3( extraDataLength, signatureDataLength,
+									  64 ) );
 		totalLength = 1 + \
 					  pgpSizeofLength( extraDataLength + 2 + \
 									   signatureDataLength ) + \
@@ -439,6 +450,7 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	sMemOpen( &stream, signature, totalLength + 64 );
 	pgpWritePacketHeader( &stream, PGP_PACKET_SIGNATURE,
 						  extraDataLength + 2 + signatureDataLength );
+						  /* Checked earlier */
 	swrite( &stream, extraData, extraDataLength );
 	swrite( &stream, hash, 2 );			/* Hash check */
 	status = swrite( &stream, signatureData, signatureDataLength );

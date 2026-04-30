@@ -80,7 +80,9 @@ static int importCACertificate( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iCryptCert,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* Import the certificate */
+	/* Import the certificate.  If it's a certificate chain then we specify
+	   which certificate type we'd prefer if possible, if it's a standalone 
+	   certificate then there's only one available */
 	if( isCertChain )
 		{
 		setMessageCreateObjectIndirectInfoEx( &createInfo, certificate, 
@@ -113,8 +115,8 @@ static BOOLEAN isSameCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert1,
 	BOOLEAN isSameCert = FALSE;
 	int status;
 
-	REQUIRES( isHandleRangeValid( iCryptCert1 ) );
-	REQUIRES( isHandleRangeValid( iCryptCert2 ) );
+	REQUIRES_B( isHandleRangeValid( iCryptCert1 ) );
+	REQUIRES_B( isHandleRangeValid( iCryptCert2 ) );
 
 	/* Lock the certificate chains for exclusive use */
 	status = krnlSendMessage( iCryptCert1, IMESSAGE_SETATTRIBUTE,
@@ -125,10 +127,16 @@ static BOOLEAN isSameCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert1,
 							  MESSAGE_VALUE_TRUE, CRYPT_IATTRIBUTE_LOCKED );
 	if( cryptStatusError( status ) )
 		{
+		/* It's not clear what we should return in the case of an error 
+		   (mostly because it's a shouldn't-occur condition), we have two 
+		   valid certificates so we shouldn't abort processing because a
+		   compare operation failed.  Because of this we report a non-
+		   match, which in most cases will allow things to proceeed as
+		   required, and when it is a match it'll be caught later */
 		( void ) krnlSendMessage( iCryptCert1, IMESSAGE_SETATTRIBUTE,
 								  MESSAGE_VALUE_FALSE, 
 								  CRYPT_IATTRIBUTE_LOCKED );
-		return( status );
+		return( FALSE );
 		}
 
 	/* Select the leaf certificate in both chains */
@@ -159,12 +167,7 @@ static BOOLEAN isSameCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert1,
 							  CRYPT_IATTRIBUTE_LOCKED );
 	if( cryptStatusError( status ) )
 		{
-		/* It's not clear what we should return in the case of an error 
-		   (mostly because it's a shouldn't-occur condition), we have two 
-		   valid certificates so we shouldn't abort processing because a
-		   compare operation failed.  Because of this we report a non-
-		   match, which in most cases will allow things to proceeed as
-		   required, and when it is a match it'll be caught later */
+		/* As above, we report a non-match in this case */
 		return( FALSE );
 		}
 
@@ -192,7 +195,7 @@ static int writePkiDatagramEx( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( contentType == NULL || \
 			isReadPtrDynamic( contentType, contentTypeLen ) );
 
-	REQUIRES( ( contentType == NULL && contentTypeLen ) || \
+	REQUIRES( ( contentType == NULL && contentTypeLen == 0 ) || \
 			  ( contentType != NULL && \
 				contentTypeLen > 0 && contentTypeLen <= CRYPT_MAX_TEXTSIZE ) );
 	REQUIRES( isBufsizeRangeMin( sessionInfoPtr->receiveBufEnd, 4 ) );
@@ -261,6 +264,7 @@ static int writePkiDatagramAsGet( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	status = base64encodeLen( dataSize, &fullEncodedLength, 
 							  CRYPT_CERTTYPE_NONE );
 	ENSURES( cryptStatusOK( status ) );
+	REQUIRES( !checkOverflowAdd( fullEncodedLength, dataSize ) );
 	if( fullEncodedLength + dataSize >= sessionInfoPtr->receiveBufSize )
 		return( CRYPT_ERROR_OVERFLOW );
 
@@ -286,7 +290,8 @@ static int writePkiDatagramAsGet( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		{
 		const int delta = fullEncodedLength - encodedLength;
 
-		REQUIRES( delta > 0 && delta < 3 );
+		REQUIRES( !checkOverflowSub( fullEncodedLength, encodedLength ) );
+		ENSURES( delta > 0 && delta < 3 );
 		REQUIRES( boundsCheck( encodedLength, delta, 
 							   sessionInfoPtr->receiveBufSize ) );
 		memcpy( sessionInfoPtr->receiveBuffer + encodedLength,
@@ -310,6 +315,7 @@ static int writePkiDatagramAsGet( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			continue;
 
 		/* Make room for the escaped form and encode the value */
+		REQUIRES( !checkOverflowAdd( fullEncodedLength, 2 ) );
 		if( fullEncodedLength + 2 >= sessionInfoPtr->receiveBufSize )
 			return( CRYPT_ERROR_OVERFLOW );
 		REQUIRES( boundsCheck( i + 2, fullEncodedLength - i, 
@@ -944,7 +950,10 @@ static int createScepCert( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   attached to it, which would result in two keys being associated with 
 	   the single certificate.  To resolve this, we create a copy of the 
 	   certificate as a data-only certificate and attach that to the private 
-	   key instead of the full certificate+context */
+	   key instead of the full certificate+context.
+	   
+	   We don't return extended-error information at this point because an
+	   error is a should-never-occur condition  */
 	status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_GETATTRIBUTE, 
 							  &iNewCert, CRYPT_IATTRIBUTE_CERTCOPY_DATAONLY );
 	if( cryptStatusOK( status ) )
@@ -1063,10 +1072,13 @@ static int createScepPendingRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Write the issuerAndSubject to the session buffer */
 	sMemOpen( &stream, sessionInfoPtr->receiveBuffer, 
 			  sessionInfoPtr->receiveBufSize );
-	writeSequence( &stream, issuerAndSubjectLen );
-	status = exportAttributeToStream( &stream, 
-									  sessionInfoPtr->iAuthInContext, 
-									  CRYPT_IATTRIBUTE_SUBJECT );
+	status = writeSequence( &stream, issuerAndSubjectLen );
+	if( cryptStatusOK( status ) )
+		{
+		status = exportAttributeToStream( &stream, 
+										  sessionInfoPtr->iAuthInContext, 
+										  CRYPT_IATTRIBUTE_SUBJECT );
+		}
 	if( cryptStatusOK( status ) )
 		{
 		status = exportAttributeToStream( &stream, 
@@ -1249,6 +1261,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int checkScepStatus( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 							IN_HANDLE const CRYPT_CERTIFICATE iCmsAttributes )
 	{
+#ifdef USE_ERRMSGS
 	typedef struct {
 		const int failInfoValue;
 		const int failStatus;
@@ -1270,6 +1283,21 @@ static int checkScepStatus( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{ CRYPT_ERROR, CRYPT_ERROR_FAILED, "<Unknown failure reason>" },
 			{ CRYPT_ERROR, CRYPT_ERROR_FAILED, "<Unknown failure reason>" }
 		};
+#else
+	typedef struct {
+		const int failInfoValue;
+		const int failStatus;
+		} FAILINFO_MESSAGE;
+	static const FAILINFO_MESSAGE failInfoMsgTbl[] = {
+		{ MESSAGEFAILINFO_BADALG_VALUE, CRYPT_ERROR_NOTAVAIL },
+		{ MESSAGEFAILINFO_BADMESSAGECHECK_VALUE, CRYPT_ERROR_SIGNATURE },
+		{ MESSAGEFAILINFO_BADREQUEST_VALUE, CRYPT_ERROR_PERMISSION },
+		{ MESSAGEFAILINFO_BADTIME_VALUE, CRYPT_ERROR_INVALID },
+		{ MESSAGEFAILINFO_BADCERTID_VALUE, CRYPT_ERROR_NOTFOUND },
+		{ CRYPT_ERROR, CRYPT_ERROR_FAILED },
+			{ CRYPT_ERROR, CRYPT_ERROR_FAILED }
+		};
+#endif /* USE_ERRMSGS */
 	LOOP_INDEX i;
 	int value, status;
 
@@ -1424,25 +1452,20 @@ static int checkScepResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		memcmp( buffer, userNamePtr->value, userNamePtr->valueLength ) )
 		{
 #ifdef USE_ERRMSGS
-		char userNameBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
 		char transIDText[ CRYPT_MAX_TEXTSIZE + 8 ];
-		int userNameLen;
 #endif /* USE_ERRMSGS */
 
 		krnlSendNotifier( iCmsAttributes, IMESSAGE_DECREFCOUNT );
 #ifdef USE_ERRMSGS
-		userNameLen = min( userNamePtr->valueLength, CRYPT_MAX_TEXTSIZE );
-		REQUIRES( rangeCheck( userNameLen, 1, CRYPT_MAX_TEXTSIZE ) );
-		memcpy( userNameBuffer, userNamePtr->value, userNameLen );
 		formatHexData( transIDText, CRYPT_MAX_TEXTSIZE, buffer, 
 					   msgData.length );
 #endif /* USE_ERRMSGS */
-		retExt( CRYPT_ERROR_SIGNATURE,
-				( CRYPT_ERROR_SIGNATURE, SESSION_ERRINFO, 
-				  "Returned SCEP transaction ID '%s' doesn't match our "
-				  "original transaction ID '%s'", transIDText,
-				  sanitiseString( userNameBuffer, CRYPT_MAX_TEXTSIZE, 
-								  userNamePtr->valueLength ) ) );
+		retExtSan( CRYPT_ERROR_SIGNATURE,
+				   ( CRYPT_ERROR_SIGNATURE, SESSION_ERRINFO, 
+					 "Returned SCEP transaction ID '%s' doesn't match our "
+					 "original transaction ID '%s'", transIDText, 0,
+					 userNamePtr->value, userNamePtr->valueLength, 
+					 NULL, 0 ) );
 		}
 
 	/* Check that the returned nonce matches our initial nonce.  It's now
@@ -1477,7 +1500,7 @@ static int checkScepResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		retExt( CRYPT_ERROR_SIGNATURE,
 				( CRYPT_ERROR_SIGNATURE, SESSION_ERRINFO, 
 				  "Returned SCEP nonce '%s' doesn't match our original "
-				  "nonce '%s'", serverNonceText, serverNonceText ) );
+				  "nonce '%s'", serverNonceText, clientNonceText ) );
 		}
 	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE_S" );
 
@@ -1685,11 +1708,17 @@ static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		{
 		status = getCACertificate( sessionInfoPtr, &protocolInfo );
 		if( cryptStatusError( status ) )
+			{
+			destroySCEPprotocolInfo( &protocolInfo );
 			return( status );
+			}
 		}
 	status = checkCACertificate( sessionInfoPtr, &protocolInfo );
 	if( cryptStatusError( status ) )
+		{
+		destroySCEPprotocolInfo( &protocolInfo );
 		return( status );
+		}
 	protocolInfo.clientSignOnlyKey = signOnlyKey;
 	CFI_CHECK_UPDATE( "initSCEPprotocolInfo" );
 
@@ -1709,7 +1738,10 @@ static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		if( cryptStatusOK( status ) )
 			status = createScepCert( sessionInfoPtr, &protocolInfo );
 		if( cryptStatusError( status ) )
+			{
+			destroySCEPprotocolInfo( &protocolInfo );
 			return( status );
+			}
 		}
 	CFI_CHECK_UPDATE( "createScepCert" );
 
@@ -1738,6 +1770,7 @@ static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			krnlSendNotifier( sessionInfoPtr->privateKey, 
 							  IMESSAGE_CLEARDEPENDENT );
 			}
+		destroySCEPprotocolInfo( &protocolInfo );
 		return( status );
 		}
 
@@ -1753,6 +1786,7 @@ static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		krnlSendNotifier( sessionInfoPtr->privateKey, 
 						  IMESSAGE_CLEARDEPENDENT );
 		}
+	destroySCEPprotocolInfo( &protocolInfo );
 	if( cryptStatusError( status ) )
 		return( status );
 	CFI_CHECK_UPDATE( "checkScepResponse" );

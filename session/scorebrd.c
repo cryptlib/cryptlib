@@ -80,7 +80,7 @@ static BOOLEAN sanityCheckScoreboardEntry( const SCOREBOARD_ENTRY *scoreboardEnt
 	if( ( scoreboardEntry->isServerData != TRUE && \
 		  scoreboardEntry->isServerData != FALSE ) || \
 		scoreboardEntry->uniqueID < 0 || \
-		scoreboardEntry->uniqueID > INT_MAX - 10 )
+		scoreboardEntry->uniqueID > MAX_INTLENGTH - 100 )
 		{
 		DEBUG_PUTS(( "sanityCheckScoreboardEntry: Miscellaneous information" ));
 		return( FALSE );
@@ -548,15 +548,20 @@ static int addEntry( INOUT_PTR SCOREBOARD_INFO *scoreboardInfo,
 	if( scoreboardInfo->uniqueID >= MAX_INTLENGTH - 100 )
 		{
 		/* If we're about to wrap, reset the uniqueID value to the initial 
-		   value.  This can happen on 16-bit systems */
+		   value.  This can in theory happen on very long-running devices,
+		   although in practice is more likely to be an error */
 		scoreboardInfo->uniqueID = 0;
 		}
+	REQUIRES( !checkOverflowInc( scoreboardInfo->uniqueID ) );
 	*uniqueID = scoreboardEntryPtr->uniqueID = \
 				scoreboardInfo->uniqueID++;
 
 	/* If we've used a new entry, update the position-used index */
 	if( position >= scoreboardInfo->lastEntry )
+		{
+		REQUIRES( !checkOverflowAdd( position, 1 ) );
 		scoreboardInfo->lastEntry = position + 1;
+		}
 
 	return( CRYPT_OK );
 	}
@@ -641,7 +646,7 @@ int lookupScoreboardEntry( INOUT_PTR TYPECAST( SCOREBOARD_INFO * ) \
 						   IN_ENUM( SCOREBOARD_KEY ) \
 								const SCOREBOARD_KEY_TYPE keyType,
 						   IN_BUFFER( keyLength ) const void *key, 
-						   IN_LENGTH_SHORT_MIN( 2 ) const int keyLength, 
+						   IN_LENGTH_SHORT_MIN( 4 ) const int keyLength, 
 						   OUT_PTR \
 								SCOREBOARD_ENTRY_INFO *scoreboardEntryInfo )
 	{
@@ -862,10 +867,14 @@ static BOOLEAN selfTest( INOUT_PTR SCOREBOARD_INFO *scoreboardInfo )
 	scoreboardEntryInfo.dataSize = 4;
 	LOOP_LARGE( i = 0, i < SCOREBOARD_ENTRIES + 10, i++ )
 		{
+		int length;
+		
 		memset( dataString, 0, /*SCOREBOARD_KEY_MIN*/ 8 );
-		sprintf_s( dataString, /*SCOREBOARD_KEY_MIN*/ 8, "%04X", i );
+		length = sprintf_s( dataString, /*SCOREBOARD_KEY_MIN*/ 8, 
+							"%04X", i );
+		ENSURES_B( rangeCheck( length, 4, 7 ) );
 
-		ENSURES( LOOP_INVARIANT_LARGE( i, 0, SCOREBOARD_ENTRIES + 9 ) );
+		ENSURES_B( LOOP_INVARIANT_LARGE( i, 0, SCOREBOARD_ENTRIES + 9 ) );
 
 		status = \
 			addScoreboardEntry( scoreboardInfo, dataString, 
@@ -874,7 +883,7 @@ static BOOLEAN selfTest( INOUT_PTR SCOREBOARD_INFO *scoreboardInfo )
 		if( cryptStatusError( status ) )
 			return( FALSE );
 		}
-	ENSURES( LOOP_BOUND_OK );
+	ENSURES_B( LOOP_BOUND_OK );
 	if( scoreboardInfo->lastEntry != SCOREBOARD_ENTRIES || \
 		scoreboardInfo->uniqueID != 2 + SCOREBOARD_ENTRIES + 10 )
 		return( FALSE );
@@ -886,15 +895,17 @@ static BOOLEAN selfTest( INOUT_PTR SCOREBOARD_INFO *scoreboardInfo )
 
 /* Initialise and shut down the scoreboard */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int initScoreboard( INOUT_PTR TYPECAST( SCOREBOARD_INFO * ) \
-						struct SC *scoreboardInfoPtr )
+CHECK_RETVAL \
+int initScoreboard( void )
 	{
-	SCOREBOARD_INFO *scoreboardInfo = scoreboardInfoPtr;
+	SCOREBOARD_INFO *scoreboardInfo = \
+						getBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD );
 	int status;
 
 	assert( isWritePtr( scoreboardInfo, sizeof( SCOREBOARD_INFO ) ) );
-	
+
+	REQUIRES( checkBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ) );
+
 	status = krnlEnterMutex( MUTEX_SCOREBOARD );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -916,15 +927,18 @@ int initScoreboard( INOUT_PTR TYPECAST( SCOREBOARD_INFO * ) \
 
 	krnlExitMutex( MUTEX_SCOREBOARD );
 
+	ENSURES( checkBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ) );
+
 	return( CRYPT_OK );
 	}
 
-STDC_NONNULL_ARG( ( 1 ) ) \
-void endScoreboard( INOUT_PTR TYPECAST( SCOREBOARD_INFO * ) \
-						struct SC *scoreboardInfoPtr )
+void endScoreboard( void )
 	{
-	SCOREBOARD_INFO *scoreboardInfo = scoreboardInfoPtr;
+	SCOREBOARD_INFO *scoreboardInfo = \
+						getBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD );
 	int status;
+
+	REQUIRES_V( checkBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ) );
 
 	/* Shut down the scoreboard.  We acquire the mutex while we're doing 
 	   this to ensure that any threads still using it have exited before we 

@@ -624,7 +624,25 @@ static const BYTE sha256hash[] = {
 	0xA4, 0x95, 0x99, 0x1B, 0x78, 0x52, 0xB8, 0x55 
 	};
 
-/* Perform a pairwise consistency test on a public/private key pair */
+/* Perform a pairwise consistency test on a public/private key pair.  In 
+   theory this check doesn't necessarily work because of the way EdDSA 
+   works, see among others section 9.1 of "Attacking Deterministic Signature 
+   Schemes Using Fault Attacks" by Poddebniak, Somorovsky, Schinzel, Lochter 
+   and Rösler and "Ed25519 leaks private key if public key is incorrect", 
+   https://github.com/jedisct1/libsodium/issues/170/.
+   
+   However neither of these seem like real vulnerabilities, the first 
+   corrupts M into M', where both the signing and verification operation 
+   use h( R, A, M' ), which is a bit of a no-op attack that's only notable
+   because the equivalent fault-injection attack on RSA corrupts the CRT 
+   multiplication used during signature generation, which is then detectable 
+   by the non-CRT-using verification.  Corrupting the data being signed with 
+   RSA would lead to the same "attack".
+   
+   The second relies on an attacker switching out the public key, so the
+   data is signed with public key A and private key B.  cryptlib always
+   checks that the two match up when the key is loaded, and the same sort
+   of attack applies to other PKCs as well */
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
@@ -858,8 +876,6 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				 INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 				 IN_LENGTH_FIXED( sizeof( DLP_PARAMS ) ) int noBytes )
 	{
-	const CAPABILITY_INFO *capabilityInfoPtr = \
-				DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 	DLP_PARAMS *eccParams = ( DLP_PARAMS * ) buffer;
 	MESSAGE_DATA msgData;
@@ -881,7 +897,6 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	REQUIRES( eccParams->inParam2 == NULL && eccParams->inLen2 == 0 );
 	REQUIRES( isShortIntegerRangeMin( eccParams->outLen, 
 									  CURVE25519_SIZE * 2 ) );
-	REQUIRES( capabilityInfoPtr != NULL );
 
 	/* Clear return values */
 	REQUIRES( isShortIntegerRangeNZ( eccParams->outLen ) ); 
@@ -968,8 +983,6 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					 IN_BUFFER( noBytes ) BYTE *buffer, 
 					 IN_LENGTH_FIXED( sizeof( DLP_PARAMS ) ) int noBytes )
 	{
-	const CAPABILITY_INFO *capabilityInfoPtr = \
-				DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 	DLP_PARAMS *eccParams = ( DLP_PARAMS * ) buffer;
 	BYTE pubKey[ CURVE25519_SIZE + 8 ], hRAM[ CRYPT_MAX_HASHSIZE + 8 ];
@@ -988,7 +1001,6 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	REQUIRES( eccParams->inParam2 != NULL && \
 			  eccParams->inLen2 == CURVE25519_SIZE * 2 );
 	REQUIRES( eccParams->outParam == NULL && eccParams->outLen == 0 );
-	REQUIRES( capabilityInfoPtr != NULL );
 
 	/* Extract { r, s } from the signature data and verify that they're 
 	   kosher.  r is also checked in clib_ed25519_verify() which does an
@@ -1079,7 +1091,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		if( ed25519Key->isPublicKey )
 			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPUBLICKEY );
 		else
-			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPRIVATEKEY );
+			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		status = import25519ByteString( &pkcInfo->curve25519Param_pub, 
 										ed25519Key->pub, CURVE25519_SIZE );
 		if( cryptStatusOK( status ) && !ed25519Key->isPublicKey )

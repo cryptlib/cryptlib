@@ -849,10 +849,10 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			return( status );
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) 
+#if defined( USE_X25519 ) 
 		case CRYPT_IATTRIBUTE_KEY_IMPLICIT:
 			return( completeKeyLoad( contextInfoPtr, FALSE ) );
-#endif /* USE_25519 */
+#endif /* USE_X25519 */
 
 		case CRYPT_IATTRIBUTE_DEVICEOBJECT:
 #ifdef USE_DEVICES

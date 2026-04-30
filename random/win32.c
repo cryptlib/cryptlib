@@ -673,7 +673,7 @@ static void readMBMData( void )
 
 /* Read data from Everest via the shared-memory interface.  Everest returns 
    information as an enormous XML text string so we have to be careful about 
-   handling of lengths.  In general the returned length is 1-3K, so we 
+   handling of lengths.  In general the returned length is 1-3K so we 
    hard-limit it at 2K to ensure there are no problems if the trailing null 
    gets lost */
 
@@ -832,6 +832,9 @@ static void readRivaTunerData( void )
 			static const int quality = 10;
 			int status;
 
+			ENSURES_V( !checkOverflowMul( rivaTunerHeaderPtr->dwNumEntries,
+										  rivaTunerHeaderPtr->dwEntrySize ) );
+			ENSURES_V( isIntegerRangeMin( entryTotalSize, 4 ) );
 			setMessageData( &msgData, ( MESSAGE_CAST ) entryPtr, 
 							min( entryTotalSize, 2048 ) );
 			status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, 
@@ -876,13 +879,15 @@ static void readHMonitorData( void )
 			MapViewOfFile( hHMonitorData, FILE_MAP_READ, 0, 0, 0 ) ) != NULL )
 		{
 		if( hMonitorDataPtr->version >= 0x4100 && \
-			( hMonitorDataPtr->length >= 48 && hMonitorDataPtr->length <= 1024 ) )
+			hMonitorDataPtr->length >= 48 && \
+			hMonitorDataPtr->length <= 1024 )
 			{
 			MESSAGE_DATA msgData;
 			static const int quality = 40;
 			int status;
 
-			setMessageData( &msgData, hMonitorDataPtr, hMonitorDataPtr->length );
+			setMessageData( &msgData, hMonitorDataPtr, 
+							hMonitorDataPtr->length );
 			status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, 
 									  IMESSAGE_SETATTRIBUTE_S, &msgData, 
 									  CRYPT_IATTRIBUTE_ENTROPY );
@@ -2024,6 +2029,8 @@ static void registryPoll( void )
 				{
 				PPERF_DATA_BLOCK pTempPerfData;
 				
+				REQUIRES_V( !checkOverflowAdd( cbPerfData, 
+											   PERFORMANCE_BUFFER_STEP ) );
 				cbPerfData += PERFORMANCE_BUFFER_STEP;
 				pTempPerfData = ( PPERF_DATA_BLOCK ) realloc( pPerfData, cbPerfData );
 				if( pTempPerfData == NULL )
@@ -2257,6 +2264,8 @@ static void slowPollWindows( void )
 		   FLG_MAINTAIN_OBJECT_TYPELIST be set in NtGlobalFlags.  To avoid
 		   having to special-case all of these, we try reading each one and
 		   only use those for which we get a success status */
+		static_assert( PERFORMANCE_BUFFER_SIZE > 2048,
+					   "Win32 performance buffer size" );
 		dwResult = pNtQuerySystemInformation( dwType, buffer,
 											  PERFORMANCE_BUFFER_SIZE - 2048,
 											  &ulSize );

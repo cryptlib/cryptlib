@@ -223,7 +223,7 @@ static int certProcess( const CRYPT_ALGO_TYPE cryptAlgo,
 			( cryptAlgo == CRYPT_ALGO_ELGAMAL ) ? "pr_cert_elgamal" : \
 			( cryptAlgo == CRYPT_ALGO_ECDSA ) ? "pr_cert_ecdsa" : \
 			( cryptAlgo == CRYPT_ALGO_ECDH ) ? "pr_cert_ecdh" : \
-			( cryptAlgo == CRYPT_ALGO_25519 ) ? "pr_cert_25519" : \
+			( cryptAlgo == CRYPT_ALGO_25519 ) ? "pr_cert_x25519" : \
 			( cryptAlgo == CRYPT_ALGO_ED25519 ) ? "pr_cert_ed25519" : \
 												"pr_cert_xxx";
 	int length, status;

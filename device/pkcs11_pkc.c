@@ -321,6 +321,7 @@ static int genericEncrypt( PKCS11_INFO *pkcs11Info,
 		{
 		const int delta = length - resultLen;
 
+		REQUIRES( !checkOverflowSub( length, resultLen ) );
 		REQUIRES( boundsCheck( delta, resultLen, length ) );
 		memmove( ( BYTE * ) buffer + delta, buffer, resultLen );
 		REQUIRES( rangeCheck( delta, 1, 64 ) );
@@ -408,6 +409,7 @@ static int genericDecrypt( PKCS11_INFO *pkcs11Info,
 		{
 		const int delta = length - resultLen;
 
+		REQUIRES( !checkOverflowSub( length, resultLen ) );
 		REQUIRES( boundsCheck( delta, resultLen, length ) );
 		memmove( ( BYTE * ) buffer + delta, buffer, resultLen );
 		REQUIRES( rangeCheck( delta, 1, 64 ) );
@@ -1150,6 +1152,7 @@ static int rsaSign( CONTEXT_INFO *contextInfoPtr, BYTE *buffer, int length )
 										&iCryptDevice, &pkcs11Info );
 	if( cryptStatusError( cryptStatus ) )
 		return( cryptStatus );
+	REQUIRES( !checkOverflowSub( keySize, i ) );
 	cryptStatus = genericSign( pkcs11Info, contextInfoPtr, &mechanism, 
 							   bufPtr + i, keySize - i, buffer, keySize );
 	krnlReleaseObject( iCryptDevice );
@@ -1227,6 +1230,7 @@ static int rsaEncrypt( CONTEXT_INFO *contextInfoPtr, BYTE *buffer, int length )
 		}
 	ENSURES( LOOP_BOUND_OK );
 	i++;	/* Skip final 0 byte */
+	REQUIRES( !checkOverflowSub( keySize, i ) );
 	REQUIRES( boundsCheck( i, keySize - i, length ) );
 	memmove( bufPtr, bufPtr + i, keySize - i );
 
@@ -1237,7 +1241,7 @@ static int rsaEncrypt( CONTEXT_INFO *contextInfoPtr, BYTE *buffer, int length )
 		return( cryptStatus );
 	cryptStatus = genericEncrypt( pkcs11Info, contextInfoPtr, &mechanism, 
 								  bufPtr, keySize - i, keySize );
-	krnlReleaseObject( iCryptDevice );
+	krnlReleaseObject( iCryptDevice );	  /* Checked earlier */
 	return( cryptStatus );
 	}
 
@@ -1267,6 +1271,7 @@ static int rsaDecrypt( CONTEXT_INFO *contextInfoPtr, BYTE *buffer, int length )
 	krnlReleaseObject( iCryptDevice );
 	if( cryptStatusError( cryptStatus ) )
 		return( cryptStatus );
+	REQUIRES( !checkOverflowSub( keySize, resultLen ) );
 	padSize = keySize - resultLen;
 	ENSURES( isShortIntegerRangeNZ( padSize ) );
 
@@ -1293,6 +1298,7 @@ static int rsaDecrypt( CONTEXT_INFO *contextInfoPtr, BYTE *buffer, int length )
 	memmove( bufPtr + padSize, bufPtr, resultLen );
 	bufPtr[ 0 ] = 0;
 	bufPtr[ 1 ] = 2;
+	REQUIRES( !checkOverflowSub( padSize, 3 ) );
 	setMessageData( &msgData, bufPtr + 2, padSize - 3 );
 	cryptStatus = krnlSendMessage( SYSTEM_OBJECT_HANDLE, 
 								   IMESSAGE_GETATTRIBUTE_S, &msgData, 

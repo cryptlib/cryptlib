@@ -499,6 +499,7 @@ int preDispatchCheckKeysetAccess( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( MESSAGE_KEYMGMT_INFO ) ) );
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( localMessage == MESSAGE_KEY_GETKEY || \
 			  localMessage == MESSAGE_KEY_SETKEY || \

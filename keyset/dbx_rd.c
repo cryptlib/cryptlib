@@ -150,7 +150,7 @@ static BOOLEAN checkCertUsage( IN_BUFFER( certLength ) const BYTE *certificate,
 	   any keyUsage restrictions present */
 	if( certLength <= MIN_PKCSIZE )
 		return( TRUE );
-	ENSURES( certLength > MIN_PKCSIZE );
+	ENSURES_B( certLength > MIN_PKCSIZE );
 
 	/* Scan the payload portion of the certificate for the keyUsage 
 	   extension.  The certificate is laid out approximately as:
@@ -165,8 +165,8 @@ static BOOLEAN checkCertUsage( IN_BUFFER( certLength ) const BYTE *certificate,
 		STREAM stream;
 		int keyUsage, status;
 
-		ENSURES( LOOP_INVARIANT_MAX_XXX( i, 128 + MIN_PKCSIZE, 
-										 certLength - ( MIN_PKCSIZE + 1 ) ) );
+		ENSURES_B( LOOP_INVARIANT_MAX_XXX( i, 128 + MIN_PKCSIZE, 
+										   certLength - ( MIN_PKCSIZE + 1 ) ) );
 
 		/* Look for the OID.  This potentially skips two bytes at a time but 
 		   this is safe because the preceding bytes can never contain either 
@@ -186,6 +186,7 @@ static BOOLEAN checkCertUsage( IN_BUFFER( certLength ) const BYTE *certificate,
 			i += 3;
 
 		/* Read the OCTET STRING wrapper and BIT STRING */
+		REQUIRES_B( !checkOverflowSub( certLength, i + MIN_PKCSIZE ) );
 		sMemConnect( &stream, certificate + i, 
 					 certLength - ( i + MIN_PKCSIZE ) );
 		readOctetStringHole( &stream, NULL, 4, DEFAULT_TAG );
@@ -965,6 +966,7 @@ static int setSpecialItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	   documentation about the appropriate use of this capability */
 	strlcpy_s( sqlBuffer, MAX_SQL_QUERY_SIZE, selectString );
 	sqlLength = strnlen_s( sqlBuffer, MAX_SQL_QUERY_SIZE );
+	REQUIRES( !checkOverflowSub( MAX_SQL_QUERY_SIZE - 1, sqlLength ) );
 	status = dbmsFormatQuery( sqlBuffer + sqlLength, 
 							 ( MAX_SQL_QUERY_SIZE - 1 ) - sqlLength, 
 							 &sqlQueryLength, data, dataLength );

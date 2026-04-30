@@ -668,6 +668,7 @@ int preDispatchCheckMechanismWrapAccess( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( MECHANISM_WRAP_INFO ) ) );
 
 	/* Precondition */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( message == MESSAGE_DEV_EXPORT || \
 			  message == IMESSAGE_DEV_EXPORT || \
@@ -861,6 +862,7 @@ int preDispatchCheckMechanismSignAccess( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( MECHANISM_WRAP_INFO ) ) );
 
 	/* Precondition */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( message == MESSAGE_DEV_SIGN || \
 			  message == IMESSAGE_DEV_SIGN || \
@@ -991,6 +993,7 @@ int preDispatchCheckMechanismDeriveAccess( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( MECHANISM_WRAP_INFO ) ) );
 
 	/* Precondition */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( message == MESSAGE_DEV_DERIVE || \
 			  message == IMESSAGE_DEV_DERIVE );
@@ -1081,6 +1084,7 @@ int preDispatchCheckMechanismKDFAccess( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( MECHANISM_WRAP_INFO ) ) );
 
 	/* Precondition */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( message == MESSAGE_DEV_KDF || message == IMESSAGE_DEV_KDF );
 	REQUIRES( messageValue == MECHANISM_DERIVE_PBKDF2 || \

@@ -664,8 +664,8 @@ static int readPkcs15header( INOUT_PTR STREAM *stream,
 	   position */
 	status = calculateStreamObjectLength( stream, sizeofShortInteger( 0 ), 
 										  &currentPos );
-	if( cryptStatusError( status ) || currentPos < MIN_OBJECT_SIZE || \
-		endPos < 16 + MIN_OBJECT_SIZE || \
+	if( cryptStatusError( status ) || currentPos < MIN_P15_OBJECT_SIZE || \
+		endPos < 16 + MIN_P15_OBJECT_SIZE || \
 		checkOverflowAdd( currentPos, endPos ) || \
 		currentPos + endPos >= MAX_BUFFER_SIZE )
 		{
@@ -673,7 +673,7 @@ static int readPkcs15header( INOUT_PTR STREAM *stream,
 				( CRYPT_ERROR_BADDATA, errorInfo, 
 				  "Invalid PKCS #15 keyset length information" ) );
 		}
-	*endPosPtr = currentPos + endPos;
+	*endPosPtr = currentPos + endPos;	/* Checked earlier */
 
 	/* Skip the key management information if there is any and read the 
 	   inner wrapper */
@@ -690,7 +690,8 @@ static int readPkcs15header( INOUT_PTR STREAM *stream,
 
 	/* Make sure that, after skipping the key management data, there's still 
 	   some payload left */
-	if( stell( stream ) >= endPos - MIN_OBJECT_SIZE )
+	REQUIRES( !checkOverflowSub( endPos, MIN_P15_OBJECT_SIZE ) );
+	if( stell( stream ) >= endPos - MIN_P15_OBJECT_SIZE )
 		return( CRYPT_ERROR_BADDATA );
 
 	return( CRYPT_OK );

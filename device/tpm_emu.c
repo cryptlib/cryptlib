@@ -433,6 +433,8 @@ TSS2_RC Fapi_Decrypt( FAPI_CONTEXT *context, char const *keyPath,
 		return( TSS2_RC_SUCCESS + 1 );
 
 	*plainText = buffer + payloadStartPos;
+	REQUIRES_EXT( !checkOverflowSub( cipherTextSize, payloadStartPos ),
+				  TSS2_RC_SUCCESS + 1 );
 	*plainTextSize = cipherTextSize - payloadStartPos;
 
 	return( TSS2_RC_SUCCESS );

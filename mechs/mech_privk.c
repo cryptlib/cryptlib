@@ -49,7 +49,8 @@ static int pgpReadDecryptMPI( INOUT_PTR STREAM *stream,
 	REQUIRES( minLength >= bitsToBytes( 155 ) && \
 			  minLength <= maxLength && \
 			  maxLength <= CRYPT_MAX_PKCSIZE );
-	REQUIRES( isIntegerRangeMin( mpiDataStartPos, UINT16_SIZE ) );
+	REQUIRES( !checkOverflowAdd( stell( stream ), UINT16_SIZE ) );
+	ENSURES( isIntegerRangeMin( mpiDataStartPos, UINT16_SIZE ) );
 
 	/* Get the MPI length and decrypt the payload data.  We have to be 
 	   careful how we handle this because readInteger16Ubits() returns the 
@@ -165,7 +166,7 @@ static int checkKeyIntegrity( IN_BUFFER( dataLength ) const void *data,
 	{
 	const BYTE *padPtr;
 	LOOP_INDEX i;
-	int length, padSize, status;
+	int length, padSize, value = 0, status;
 
 	assert( isReadPtrDynamic( data, dataLength ) );
 
@@ -210,8 +211,16 @@ static int checkKeyIntegrity( IN_BUFFER( dataLength ) const void *data,
 	   time the following block won't be affected, however the DLP key load 
 	   checks also verify x when the key is loaded.  The padding checking is 
 	   effectively free and helps make Klima-Rosa type attacks harder */
-	padSize = blockSize - ( length & ( blockSize - 1 ) );
+	if( blockSize <= ( length & ( blockSize - 1 ) ) )
+		padSize = UNDERFLOW_MARKER;
+	else
+		{
+		REQUIRES( !checkOverflowSub( blockSize,
+									 length & ( blockSize - 1 ) ) );
+		padSize = blockSize - ( length & ( blockSize - 1 ) );
+		}
 	if( padSize < 1 || padSize > CRYPT_MAX_IVSIZE || \
+		checkOverflowAdd( length, padSize ) || \
 		length + padSize > dataLength )
 		return( CRYPT_ERROR_BADDATA );
 	padPtr = ( const BYTE * ) data + length;
@@ -220,10 +229,11 @@ static int checkKeyIntegrity( IN_BUFFER( dataLength ) const void *data,
 		ENSURES( LOOP_INVARIANT_EXT( i, 0, padSize - 1,
 									 CRYPT_MAX_IVSIZE + 1 ) );
 
-		if( padPtr[ i ] != padSize )
-			return( CRYPT_ERROR_BADDATA );
+		value |= padPtr[ i ] ^ padSize;
 		}
 	ENSURES( LOOP_BOUND_OK );
+	if( value != 0 )
+		return( CRYPT_ERROR_BADDATA );
 
 	return( CRYPT_OK );
 	}
@@ -263,6 +273,7 @@ static int checkPgp2KeyIntegrity( IN_BUFFER( dataLength ) const void *data,
 
 	/* Recover the stored checksum that follows the MPI data and compare it 
 	   to the calculated checksum */
+	REQUIRES( !checkOverflowSub( dataLength, keyDataLength ) );
 	sMemConnect( &stream, keyData + keyDataLength, 
 				 dataLength - keyDataLength );
 	status = storedChecksum = readUint16( &stream );
@@ -293,11 +304,12 @@ static int checkOpenPgpKeyIntegrity( IN_BUFFER( dataLength ) \
 							 &hashSize );
 	if( dataLength < bitsToBytes( 155 ) + hashSize )
 		return( CRYPT_ERROR_BADDATA );
+	REQUIRES( !checkOverflowSub( dataLength, hashSize ) );
 	hashValuePtr = ( const BYTE * ) data + dataLength - hashSize; 
 
 	/* Hash the data and make sure that it matches the stored MDC */
 	hashFunctionAtomic( hashValue, CRYPT_MAX_HASHSIZE, data, 
-						dataLength - hashSize );
+						dataLength - hashSize );	/* Checked earlier */
 	if( compareDataConstTime( hashValue, hashValuePtr, hashSize ) != TRUE )
 		return( CRYPT_ERROR_WRONGKEY );
 
@@ -360,7 +372,7 @@ static int privateKeyWrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 			( type == PRIVATEKEY_WRAP_EXTENDED ) ? KEYFORMAT_PRIVATE_EXT : \
 												   KEYFORMAT_PRIVATE_OLD;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
-	int payloadSize, blockSize, padSize, status;
+	int payloadSize, blockSize, padSize, paddedPayloadSize, status;
 
 	assert( isWritePtr( mechanismInfo, sizeof( MECHANISM_WRAP_INFO ) ) );
 
@@ -386,22 +398,28 @@ static int privateKeyWrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 							  CRYPT_CTXINFO_IVSIZE );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowRoundup( payloadSize + 1, blockSize ) );
+	REQUIRES( !checkOverflowSub( roundUp( payloadSize + 1, blockSize ),
+								 payloadSize ) );
 	padSize = roundUp( payloadSize + 1, blockSize ) - payloadSize;
 	ENSURES( !( ( payloadSize + padSize ) & ( blockSize - 1 ) ) );
 	ENSURES( padSize >= 1 && padSize <= CRYPT_MAX_IVSIZE );
+	REQUIRES( !checkOverflowAdd( payloadSize, padSize ) );
+	paddedPayloadSize = payloadSize + padSize;
+	ENSURES( isShortIntegerRangeMin( paddedPayloadSize, payloadSize ) );
 	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE" );
 
 	/* If this is just a length check, we're done */
 	if( mechanismInfo->wrappedData == NULL )
 		{
-		mechanismInfo->wrappedDataLength = payloadSize + padSize;
+		mechanismInfo->wrappedDataLength = paddedPayloadSize;
 		return( CRYPT_OK );
 		}
 	ANALYSER_HINT( isShortIntegerRangeMin( mechanismInfo->wrappedDataLength, \
 										   MIN_PKCSIZE ) );
 
 	/* Make sure that the wrapped key fits in the output buffer */
-	if( payloadSize + padSize > mechanismInfo->wrappedDataLength )
+	if( paddedPayloadSize > mechanismInfo->wrappedDataLength )
 		return( CRYPT_ERROR_OVERFLOW );
 
 	/* Write the private key data, PKCS #5-pad it, and encrypt it */
@@ -413,8 +431,10 @@ static int privateKeyWrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 		{
 		BYTE startSample[ 8 + 8 ], endSample[ 8 + 8 ];
 		BYTE *dataPtr = mechanismInfo->wrappedData;
-		const void *dataEndPtr = dataPtr + payloadSize + padSize - 8;
+		const void *dataEndPtr = dataPtr + paddedPayloadSize - 8;
 		LOOP_INDEX i;
+
+		REQUIRES( !checkOverflowSub( paddedPayloadSize, 8 ) );
 
 		/* Sample the first and last 8 bytes of data so that we can check
 		   that they really have been encrypted */
@@ -433,7 +453,7 @@ static int privateKeyWrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 		status = krnlSendMessage( mechanismInfo->wrapContext,
 								  IMESSAGE_CTX_ENCRYPT,
 								  mechanismInfo->wrappedData,
-								  payloadSize + padSize );
+								  paddedPayloadSize );
 
 		/* Make sure that the original data samples differ from the final
 		   data.  We don't perform a retIntError() exit at this point because
@@ -457,7 +477,7 @@ static int privateKeyWrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 				 mechanismInfo->wrappedDataLength );
 		return( status );
 		}
-	mechanismInfo->wrappedDataLength = payloadSize + padSize;
+	mechanismInfo->wrappedDataLength = paddedPayloadSize;
 
 	ENSURES( CFI_CHECK_SEQUENCE_3( "exportPrivateKeyData", 
 								   "IMESSAGE_GETATTRIBUTE", 

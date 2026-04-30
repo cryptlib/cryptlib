@@ -4,6 +4,7 @@
 
  Copyright (C) 2006-2010 Alvaro Livraghi. All Rights Reserved.
  Alvaro Livraghi, <perlcryptlib@gmail.com>
+ Modified by Ralf Senderek for cryptlib-3.4.9.1 April 2026
 
 *******************************************************************************/
 
@@ -205,14 +206,14 @@ int cryptGenerateKey(cryptContext)
 	const int cryptContext
 
 
-int cryptExportKey(encryptedKey, encryptedKeyMaxLength, encryptedKeyLength, exportKey, sessionKeyContext)
+int cryptWrapKey(encryptedKey, encryptedKeyMaxLength, encryptedKeyLength, exportKey, sessionKeyContext)
 	void * encryptedKey = (SvIOK(ST(0)) ? (void *)SvIV(ST(0)) : (void *)SvPV_nolen(ST(0)));
 	const int encryptedKeyMaxLength;
 	int encryptedKeyLength;
 	const int exportKey;
 	const int sessionKeyContext;
 	CODE:
-		RETVAL = cryptExportKey(encryptedKey, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext);
+		RETVAL = cryptWrapKey(encryptedKey, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext);
 		if ( RETVAL == CRYPT_OK ) sv_setpvn(ST(0), encryptedKey, encryptedKeyLength);
 	OUTPUT:
 		RETVAL
@@ -270,21 +271,21 @@ int cryptDestroyCert(cryptCert)
 	const int cryptCert;
 
 
-int cryptImportKey(encryptedKey, encryptedKeyLength, importContext, sessionKeyContext)
+int cryptUnwrapKey(encryptedKey, encryptedKeyLength, importContext, sessionKeyContext)
 	const void * encryptedKey;
 	const int encryptedKeyLength;
 	const int importContext;
 	const int sessionKeyContext;
 
 
-int cryptImportKeyEx(encryptedKey, encryptedKeyLength, importContext, sessionKeyContext, returnedContext)
+int cryptUnwrapKeyEx(encryptedKey, encryptedKeyLength, importContext, sessionKeyContext, returnedContext)
 	const void * encryptedKey;
 	const int encryptedKeyLength;
 	const int importContext;
 	const int sessionKeyContext;
 	int returnedContext;
 	CODE:
-		RETVAL = cryptImportKeyEx(encryptedKey, encryptedKeyLength, importContext, sessionKeyContext, &returnedContext);
+		RETVAL = cryptUnwrapKeyEx(encryptedKey, encryptedKeyLength, importContext, sessionKeyContext, &returnedContext);
 	OUTPUT:
 		RETVAL
 		returnedContext
@@ -530,7 +531,7 @@ int cryptEncrypt(cryptContext, buffer, length)
 		RETVAL
 
 
-int cryptExportKeyEx(encryptedKey, encryptedKeyMaxLength, encryptedKeyLength, formatType, exportKey, sessionKeyContext)
+int cryptWrapKeyEx(encryptedKey, encryptedKeyMaxLength, encryptedKeyLength, formatType, exportKey, sessionKeyContext)
 	void * encryptedKey = (SvIOK(ST(0)) ? (void *)SvIV(ST(0)) : (void *)SvPV_nolen(ST(0)));
 	const int encryptedKeyMaxLength;
 	int encryptedKeyLength;
@@ -538,7 +539,7 @@ int cryptExportKeyEx(encryptedKey, encryptedKeyMaxLength, encryptedKeyLength, fo
 	const int exportKey;
 	const int sessionKeyContext;
 	CODE:
-		RETVAL = cryptExportKeyEx(encryptedKey, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext);
+		RETVAL = cryptWrapKeyEx(encryptedKey, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext);
 		if ( RETVAL == CRYPT_OK ) sv_setpvn(ST(0), encryptedKey, encryptedKeyLength);
 	OUTPUT:
 		RETVAL

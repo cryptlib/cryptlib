@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								cryptlib SSHv2 Client						*
-*						Copyright Peter Gutmann 1998-2024					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -144,6 +144,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( cryptStatusOK( status ) )
 			{
 			streamBookmarkSet( stream, keyexInfoLength );
+			ENSURES( streamBookmarkOK( keyexInfoLength ) );
 			status = writeUint32( stream, bytesToBits( SSH2_DEFAULT_KEYSIZE ) );
 			}
 		}
@@ -154,6 +155,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( cryptStatusOK( status ) )
 			{
 			streamBookmarkSet( stream, keyexInfoLength );
+			ENSURES( streamBookmarkOK( keyexInfoLength ) );
 			writeUint32( stream, bytesToBits( MIN_PKCSIZE ) );
 			writeUint32( stream, bytesToBits( SSH2_DEFAULT_KEYSIZE ) );
 			status = writeUint32( stream, bytesToBits( CRYPT_MAX_PKCSIZE ) );
@@ -206,7 +208,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							"parameters" ) );
 		}
 	sMemConnect( stream, sessionInfoPtr->receiveBuffer, length );
-	streamBookmarkSet( stream, keyexInfoLength );
+	streamBookmarkStreamStart( keyexInfoLength );
 	status = readInteger32( stream, NULL, &dummy, MIN_PKCSIZE, 
 							CRYPT_MAX_PKCSIZE, BIGNUM_CHECK_VALUE_PKC );
 	if( cryptStatusOK( status ) )
@@ -217,8 +219,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusOK( status ) )
 		{
 		status = streamBookmarkComplete( stream, &keyexInfoPtr, 
-										 &keyexInfoLength, 
-										 keyexInfoLength );
+										 &keyexInfoLength, keyexInfoLength );
 		}
 	sMemDisconnect( stream );
 	if( cryptStatusError( status ) )
@@ -260,6 +261,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Set up the DH context from the server's parameters and perform phase 
 	   1 of the DH key agreement process */
+	REQUIRES( !checkOverflowAdd( keyDataHdrSize, keyexInfoLength ) );
 	status = initDHcontextSSH( &handshakeInfo->iServerCryptContext,
 							   &handshakeInfo->serverKeySize, keyexInfoPtr,
 							   keyDataHdrSize + keyexInfoLength,
@@ -369,6 +371,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 	streamBookmarkSetFullPacket( &stream, clientHelloLength );
+	ENSURES( streamBookmarkOK( clientHelloLength ) );
 	status = exportVarsizeAttributeToStream( &stream, SYSTEM_OBJECT_HANDLE,
 											 CRYPT_IATTRIBUTE_RANDOM_NONCE,
 											 SSH2_COOKIE_SIZE );
@@ -379,46 +382,41 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	status = writeAlgoStringEx( &stream, handshakeInfo->keyexAlgo,
 								handshakeInfo->exchangeHashAlgo, 
-								CRYPT_UNUSED, handshakeInfo->isFixedDH ? \
-									SSH_ALGOSTRINGINFO_EXTINFO_ALTDHALGOS : \
-									SSH_ALGOSTRINGINFO_EXTINFO );
+								CRYPT_UNUSED, handshakeInfo->isFixedDH,
+								GET_FLAGS( sessionInfoPtr->protocolFlags, \
+										   SSH_PFLAG_STRICT_KEX ) );
 	if( cryptStatusOK( status ) )
 		{
-		status = writeAlgoStringEx( &stream, handshakeInfo->pubkeyAlgo, 
-									handshakeInfo->hashAlgo, CRYPT_UNUSED,
-									SSH_ALGOSTRINGINFO_NONE );
+		status = writeAlgoString( &stream, handshakeInfo->pubkeyAlgo, 
+								  handshakeInfo->hashAlgo, CRYPT_UNUSED );
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = writeAlgoStringEx( &stream, sessionInfoPtr->cryptAlgo,
-									TEST_FLAG( sessionInfoPtr->protocolFlags, \
-											   SSH_PFLAG_CTR ) ? \
+		status = writeAlgoString( &stream, sessionInfoPtr->cryptAlgo,
+								  TEST_FLAG( sessionInfoPtr->protocolFlags, \
+											 SSH_PFLAG_CTR ) ? \
 										CRYPT_MODE_ECB : CRYPT_MODE_CBC, 
-									handshakeInfo->cryptKeysize,
-									SSH_ALGOSTRINGINFO_NONE );
+								  handshakeInfo->cryptKeysize );
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = writeAlgoStringEx( &stream, sessionInfoPtr->cryptAlgo,
-									TEST_FLAG( sessionInfoPtr->protocolFlags, \
-											   SSH_PFLAG_CTR ) ? \
+		status = writeAlgoString( &stream, sessionInfoPtr->cryptAlgo,
+								  TEST_FLAG( sessionInfoPtr->protocolFlags, \
+											 SSH_PFLAG_CTR ) ? \
 										CRYPT_MODE_ECB : CRYPT_MODE_CBC, 
-									handshakeInfo->cryptKeysize,
-									SSH_ALGOSTRINGINFO_NONE );
+								  handshakeInfo->cryptKeysize );
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = writeAlgoStringEx( &stream, sessionInfoPtr->integrityAlgo,
-									0, TEST_FLAG( sessionInfoPtr->protocolFlags, \
-												  SSH_PFLAG_ETM ) ? TRUE : FALSE, \
-									SSH_ALGOSTRINGINFO_NONE );
+		status = writeAlgoString( &stream, sessionInfoPtr->integrityAlgo,
+								  0, TEST_FLAG( sessionInfoPtr->protocolFlags, \
+												SSH_PFLAG_ETM ) ? TRUE : FALSE );
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = writeAlgoStringEx( &stream, sessionInfoPtr->integrityAlgo,
-									0, TEST_FLAG( sessionInfoPtr->protocolFlags, \
-												  SSH_PFLAG_ETM ) ? TRUE : FALSE, \
-									SSH_ALGOSTRINGINFO_NONE );
+		status = writeAlgoString( &stream, sessionInfoPtr->integrityAlgo,
+								  0, TEST_FLAG( sessionInfoPtr->protocolFlags, \
+												SSH_PFLAG_ETM ) ? TRUE : FALSE );
 		}
 	if( cryptStatusOK( status ) )
 		status = writeAlgoClassList( &stream, SSH_ALGOCLASS_COPR );
@@ -461,6 +459,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		memmove( sessionInfoPtr->receiveBuffer + 1, 
 				 sessionInfoPtr->receiveBuffer, serverHelloLength );
 		sessionInfoPtr->receiveBuffer[ 0 ] = SSH_MSG_KEXINIT;
+		REQUIRES( !checkOverflowAdd( serverHelloLength, 1 ) );
 		status = hashAsString( handshakeInfo->iExchangeHashContext,
 							   sessionInfoPtr->receiveBuffer, 
 							   serverHelloLength + 1 );
@@ -491,7 +490,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	else
 		{
-#if defined( USE_ECDH ) || defined( USE_25519 )
+#if defined( USE_ECDH ) || defined( USE_X25519 )
 		/* A second possibility is when we're using ECDH/25519 rather than 
 		   DH, for which we have to use ECDH/25519 contexts and values */
 		if( handshakeInfo->isECDH )
@@ -503,7 +502,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										 handshakeInfo->keyexAlgo );
 			}
 		else
-#endif /* USE_ECDH || USE_25519 */
+#endif /* USE_ECDH || USE_X25519 */
 			{
 			status = processDHE( sessionInfoPtr, handshakeInfo, &stream );
 			if( cryptStatusError( status ) )
@@ -568,6 +567,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusOK( status ) )
 		{
 		streamBookmarkSet( &stream, keyexLength );
+		ENSURES( streamBookmarkOK( keyexLength ) );
 		if( handshakeInfo->isECDH )
 			{
 			status = writeString32( &stream, keyAgreeParams.publicValue,
@@ -746,7 +746,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 	sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
-	streamBookmarkSet( &stream, keyLength );
+	streamBookmarkStreamStart( keyLength );
 	status = checkReadPublicKey( &stream, &pubkeyAlgo, &keyBlobLength, 
 								 SESSION_ERRINFO );
 	if( cryptStatusOK( status ) )
@@ -863,6 +863,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Prepare to process the handshake packet signature ("What are you 
 	   preparing?! You're always preparing! Just go!") */
 	streamBookmarkSet( &stream, sigLength );
+	ENSURES( streamBookmarkOK( sigLength ) );
 	status = length = readUint32( &stream );
 	if( !cryptStatusError( status ) && !isShortIntegerRangeNZ( length ) )
 		status = CRYPT_ERROR_BADDATA;
@@ -929,6 +930,8 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   contains the complete server key/certificate and DH keyex value 
 		   which is far longer than the 12 bytes of header plus signature 
 		   that we'll be writing there */
+		REQUIRES( !checkOverflowAdd( LENGTH_SIZE + sizeofString32( 7 ),
+									 sigLength ) );
 		sMemOpen( &stream, sessionInfoPtr->receiveBuffer,
 				  LENGTH_SIZE + sizeofString32( 7 ) + sigLength );
 		writeUint32( &stream, sizeofString32( 7 ) + sigLength );
@@ -1035,6 +1038,12 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 		}
 	SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE );
+	if( TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_STRICT_KEX ) )
+		{
+		/* We're using strict KEX, we need to reset the write sequence 
+		   number as well */
+		sessionInfoPtr->sessionSSH->writeSeqNo = 0;
+		}
 	CFI_CHECK_UPDATE( "SSH_MSG_NEWKEYS" );
 
 #if 0
@@ -1148,6 +1157,24 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 	SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_READ );
+	if( TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_STRICT_KEX ) )
+		{
+		SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+
+		/* Make sure that we're compliant with the strict KEX 
+		   requirements */			
+		if( !checkStrictKEX( sshInfo->packetTrace,
+							 sshInfo->packetTraceLength, FALSE ) )
+			{
+			retExt( CRYPT_ERROR_INVALID,
+					( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
+					  "Strict KEX violation detected" ) );
+			}
+
+		/* We're using strict KEX, we need to reset the read sequence 
+		   number as well */
+		sessionInfoPtr->sessionSSH->readSeqNo = 0;
+		}
 	CFI_CHECK_UPDATE( "readHSPacketSSH2" );
 
 	/* Wait for the server's service-accept message that should follow in
@@ -1159,8 +1186,8 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* It's a buggy implementation, just check for the presence of a 
 		   packet without looking at the contents */
-		status = readHSPacketSSH2( sessionInfoPtr, SSH_MSG_SERVICE_ACCEPT, 
-								   ID_SIZE );
+		status = readPostHSPacketSSH2( sessionInfoPtr, 
+									   SSH_MSG_SERVICE_ACCEPT, ID_SIZE );
 		if( cryptStatusError( status ) )
 			{
 			/* This is the first message after the change cipherspec, a 
@@ -1191,8 +1218,9 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				string	name
 				string	value (binary data) */
 		status = length = \
-			readHSPacketSSH2( sessionInfoPtr, SSH_MSG_SPECIAL_SERVICEACCEPT,
-							  ID_SIZE + UINT32_SIZE );
+			readPostHSPacketSSH2( sessionInfoPtr, 
+								  SSH_MSG_SPECIAL_SERVICEACCEPT,
+								  ID_SIZE + UINT32_SIZE );
 		if( cryptStatusError( status ) )
 			{
 			/* This is the first message after the change cipherspec, a 
@@ -1217,8 +1245,8 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 			/* Retry the service-accept read */
 			status = length = \
-				readHSPacketSSH2( sessionInfoPtr, SSH_MSG_SERVICE_ACCEPT,
-								  ID_SIZE + sizeofString32( 8 ) );
+				readPostHSPacketSSH2( sessionInfoPtr, SSH_MSG_SERVICE_ACCEPT,
+									  ID_SIZE + sizeofString32( 8 ) );
 			if( cryptStatusError( status ) )
 				return( status );
 			}
@@ -1279,7 +1307,7 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   boolean	want_reply = FALSE */
 	status = openPacketStreamSSH( &stream, sessionInfoPtr, CRYPT_USE_DEFAULT,
 								  SSH_MSG_GLOBAL_REQUEST );
-	writeString32( &stream, "no-more-sessions@openssh.com", 29 );
+	writeString32( &stream, "no-more-sessions@openssh.com", 28 );
 	sputc( &stream, 0 );
 	status = wrapPacketSSH2( sessionInfoPtr, &stream, 0, TRUE, TRUE );
 	if( cryptStatusOK( status ) )

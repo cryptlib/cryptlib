@@ -152,7 +152,7 @@ typedef enum {
 #define PGP_ALGO_PKC_RES3	22		/* RFC 9580: "EdDSA legacy" */
 #define PGP_ALGO_PKC_RES4	23		/* RFC 9580: Resvd.for "AEDH" */
 #define PGP_ALGO_PKC_RES5	24		/* RFC 9580: Resvd.for "AEDSA" */
-#define PGP_ALGO_25519		25		/* RFC 9580: X25519 */
+#define PGP_ALGO_X25519		25		/* RFC 9580: X25519 */
 #define PGP_ALGO_448		26		/* RFC 9580: X448 */
 #define PGP_ALGO_ED25519	27		/* RFC 9580: Ed25519 */
 #define PGP_ALGO_ED448		28		/* RFC 9580: Ed448 */

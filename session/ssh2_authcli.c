@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *			cryptlib SSHv2 Client-side Authentication Management			*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -124,13 +124,13 @@ static int createPubkeyAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   name changes for RSA with SHA2 so that the key is given the old
 	   name and the overall blob and signature are given the new name */
 	streamBookmarkSetFullPacket( stream, packetDataLength );
+	ENSURES( streamBookmarkOK( packetDataLength ) );
 	writeString32( stream, userNamePtr->value, userNamePtr->valueLength );
 	writeString32( stream, "ssh-connection", 14 );
 	writeString32( stream, "publickey", 9 );
 	sputc( stream, 1 );
-	status = writeAlgoStringEx( stream, sessionInfoPtr->privateKeyAlgo, 
-								handshakeInfo->hashAlgo, CRYPT_UNUSED, 
-								SSH_ALGOSTRINGINFO_NONE );
+	status = writeAlgoString( stream, sessionInfoPtr->privateKeyAlgo, 
+							  handshakeInfo->hashAlgo, CRYPT_UNUSED );
 	if( cryptStatusOK( status ) )
 		{
 		status = exportAttributeToStream( stream, sessionInfoPtr->privateKey,
@@ -148,6 +148,7 @@ static int createPubkeyAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				( status, SESSION_ERRINFO,
 				  "Couldn't write SSH_MSG_USERAUTH_REQUEST packet" ) );
 		}
+	ANALYSER_HINT( packetDataPtr != NULL );
 
 	/* Create the signature on the authentication data, with the usual 
 	   special-snowflake handling for the Bernstein algorithms */
@@ -489,8 +490,10 @@ static int processAuthFailure( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isEnumRange( providedAuthType, SSH_AUTHTYPE ) );
 	REQUIRES( isBooleanValue( partialAuthOK ) );
 
-	status = readAuthFailureInfo( sessionInfoPtr, length, &requiredAuthType, 
-								  &needFurtherAuth, TRUE );
+	status = readAuthFailureInfo( sessionInfoPtr, length, 
+						&requiredAuthType, &needFurtherAuth, 
+						( providedAuthType == SSH_AUTHTYPE_PASSWORD ) ? \
+						  TRUE : FALSE );
 	if( cryptStatusError( status ) )
 		return( ( status == OK_SPECIAL ) ? CRYPT_ERROR_WRONGKEY : status );
 	return( reportAuthFailure( sessionInfoPtr, providedAuthType, 
@@ -677,12 +680,11 @@ static int sendDummyAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* We've successfully (non-)authenticated ourselves and we're done */
 		return( OK_SPECIAL );
 		}
-	else
-		{
-		/* There was an error authenticating, exit */
-		if( status != OK_SPECIAL )
-			return( status );
-		}
+
+	/* If there was an error authenticating, exit.  OK_SPECIAL means that we 
+	   got back something telling us that further steps are required */
+	if( status != OK_SPECIAL )
+		return( status );
 
 	/* The authentication failed, in this case since what we've sent is a 
 	   dummy auth to de-confuse buggy servers we expect it to fail, in which
@@ -780,8 +782,9 @@ static int pamAuthenticate( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				( status, SESSION_ERRINFO, 
 				  "Invalid PAM authentication request packet" ) );
 		}
-	REQUIRES( nameLength >= 0 && nameLength <= CRYPT_MAX_TEXTSIZE );
-	REQUIRES( promptLength >= 1 && promptLength <= CRYPT_MAX_TEXTSIZE );
+	ENSURES( nameLength >= 0 && nameLength <= CRYPT_MAX_TEXTSIZE );
+	ENSURES( noPrompts > 0 && noPrompts <= 4 );
+	ENSURES( promptLength >= 1 && promptLength <= CRYPT_MAX_TEXTSIZE );
 
 	/* Make sure that we're being asked for some form of password 
 	   authentication.  This assumes that the prompt string begins with the 
@@ -796,14 +799,12 @@ static int pamAuthenticate( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   on the off chance that something fills this in it could produce
 		   a less appropriate error message than the prompt, but we 
 		   opportunistically try it in case it contains something useful */
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Server requested unknown PAM authentication type '%s'", 
-				  ( nameLength > 0 ) ? \
-				  sanitiseString( nameBuffer, CRYPT_MAX_TEXTSIZE, \
-								  nameLength ) : \
-				  sanitiseString( promptBuffer, CRYPT_MAX_TEXTSIZE, \
-								  promptLength ) ) );
+		retExtSan( CRYPT_ERROR_BADDATA,
+				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+					 "Server requested unknown PAM authentication type '%s'", 
+					 ( nameLength > 0 ) ? nameBuffer : promptBuffer,
+					 ( nameLength > 0 ) ? nameLength : promptLength,
+					 NULL, 0, NULL, 0 ) );
 		}
 
 	REQUIRES( passwordPtr != NULL && \
@@ -921,12 +922,12 @@ static int processPamAuthentication( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			/* We've successfully authenticated ourselves and we're done */
 			return( CRYPT_OK );
 			}
-		else
-			{
-			/* There was an error authenticating, exit */
-			if( status != OK_SPECIAL )
-				return( status );
-			}
+
+		/* If there was an error authenticating, exit.  OK_SPECIAL means 
+		   that we got back something telling us that further steps are 
+		   required */
+		if( status != OK_SPECIAL )
+			return( status );
 
 		/* If the authentication failed provide more specific details to the 
 		   caller */
@@ -940,18 +941,11 @@ static int processPamAuthentication( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			   handle it just in case */
 			if( pamIteration <= 0 )
 				{
-				char userNameBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
-
-				REQUIRES( rangeCheck( userNamePtr->valueLength, 1, 
-									  CRYPT_MAX_TEXTSIZE ) );
-				memcpy( userNameBuffer, userNamePtr->value,
-						userNamePtr->valueLength );
-				retExt( CRYPT_ERROR_WRONGKEY,
-						( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
-						  "Server reported: Invalid user name '%s'",
-						  sanitiseString( userNameBuffer,
-										  CRYPT_MAX_TEXTSIZE,
-									      userNamePtr->valueLength ) ) );
+				retExtSan( CRYPT_ERROR_WRONGKEY,
+						   ( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
+							 "Server reported: Invalid user name '%s'",
+							 userNamePtr->value, userNamePtr->valueLength,
+							 NULL, 0, NULL, 0 ) );
 				}
 
 			/* It's a failure after we've tried to authenticate ourselves,
@@ -1042,19 +1036,19 @@ int processClientAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   question-and-answer facility */
 	status = sendAuthRequest( sessionInfoPtr, handshakeInfo, userNamePtr, 
 							  FALSE );
-	if( cryptStatusOK( status ) )
-		status = readAuthResponse( sessionInfoPtr, &type, &length, FALSE );
+	if( cryptStatusError( status ) )
+		return( status );
+	status = readAuthResponse( sessionInfoPtr, &type, &length, FALSE );
 	if( cryptStatusOK( status ) )
 		{
-		/* We've successfully authenticated ourselves and we're done */
+		/* We've successfully authenticated and we're done */
 		return( CRYPT_OK );
 		}
-	else
-		{
-		/* There was an error authenticating, exit */
-		if( status != OK_SPECIAL )
-			return( status );
-		}
+
+	/* If there was an error authenticating, exit.  OK_SPECIAL means that we 
+	   got back something telling us that further steps are required */
+	if( status != OK_SPECIAL )
+		return( status );
 
 	/* Read the details of the authentication failure.  We decode the 
 	   response to favour password- or pubkey-based authentication depending 
@@ -1135,12 +1129,11 @@ int processClientAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* We've successfully authenticated ourselves and we're done */
 		return( CRYPT_OK );
 		}
-	else
-		{
-		/* There was an error authenticating, exit */
-		if( status != OK_SPECIAL )
-			return( status );
-		}
+
+	/* If there was an error authenticating, exit.  OK_SPECIAL means that we 
+	   got back something telling us that further steps are required */
+	if( status != OK_SPECIAL )
+		return( status );
 
 	/* The additional authentication failed, provide more specific details 
 	   for the caller */

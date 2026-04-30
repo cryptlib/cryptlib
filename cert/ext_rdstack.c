@@ -227,6 +227,7 @@ static BOOLEAN setofStackPop( INOUT_PTR SETOF_STACK *setofStack )
 	if( setofStack->stackPos <= 0 || \
 		setofStack->stackPos >= SETOF_STATE_STACKSIZE )
 		return( FALSE );
+	REQUIRES_B( !checkOverflowDec( setofStack->stackPos ) );
 	setofStack->stackPos--;
 	ENSURES_B( setofStack->stackPos >= 0 && \
 			   setofStack->stackPos < SETOF_STATE_STACKSIZE - 1 );
@@ -248,6 +249,9 @@ SETOF_STATE_INFO *setofTOS( IN_PTR const SETOF_STACK *setofStack )
 	setofInfoPtr = &setofStack->stateInfo[ setofStack->stackPos ];
 	ENSURES_N( sanityCheckSetofStateInfo( setofInfoPtr ) );
 
+	/* We have to cast away the const from the returned pointer because,
+	   although we don't modify anything ourselves, the caller wants to
+	   modify it */
 	return( ( SETOF_STATE_INFO * ) setofInfoPtr );
 	}
 
@@ -377,6 +381,7 @@ int setofBegin( INOUT_PTR SETOF_STACK *setofStack,
 	/* Sanity-check the wrapper length information to make sure that it 
 	   makes sense */
 	if( !isShortIntegerRange( setofLength ) || \
+		checkOverflowAdd( stell( stream ), setofLength ) || \
 		stell( stream ) + setofLength > dataEndPos )
 		return( CRYPT_ERROR_BADDATA );
 
@@ -419,6 +424,8 @@ int setofBegin( INOUT_PTR SETOF_STACK *setofStack,
 	setofInfoPtr->subtypeParent = parentSetofInfoPtr->subtypeParent;
 	setofInfoPtr->inheritedAttrFlags = parentSetofInfoPtr->inheritedAttrFlags;
 	setofInfoPtr->startPos = stell( stream );
+	REQUIRES( isIntegerRangeNZ( setofInfoPtr->startPos ) && \
+			  !checkOverflowAdd( setofInfoPtr->startPos, setofLength ) );
 	setofInfoPtr->endPos = setofInfoPtr->startPos + setofLength;
 	ENSURES( sanityCheckSetofStateInfo( setofInfoPtr ) );
 
@@ -558,6 +565,7 @@ int setofCheckEnd( IN_PTR const STREAM *stream,
 		setofInfoPtr = setofTOS( setofStack );
 		ENSURES( setofInfoPtr != NULL );
 		attributeInfoPtr = setofInfoPtr->infoStart;
+		ENSURES( attributeInfoPtr != NULL );
 
 		/* If it's a pure SET/SEQUENCE rather than a SET OF/SEQUENCE OF and 
 		   there are no more elements present, go to the end of the 

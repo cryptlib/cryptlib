@@ -54,11 +54,16 @@ static int getPadSize( IN_HANDLE const CRYPT_CONTEXT iExportContext,
 	/* Determine the padding size, which is the amount of padding required to
 	   bring the total data size up to a multiple of the block size with a
 	   minimum size of two blocks.  Unlike PKCS #5 padding, the total may be 
-	   zero */
+	   zero.  This can't overflow because of the check earlier but we repeat it 
+	   here to document that fact  */
+	REQUIRES( payloadSize >= MIN_KEYSIZE && \
+			  payloadSize <= CRYPT_MAX_KEYSIZE );
 	totalSize = roundUp( payloadSize, blockSize );
+	REQUIRES( !checkOverflowMul( blockSize, 2 ) );
 	if( totalSize < blockSize * 2 )
 		totalSize = blockSize * 2;
 	ENSURES( !( totalSize & ( blockSize - 1 ) ) );
+	REQUIRES( !checkOverflowSub( totalSize, payloadSize ) );
 	*padSize = totalSize - payloadSize;
 	ENSURES( isShortIntegerRange( *padSize ) );
 
@@ -110,6 +115,8 @@ int exportCMS( STDC_UNUSED void *dummy,
 	/* If this is just a length check, we're done */
 	if( mechanismInfo->wrappedData == NULL )
 		{
+		REQUIRES( !checkOverflowAdd3( CMS_KEYBLOCK_HEADERSIZE, keySize, 
+									  padSize ) );
 		mechanismInfo->wrappedDataLength = \
 							CMS_KEYBLOCK_HEADERSIZE + keySize + padSize;
 		return( CRYPT_OK );
@@ -118,6 +125,8 @@ int exportCMS( STDC_UNUSED void *dummy,
 				   mechanismInfo->wrappedDataLength < MAX_INTLENGTH_SHORT );
 
 	/* Make sure that the wrapped key data fits in the output */
+	REQUIRES( !checkOverflowAdd3( CMS_KEYBLOCK_HEADERSIZE, keySize, 
+								  padSize ) );
 	if( CMS_KEYBLOCK_HEADERSIZE + \
 					keySize + padSize > mechanismInfo->wrappedDataLength )
 		return( CRYPT_ERROR_OVERFLOW );
@@ -162,6 +171,7 @@ int exportCMS( STDC_UNUSED void *dummy,
 								  mechanismInfo->wrappedData,
 								  CMS_KEYBLOCK_HEADERSIZE + keySize + \
 									padSize );
+								  /* Overflow checked earlier */
 		CFI_CHECK_UPDATE( "IMESSAGE_CTX_ENCRYPT1" );
 		}
 	if( cryptStatusOK( status ) )
@@ -171,6 +181,7 @@ int exportCMS( STDC_UNUSED void *dummy,
 								  mechanismInfo->wrappedData,
 								  CMS_KEYBLOCK_HEADERSIZE + keySize + \
 									padSize );
+								  /* Overflow checked earlier */
 		CFI_CHECK_UPDATE( "IMESSAGE_CTX_ENCRYPT2" );
 		}
 	if( cryptStatusOK( status ) && !memcmp( dataSample, keyBlockPtr, 16 ) )
@@ -192,6 +203,7 @@ int exportCMS( STDC_UNUSED void *dummy,
 		}
 	mechanismInfo->wrappedDataLength = CMS_KEYBLOCK_HEADERSIZE + \
 									   keySize + padSize;
+									   /* Overflow checked earlier */
 
 	ENSURES( CFI_CHECK_SEQUENCE_4( "getPadSize", "IMESSAGE_GETATTRIBUTE_S", 
 								   "IMESSAGE_CTX_ENCRYPT1", 
@@ -254,6 +266,10 @@ int importCMS( STDC_UNUSED void *dummy,
 						  CRYPT_MAX_KEYSIZE + CRYPT_MAX_IVSIZE ) );
 	memcpy( buffer, mechanismInfo->wrappedData,
 			mechanismInfo->wrappedDataLength );
+	REQUIRES( mechanismInfo->wrappedDataLength >= 2 * blockSize );
+			  /* Already checked above, make sure that buffer +
+			     mechanismInfo->wrappedDataLength - ( 2 * blockSize ) >= 
+			     buffer */
 	setMessageData( &msgData, dataEndPtr - ( 2 * blockSize ), blockSize );
 	status = krnlSendMessage( mechanismInfo->wrapContext, 
 							  IMESSAGE_SETATTRIBUTE_S, &msgData, 
@@ -273,6 +289,8 @@ int importCMS( STDC_UNUSED void *dummy,
 		}
 	if( cryptStatusOK( status ) )
 		{
+		REQUIRES( !checkOverflowSub( mechanismInfo->wrappedDataLength,
+									 blockSize ) );
 		status = krnlSendMessage( mechanismInfo->wrapContext,
 								  IMESSAGE_CTX_DECRYPT, buffer,
 								  mechanismInfo->wrappedDataLength - blockSize );
@@ -318,7 +336,12 @@ int importCMS( STDC_UNUSED void *dummy,
 	   If this check fails then it could be due to corruption of the wrapped
 	   data but is far more likely to be because the incorrect unwrap key was
 	   used, so we return a CRYPT_ERROR_WRONGKEY instead of a 
-	   CRYPT_ERROR_BADDATA */
+	   CRYPT_ERROR_BADDATA.  In addition it's not meant as a 
+	   cryptographically strong validation (the use of an incorrecy key will
+	   reveal a problem there) but more a chance to report a wrong-key 
+	   error */
+	REQUIRES( !checkOverflowSub( mechanismInfo->wrappedDataLength,
+							CMS_KEYBLOCK_HEADERSIZE ) );
 	value = ( buffer[ 0 ] < MIN_KEYSIZE ) | \
 			( buffer[ 0 ] > MAX_WORKING_KEYSIZE ) | \
 			( buffer[ 0 ] > mechanismInfo->wrappedDataLength - \
@@ -333,7 +356,8 @@ int importCMS( STDC_UNUSED void *dummy,
 		}
 
 	/* Load the recovered key into the session key context */
-	setMessageData( &msgData, buffer + CMS_KEYBLOCK_HEADERSIZE, buffer[ 0 ] );
+	setMessageData( &msgData, buffer + CMS_KEYBLOCK_HEADERSIZE, 
+					buffer[ 0 ] );
 	status = krnlSendMessage( mechanismInfo->keyContext,
 							  IMESSAGE_SETATTRIBUTE_S, &msgData,
 							  CRYPT_CTXINFO_KEY );

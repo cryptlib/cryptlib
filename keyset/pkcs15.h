@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						PKCS #15 Definitions Header File					*
-*						Copyright Peter Gutmann 1996-2020					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -204,12 +204,12 @@ typedef enum {
 /* Since PKCS #15 uses more key ID types than are used by the rest of
    cryptlib, we extend the standard range with PKCS15-only types */
 
-#define CRYPT_KEYIDEX_ID				CRYPT_KEYID_NONE
+#define CRYPT_KEYIDEX_ID		CRYPT_KEYID_NONE
 
 /* The minimum size of an object in a keyset, used for sanity-checking when
    reading a keyset */
 
-#define MIN_OBJECT_SIZE		16
+#define MIN_P15_OBJECT_SIZE		16
 
 /* When writing attributes it's useful to have a fixed-size buffer rather
    than having to mess around with all sorts of variable-length structures,
@@ -220,7 +220,7 @@ typedef enum {
    dozen hashes (as IDs for subject, issuer, and so on), and a few odd bits 
    and pieces so this is plenty */
 
-#define KEYATTR_BUFFER_SIZE	512
+#define KEYATTR_BUFFER_SIZE		512
 
 /****************************************************************************
 *																			*
@@ -257,9 +257,9 @@ typedef struct {
 	BYTE subjectNameID[ KEYID_SIZE + 8 ];
 	BUFFER( KEYID_SIZE, issuerNameIDlength ) \
 	BYTE issuerNameID[ KEYID_SIZE + 8 ];
-	BUFFER( KEYID_SIZE, pgp2KeyIDlength ) \
+	BUFFER( PGP_KEYID_SIZE, pgp2KeyIDlength ) \
 	BYTE pgp2KeyID[ PGP_KEYID_SIZE + 8 ];
-	BUFFER( KEYID_SIZE, openPGPKeyIDlength ) \
+	BUFFER( PGP_KEYID_SIZE, openPGPKeyIDlength ) \
 	BYTE openPGPKeyID[ PGP_KEYID_SIZE + 8 ];
 	int iAndSIDlength, subjectNameIDlength, issuerNameIDlength;
 	int pgp2KeyIDlength, openPGPKeyIDlength;
@@ -320,28 +320,30 @@ enum { CTAG_OB_SUBCLASSATTR, CTAG_OB_TYPEATTR, CTAG_OB_LAST };
 enum { CTAG_OV_DIRECT, CTAG_OV_DUMMY1, CTAG_OV_DIRECTPROTECTED, 
 	   CTAG_OV_DUMMY2, CTAG_OV_DIRECTPROTECTED_EXT, CTAG_OV_LAST };
 
-/* Context-specific tags for the class attributes record */
+/* Context-specific tags for the class attributes record.  KA = key 
+   attribute, CA = certificate attribute, IA = identifier attribute */
 
 enum { CTAG_KA_VALIDTO, CTAG_KA_LAST };
 enum { CTAG_CA_DUMMY, CTAG_CA_TRUSTED_USAGE, CTAG_CA_IDENTIFIERS,
 	   CTAG_CA_TRUSTED_IMPLICIT, CTAG_CA_VALIDTO, CTAG_CA_LAST };
-enum { CTAG_PK_IDENTIFIERS };
+enum { CTAG_IA_IDENTIFIERS, CTAG_IA_LAST };
 
-/* Context-specific tags for the public/private key objects record */
+/* Context-specific tags for the public/private key objects record.
+   KP = public key, KR = private key */
 
-enum { CTAG_PK_ECC, CTAG_PK_DH, CTAG_PK_DSA, CTAG_PK_KEA, 
-	   CTAG_PK_BERNSTEIN };
-enum { CTAG_PR_ECC, CTAG_PR_DH, CTAG_PR_DSA, CTAG_PR_KEA,
-	   CTAG_PR_RSA_EXT, CTAG_PR_ECC_EXT, CTAG_PR_DLP_EXT, 
-	   CTAG_PR_BERNSTEIN_EXT };
+enum { CTAG_KP_ECC, CTAG_KP_DH, CTAG_KP_DSA, CTAG_KP_DUMMY, 
+	   CTAG_KP_BERNSTEIN, CTAG_KP_LAST };
+enum { CTAG_KR_ECC, CTAG_KR_DH, CTAG_KR_DSA, CTAG_KR_DUMMY,
+	   CTAG_KR_RSA_EXT, CTAG_KR_ECC_EXT, CTAG_KR_DLP_EXT, 
+	   CTAG_KR_BERNSTEIN_EXT, CTAG_KR_LAST };
 
 /* Check whether a private-key tag specifies the use of the extended format.
    Note that we have to perform a full range check rather than just a check
    that it's past the first extended tag because untagged RSA keys have a
    value beyond the last extended tag */
 
-#define isPKExt( tag )		( ( tag ) >= CTAG_PR_RSA_EXT && \
-							  ( tag ) <= CTAG_PR_BERNSTEIN_EXT ) 
+#define isPKExt( tag )		( ( tag ) >= CTAG_KR_RSA_EXT && \
+							  ( tag ) <= CTAG_KR_BERNSTEIN_EXT ) 
 
 /* Context-specific tags for the data objects record */
 
@@ -556,7 +558,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
 int readPkcs15Keyset( INOUT_PTR STREAM *stream, 
 					  OUT_ARRAY( maxNoPkcs15objects ) PKCS15_INFO *pkcs15info, 
 					  IN_LENGTH_SHORT const int maxNoPkcs15objects, 
-					  IN_LENGTH const long endPos,
+					  IN_LENGTH const int endPos,
 					  INOUT_PTR ERROR_INFO *errorInfo );
 
 #endif /* _PKCS15_DEFINED */

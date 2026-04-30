@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Encryption Capability Header File 				*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -331,6 +331,8 @@ CHECK_RETVAL_PTR_NONNULL \
 const CAPABILITY_INFO *getX25519Capability( void );
 CHECK_RETVAL_PTR_NONNULL \
 const CAPABILITY_INFO *getEd25519Capability( void );
+CHECK_RETVAL_PTR_NONNULL \
+const CAPABILITY_INFO *getMLKEMCapability( void );
 
 CHECK_RETVAL_PTR_NONNULL \
 const CAPABILITY_INFO *getGenericSecretCapability( void );

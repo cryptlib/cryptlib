@@ -345,7 +345,7 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	BOOLEAN allowTLS13 = FALSE;
 	const int tlsMinVersion = sessionInfoPtr->sessionTLS->minVersion;
 	int suiteIndex = 999, eccSuiteIndex = 999, tls13SuiteIndex = 999;
-	int suiteRunSuite = 999, suiteRunCount DUMMY_INIT;
+	int suiteRunSuite = 999, suiteRunCount = 0;
 	int cipherSuiteInfoSize, invalidSuiteCount = 0, status;
 	LOOP_INDEX i;
 
@@ -356,15 +356,17 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( noSuites > 0 && noSuites <= MAX_CIPHERSUITES );
 
-	/* Check whether TLS 1.3 is enabled.  We can't check the session 
-	   information as we do for TLS 1.2 because TLS 1.3 identifies as TLS 
-	   1.2 in the version information, so we have to check whether we
-	   can do at least TLS 1.2 (via the version information) and then 
-	   whether we've been configured to allow TLS 1.3 in case it's enabled 
-	   later in the handshake process */
+	/* Check whether TLS 1.3 is enabled.  We can't check version in the 
+	   session information as we do for TLS 1.2 because TLS 1.3 identifies 
+	   as TLS 1.2 in the version information, so we have to check whether we
+	   can do at least TLS 1.2 (via the session version information) and 
+	   then whether we've been configured to allow TLS 1.3 in case it's 
+	   enabled later in the handshake process */
 	protocolInfo = DATAPTR_GET( sessionInfoPtr->protocolInfo );
 	ENSURES( protocolInfo != NULL );
-	if( allowTLS12 && protocolInfo->maxVersion >= TLS_MINOR_VERSION_TLS13 )
+	if( allowTLS12 && \
+		protocolInfo->maxVersion >= TLS_MINOR_VERSION_TLS13 && \
+		sessionInfoPtr->sessionTLS->maxVersion >= TLS_MINOR_VERSION_TLS13 )
 		allowTLS13 = TRUE;
 
 	/* Get the information for the supported cipher suites */
@@ -443,7 +445,8 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 
 		/* Check for a run of consecutive suites, a sign that we're being
-		   scanned */
+		   scanned.  This isn't foolproof but just enables us to provide
+		   more meaningful error messages in some cases */
 		if( suiteRunSuite == 999 )
 			{
 			suiteRunSuite = newSuite;
@@ -457,8 +460,9 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				suiteRunCount++;
 
 				/* If we've seen more than 20 consecutive suites, assume
-				   we're being scanned, there should never be that many 
-				   sensible suites next to each other.  Suites listed at
+				   that we're being scanned, there should never be that 
+				   many sensible suites next to each other.  Suites are 
+				   listed at
 				   https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-4,
 				   suites that we should never really see are 0x03, 0x06, 
 				   0x08, 0x0E, 0x11, 0x14, 0x17-2E, 0x34, 0x3A-3B, 
@@ -853,6 +857,138 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 *																			*
 ****************************************************************************/
 
+/* The server-side crypto options can be retroactively modified, 
+   particularly in the made-of-extensions TLS 1.3, by various extensions
+   sent by the client.  The following function tries to fix up the mess
+   that this creates */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
+static int fixupServerCryptoOptions( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
+									 INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo )
+	{
+	int status;
+
+	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
+
+	/* If we're using TLS 1.3, fix up the various issues arising from the 
+	   fact that we don't know until we're finished processing all of the 
+	   extensions that it really is TLS 1.3 and not TLS 1.2 */
+#ifdef USE_TLS13
+	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
+		{
+		DEBUG_PRINT(( "Performing TLS 1.3 fixups:\n" ));
+			
+		/* If we're using TLS 1.3, switch to the TLS 1.3 suite unless we've 
+		   already fallen back to it because no other options were available */
+		if( handshakeInfo->fallbackType != TLS_FALLBACK_TLS13 )				
+			{
+			if( handshakeInfo->tls13SuiteInfoPtr == NULL )
+				{
+				retExt( CRYPT_ERROR_NOTAVAIL,
+						( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
+						  "Client specified use of TLS 1.3 but did't offer "
+						  "any TLS 1.3 cipher suites" ) );
+				}
+			DEBUG_PRINT(( "  Setting cipher suite to %s.\n",
+						  handshakeInfo->tls13SuiteInfoPtr->debugText ));
+			status = setSuiteInfo( sessionInfoPtr, handshakeInfo, 
+								   handshakeInfo->tls13SuiteInfoPtr );
+			if( cryptStatusError( status ) )
+				return( status );
+			} 
+
+		/* If we got offered both TLS classic and TLS 1.3 keyex groups and 
+		   the TLS 1.3 option is the preferred one, switch to that now.  In
+		   some cases we can get a group that's both TLS classic and TLS 1.3
+		   (for example ECDH P256) set as both the classic and TLS 1.3 group,
+		   in which case the operation below is a no-op */
+		if( handshakeInfo->keyexTls13Preferred )
+			{
+			REQUIRES( handshakeInfo->keyexTls13GroupInfo != NULL );
+			DEBUG_PRINT_COND( handshakeInfo->keyexGroupInfo != NULL && \
+							  handshakeInfo->keyexGroupInfo != \
+									handshakeInfo->keyexTls13GroupInfo,
+							  ( "  Replacing %s keyex with more preferred "
+							    "TLS 1.3 %s.\n",
+							    handshakeInfo->keyexGroupInfo->description,
+							    handshakeInfo->keyexTls13GroupInfo->description ) );
+			handshakeInfo->keyexGroupInfo = \
+							handshakeInfo->keyexTls13GroupInfo;
+			}
+		handshakeInfo->keyexTls13GroupInfo = NULL;
+
+		/* If we're using a TLS 1.3 suite then the keyex authentication 
+		   algorithm isn't set by the cipher suite like it is for TLS 
+		   classic, so we have to set it explicitly based on the server key 
+		   being used */
+		if( handshakeInfo->authAlgo == CRYPT_ALGO_NONE && \
+			sessionInfoPtr->privateKey != CRYPT_ERROR )
+			handshakeInfo->authAlgo = sessionInfoPtr->privateKeyAlgo;
+
+		return( CRYPT_OK );
+		}
+#endif /* USE_TLS13 */
+
+	/* At this point we're handling TLS classic.  If the only available 
+	   suite is an ECC one but it's been disabled through an incompatible 
+	   choice of client-selected algorithm parameters then we can't 
+	   continue */
+	if( handshakeInfo->disableECC )
+		{
+		if( isEccAlgo( handshakeInfo->keyexAlgo ) )
+			{
+			retExt( CRYPT_ERROR_NOTAVAIL,
+					( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
+					  "Client specified use of an ECC cipher suite but "
+					  "didn't provide any compatible ECC parameters" ) );
+			}
+
+		return( CRYPT_OK );
+		}
+
+	/* If the client has chosen an ECC suite and it hasn't subsequently been 
+	   disabled by an incompatible choice of client-selected parameters, and 
+	   conversely it hasn't already been set because no standard suites were 
+	   available, switch to the ECC suite.
+			   
+	   If PREFER_ECC is set then we unconditionally prefer ECC suites, if not 
+	   then we only prefer them if a non-PFS keyex algorithm has been 
+	   selected */
+#ifdef PREFER_ECC
+	if( handshakeInfo->fallbackType != TLS_FALLBACK_ECC && \
+		handshakeInfo->eccSuiteInfoPtr != NULL )
+#else
+	if( handshakeInfo->fallbackType != TLS_FALLBACK_ECC && \
+		handshakeInfo->eccSuiteInfoPtr != NULL && \
+		!isKeyexAlgo( handshakeInfo->keyexAlgo ) )
+#endif /* PREFER_ECC */
+		{
+		status = setSuiteInfo( sessionInfoPtr, handshakeInfo, 
+							   handshakeInfo->eccSuiteInfoPtr );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
+
+	/* If we're using an ECC cipher suite (either due to it being the only 
+	   suite available or because it was selected above) and there's no ECC 
+	   group selected by the client, default to P256.  This is pretty much 
+	   the universal default in any case, in fact 25% of servers on the 
+	   Internet will run with P256 even if the client explicitly says they 
+	   don't support it, see "In search of CurveSwap: Measuring elliptic 
+	   curve implementations in the wild" by Valenta, Sullivan, Sanso and 
+	   Heninger */
+	if( handshakeInfo->keyexAlgo == CRYPT_ALGO_ECDH && \
+		handshakeInfo->keyexGroupInfo == NULL )
+		{
+		handshakeInfo->keyexGroupInfo = \
+						getTLSGroupInfoEntry( TLS_GROUP_SECP256R1 );
+		ENSURES( handshakeInfo->keyexGroupInfo != NULL );
+		}
+
+	return( CRYPT_OK );
+	}
+
 /* Process the client/server hello:
 
 		byte		ID = TLS_HAND_CLIENT_HELLO / TLS_HAND_SERVER_HELLO
@@ -881,7 +1017,7 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 IN_BOOL const BOOLEAN isServer )
 	{
 	BOOLEAN potentiallyResumedSession = FALSE;
-	int endPos, length, suiteLength, value, status;
+	int endPos, length, suiteLength, extensionLength, value, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
@@ -912,6 +1048,7 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 	status = processVersionInfo( sessionInfoPtr, stream, &value, FALSE );
@@ -919,8 +1056,6 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 	if( isServer )
 		handshakeInfo->clientOfferedVersion = value;
-	else
-		sessionInfoPtr->version = value;
 
 	/* Since we now know which protocol version we're using, we can turn off
 	   any hashing that we don't require any more */
@@ -973,25 +1108,29 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		!memcmp( handshakeInfo->serverNonce + TLS_DOWNGRADEID_OFFSET, 
 				 TLS_DOWNGRADEID_PREFIX, TLS_DOWNGRADEID_PREFIX_SIZE ) )
 		{
+		const int downgradeIDvalue = byteToInt( \
+			handshakeInfo->serverNonce[ TLS_DOWNGRADEID_OFFSET + \
+										TLS_DOWNGRADEID_PREFIX_SIZE ] );
+		
 		/* The server has sent a nonce with a downgrade-protection value
-		   present, make sure that the ID value matches the TLS version that
-		   we asked for.  For example if we asked for TLS 1.3 and got back
-		   the value for TLS 1.2 then we know that there's been a downgrade
-		   attack.
+		   present, make sure that the ID value at the end of the prefix 
+		   matches the TLS version that we asked for.  For example if we 
+		   asked for TLS 1.3 and got back the value for TLS 1.2 then we 
+		   know that there's been a downgrade attack.
 
 		   The ID relies on arbitrarily-chosen magic values, 1 for TLS 1.2 
 		   and 0 for TLS 1.1 or below.  Conversely, TLS 1.3 isn't signalled 
 		   at all */
 		if( ( sessionInfoPtr->version == TLS_MINOR_VERSION_TLS12 && \
-			  handshakeInfo->serverNonce[ TLS_NONCE_SIZE - 1 ] != 1 ) || \
+			  downgradeIDvalue != 1 ) || \
 			( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 && \
-			  handshakeInfo->serverNonce[ TLS_NONCE_SIZE - 1 ] != 0 ) )
+			  downgradeIDvalue != 0 ) )
 			{
 			retExt( CRYPT_ERROR_NOSECURE,
 					( CRYPT_ERROR_NOSECURE, SESSION_ERRINFO, 
-					  "Downgrade protection in server hello indicates a "
-					  "dowgrade from negotiated TLS 1.%d", 
-					  sessionInfoPtr->version - 1 ) );
+					  "Downgrade protection value %d in server hello "
+					  "indicates a dowgrade from negotiated TLS 1.%d", 
+					  downgradeIDvalue, sessionInfoPtr->version - 1 ) );
 			}
 		}
 
@@ -1017,6 +1156,7 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  suiteLength, UINT16_SIZE, 
 					  UINT16_SIZE * MAX_CIPHERSUITES ) );
 			}
+		REQUIRES( !checkOverflowDiv( suiteLength, UINT16_SIZE ) );
 		suiteLength /= UINT16_SIZE;
 		}
 	else
@@ -1066,17 +1206,34 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* If there's extra data present at the end of the packet, check for TLS
 	   extension data */
-	if( endPos - stell( stream ) > 0 )
+	if( stell( stream ) != endPos )
 		{
-		const int extensionLength = endPos - stell( stream );
+		/* For what's left to be valid extension data we need a length field 
+		   (UINT16_SIZE) and a minimum-length extension (1 + UINT16_SIZE):
+		   
+					stell()	 stell()  stell()
+						|		|		|
+			------------v-------v---+---v-------------
+								|///|/////////////////
+			------------------------+-----------------
+									|
+								 endPos
 
-		if( !isShortIntegerRangeMin( extensionLength, UINT16_SIZE ) )
+		   In the above the first stell() is valid, the second isn't valid
+		   because there isn't room for at least a minimal-length extension,
+		   and the third isn't valid because the data present has gone past
+		   the end of the claimed data present */
+		REQUIRES( !checkOverflowSub( endPos, 
+									 UINT16_SIZE + 1 + UINT16_SIZE ) );
+		if( stell( stream ) > endPos - ( UINT16_SIZE + 1 + UINT16_SIZE ) )
 			{
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-					  "TLS hello contains %d bytes extraneous data", 
-					  extensionLength ) );
+					  "TLS hello contains extraneous data" ) );
 			}
+		REQUIRES( !checkOverflowSub( endPos, stell( stream ) ) );
+		extensionLength = endPos - stell( stream );
+		ENSURES( isShortIntegerRangeNZ( extensionLength ) );
 		status = readExtensions( stream, sessionInfoPtr, handshakeInfo, 
 								 actionType, extensionLength );
 		if( cryptStatusError( status ) )
@@ -1098,121 +1255,13 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 
 	/* If we're the server, perform any special-case handling required by 
-	   the fact that the selection of an ECC cipher suite can be 
-	   retroactively modified by TLS extensions that disable its use 
-	   again */
+	   the fact that our crypto options can be retroactively modified by 
+	   various TLS extensions */
 	if( isServer )
 		{
-		if( handshakeInfo->disableECC )
-			{
-			/* If the only available suite is an ECC one but it's been 
-			   disabled through an incompatible choice of client-selected 
-			   algorithm parameters then we can't continue */
-			if( isEccAlgo( handshakeInfo->keyexAlgo ) )
-				{
-				retExt( CRYPT_ERROR_NOTAVAIL,
-						( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
-						  "Client specified use of an ECC cipher suite but "
-						  "didn't provide any compatible ECC parameters" ) );
-				}
-			}
-		else
-			{
-			/* If the client has chosen an ECC suite and it hasn't 
-			   subsequently been disabled by an incompatible choice of 
-			   client-selected parameters, and conversely it hasn't already
-			   been set because no standard suites were available, switch to 
-			   the ECC suite.
-			   
-			   If PREFER_ECC is set then we unconditionally prefer ECC 
-			   suites, if not then we only prefer them if a non-PFS keyex 
-			   algorithm has been selected */
-#ifdef PREFER_ECC
-			if( handshakeInfo->fallbackType != TLS_FALLBACK_ECC && \
-				handshakeInfo->eccSuiteInfoPtr != NULL )
-#else
-			if( handshakeInfo->fallbackType != TLS_FALLBACK_ECC && \
-				handshakeInfo->eccSuiteInfoPtr != NULL && \
-				!isKeyexAlgo( handshakeInfo->keyexAlgo ) )
-#endif /* PREFER_ECC */
-				{
-				status = setSuiteInfo( sessionInfoPtr, handshakeInfo, 
-									   handshakeInfo->eccSuiteInfoPtr );
-				if( cryptStatusError( status ) )
-					return( status );
-				}
-
-			/* If we're using an ECC cipher suite (either due to it being 
-			   the only suite available or because it was selected above) 
-			   and there's no ECC group selected by the client, default to 
-			   P256.  This is pretty much the universal default in any case,
-			   in fact 25% of servers on the Internet will run with P256 
-			   even if the client explicitly says they don't support it, see
-			   "In search of CurveSwap: Measuring elliptic curve 
-			   implementations in the wild" by Valenta, Sullivan, Sanso and 
-			   Heninger */
-			if( handshakeInfo->keyexAlgo == CRYPT_ALGO_ECDH && \
-				handshakeInfo->keyexGroupInfo == NULL )
-				{
-				handshakeInfo->keyexGroupInfo = \
-						getTLSGroupInfoEntry( TLS_GROUP_SECP256R1 );
-				ENSURES( handshakeInfo->keyexGroupInfo != NULL );
-				}
-			}
-		
-		/* If we're using TLS 1.3, fix up the various issues arising from 
-		   the fact that we don't know until we're finished processing all
-		   of the extensions that it really is TLS 1.3 and not TLS 1.2 */
-#ifdef USE_TLS13
-		if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
-			{
-			DEBUG_PRINT(( "Performing TLS 1.3 fixups:\n" ));
-			
-			/* If we're using TLS 1.3, switch to the TLS 1.3 suite unless 
-			   we've already fallen back to it because no other options were 
-			   available */
-			if( handshakeInfo->fallbackType != TLS_FALLBACK_TLS13 )				
-				{
-				if( handshakeInfo->tls13SuiteInfoPtr == NULL )
-					{
-					retExt( CRYPT_ERROR_NOTAVAIL,
-							( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
-							  "Client specified use of TLS 1.3 but did't "
-							  "offer any TLS 1.3 cipher suites" ) );
-					}
-				DEBUG_PRINT(( "  Setting cipher suite to %s.\n",
-							  handshakeInfo->tls13SuiteInfoPtr->debugText ));
-				status = setSuiteInfo( sessionInfoPtr, handshakeInfo, 
-									   handshakeInfo->tls13SuiteInfoPtr );
-				if( cryptStatusError( status ) )
-					return( status );
-				} 
-
-			/* If we got offered both TLS classic and TLS 1.3 keyex groups
-			   and the TLS 1.3 option is the preferred one, switch to that
-			   now */
-			if( handshakeInfo->keyexTls13Preferred )
-				{
-				REQUIRES( handshakeInfo->keyexTls13GroupInfo != NULL );
-				DEBUG_PRINT_COND( handshakeInfo->keyexGroupInfo != NULL,
-								  ( "  Replacing %s keyex with more preferred "
-								    "TLS 1.3 %s.\n",
-								    handshakeInfo->keyexGroupInfo->description,
-								    handshakeInfo->keyexTls13GroupInfo->description ) );
-				handshakeInfo->keyexGroupInfo = \
-							handshakeInfo->keyexTls13GroupInfo;
-				}
-			handshakeInfo->keyexTls13GroupInfo = NULL;
-
-			/* If we're using a TLS 1.3 suite then the keyex authentication
-			   algorithm isn't set by the cipher suite like it is for TLS 
-			   classic, so we have to set it explicitly based on the server 
-			   key being used */
-			if( handshakeInfo->authAlgo == CRYPT_ALGO_NONE && \
-				sessionInfoPtr->privateKey != CRYPT_ERROR )
-				handshakeInfo->authAlgo = sessionInfoPtr->privateKeyAlgo;
-			}
-#endif /* USE_TLS13 */
+		status = fixupServerCryptoOptions( sessionInfoPtr, handshakeInfo );
+		if( cryptStatusError( status ) )
+			return( status );
 		}
 
 	/* If we're the server and the client requested a TLS 1.2-only extension

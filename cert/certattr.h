@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					Certificate Attribute Routines Header File 				*
-*						Copyright Peter Gutmann 1997-2020					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -203,8 +203,8 @@
 #define FL_SEQEND_3			0x0003		/*  End of cons.obj + two nesting lvls.*/
 #define FL_SEQEND_4			0x0004		/*  End of cons.obj + three nesting lvls.*/
 #define FL_SEQEND_5			0x0005		/*  End of cons.obj + four nesting lvls.*/
-#define FL_SEQEND_6			0x0006		/*  End of cons.obj + four nesting lvls.*/
-#define FL_SEQEND_7			0x0007		/*  End of cons.obj + four nesting lvls.*/
+#define FL_SEQEND_6			0x0006		/*  End of cons.obj + five nesting lvls.*/
+#define FL_SEQEND_7			0x0007		/*  End of cons.obj + six nesting lvls.*/
 
 #define FL_SEQEND_MASK		7			/* Mask for sequence control value */
 
@@ -508,11 +508,11 @@ typedef struct AL {
 	   ATTRIBUTE_INFO table entries used to encode them in a fifo with the 
 	   innermost one first and successive outer ones following it */
 	ARRAY( ENCODING_FIFO_SIZE, fifoPos ) \
-	int sizeFifo[ ENCODING_FIFO_SIZE + 2 ];	
+	int sizeFifo[ ENCODING_FIFO_SIZE + 4 ];	
 									/* Encoded size of SEQUENCE containing 
 									   this field, if present */
 	ARRAY( ENCODING_FIFO_SIZE, fifoPos ) \
-	const ATTRIBUTE_INFO *encodingFifo[ ENCODING_FIFO_SIZE + 2 ];
+	const ATTRIBUTE_INFO *encodingFifo[ ENCODING_FIFO_SIZE + 4 ];
 									/* Encoding table entry used to encode 
 									   this SEQUENCE */
 	int fifoEnd;					/* End of list of SEQUENCE sizes */

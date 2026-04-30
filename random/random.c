@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Randomness Management Routines					*
-*						Copyright Peter Gutmann 1995-2019					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -247,6 +247,9 @@ static int mixRandomPool( INOUT_PTR RANDOM_INFO *randomInfo )
 		/* If we're at the start of the pool then the first block that we hash
 		   is at the end of the pool, otherwise it's the block immediately
 		   preceding the current one */
+		REQUIRES( ( hashIndex >= hashSize ) ? \
+				  !checkOverflowSub( hashIndex, hashSize ) : \
+				  !checkOverflowSub( RANDOMPOOL_SIZE, hashSize ) );
 		poolIndex = ( hashIndex >= hashSize ) ? \
 					hashIndex - hashSize : RANDOMPOOL_SIZE - hashSize;
 		ENSURES( poolIndex >= 0 && poolIndex <= RANDOMPOOL_SIZE - hashSize );
@@ -291,6 +294,7 @@ static int mixRandomPool( INOUT_PTR RANDOM_INFO *randomInfo )
 
 		/* Hash the data in the circular pool, depositing the result at position 
 		   p...p + hashSize */
+		REQUIRES( !checkOverflowSub( RANDOMPOOL_ALLOCSIZE, hashIndex ) );
 		hashFunctionAtomic( randomInfo->randomPool + hashIndex,
 							RANDOMPOOL_ALLOCSIZE - hashIndex, 
 							dataBuffer, dataBufIndex );
@@ -307,7 +311,10 @@ static int mixRandomPool( INOUT_PTR RANDOM_INFO *randomInfo )
 	/* Increment the mix count and move the write position back to the start
 	   of the pool */
 	if( randomInfo->randomPoolMixes < RANDOMPOOL_MIXES )
+		{
+		REQUIRES( !checkOverflowInc( randomInfo->randomPoolMixes ) );
 		randomInfo->randomPoolMixes++;
+		}
 	randomInfo->randomPoolPos = 0;
 
 	/* Postconditions for the status update: We mixed the pool at least
@@ -506,7 +513,7 @@ static int tryGetRandomOutput( INOUT_PTR RANDOM_INFO *randomInfo,
 			/* If we've failed on the first sample and the full match also
 			   fails, return a hard error */
 			if( i == 0 && \
-				!memcmp( randomInfo->x917OuputSample,
+				!memcmp( randomInfo->x917OutputSample,
 						 exportedRandomInfo->randomPool,
 						 RANDOMPOOL_SAMPLE_SIZE ) )
 				{
@@ -593,7 +600,7 @@ static int getRandomOutput( INOUT_PTR RANDOM_INFO *randomInfo,
 			}
 		if( cryptStatusError( status ) )
 			return( status );
-		memcpy( randomInfo->x917OuputSample, randomInfo->randomPool,
+		memcpy( randomInfo->x917OutputSample, randomInfo->randomPool,
 				RANDOMPOOL_SAMPLE_SIZE );	/* Save zero'th output sample */
 		}
 	CFI_CHECK_UPDATE( "generateX917" );
@@ -651,9 +658,10 @@ static int getRandomOutput( INOUT_PTR RANDOM_INFO *randomInfo,
 	randomInfo->prevOutput[ randomInfo->prevOutputIndex ] = mgetLong( samplePtr );
 	samplePtr = exportedRandomInfo.randomPool;
 	randomInfo->x917PrevOutput[ randomInfo->prevOutputIndex ] = mgetLong( samplePtr );
+	REQUIRES( !checkOverflowAdd( randomInfo->prevOutputIndex, 1 ) );
 	randomInfo->prevOutputIndex = ( randomInfo->prevOutputIndex + 1 ) % \
 								  RANDOMPOOL_SAMPLES;
-	memcpy( randomInfo->x917OuputSample, exportedRandomInfo.randomPool,
+	memcpy( randomInfo->x917OutputSample, exportedRandomInfo.randomPool,
 			RANDOMPOOL_SAMPLE_SIZE );
 	ENSURES( randomInfo->prevOutputIndex != ORIGINAL_VALUE( prevOutputIndex ) );
 	ENSURES( randomInfo->prevOutputIndex == 0 || \
@@ -897,6 +905,8 @@ restartPoint:
 
 		ENSURES( LOOP_INVARIANT_MED_XXX( count, 0, length - 1 ) );
 
+		REQUIRES( !checkOverflowSub( length, count ) );
+
 		/* Precondition for output quantity: Either we're on the last output
 		   block or we're producing the maximum-size output quantity, and
 		   we're never trying to use more than half the pool contents */
@@ -935,6 +945,8 @@ restartPoint:
 	   parent and child differ) */
 	if( forkCheck( TRUE ) )
 		{
+		/* We make a count-exceeded situation a hard fail, if we're forked 
+		   five times in a row then something suspicious is going on */
 		DEBUG_DIAG(( "Process forked, restarting pool mixing" ));
 		REQUIRES_KRNLMUTEX( retryCount < 5, MUTEX_RANDOM );
 
@@ -944,6 +956,7 @@ restartPoint:
 
 		/* Try again with the buffer contents */
 		bufPtr = buffer;
+		retryCount++;
 		goto restartPoint;
 		}
 
@@ -1214,6 +1227,7 @@ int addEntropyData( INOUT_PTR TYPECAST( RANDOM_INFO * ) struct RI *randomInfoPtr
 							randomInfo->randomPoolPos < RANDOMPOOL_SIZE, \
 							MUTEX_RANDOM );
 
+		REQUIRES( !checkOverflowInc( randomInfo->randomPoolPos ) );
 		randomInfo->randomPool[ randomInfo->randomPoolPos++ ] ^= bufPtr[ count ];
 
 		STORE_ORIGINAL_INT( newPoolVal,
@@ -1239,6 +1253,7 @@ int addEntropyData( INOUT_PTR TYPECAST( RANDOM_INFO * ) struct RI *randomInfoPtr
 
 #if 0	/* See comment in addEntropyQuality */
 	/* Remember how many bytes of entropy we added on this update */
+	REQUIRES( !checkOverflowAdd( randomInfo->entropyByteCount, length ) );
 	randomInfo->entropyByteCount += length;
 #endif /* 0 */
 
@@ -1314,6 +1329,7 @@ int addEntropyQuality( INOUT_PTR TYPECAST( RANDOM_INFO * ) struct RI *randomInfo
 	   worth */
 #if 0
 	if( randomInfo->entropyByteCount <= 0 || \
+		checkOverflowDiv( quality, 2 ) || \
 		quality / 2 > randomInfo->entropyByteCount )
 		{
 		/* If there's not enough entropy data present to justify the
@@ -1333,6 +1349,7 @@ int addEntropyQuality( INOUT_PTR TYPECAST( RANDOM_INFO * ) struct RI *randomInfo
 		{
 		/* Update the quality count, making sure that it stays within 
 		   bounds */
+		REQUIRES( !checkOverflowAdd( randomInfo->randomQuality, quality ) );
 		if( randomInfo->randomQuality + quality > 100 )
 			randomInfo->randomQuality = 100;
 		else
@@ -1518,6 +1535,8 @@ int addRandomData( INOUT_PTR TYPECAST( RANDOM_STATE_INFO * ) void *statePtr,
 	REQUIRES( isShortIntegerRangeMin( state->bufSize, 16 ) );
 	REQUIRES( state->bufPos >= 0 && state->bufPos <= state->bufSize );
 	REQUIRES( isShortIntegerRangeNZ( valueLength ) );
+	REQUIRES( !checkOverflowSub( state->bufSize, state->bufPos ) );
+	REQUIRES( isShortIntegerRange( bytesToCopy ) );
 
 	/* If we're in an error state, don't try and do anything */
 	if( cryptStatusError( state->updateStatus ) )
@@ -1530,8 +1549,10 @@ int addRandomData( INOUT_PTR TYPECAST( RANDOM_STATE_INFO * ) void *statePtr,
 								state->bufSize ) );
 		memcpy( ( BYTE * ) state->buffer + state->bufPos, valuePtr, 
 				bytesToCopy );
+		REQUIRES( !checkOverflowAdd( state->bufPos, bytesToCopy ) );
 		state->bufPos += bytesToCopy;
 		valuePtr += bytesToCopy;
+		REQUIRES( !checkOverflowSub( totalLength, bytesToCopy ) );
 		totalLength -= bytesToCopy;
 		}
 	ENSURES( isShortIntegerRange( totalLength ) );
@@ -1574,6 +1595,7 @@ int addRandomData( INOUT_PTR TYPECAST( RANDOM_STATE_INFO * ) void *statePtr,
 	bytesToCopy = min( totalLength, state->bufSize );
 	REQUIRES( rangeCheck( bytesToCopy, 1, state->bufSize ) );
 	memcpy( state->buffer, valuePtr, bytesToCopy );
+	REQUIRES( !checkOverflowAdd( state->bufPos, bytesToCopy ) );
 	state->bufPos += bytesToCopy;
 
 	return( CRYPT_OK );

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				ASN.1 Supplementary Constants and Structures				*
-*						Copyright Peter Gutmann 1992-2019					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -18,13 +18,13 @@ typedef struct {
 	const int maxVersion;	/* Maximum version number for content type */
 	} CMS_CONTENT_INFO;
 
-#ifdef USE_INT_ASN1
-
 /****************************************************************************
 *																			*
 *									ASN.1 OIDs								*
 *																			*
 ****************************************************************************/
+
+#ifdef USE_INT_ASN1
 
 /* The cryptlib (strictly speaking DDS) OID arc is as follows:
 
@@ -186,6 +186,8 @@ typedef struct {
 #define OID_PWRIKEK			MKOID( "\x06\x0B\x2A\x86\x48\x86\xF7\x0D\x01\x09\x10\x03\x09" )
 							/* 1 2 840 113549 1 9 16 3 9 */
 
+#endif /* USE_INT_ASN1 */
+
 /****************************************************************************
 *																			*
 *							ASN.1 Support Functions							*
@@ -249,11 +251,26 @@ typedef struct {
 		( params )->cryptMode = mode; \
 		( params )->cryptKeySize = size
 
+#ifdef USE_INT_ASN1
+
 /* Check whether an ASN.1 encoding operation, expressed as:
 
 	sizeofObject*( sizeofObject*( length ) + extraLen );
 	
-   would overflow */
+   would overflow.  This is mostly redundant because we always keep lengths 
+   below MAX_INTLENGTH which means that we can safely apply a series of 
+   sizeofObject() operations and add small amounts of extra data like 
+   parameters without getting close to INT_MAX, but we provide the check 
+   anyway to document that it's been done.
+   
+   Sample usages:
+   
+	sizeofObject( sizeofObject( length ) )
+		-> ( length, 2, 0, 0 )
+	sizeofObject( sizeofObject( length ) + extraLength )
+		-> ( length, 1, extraLength, 1 )
+	sizeofObject( length + extraLength ) )
+		-> ( length + extraLength, 1, 0, 0 ) */
 
 CHECK_RETVAL_BOOL \
 BOOLEAN checkEncodeOverflow( IN_LENGTH const long length,

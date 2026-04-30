@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Certificate Trust Manger Interface 					*
-*						Copyright Peter Gutmann 1998-2015					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -54,7 +54,8 @@ int enumTrustedCerts( IN_DATAPTR const DATAPTR trustInfo,
 #define deleteTrustEntry( trustInfoPtr, entryToDelete )
 #define findTrustEntry( trustInfoPtr, cryptCert, getIssuerEntry ) \
 		NULL
-#define getTrustedCert( trustInfoPtr )		CRYPT_ERROR_NOTFOUND
+#define getTrustedCert( trustInfoPtr, iCertificate ) \
+		CRYPT_ERROR_NOTFOUND
 #define enumTrustedCerts( trustInfoPtr, iCryptCtl, iCryptKeyset ) \
 		CRYPT_ERROR_NOTFOUND
 

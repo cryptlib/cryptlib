@@ -283,6 +283,7 @@ int preDispatchCheckCertMgmtAccess( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( MESSAGE_CERTMGMT_INFO ) ) );
 
 	/* Precondition */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( message == MESSAGE_KEY_CERTMGMT || message == IMESSAGE_KEY_CERTMGMT );
 	REQUIRES( isEnumRange( messageValue, CRYPT_CERTACTION ) );

@@ -169,7 +169,7 @@ int exitUnsupportedAlgo( const CRYPT_ALGO_TYPE cryptAlgo,
 	{
 	fprintf( outputStream, "Couldn't run %s tests because %s isn't\n"
 			 "  enabled, skipping tests...\n\n", mechanismName, 
-			 algoName( cryptAlgo ) );
+			 algoToName( cryptAlgo ) );
 	return( TRUE );
 	}
 
@@ -319,15 +319,15 @@ BOOLEAN loadPkcContexts( CRYPT_CONTEXT *pubKeyContext,
 
 /* Return an algorithm name */
 
-const char *algoName( const CRYPT_ALGO_TYPE algorithm )
+const char *algoToName( const CRYPT_ALGO_TYPE algorithm )
 	{
 	static const char *cryptNames[] = { 	
 		"DES", "3DES", "IDEA", "CAST", "RC2", "RC4", "NULL", "AES", 
 		"NULL", "ChaCha20", "NULL", "NULL"
 		};
 	static const char *pkcNames[] = {
-		"DH", "RSA", "DSA", "ElGamal", "NULL", "ECDSA", "ECDH", "Curve25519", "Ed25519",  
-		"NULL", "NULL"
+		"DH", "RSA", "DSA", "ElGamal", "NULL", "ECDSA", "ECDH", 
+		"Curve25519", "Ed25519", "ML-KEM", "NULL", "NULL"
 		};
 	static const char *hashNames[] = { 	
 		"NULL", "NULL", "MD5", "SHA1", "NULL", "SHA2", "SHAng", "NULL",
@@ -756,7 +756,7 @@ int printSecurityInfo( const CRYPT_SESSION cryptSession,
 		}
 	fprintf( outputStream, "%sSession is protected using %s with a %d bit "
 			 "key,\n  protocol version %d.\n", isServer ? "SVR: " : "", 
-			 algoName( cryptAlgo ), keySize * 8, version );
+			 algoToName( cryptAlgo ), keySize * 8, version );
 	if( showServerKeyInfo || showClientCertInfo ) 
 		{
 		CRYPT_CONTEXT serverKey;
@@ -783,7 +783,7 @@ int printSecurityInfo( const CRYPT_SESSION cryptSession,
 			}
 		fprintf( outputStream, "%s key uses %s, key size %d bits.\n", 
 				 showClientCertInfo ? "SVR: Client authentication" : "Server", 
-				 algoName( cryptAlgo ), keySize * 8 );
+				 algoToName( cryptAlgo ), keySize * 8 );
 		}
 	fflush( stdout );
 	if( isServer || !showFingerprint )

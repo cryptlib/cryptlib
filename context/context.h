@@ -88,11 +88,12 @@
 	FLAG_HASH_DONE: The hash operation is complete, no further hashing can 
 			be done 
 
-	FLAG_ISPUBLICKEY: The key is a public or private key.
-	FLAG_ISPRIVATEKEY:
+	FLAG_ISPUBLICKEY: The key is a public key.
 
 	FLAG_IV_SET: The IV has been set.
 	FLAG_KEY_SET: The key has been initialised.
+
+	FLAG_PBO: Data-processing flag for private keys.
 
 	FLAG_PERSISTENT: The context is backed by a keyset or crypto device.
 
@@ -108,7 +109,7 @@
 #define CONTEXT_FLAG_KEY_SET		0x0001	/* Key has been set */
 #define CONTEXT_FLAG_IV_SET			0x0002	/* IV has been set */
 #define CONTEXT_FLAG_ISPUBLICKEY	0x0004	/* Key is a public key */
-#define CONTEXT_FLAG_ISPRIVATEKEY	0x0008	/* Key is a private key */
+#define CONTEXT_FLAG_PBO			0x0008	/* Data-processing flag */
 #define CONTEXT_FLAG_DUMMY			0x0010	/* Context actions handled externally */
 #define CONTEXT_FLAG_DUMMY_INITED	0x0020	/* Dummy context is inited */
 #define CONTEXT_FLAG_HWCRYPTO		0x0040	/* Context uses built-in crypto HW */
@@ -241,11 +242,13 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 										const int accessKeyLen );
 
 typedef struct {
-	/* General information on the key: The nominal key size in bits, the key
-	   IDs, and key-related metadata.  Since the OpenPGP key ID can't be
+	/* General information on the key: The algorithm (which determines the
+	   layout and use of other fields), nominal key size in bits, the key 
+	   IDs, and key-related metadata.  Since the OpenPGP key ID can't be 
 	   calculated directly like the other IDs, we have to keep track of
 	   whether it's been set or not with a flag (set in the CONTEXT_INFO 
 	   flags) */
+	CRYPT_ALGO_TYPE cryptAlgo;		/* Algorithm type */
 	int keySizeBits;				/* Nominal key size in bits */
 	SAFE_FLAGS flags;				/* PKC information flags */
 	BUFFER_FIXED( KEYID_SIZE ) \
@@ -276,7 +279,6 @@ typedef struct {
 	BN_MONT_CTX montCTX3;
 #if defined( USE_ECDH ) || defined( USE_ECDSA ) 
 	CRYPT_ECCCURVE_TYPE curveType;	/* Additional info.needed for ECC ctxs.*/
-	BOOLEAN isECC;
 	EC_GROUP *ecCTX;
 	EC_POINT *ecPoint;
 #endif /* USE_ECDH || USE_ECDSA */
@@ -292,7 +294,6 @@ typedef struct {
 	EC_POINT *tmpPoint;
 #endif /* USE_ECDH || USE_ECDSA */
 	BN_CTX bnCTX;
-	#define CONTEXT_FLAG_PBO 0x08
 
 	/* If we're using side-channel protection, we also need to store values
 	   used to perform extra operations that eliminate timing channels */
@@ -300,6 +301,16 @@ typedef struct {
 
 	/* Domain parameters used by DLP and ECDLP algorithms */
 	const void *domainParams;
+
+	/* If we're working with PQC keys, which are enormous, we need somewhere
+	   to store them outside of the normal bignum storage which they won't
+	   fit into.  To deal with this we override the bnCTX storage and overlay
+	   a MLKEM_INFO into the space, accessed as { mlkemKey, mlkemKeySize } */
+#ifdef USE_MLKEM
+	BUFFER_OPT_FIXED( mlkemKeySize ) \
+	struct MK *mlkemKey;			/* ML-KEM key info */
+	int mlkemKeySize;				/* ML-KEM key info size */
+#endif /* USE_MLKEM */
 
 	/* If the context is tied to a device the keying info won't be available,
 	   however we generally need the public key information for use in cert
@@ -461,46 +472,63 @@ typedef struct CI {
    algorithms.  All of the DLP algorithms actually use the same parameters,
    so we define generic DLP names for them */
 
-#define dlpParam_p			param1
-#define dlpParam_g			param2
-#define dlpParam_q			param3
-#define dlpParam_y			param4
-#define dlpParam_x			param5
-#define dlpTmp1				param6
-#define dlpTmp2				param7
-#define dlpTmp3				param8		/* More temp.values for DLP PKCs */
-#define dhParam_yPrime		param8		/* Special value for DH */
-#define dlpParam_mont_p		montCTX1
+#define dlpParam_p				param1
+#define dlpParam_g				param2
+#define dlpParam_q				param3
+#define dlpParam_y				param4
+#define dlpParam_x				param5
+#define dlpTmp1					param6
+#define dlpTmp2					param7
+#define dlpTmp3					param8	/* More temp.values for DLP PKCs */
+#define dhParam_yPrime			param8	/* Special value for DH */
+#define dlpParam_mont_p			montCTX1
 
-#define rsaParam_n			param1
-#define rsaParam_e			param2
-#define rsaParam_d			param3		/* Required for PGP, PKCS #12 */
-#define rsaParam_p			param4
-#define rsaParam_q			param5
-#define rsaParam_u			param6
-#define rsaParam_exponent1	param7
-#define rsaParam_exponent2	param8
-#define rsaParam_blind_k	blind1
-#define rsaParam_blind_kInv	blind2
-#define rsaParam_mont_n		montCTX1
-#define rsaParam_mont_p		montCTX2
-#define rsaParam_mont_q		montCTX3
+#define rsaParam_n				param1
+#define rsaParam_e				param2
+#define rsaParam_d				param3	/* Required for PGP, PKCS #12 */
+#define rsaParam_p				param4
+#define rsaParam_q				param5
+#define rsaParam_u				param6
+#define rsaParam_exponent1		param7
+#define rsaParam_exponent2		param8
+#define rsaParam_blind_k		blind1
+#define rsaParam_blind_kInv		blind2
+#define rsaParam_mont_n			montCTX1
+#define rsaParam_mont_p			montCTX2
+#define rsaParam_mont_q			montCTX3
 
 /* p, a, b, gx, gy, n and h are stored as ECC_DOMAINPARAMS.  In addition 
    since this frees up so many parameter bignums, we can use two of them as
    extra temporaries */
-#define eccParam_qx			param1
-#define eccParam_qy			param2
-#define eccParam_d			param3
-#define eccParam_tmp4		param4
-#define eccParam_tmp5		param5
+
+#define eccParam_qx				param1
+#define eccParam_qy				param2
+#define eccParam_d				param3
+#define eccParam_tmp4			param4
+#define eccParam_tmp5			param5
 
 /* 25519 parameters are processed in Bernstein special-snowflake form but 
    since we store values as standard bignums we convert them before use */
 
-#define curve25519Param_pub	param1
-#define curve25519Param_priv param2
-#define curve25519Param_s	param3
+#define curve25519Param_pub		param1
+#define curve25519Param_priv	param2
+#define curve25519Param_s		param3
+
+/* ML-KEM parameters aren't bignums so we have to store them in a custom
+   data structure overlaid onto the storage for bnCTX.  The size values
+   are from crypt/mlkem_native.h */
+
+#define MLKEM768_SECRETKEYBYTES	2400
+#define MLKEM768_PUBLICKEYBYTES	1184
+
+typedef struct MK {
+	BUFFER( MLKEM768_PUBLICKEYBYTES, pubKeySize ) \
+	BYTE pubKey[ MLKEM768_PUBLICKEYBYTES + 8 ];
+	int pubKeySize;
+	BUFFER( MLKEM768_SECRETKEYBYTES, privKeySize ) \
+	BYTE privKey[ MLKEM768_SECRETKEYBYTES + 8 ];
+	int privKeySize;
+	} MLKEM_KEY_INFO;
 
 /* Minimum and maximum permitted lengths for various PKC components.  These
    can be loaded in various ways (read from ASN.1 data, read from 
@@ -854,7 +882,7 @@ int checkECCPublicValue( INOUT_PTR PKC_INFO *pkcInfo, const BIGNUM *qx,
 						 const BIGNUM *qy );
 #endif /* USE_ECDSA || USE_ECDH */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int generate25519Key( INOUT_PTR CONTEXT_INFO *contextInfoPtr );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -880,15 +908,41 @@ int writePublicKey25519Function( INOUT_PTR STREAM *stream,
 /* Prototype for function in context/ctx_x25519.c.  If use of 25519 is
    disabled we no-op the check out */
 
-#ifdef USE_25519 
+#ifdef USE_X25519 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
-BOOLEAN is25519SmallOrder( IN_BUFFER( CURVE25519_SIZE ) \
+BOOLEAN is25519SmallOrder( IN_BUFFER( MIN_PKCSIZE_BERNSTEIN ) \
 								const BYTE *pubValue );
 #else
-  #define is25519SmallOrder( pubValue )		0
-#endif /* USE_25519 */
+  #define is25519SmallOrder( pubValue )		FALSE
+#endif /* USE_X25519 */
 
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
+
+#ifdef USE_MLKEM
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int initCheckPQCkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr, 
+					 IN_BOOL const BOOLEAN isPKCS3 );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int generatePQCkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr, 
+					IN_LENGTH_SHORT_MIN( MIN_PKCSIZE * 8 ) const int keyBits );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int readPublicKeyPQCFunction( INOUT_PTR STREAM *stream, 
+							  INOUT_PTR CONTEXT_INFO *contextInfoPtr,
+							  IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
+							  IN_ENUM( KEYFORMAT )  \
+									const KEYFORMAT_TYPE formatType,
+							  STDC_UNUSED const BOOLEAN checkRead );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
+int writePublicKeyPQCFunction( INOUT_PTR STREAM *stream, 
+							   const CONTEXT_INFO *contextInfoPtr,
+							   IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
+							   IN_ENUM( KEYFORMAT ) \
+									const KEYFORMAT_TYPE formatType,
+							   IN_BUFFER( accessKeyLen ) \
+									const char *accessKey, 
+							   IN_LENGTH_FIXED( 10 ) \
+									const int accessKeyLen );
+#endif /* USE_MLKEM */
 
 #ifndef CONFIG_CONSERVE_MEMORY_EXTRA
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -901,6 +955,7 @@ BOOLEAN sanityCheckBNMontCTX( const BN_MONT_CTX *bnMontCTX );
   /* Dummy functions to allow use in assert() when
 	 CONFIG_CONSERVE_MEMORY_EXTRA is defined */
   #define sanityCheckBignum( x )	TRUE
+  #define sanityCheckBNCTX( x )		TRUE
   #define sanityCheckBNMontCTX( x )	TRUE
 #endif /* !CONFIG_CONSERVE_MEMORY_EXTRA */
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -932,11 +987,10 @@ void endContextBignums( INOUT_PTR PKC_INFO *pkcInfo,
 						IN_BOOL const BOOLEAN isDummyContext );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int checksumContextData( INOUT_PTR PKC_INFO *pkcInfo, 
-						 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 						 IN_BOOL const BOOLEAN isPrivateKey );
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN checksumDomainParameters( IN_PTR const void *domainParams, 
-								  IN_BOOL const BOOLEAN isECC );
+								  IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo );
 #if defined( DEBUG_DIAGNOSTIC_ENABLE ) && !defined( NDEBUG )
 void printBignumChecksum( const BIGNUM *bignum );
 void printBignum( const BIGNUM *bignum, const char *label );

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Certificate DN Routines							*
-*						Copyright Peter Gutmann 1996-2019					*
+*						Copyright Peter Gutmann 1996-2023					*
 *																			*
 ****************************************************************************/
 
@@ -189,7 +189,7 @@ static BOOLEAN checkCountryCode( IN_BUFFER_C( 2 ) const BYTE *countryCode )
 	{
 	/* ISO 3166 code table, with an addition for 'UN' which isn't an ISO 
 	   country code but is used in certificates issued by the UN */
-	static const long countryCodes[] = {
+	static const int countryCodes[] = {
 	/*	 A  B  C  D  E  F  G  H  I  J  K  L  M  N  O  P  Q  R  S  T  U  V  W  X  Y  Z */
   /*A*/			 xD|xE|xF|xG|	xI|		 xL|xM|	  xO|	xQ|xR|xS|xT|xU|	  xW|xX|   xZ, /*A*/
   /*B*/	xA|xB|	 xD|xE|xF|xG|xH|xI|xJ|	 xL|xM|xN|xO|	   xR|xS|xT|   xV|xW|	xY|xZ, /*B*/
@@ -253,6 +253,9 @@ static int dnSortOrder( IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	REQUIRES( type >= CRYPT_CERTINFO_FIRST_DN && \
 			  type <= CRYPT_CERTINFO_LAST_DN );
 
+	/* The type is in the range CRYPT_CERTINFO_FIRST_DN ... 
+	   CRYPT_CERTINFO_LAST_DN which corresponds to all of the entries in the 
+	   table so a mapping error is a should-never-occur condition */
 	status = mapValue( type, &value, dnSortOrderTbl, 
 					   FAILSAFE_ARRAYSIZE( dnSortOrderTbl, MAP_TABLE ) );
 	ENSURES( cryptStatusOK( status ) );
@@ -381,6 +384,7 @@ static DN_COMPONENT *findDNComponent( const DATAPTR_DN dnComponentList,
 			   yet */
 			if( matchCount < count )
 				{
+				REQUIRES_N( !checkOverflowInc( matchCount ) );
 				matchCount++;
 				continue;
 				}
@@ -830,7 +834,7 @@ int insertDNComponent( INOUT_PTR DATAPTR_DN *dnListHeadPtr,
 	   representable as a certificate string type.  All that we care
 	   about here is the validity so we ignore the returned encoding
 	   information */
-	status = getAsn1StringInfo( value, valueLength, &valueStringType, 
+	status = getASN1StringInfo( value, valueLength, &valueStringType, 
 								&dummy1, &dummy2, TRUE );
 	if( cryptStatusError( status ) )
 		{
@@ -1095,7 +1099,7 @@ BOOLEAN compareDN( IN_DATAPTR_OPT const DATAPTR_DN dn1,
 		REQUIRES_B( sanityCheckDNComponent( dn1ptr ) );
 		REQUIRES_B( sanityCheckDNComponent( dn2ptr ) );
 
-		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+		ENSURES_B( LOOP_INVARIANT_MED_GENERIC() );
 
 		/* If the RDN types differ then the DNs don't match */
 		if( dn1ptr->type != dn2ptr->type )

@@ -327,7 +327,21 @@ static BOOLEAN checkDeviceFunctions( IN_PTR const DEVICE_INFO *deviceInfoPtr )
 				return( FALSE );
 				}
 			}
-#endif /* CONFIG_CRYPTO_HW1 || CONFIG_CRYPTO_HW2 */
+		else
+			{
+			if( !FNPTR_ISSET( deviceInfoPtr->getItemFunction ) || \
+				!FNPTR_ISSET( deviceInfoPtr->setItemFunction ) || \
+				!FNPTR_ISSET( deviceInfoPtr->deleteItemFunction ) || \
+				!FNPTR_ISSET( deviceInfoPtr->getFirstItemFunction ) || \
+				!FNPTR_ISSET( deviceInfoPtr->getNextItemFunction ) || \
+				!FNPTR_ISVALID( deviceInfoPtr->getRandomFunction ) )
+				{
+				DEBUG_PUTS(( "checkDeviceFunctions: Device data access functions" ));
+				return( FALSE );
+				}
+			}
+		}
+#else
 	else
 		{
 		if( !FNPTR_ISSET( deviceInfoPtr->getItemFunction ) || \
@@ -341,10 +355,8 @@ static BOOLEAN checkDeviceFunctions( IN_PTR const DEVICE_INFO *deviceInfoPtr )
 			return( FALSE );
 			}
 		}
-#if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
-		}
 #endif /* CONFIG_CRYPTO_HW1 || CONFIG_CRYPTO_HW2 */
-	
+
 	return( TRUE );
 	}
 #endif /* !CONFIG_CONSERVE_MEMORY_EXTRA */
@@ -422,6 +434,7 @@ static int processMechanismMessage( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 									CRYPT_ERROR_SIGNALLED );
 		if( cryptStatusError( status ) )
 			return( status );
+		mechanismFunctions = DATAPTR_GET( deviceInfoPtr->mechanismFunctions );
 		REQUIRES_OBJECT( mechanismFunctions != NULL,
 						 deviceInfoPtr->objectHandle );
 		LOOP_LARGE( i = 0, 
@@ -553,6 +566,8 @@ static int algorithmSelfTest( INOUT_PTR DATAPTR *capabilityInfoListHeadPtr,
 			}
 		}
 	ENSURES( LOOP_BOUND_OK );
+	DEBUG_PRINT_COND( !algoTested, 
+					  ( "algorithmSelfTest(): No algorithms available!\n" ) );
 
 	return( algoTested ? CRYPT_OK : CRYPT_ERROR_NOTFOUND );
 	}
@@ -1610,12 +1625,17 @@ int deviceManagementFunction( IN_ENUM( MANAGEMENT_ACTION ) \
 #endif /* USE_CRYPTOAPI */
 #ifdef USE_HARDWARE 
   #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
+		/* The NULL init function means that the initialistion step is
+		   skipped in the MANAGEMENT_ACTION_INIT_DEFERRED handler, since
+		   the hardware in this case is already initialised */
 		{ NULL, deviceEndHardware, DEV_HARDWARE_INITED },
   #else
 		{ deviceInitHardware, deviceEndHardware, DEV_HARDWARE_INITED },
   #endif /* CONFIG_CRYPTO_HW1 || CONFIG_CRYPTO_HW2 */
 #endif /* USE_HARDWARE */
-		{ NULL, NULL, 0 }, { NULL, NULL, 0 }
+			{ NULL, NULL, DEV_NONE_INITED }, { NULL, NULL, DEV_NONE_INITED }
+			/* The end marker here is the DEV_NONE_INITED flag since the 
+			   init function can be NULL */
 		};
 	static int initFlags = DEV_NONE_INITED;
 	LOOP_INDEX i;
@@ -1674,7 +1694,7 @@ int deviceManagementFunction( IN_ENUM( MANAGEMENT_ACTION ) \
 			LOOP_SMALL( i = 0,
 						i < FAILSAFE_ARRAYSIZE( deviceInitTbl, \
 												DEVICEINIT_INFO ) && \
-							deviceInitTbl[ i ].deviceInitFunction != NULL,
+							deviceInitTbl[ i ].initFlag != DEV_NONE_INITED,
 						i++ )
 				{
 				ENSURES( LOOP_INVARIANT_SMALL( i, 0, \
@@ -1720,7 +1740,7 @@ int deviceManagementFunction( IN_ENUM( MANAGEMENT_ACTION ) \
 			LOOP_MED( i = 0,
 					  i < FAILSAFE_ARRAYSIZE( deviceInitTbl, \
 											  DEVICEINIT_INFO ) && \
-						  deviceInitTbl[ i ].deviceEndFunction != NULL,
+						  deviceInitTbl[ i ].initFlag != DEV_NONE_INITED,
 					  i++ )
 				{
 				ENSURES( LOOP_INVARIANT_MED( i, 0, \

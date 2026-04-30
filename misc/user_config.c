@@ -189,7 +189,7 @@ static const BUILTIN_OPTION_INFO builtinOptionInfo[] = {
 ****************************************************************************/
 
 /* Locate an entry in the built-in configuration options by looking up the 
-   option code that identifies it when it's written to disk */
+   option code that identifies it when it's written to storage */
 
 CHECK_RETVAL_PTR \
 const BUILTIN_OPTION_INFO *getBuiltinOptionInfoByCode( IN_RANGE( 0, LAST_OPTION_INDEX ) \
@@ -199,6 +199,8 @@ const BUILTIN_OPTION_INFO *getBuiltinOptionInfoByCode( IN_RANGE( 0, LAST_OPTION_
 
 	REQUIRES_N( optionCode >= 0 && optionCode <= LAST_OPTION_INDEX );
 
+	/* When checking for option retained in storage, we only look through 
+	   the non-ephemeral options rather than the entire range */
 	LOOP_LARGE( i = 0, 
 				i < FAILSAFE_ARRAYSIZE( builtinOptionInfo, \
 										BUILTIN_OPTION_INFO ) && \
@@ -289,6 +291,8 @@ BOOLEAN checkConfigChanged( IN_ARRAY( configOptionsCount ) \
 
 	REQUIRES_B( isShortIntegerRangeNZ( configOptionsCount ) );
 
+	/* When checking whether an option has changed, we only look through the 
+	   non-ephemeral options rather than the entire range */
 	LOOP_LARGE( i = 0, 
 				i < configOptionsCount && \
 					optionList[ i ].builtinOptionInfo != NULL && \
@@ -712,7 +716,8 @@ int initOptions( OUT_PTR_PTR_COND void **configOptionsPtr,
 
 	/* Allocate storage for the variable configuration data */
 	optionList = getBuiltinStorage( BUILTIN_STORAGE_OPTION_INFO );
-	memset( optionList, 0, OPTION_INFO_SIZE );
+	REQUIRES( checkBuiltinStorage( BUILTIN_STORAGE_OPTION_INFO ) );
+	memset( optionList, 0, OPTION_INFO_COUNT * sizeof( OPTION_INFO ) );
 
 	/* Walk through the configuration option list setting up each option to 
 	   contain its default value */
@@ -735,12 +740,15 @@ int initOptions( OUT_PTR_PTR_COND void **configOptionsPtr,
 			optionInfoPtr->strValue = ( char * ) builtinOptionInfoPtr->strDefault;
 		optionInfoPtr->intValue = builtinOptionInfoPtr->intDefault;
 		optionInfoPtr->builtinOptionInfo = builtinOptionInfoPtr;
+		optionInfoPtr->dirty = FALSE;	/* The default anyway, but make it explicit */
 		}
 	ENSURES( LOOP_BOUND_OK );
 	ENSURES( i < FAILSAFE_ARRAYSIZE( builtinOptionInfo, BUILTIN_OPTION_INFO ) );
 	*configOptionsPtr = optionList;
 	*configOptionsCount = FAILSAFE_ARRAYSIZE( builtinOptionInfo, \
 											  BUILTIN_OPTION_INFO );
+
+	ENSURES( checkBuiltinStorage( BUILTIN_STORAGE_OPTION_INFO ) );
 
 	return( CRYPT_OK );
 	}

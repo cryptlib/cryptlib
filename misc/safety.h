@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib Correctness/Safety Header File 				*
-*						Copyright Peter Gutmann 1994-2020					*
+*						Copyright Peter Gutmann 1994-2025					*
 *																			*
 ****************************************************************************/
 
@@ -71,8 +71,8 @@
 #else
 
 #define REQUIRES_S( x )
-#define REQUIRES_SA( x )
-#define REQUIRES_SN( x )
+#define REQUIRES_SC( x )
+#define REQUIRES_SCN( x, sn )
 
 #endif /* CONFIG_CONSERVE_MEMORY_EXTRA */
 
@@ -177,6 +177,7 @@
 #define REQUIRES_PTR_OPT( x, ptr )
 #define REQUIRES_N_PTR( x, ptr ) 
 #define REQUIRES_V_PTR( x, ptr )
+#define REQUIRES_S_PTR( x, ptr )
 
 #endif /* CONFIG_CONSERVE_MEMORY_EXTRA */
 
@@ -254,9 +255,11 @@
 
 #define boundsCheck( start, length, totalLength ) \
 		( ( ( start ) <= 0 || ( length ) < 1 || \
+			checkOverflowAdd( start, length ) || \
 			( start ) + ( length ) > ( totalLength ) ) ? FALSE : TRUE )
 #define boundsCheckZ( start, length, totalLength ) \
 		( ( ( start ) < 0 || ( length ) < 1 || \
+			checkOverflowAdd( start, length ) || \
 			( start ) + ( length ) > ( totalLength ) ) ? FALSE : TRUE )
 
 /* Perform a bounds check on pointers to blocks of memory, verifying that an
@@ -446,6 +449,7 @@ BOOLEAN pointerBoundsCheck( IN_PTR_OPT const void *data,
    buffers under MAX_BUFSIZE */
 
 #define SAFEBUFFER_COOKIE_SIZE	8
+#define SAFEBUFFER_COOKIE_DATA	0xAA, 0x55, 0xAA, 0xFF, 0xAA, 0xFF, 0xAA, 0xFF
 
 #define SAFEBUFFER_SIZE( size )	( SAFEBUFFER_COOKIE_SIZE + ( size ) + \
 								  SAFEBUFFER_COOKIE_SIZE )
@@ -1258,7 +1262,7 @@ typedef unsigned int CFI_CHECK_TYPE;
 #define LOOP_MED_INITCHECK_ALT( a, b ) \
 								LOOP_EXT_INITCHECK_ALT( a, b, FAILSAFE_ITERATIONS_MED ) 
 #define LOOP_MAX_INITCHECK_ALT( a, b ) \
-								LOOP_EXT_INITCHECK_ALT( a, b, FAILSAFE_ITERATIONS_LARGE ) 
+								LOOP_EXT_INITCHECK_ALT( a, b, FAILSAFE_ITERATIONS_MAX ) 
 
 #define LOOP_MED_CHECKINC_ALT( b, c ) \
 								LOOP_EXT_CHECKINC_ALT( b, c, FAILSAFE_ITERATIONS_MED )
@@ -2336,35 +2340,66 @@ typedef struct {
    By default we check for overflow of MAX_INTLENGTH, which is the safe
    upper bound allowed by cryptlib and provides a good safety margin for
    things like sizeofObject() and small extra data values without risk of
-   overflowing the calcuation.  If we want to check for standard int or long 
-   overflow we have to make it explicit (currently only the long form is
-   used since we use the MAX_INTLENGTH form everywhere the int form would be
-   used).
+   overflowing the calculation.  If we want to check for standard int or 
+   long overflow we have to make it explicit (currently only the long form 
+   is used since we use the MAX_INTLENGTH form everywhere the int form would 
+   be used).
    
    To find locations where possible overflows might occur, use the PCRE 
-   regex " (\+|-)=? ".
+   regex " (\+|-|\*|/)=? " or the VS regex "\ (\+|-|\*|/)\=*\ " for 
+   arithmetic, "(\+\+|--)" for inc/dec.
    
-   Note that we check for <= / >= since the range checks all enforced a 
+   Note that we check for <= / >= since the range checks all enforce a 
    range < MAX, not <= MAX.  This also means that for the standard checks we 
    couldn't use the compiler intrinsics even if they were better-performing 
    than they actually are since they check for overflow at INT_MAX and not 
    MAX_INTLENGTH.
 
+   We also check for the use of negative values which should never be the 
+   case, this both simplifies the checking somewhat since we don't have to 
+   dual-case the handling for negative or positive values and changes the 
+   subtract overflow check from the standard a < INT_MIN + b -> overflow to 
+   just a < b -> overflow.  In addition the check for a < 0 is necessary to 
+   prevent gcc from detecting what it thinks is UB in at least 
+   checkOverflowAdd() and removing further checks from the code.
+
    Strictly speaking the check for b < 0 isn't necessary, we just have to
-   change the check type for b if a < 0, but neither a nor b should ever be
-   negative so it's a general-purpose check.  This also makes the subtract-
-   overflow check a bit of a no-op since we can only overflow if either
-   a - (-b) = -ve or (-a) - b = +ve, so just checking for either side being
-   negative is enough.  It also simplifies the division check, which would
-   normally be b == 0 || a == INT_MIN && b == -1 */
+   change the check type for b if a < 0, but as per the above neither a nor 
+   b should ever be negative so it's a general-purpose check.  This also 
+   simplifies the division check, which would normally be 
+   b == 0 || a == INT_MIN && b == -1.
+   
+   In a few locations a value can legitimately be allowed to go negative
+   because it's then checked and reported as an error condition.  To make
+   it explicit that we're actively checking for this condition, we use the
+   pattern:
+
+	if( a < b )
+		a = UNDERFLOW_MARKER;		// -1
+	else
+		{
+		REQUIRES( checkOverflowSub( a, b ) );
+		a -= b;
+		}
+	if( a < 0 )
+		// error condition
+   
+   Similarly, a number of the checkOverflowInc() and checkOverflowDec()'s 
+   are present to document that the check is being done rather than because
+   they're needed at that point */
 
 #define checkOverflowAdd( a, b )		( ( a ) < 0 || ( b ) < 0 || \
 										  ( a ) >= MAX_INTLENGTH - ( b ) )
 #define checkOverflowSub( a, b )		( ( a ) < 0 || ( b ) < 0 || \
-										  ( a ) <= -MAX_INTLENGTH + ( b ) )
+										  ( a ) < ( b ) )
 #define checkOverflowMul( a, b )		( ( a ) < 0 || ( b ) <= 0 || \
 										  ( a ) >= MAX_INTLENGTH / ( b ) )
 #define checkOverflowDiv( a, b )		( ( a ) < 0 || ( b ) <= 0 )
+#define checkOverflowInc( a )			( ( a ) < 0 || \
+										  ( a ) >= MAX_INTLENGTH - 1 )
+#define checkOverflowDec( a )			( ( a ) <= 0 )
+
+#define UNDERFLOW_MARKER				-1
 
 #if ( defined( __GNUC__ ) && ( __GNUC__ >= 7 ) )
   /* Checking using compiler intrinsics.  The gcc description of these
@@ -2387,19 +2422,25 @@ typedef struct {
   #define checkOverflowSubInt( a, b )	( ( a ) < INT_MIN + ( b ) )
   #define checkOverflowMulInt( a, b )	( ( a ) > INT_MAX / ( b ) )
   #endif /* 0 */
-  #define checkOverflowAddLong( a, b )	( ( a ) > LONG_MAX - ( b ) )
-  #define checkOverflowSubLong( a, b )	( ( a ) < LONG_MIN + ( b ) )
-  #define checkOverflowMulLong( a, b )	( ( a ) > LONG_MAX / ( b ) )
+  #define checkOverflowAddLong( a, b )	( ( a ) < 0 || ( b ) < 0 || \
+										  ( a ) > LONG_MAX - ( b ) )
+  #define checkOverflowSubLong( a, b )	( ( a ) < 0 || ( b ) < 0 || \
+										  ( a ) < ( b ) )
+  #define checkOverflowMulLong( a, b )	( ( a ) < 0 || ( b ) <= 0 || \
+										  ( a ) > LONG_MAX / ( b ) )
 #endif /* Compiler-specific overflow checks */
 #define checkOverflowDivInt( a, b )		( ( a ) < 0 || ( b ) <= 0 )
 #define checkOverflowDivLong( a, b )	( ( a ) < 0 || ( b ) <= 0 )
 
-/* Three-operand forms of the above */
+/* Three-operand forms of the above.  Note that checkOverflowSub3() 
+   evaluates ( a - b ) - c, not a - ( b - c ) */
 
 #define checkOverflowAdd3( a, b, c ) \
 		( checkOverflowAdd( a, b ) || checkOverflowAdd( ( a ) + ( b ), c ) )
 #define checkOverflowSub3( a, b, c ) \
 		( checkOverflowSub( a, b ) || checkOverflowSub( ( a ) - ( b ), c ) )
+#define checkOverflowAddLong3( a, b, c ) \
+		( checkOverflowAddLong( a, b ) || checkOverflowAddLong( ( a ) + ( b ), c ) )
 
 /* In terms of other compiler intrinsics, Windows has:
    

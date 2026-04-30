@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							CMP Definitions Header File						*
-*						Copyright Peter Gutmann 1999-2019					*
+*						Copyright Peter Gutmann 1999-2024					*
 *																			*
 ****************************************************************************/
 
@@ -303,11 +303,11 @@ typedef enum {
 	CMPBODY_GENMSG, CMPBODY_ERROR, CMPBODY_LAST
 	} CMPBODY_TYPE;
 
-/* CMP uses so many unnecessary EXPLICIT tags that we define a macro to
-   make it easier to evaluate the encoded sizes of objects tagged in this
-   manner */
+/* CMP uses so many unnecessary EXPLICIT tags that we define a (slightly)
+   shorter replacement name to make it easier to evaluate the encoded sizes 
+   of objects tagged in this manner */
 
-#define objSize( length )	( ( int ) sizeofObject( length ) )
+#define objSize		sizeofObject
 
 /* The following macro can be used to enable dumping of PDUs to disk.  As a
    safeguard, this only works in the Win32 debug version to prevent it from
@@ -389,15 +389,15 @@ typedef struct {
 	   iAuthInContext */
 	BUFFER( CRYPT_MAX_TEXTSIZE, userIDsize ) \
 	BYTE userID[ CRYPT_MAX_TEXTSIZE + 8 ];	/* User ID */
-	BUFFER( CRYPT_MAX_TEXTSIZE, transIDsize ) \
+	BUFFER( CRYPT_MAX_HASHSIZE, transIDsize ) \
 	BYTE transID[ CRYPT_MAX_HASHSIZE + 8 ];	/* Transaction nonce */
-	BUFFER( CRYPT_MAX_TEXTSIZE, certIDsize ) \
+	BUFFER( CRYPT_MAX_HASHSIZE, certIDsize ) \
 	BYTE certID[ CRYPT_MAX_HASHSIZE + 8 ];	/* Sender certificate ID (SHA1) */
-	BUFFER( CRYPT_MAX_TEXTSIZE, certIDv2size ) \
+	BUFFER( CRYPT_MAX_HASHSIZE, certIDv2size ) \
 	BYTE certIDv2[ CRYPT_MAX_HASHSIZE + 8 ];/* Sender certificate ID (SHA2) */
-	BUFFER( CRYPT_MAX_TEXTSIZE, senderNonceSize ) \
+	BUFFER( CRYPT_MAX_HASHSIZE, senderNonceSize ) \
 	BYTE senderNonce[ CRYPT_MAX_HASHSIZE + 8 ];	/* Sender nonce */
-	BUFFER( CRYPT_MAX_TEXTSIZE, recipNonceSize ) \
+	BUFFER( CRYPT_MAX_HASHSIZE, recipNonceSize ) \
 	BYTE recipNonce[ CRYPT_MAX_HASHSIZE + 8 ];	/* Recipient nonce */
 	int userIDsize, transIDsize, certIDsize, certIDv2size;
 	int senderNonceSize, recipNonceSize;
@@ -444,6 +444,7 @@ typedef struct {
 	BYTE salt[ CRYPT_MAX_HASHSIZE + 8 ];	/* MAC password salt  */
 	int saltSize;
 	int iterations;							/* MAC password iterations */
+	BUFFER( CRYPT_MAX_HASHSIZE, altMacKeySize ) \
 	BYTE altMacKey[ CRYPT_MAX_HASHSIZE + 8 ];
 	int altMacKeySize;						/* Alt.MAC key for revocations */
 	BOOLEAN useMACsend, useMACreceive;		/* Use MAC to verify integrity */

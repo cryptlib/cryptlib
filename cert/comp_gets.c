@@ -77,7 +77,7 @@ static int oidToText( IN_BUFFER( binaryOidLen ) const BYTE *binaryOID,
 			/* OID arc overflow */
 			return( CRYPT_ERROR_BADDATA );
 			}
-		value = valTmp | ( data & 0x7F );
+		value = valTmp | ( data & 0x7F );	/* Same as an add */
 		if( value < 0 || value > OID_ARC_MAX )
 			return( CRYPT_ERROR_BADDATA );	/* Range error */
 		if( !( data & 0x80 ) )
@@ -124,8 +124,10 @@ static int oidToText( IN_BUFFER( binaryOidLen ) const BYTE *binaryOID,
 				subLen = sprintf_s( oid + length, maxOidLen - length, 
 									" %ld", value );
 				}
-			if( !rangeCheck( subLen, 2, ( maxOidLen - length ) - 1 ) )
+			if( checkOverflowSub( maxOidLen, length ) || \
+				!rangeCheck( subLen, 2, ( maxOidLen - length ) - 1 ) )
 				return( CRYPT_ERROR_BADDATA );
+			REQUIRES( !checkOverflowAdd( length, subLen ) );
 			length += subLen;
 			value = 0;
 			}
@@ -223,6 +225,7 @@ int textToOID( IN_BUFFER( textOidLength ) const char *textOID,
 	if( subLen <= 0 || subLen > CRYPT_MAX_TEXTSIZE )
 		return( CRYPT_ERROR_BADDATA );
 	textOidPtr += subLen;
+	REQUIRES( !checkOverflowSub( dataLeft, subLen ) );
 	dataLeft -= subLen;
 	if( dataLeft <= 0 || dataLeft > CRYPT_MAX_TEXTSIZE )
 		return( CRYPT_ERROR_BADDATA );
@@ -230,6 +233,7 @@ int textToOID( IN_BUFFER( textOidLength ) const char *textOID,
 	if( subLen <= 0 || subLen > CRYPT_MAX_TEXTSIZE )
 		return( CRYPT_ERROR_BADDATA );
 	textOidPtr += subLen;
+	REQUIRES( !checkOverflowSub( dataLeft, subLen ) );
 	dataLeft -= subLen;
 	if( dataLeft <= 0 || dataLeft > CRYPT_MAX_TEXTSIZE )
 		return( CRYPT_ERROR_BADDATA );
@@ -252,6 +256,7 @@ int textToOID( IN_BUFFER( textOidLength ) const char *textOID,
 		if( subLen <= 0 || subLen > CRYPT_MAX_TEXTSIZE )
 			return( CRYPT_ERROR_BADDATA );
 		textOidPtr += subLen;
+		REQUIRES( !checkOverflowSub( dataLeft, subLen ) );
 		dataLeft -= subLen;
 		if( dataLeft < 0 || dataLeft > CRYPT_MAX_TEXTSIZE )
 			return( CRYPT_ERROR_BADDATA );
@@ -583,7 +588,8 @@ static int getESSCertID( INOUT_PTR CERT_INFO *certInfoPtr,
 				}
 			} */
 	issuerSerialDataSize = \
-			sizeofShortObject( sizeofShortObject( certInfoPtr->issuerDNsize ) ) + \
+			sizeofShortObject( \
+				sizeofShortObject( certInfoPtr->issuerDNsize ) ) + \
 			sizeofInteger( certInfoPtr->cCertCert->serialNumber,
 						   certInfoPtr->cCertCert->serialNumberLength );
 	*certInfoLength = \
@@ -868,6 +874,7 @@ static int extractDnComponent( IN_BUFFER( encodedDnLength ) \
 						   componentName, componentNameLength );
 	if( startPos < 0 )
 		return( -1 );
+	REQUIRES( !checkOverflowAdd( startPos, componentNameLength ) );
 	startPos += componentNameLength;	/* Skip type indicator */
 	ENSURES( isIntegerRangeNZ( startPos ) );
 	
@@ -884,11 +891,15 @@ static int extractDnComponent( IN_BUFFER( encodedDnLength ) \
 	if( endPos > startPos && \
 		encodedDn[ endPos ] == '+' && \
 		encodedDn[ endPos - 1 ] == ' ' )
+		{
+		REQUIRES( !checkOverflowDec( endPos ) );
 		endPos--;	/* Strip trailing space */
+		}
 	if( endPos <= startPos )
 		return( -1 );
 	
 	*startOffset = startPos;
+	REQUIRES( !checkOverflowSub( endPos, startPos ) );
 	*length = endPos - startPos;
 
 	return( CRYPT_OK );

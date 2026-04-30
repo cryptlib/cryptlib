@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						   ASN.1 Checking Routines							*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2024					*
 *																			*
 ****************************************************************************/
 
@@ -114,7 +114,7 @@ typedef enum {
 
 typedef struct {
 	int tag;				/* Tag */
-	long length;			/* Data length */
+	int length;				/* Data length */
 	int headerSize;			/* Size of tag+length */
 	BOOLEAN isIndefinite;	/* Item has indefinite length */
 	} ASN1_ITEM;
@@ -200,7 +200,7 @@ static int getItem( INOUT_PTR STREAM *stream,
 		{
 		/* Make sure that the length is valid.  readLongGenericHoleZ() 
 		   returns lengths up to MAX_INTLENGTH but we're checking shorter
-		   objects so we limit the over (tag + length + data) length to 
+		   objects so we limit the (tag + length + data) length to 
 		   MAX_BUFFER_SIZE */
 		if( length < 0 || length >= MAX_BUFFER_SIZE - objectSize ) 
 			return( ASN1_STATE_ERROR );
@@ -268,7 +268,9 @@ static BOOLEAN checkEncapsulation( INOUT_PTR STREAM *stream,
 		status = calculateStreamObjectLength( stream, streamPos, 
 											  &objectSize );
 		}
-	if( cryptStatusError( status ) || objectSize + innerLength != length )
+	if( cryptStatusError( status ) || \
+		checkOverflowAdd( objectSize, innerLength ) || \
+		objectSize + innerLength != length )
 		{
 		sClearError( stream );
 		sseek( stream, streamPos );
@@ -415,7 +417,7 @@ static ASN1_STATE checkPrimitive( INOUT_PTR STREAM *stream, const ASN1_ITEM *ite
 										const CHECK_ENCODING_TYPE checkType )
 	{
 	LOOP_INDEX i;
-	int length = ( int ) item->length, ch;
+	int length = item->length, ch;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( item, sizeof( ASN1_ITEM ) ) );
@@ -482,7 +484,14 @@ static ASN1_STATE checkPrimitive( INOUT_PTR STREAM *stream, const ASN1_ITEM *ite
 
 			/* Check the number of unused bits */
 			ch = sgetc( stream );
-			length--;
+			if( length <= 0 )
+				length = UNDERFLOW_MARKER;
+			else
+				{
+				REQUIRES_EXT( !checkOverflowDec( length ), 
+							  ASN1_STATE_ERROR );
+				length--;
+				}
 			if( !isShortIntegerRange( length ) || ch < 0 || ch > 7 )
 				{
 				/* Invalid number of unused bits */
@@ -801,13 +810,13 @@ static ASN1_STATE checkASN1Object( INOUT_PTR STREAM *stream,
 			ASN1_STATE_ERROR : ASN1_STATE_NONE );
 	}
 
-/* Check a complex ASN.1 object.  In order to handle huge CRLs with tens or 
-   hundreds of thousands of individual entries we can't use a fixed loop 
-   failsafe iteration count but have to vary it based on the size of the 
-   input data.  Luckily this situation is relatively easy to check for, it 
-   only occurs at a nesting level of 6 (when we find the CRL entries) and we 
-   only have to enable it when the data length is more than 30K since the 
-   default FAILSAFE_ITERATIONS_LARGE will handle anything smaller than that */
+/* Check a complex ASN.1 object.  In order to handle huge CRLs with 
+   thousands of individual entries we can't use a fixed loop failsafe 
+   iteration count but have to vary it based on the size of the  input 
+   data.  Luckily this situation is relatively easy to check for, it only 
+   occurs at a nesting level of 6 (when we find the CRL entries) and we only 
+   have to enable it when the data length is more than 30K since the default 
+   FAILSAFE_ITERATIONS_LARGE will handle anything smaller than that */
 
 CHECK_RETVAL_ENUM( ASN1_STATE ) STDC_NONNULL_ARG( ( 1 ) ) \
 static ASN1_STATE checkASN1( INOUT_PTR STREAM *stream, 
@@ -822,7 +831,8 @@ static ASN1_STATE checkASN1( INOUT_PTR STREAM *stream,
 	ASN1_ITEM item;
 	ASN1_STATE newState DUMMY_INIT;
 	const long maxIterationCount = ( level == 6 && length > 30000 ) ? \
-									 length / 25 : FAILSAFE_ITERATIONS_LARGE - 1;
+									 min( 10000, length / 25 ) : \
+									 FAILSAFE_ITERATIONS_LARGE - 1;
 	long localLength = length, lastPos = stell( stream );
 	LOOP_INDEX iterationCount;
 
@@ -914,9 +924,14 @@ static ASN1_STATE checkASN1( INOUT_PTR STREAM *stream,
 											  &objectSize );
 		if( cryptStatusError( status ) )
 			return( status );
-		REQUIRES_EXT( !checkOverflowSub( localLength, objectSize ),
-					  ASN1_STATE_ERROR );
-		localLength -= objectSize;
+		if( localLength < objectSize )
+			localLength = UNDERFLOW_MARKER;
+		else
+			{
+			REQUIRES_EXT( !checkOverflowSub( localLength, objectSize ),
+						  ASN1_STATE_ERROR );
+			localLength -= objectSize;
+			}
 		if( !isBufsizeRange( localLength ) )
 			return( ASN1_STATE_ERROR );
 		if( localLength <= 0 )
@@ -1119,8 +1134,13 @@ static int findObjectLength( INOUT_PTR STREAM *stream,
 		{
 		/* We've read the length information directly from the object rather
 		   than calculating it ourselves, make sure that it's within bounds.  
-		   We can only do this if the object fits into the stream buffer */
+		   We can only do this if the object fits into the stream buffer.
+		   
+		   Note that, unlike all of the other functions in this file, this 
+		   accesses stream-internal fields, but this is OK since all of the
+		   enc_dec/asn1_XXX.c functions deal with stream internals */
 		REQUIRES( isBufsizeRange( stream->bufSize ) );
+		REQUIRES( !checkOverflowSub( stream->bufSize, stream->bufPos ) );
 		if( localLength > stream->bufSize - stream->bufPos )
 			return( CRYPT_ERROR_UNDERFLOW );
 
@@ -1131,7 +1151,7 @@ static int findObjectLength( INOUT_PTR STREAM *stream,
 			return( status );
 		REQUIRES( !checkOverflowAdd( localLength, objectSize ) );
 		localLength += objectSize;
-		}			   /* No REQUIRES() since it's checked below */
+		}			   /* No ENSURES() since it's checked below */
 
 	/* An object needs to consist of at least a tag and a length */
 	if( !isIntegerRangeNZ( localLength ) || localLength <= 1 + 1 )

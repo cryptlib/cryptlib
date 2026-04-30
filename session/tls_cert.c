@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib TLS Certificate Handling						*
-*					   Copyright Peter Gutmann 1998-2022					*
+*					   Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -40,25 +40,24 @@
    for the rejection */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 6 ) ) \
-static int matchName( INOUT_BUFFER_FIXED( serverNameLength ) \
-						BYTE *serverName,
+static int matchName( IN_BUFFER( serverNameLength ) const BYTE *serverName,
 					  IN_LENGTH_DNS const int serverNameLength,
-					  INOUT_BUFFER_FIXED( originalCertNameLength ) \
-						BYTE *certName,
+					  IN_BUFFER( originalCertNameLength ) \
+						const BYTE *certName,
 					  IN_LENGTH_DNS const int originalCertNameLength,
-					  const CRYPT_CERTIFICATE iCryptCert,
+					  IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
 					  OUT_PTR ERROR_INFO *errorInfo )
 	{
+#ifdef USE_ERRMSGS 
+	char holderNameBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
+#endif /* USE_ERRMSGS */
 	URL_INFO urlInfo;
 	BOOLEAN hasWildcard = FALSE;
-#ifdef USE_ERRMSGS
-	char serverCertName[ CRYPT_MAX_TEXTSIZE + 8 ];
-#endif /* USE_ERRMSGS */
 	LOOP_INDEX i;
 	int certNameLength, dotCount = 0, status;
 
-	assert( isWritePtrDynamic( serverName, serverNameLength ) );
-	assert( isWritePtrDynamic( certName, originalCertNameLength ) );
+	assert( isReadPtrDynamic( serverName, serverNameLength ) );
+	assert( isReadPtrDynamic( certName, originalCertNameLength ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( serverNameLength > 0 && serverNameLength <= MAX_DNS_SIZE );
@@ -74,13 +73,13 @@ static int matchName( INOUT_BUFFER_FIXED( serverNameLength ) \
 						   URL_TYPE_NONE );
 	if( cryptStatusError( status ) )
 		{
-		retExt( CRYPT_ERROR_INVALID,
-				( CRYPT_ERROR_INVALID, errorInfo,
-				  "Invalid host name '%s' in server's certificate for '%s'",
-				  sanitiseString( certName, CRYPT_MAX_TEXTSIZE,
-								  originalCertNameLength ),
-				  getCertHolderName( iCryptCert, serverCertName, 
-									 CRYPT_MAX_TEXTSIZE ) ) );
+		retExtSan( CRYPT_ERROR_INVALID,
+				   ( CRYPT_ERROR_INVALID, errorInfo, 
+					 "Invalid host name '%s' in server's certificate for "
+					 "'%s'", certName, originalCertNameLength,
+					 getCertHolderName( iCryptCert, holderNameBuffer, 
+										CRYPT_MAX_TEXTSIZE ), 0,
+					 NULL, 0 ) );
 		}
 	certName = ( BYTE * ) urlInfo.host;
 	certNameLength = urlInfo.hostLen;
@@ -91,16 +90,13 @@ static int matchName( INOUT_BUFFER_FIXED( serverNameLength ) \
 	if( certNameLength < MIN_DNS_SIZE || \
 		certNameLength > serverNameLength )
 		{
-		retExt( CRYPT_ERROR_INVALID,
-				( CRYPT_ERROR_INVALID, errorInfo,
-				  "Server name '%s' doesn't match host name '%s' in "
-				  "server's certificate for '%s'", 
-				  sanitiseString( serverName, CRYPT_MAX_TEXTSIZE,
-								  serverNameLength ),
-				  sanitiseString( certName, CRYPT_MAX_TEXTSIZE,
-								  certNameLength ),
-				  getCertHolderName( iCryptCert, serverCertName, 
-									 CRYPT_MAX_TEXTSIZE ) ) );
+		retExtSan( CRYPT_ERROR_INVALID,
+				   ( CRYPT_ERROR_INVALID, errorInfo, 
+					 "Server name '%s' doesn't match host name '%s' in "
+					 "server's certificate for '%s'", 
+					 serverName, serverNameLength, certName, certNameLength, 
+					 getCertHolderName( iCryptCert, holderNameBuffer, 
+										CRYPT_MAX_TEXTSIZE ), 0 ) );
 		}
 
 	/* Make sure that, if it's a wildcarded name, it follows the pattern 
@@ -119,14 +115,14 @@ static int matchName( INOUT_BUFFER_FIXED( serverNameLength ) \
 				{
 				/* The wildcard character isn't the first one in the name, 
 				   it's invalid */
-				retExt( CRYPT_ERROR_INVALID,
-						( CRYPT_ERROR_INVALID, errorInfo,
-						  "Host name '%s' in server's certificate for '%s' "
-						  "contains wildcard at invalid location",
-						  sanitiseString( certName, CRYPT_MAX_TEXTSIZE,
-										  certNameLength ),
-						  getCertHolderName( iCryptCert, serverCertName, 
-											 CRYPT_MAX_TEXTSIZE ) ) );
+				retExtSan( CRYPT_ERROR_INVALID,
+						   ( CRYPT_ERROR_INVALID, errorInfo, 
+							 "Host name '%s' in server's certificate for "
+							 "'%s' contains wildcard at invalid location",
+							 certName, certNameLength, 
+							 getCertHolderName( iCryptCert, holderNameBuffer, 
+												CRYPT_MAX_TEXTSIZE ), 0,
+							 NULL, 0 ) );
 				}
 			hasWildcard = TRUE;
 			}
@@ -138,14 +134,14 @@ static int matchName( INOUT_BUFFER_FIXED( serverNameLength ) \
 		{
 		/* The wildcard applies to the first- or second-level domain, it's 
 		   invalid */
-		retExt( CRYPT_ERROR_INVALID,
-				( CRYPT_ERROR_INVALID, errorInfo,
-				  "Host name '%s' in server's certificate for '%s' "
-				  "contains wildcard at invalid domain level",
-				  sanitiseString( certName, CRYPT_MAX_TEXTSIZE,
-								  certNameLength ),
-				  getCertHolderName( iCryptCert, serverCertName, 
-									 CRYPT_MAX_TEXTSIZE ) ) );
+		retExtSan( CRYPT_ERROR_INVALID,
+				   ( CRYPT_ERROR_INVALID, errorInfo, 
+					 "Host name '%s' in server's certificate for '%s' "
+					 "contains wildcard at invalid domain level",
+					 certName, certNameLength, 
+					 getCertHolderName( iCryptCert, holderNameBuffer, 
+										CRYPT_MAX_TEXTSIZE ), 0,
+					 NULL, 0 ) );
 		}
 
 	/* Match the certificate name and the server name, taking into account
@@ -160,7 +156,10 @@ static int matchName( INOUT_BUFFER_FIXED( serverNameLength ) \
 	if( hasWildcard )
 		{
 		const int delta = serverNameLength - ( certNameLength - 1 );
+											 /* Range checked above */
 
+		ENSURES_B( !checkOverflowSub( serverNameLength, 
+									  certNameLength - 1 ) );
 		ENSURES_B( delta > 0 && delta < serverNameLength );
 
 		/* Match the suffix past the wildcard */
@@ -177,16 +176,14 @@ static int matchName( INOUT_BUFFER_FIXED( serverNameLength ) \
 		}
 
 	/* The name doesn't match */
-	retExt( CRYPT_ERROR_INVALID,
-			( CRYPT_ERROR_INVALID, errorInfo,
-			  "Server name '%s' doesn't match host name '%s' in server's " 
-			  "certificate for '%s'", 
-			  sanitiseString( serverName, CRYPT_MAX_TEXTSIZE,
-							  serverNameLength ),
-			  sanitiseString( certName, CRYPT_MAX_TEXTSIZE,
-							  certNameLength ),
-			  getCertHolderName( iCryptCert, serverCertName, 
-								 CRYPT_MAX_TEXTSIZE ) ) );
+	retExtSan( CRYPT_ERROR_INVALID,
+			   ( CRYPT_ERROR_INVALID, errorInfo, 
+				 "Server name '%s' doesn't match host name '%s' in "
+				 "server's certificate for '%s'", 
+				 serverName, serverNameLength, 
+				 certName, certNameLength, 
+				 getCertHolderName( iCryptCert, holderNameBuffer, 
+									CRYPT_MAX_TEXTSIZE ), 0 ) );
 	}
 
 /****************************************************************************
@@ -289,14 +286,14 @@ int checkHostNameTLS( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
 						 CRYPT_ATTRIBUTE_CURRENT );	/* Re-select subject DN */
 		if( certNameLength == CRYPT_ERROR )
 			{
-			retExt( CRYPT_ERROR_INVALID,
-					( CRYPT_ERROR_INVALID, errorInfo,
-					  "Server name '%s' doesn't match host name in "
-					  "server's certificate for '%s'",
-					  sanitiseString( serverName, CRYPT_MAX_TEXTSIZE,
-									  serverNameLength ),
-					  getCertHolderName( iCryptCert, serverCertName, 
-										 CRYPT_MAX_TEXTSIZE ) ) );
+			retExtSan( CRYPT_ERROR_INVALID,
+					   ( CRYPT_ERROR_INVALID, errorInfo,
+						 "Server name '%s' doesn't match host name in "
+						 "server's certificate for '%s'",
+						 serverName, serverNameLength,
+						 getCertHolderName( iCryptCert, serverCertName, 
+											CRYPT_MAX_TEXTSIZE ), 0,
+						 NULL, 0 ) );
 			}
 		return( CRYPT_ERROR_INVALID );	/* See comment above */
 		}
@@ -325,14 +322,14 @@ int checkHostNameTLS( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
 					 /* Re-select subject DN */
 
 	/* We couldn't find any name that matches the server name */
-	retExt( CRYPT_ERROR_INVALID,
-			( CRYPT_ERROR_INVALID, errorInfo,
-			  "Server name '%s' doesn't match any of the host names in "
-			  "server's certificate for '%s'",
-			  sanitiseString( serverName, CRYPT_MAX_TEXTSIZE,
-							  serverNameLength ),
-			  getCertHolderName( iCryptCert, serverCertName, 
-								 CRYPT_MAX_TEXTSIZE ) ) );
+	retExtSan( CRYPT_ERROR_INVALID,
+			   ( CRYPT_ERROR_INVALID, errorInfo,
+				 "Server name '%s' doesn't match any of the host names in "
+				 "server's certificate for '%s'",
+				 serverName, serverNameLength,
+				 getCertHolderName( iCryptCert, serverCertName, 
+									CRYPT_MAX_TEXTSIZE ), 0,
+				 NULL, 0 ) );
 	}
 
 /* Check that the certificate presented by the server is in order.  This 

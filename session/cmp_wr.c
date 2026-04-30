@@ -492,11 +492,13 @@ static int writePkiHeader( INOUT_PTR STREAM *stream,
 		{
 		if( protocolInfo->senderNonceSize > 0 )
 			{
-			totalLength += objSize( objSize( protocolInfo->senderNonceSize ) );
+			totalLength += objSize( \
+							objSize( protocolInfo->senderNonceSize ) );
 			}
 		if( protocolInfo->recipNonceSize > 0 )
 			{
-			totalLength += objSize( objSize( protocolInfo->recipNonceSize ) );
+			totalLength += objSize( \
+							objSize( protocolInfo->recipNonceSize ) );
 			}
 		}
 	if( attributeLength > 0 )
@@ -805,6 +807,8 @@ int writePkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			 sessionInfoPtr->receiveBuffer,
 			 sessionInfoPtr->receiveBufEnd );
 	memcpy( sessionInfoPtr->receiveBuffer, headerBuffer, headerSize );
+	REQUIRES( !checkOverflowAdd( sessionInfoPtr->receiveBufEnd, 
+								 headerSize ) );
 	sessionInfoPtr->receiveBufEnd += headerSize;
 
 	return( CRYPT_OK );

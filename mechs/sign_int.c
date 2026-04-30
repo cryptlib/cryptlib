@@ -349,6 +349,7 @@ static int createBernsteinSignature( OUT_BUFFER_OPT( bufSize, *length ) \
 	/* If we're just doing a length check, we're done */
 	if( buffer == NULL )
 		{
+		REQUIRES( !checkOverflowMul( 2, sigComponentSize ) );
 		*length = 2 * sigComponentSize;
 		ENSURES( isShortIntegerRangeNZ( *length ) );
 

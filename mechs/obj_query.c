@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Encoded Object Query Routines						*
-*					  Copyright Peter Gutmann 1992-2020						*
+*					  Copyright Peter Gutmann 1992-2025						*
 *																			*
 ****************************************************************************/
 
@@ -312,6 +312,7 @@ int getPgpPacketInfo( INOUT_PTR STREAM *stream,
 	status = version = sgetc( stream );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowDec( length ) );
 	length--;		/* We've skipped the version number */
 
 	/* If the caller has specified that a particular type of object is 
@@ -568,7 +569,8 @@ int queryAsn1Object( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr,
 			retIntError();
 		}
 	if( cryptStatusOK( status ) && \
-		startPos + basicQueryInfo.size != stell( stream ) )
+		( checkOverflowAdd( startPos, basicQueryInfo.size ) || \
+		  startPos + basicQueryInfo.size != stell( stream ) ) )
 		{
 		/* Make sure that the given size of the object matches what we've 
 		   actually processed */
@@ -618,9 +620,9 @@ int queryPgpObject( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr,
 	   the object data is present in the stream and, if an objectTypeHint
 	   is given, that we've been fed the correct type of object */
 	status = getPgpPacketInfo( stream, &basicQueryInfo, objectTypeHint );
-	sseek( stream, startPos );
 	if( cryptStatusError( status ) )
 		return( status );
+	sseek( stream, startPos );
 	ENSURES( basicQueryInfo.type != CRYPT_OBJECT_NONE || \
 			 basicQueryInfo.optType != CRYPT_OBJECT_NONE );
 
@@ -666,8 +668,13 @@ int queryPgpObject( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr,
 			break;
 
 		case CRYPT_OBJECT_NONE:
-			/* New, unrecognised object type */
-			status = sSkip( stream, ( int ) basicQueryInfo.size, 
+			/* New, unrecognised object type.  getPgpPacketInfo() has 
+			   already guaranteed that the size is an integer range, we
+			   restrict it even further here because we shouldn't be
+			   seeing gigantic keyex/signature objects */
+			if( !isShortIntegerRangeNZ( basicQueryInfo.size ) )
+				return( CRYPT_ERROR_OVERFLOW );
+			status = sSkip( stream, basicQueryInfo.size, 
 							MAX_INTLENGTH_SHORT );
 			break;
 
@@ -675,7 +682,8 @@ int queryPgpObject( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr,
 			retIntError();
 		}
 	if( cryptStatusOK( status ) && \
-		startPos + basicQueryInfo.size != stell( stream ) )
+		( checkOverflowAdd( startPos, basicQueryInfo.size ) || \
+		  startPos + basicQueryInfo.size != stell( stream ) ) )
 		{
 		/* Make sure that the given size of the object matches what we've 
 		   actually processed */
@@ -747,7 +755,7 @@ C_RET cryptQueryObject( C_IN void C_PTR objectData,
 	/* Query the object.  This is just a wrapper for the lower-level object-
 	   query functions.  Note that we use sPeek() rather than peekTag() 
 	   because we want to continue processing (or at least checking for) PGP 
-	   data if it's no ASN.1 */
+	   data if it's not ASN.1 */
 	sMemConnect( &stream, ( void * ) objectData, length );
 	status = value = sPeek( &stream );
 	if( cryptStatusError( status ) )

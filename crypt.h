@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib Internal General Header File 				*
-*						Copyright Peter Gutmann 1992-2021					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -311,20 +311,32 @@ typedef struct {
    to make the new key unique.  The wrapped key is the output (originator)/
    input(recipient) to the keyagreement process.  The session key context
    contains a context into which the derived key is loaded.  Typical
-   examples of use are:
+   examples of use, with ML-KEM following the usual PQC pattern of doing
+   things in a strange way, are::
 
 	PKCS #3: publicValue = y
 	S/MIME: publicValue = y, ukm = 512-bit nonce, wrappedKey = g^x mod p
-	SSH, SSL: publicValue = y, wrappedKey = x */
+			(Never used, present only for Fortezza and X9.42 compat.)
+	SSH, TLS: publicValue = y, wrappedKey = x
+	ML-KEM: publicValue = wrapped key, wrappedKey = secret key
+
+   Because of the huge sizes of PQC keys we only enable the data sizes 
+   they require if PQC algorithms are enabled */
+
+#ifdef USE_MLKEM
+  #define KEYAGREE_DATA_SIZE	MAX_PKCSIZE_PQC
+#else
+  #define KEYAGREE_DATA_SIZE	CRYPT_MAX_PKCSIZE
+#endif /* USE_MLKEM */
 
 typedef struct {
-	BUFFER( CRYPT_MAX_PKCSIZE, publicValueLen ) \
-	BYTE publicValue[ CRYPT_MAX_PKCSIZE + 8 ];
-	VALUE( 0, CRYPT_MAX_PKCSIZE ) \
+	BUFFER( KEYAGREE_DATA_SIZE, publicValueLen ) \
+	BYTE publicValue[ KEYAGREE_DATA_SIZE + 8 ];
+	VALUE( 0, KEYAGREE_DATA_SIZE ) \
 	int publicValueLen;				/* Public key value */
-	BUFFER( CRYPT_MAX_PKCSIZE, wrappedKeyLen ) \
-	BYTE wrappedKey[ CRYPT_MAX_PKCSIZE + 8 ];
-	VALUE( 0, CRYPT_MAX_PKCSIZE ) \
+	BUFFER( KEYAGREE_DATA_SIZE, wrappedKeyLen ) \
+	BYTE wrappedKey[ KEYAGREE_DATA_SIZE + 8 ];
+	VALUE( 0, KEYAGREE_DATA_SIZE ) \
 	int wrappedKeyLen;				/* Wrapped key */
 	} KEYAGREE_PARAMS;
 
@@ -362,7 +374,8 @@ typedef struct {
 #endif /* !min/max */
 
 /* Macros to convert to and from the bit counts used for some encryption
-   parameters */
+   parameters.  We don't check for overflow with this because the bits
+   count is a PKC length */
 
 #define bitsToBytes( bits )			( ( ( bits ) + 7 ) >> 3 )
 #define bytesToBits( bytes )		( ( bytes ) << 3 )
@@ -377,6 +390,9 @@ typedef struct {
 /* Macro to round a value up to the nearest multiple of a second value,
    with the second value being a power of 2 */
 
+#define checkOverflowRoundup( size, roundSize ) \
+		checkOverflowAdd( ( size ), ( roundSize ) - 1 )
+		
 #define roundUp( size, roundSize ) \
 	( ( ( size ) + ( ( roundSize ) - 1 ) ) & ~( ( roundSize ) - 1 ) )
 
@@ -471,6 +487,8 @@ typedef struct {
 	  ( algorithm ) == CRYPT_ALGO_25519 || ( algorithm ) == CRYPT_ALGO_ED25519 )
 #define isBernsteinAlgo( algorithm ) \
 	( ( algorithm ) == CRYPT_ALGO_25519 || ( algorithm ) == CRYPT_ALGO_ED25519 )
+#define isPqcAlgo( algorithm ) \
+	( ( algorithm ) == CRYPT_ALGO_MLKEM )
 
 /* Macros to check whether an algorithm has additional parameters that need 
    to be handled explicitly */

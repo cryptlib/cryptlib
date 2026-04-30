@@ -167,7 +167,7 @@ static int signData( const CRYPT_ALGO_TYPE algorithm,
 
 	fprintf( outputStream, "Testing %s%s digital signature%s...\n",
 			 ( formatType == CRYPT_FORMAT_PGP ) ? "PGP " : "", 
-			 algoName( algorithm ), useSidechannelProtection ? \
+			 algoToName( algorithm ), useSidechannelProtection ? \
 				" with side-channel protection" : "" );
 
 	/* Create SHA/SHA2 hash contexts and hash the test buffer.  We don't
@@ -254,7 +254,7 @@ static int signData( const CRYPT_ALGO_TYPE algorithm,
 				break;
 
 			case CRYPT_ALGO_ED25519:
-				status = load25519Contexts( CRYPT_UNUSED, &checkContext, 
+				status = loadEd25519Contexts( CRYPT_UNUSED, &checkContext, 
 											&signContext );
 				if( status == CRYPT_ERROR_NOTAVAIL )
 					{
@@ -319,8 +319,8 @@ static int signData( const CRYPT_ALGO_TYPE algorithm,
 	fprintf( outputStream, "cryptQueryObject() reports object type %d, "
 			 "algorithm %s, hash algorithm %s.\n", 
 			 cryptObjectInfo.objectType, 
-			 algoName( cryptObjectInfo.cryptAlgo ), 
-			 algoName( cryptObjectInfo.hashAlgo ) );
+			 algoToName( cryptObjectInfo.cryptAlgo ), 
+			 algoToName( cryptObjectInfo.hashAlgo ) );
 	memset( &cryptObjectInfo, 0, sizeof( CRYPT_OBJECT_INFO ) );
 	if( formatType == CRYPT_FORMAT_CRYPTLIB )
 		{
@@ -359,7 +359,7 @@ static int signData( const CRYPT_ALGO_TYPE algorithm,
 	if( externalSignContext == CRYPT_UNUSED )
 		destroyContexts( CRYPT_UNUSED, checkContext, signContext );
 	fprintf( outputStream, "Generation and checking of %s digital signature "
-			 "succeeded.\n\n", algoName( algorithm ) );
+			 "succeeded.\n\n", algoToName( algorithm ) );
 	return( TRUE );
 	}
 
@@ -378,7 +378,7 @@ static int keyExportImport( const CRYPT_ALGO_TYPE algorithm,
 
 	fprintf( outputStream, "Testing %s%s public-key export/import...\n",
 			 ( formatType == CRYPT_FORMAT_PGP ) ? "PGP " : "", 
-			 algoName( algorithm ) );
+			 algoToName( algorithm ) );
 
 	/* Create encryption contexts for the session key.  PGP stores the
 	   session key information with the encrypted key data, so we can't
@@ -430,25 +430,25 @@ static int keyExportImport( const CRYPT_ALGO_TYPE algorithm,
 		}
 
 	/* Find out how big the exported key will be */
-	status = cryptExportKeyEx( NULL, 0, &length, formatType, cryptContext,
-							   sessionKeyContext1 );
+	status = cryptWrapKeyEx( NULL, 0, &length, formatType, cryptContext,
+							 sessionKeyContext1 );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptExportKeyEx() failed with error "
+		fprintf( outputStream, "cryptWrapKeyEx() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		return( FALSE );
 		}
-	fprintf( outputStream, "cryptExportKeyEx() reports exported key object "
+	fprintf( outputStream, "cryptWrapKeyEx() reports exported key object "
 			 "will be %d bytes long\n", length );
 	if( ( buffer = malloc( length ) ) == NULL )
 		return( FALSE );
 
 	/* Export the session key */
-	status = cryptExportKeyEx( buffer, length, &length, formatType,
-							   cryptContext, sessionKeyContext1 );
+	status = cryptWrapKeyEx( buffer, length, &length, formatType,
+							 cryptContext, sessionKeyContext1 );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptExportKeyEx() failed with error "
+		fprintf( outputStream, "cryptWrapKeyEx() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		free( buffer );
 		return( FALSE );
@@ -465,7 +465,7 @@ static int keyExportImport( const CRYPT_ALGO_TYPE algorithm,
 		}
 	fprintf( outputStream, "cryptQueryObject() reports object type %d, "
 			 "algorithm %s.\n", cryptObjectInfo.objectType, 
-			 algoName( cryptObjectInfo.cryptAlgo ) );
+			 algoToName( cryptObjectInfo.cryptAlgo ) );
 	memset( &cryptObjectInfo, 0, sizeof( CRYPT_OBJECT_INFO ) );
 	if( formatType == CRYPT_FORMAT_CRYPTLIB )
 		{
@@ -481,12 +481,12 @@ static int keyExportImport( const CRYPT_ALGO_TYPE algorithm,
 	/* Recreate the session key by importing the encrypted key */
 	if( formatType == CRYPT_FORMAT_PGP )
 		{
-		status = cryptImportKeyEx( buffer, length, decryptContext,
+		status = cryptUnwrapKeyEx( buffer, length, decryptContext,
 								   CRYPT_UNUSED, &sessionKeyContext2 );
 		}
 	else
 		{
-		status = cryptImportKeyEx( buffer, length, decryptContext,
+		status = cryptUnwrapKeyEx( buffer, length, decryptContext,
 								   sessionKeyContext2, NULL );
 		}
 	if( cryptStatusError( status ) )
@@ -494,7 +494,7 @@ static int keyExportImport( const CRYPT_ALGO_TYPE algorithm,
 		destroyContexts( CRYPT_UNUSED, sessionKeyContext1, sessionKeyContext2 );
 		if( externalCryptContext == CRYPT_UNUSED )
 			destroyContexts( CRYPT_UNUSED, cryptContext, decryptContext );
-		fprintf( outputStream, "cryptImportKeyEx() failed with error "
+		fprintf( outputStream, "cryptUnwrapKeyEx() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		free( buffer );
 		return( FALSE );
@@ -509,7 +509,7 @@ static int keyExportImport( const CRYPT_ALGO_TYPE algorithm,
 	if( externalCryptContext == CRYPT_UNUSED )
 		destroyContexts( CRYPT_UNUSED, cryptContext, decryptContext );
 	fprintf( outputStream, "Export/import of session key via %s-encrypted "
-			 "data block\n  succeeded.\n\n", algoName( algorithm ) );
+			 "data block\n  succeeded.\n\n", algoToName( algorithm ) );
 	free( buffer );
 	return( TRUE );
 	}
@@ -943,25 +943,25 @@ static int conventionalExportImport( const CRYPT_CONTEXT cryptContext,
 		}
 
 	/* Find out how big the exported key will be */
-	status = cryptExportKey( NULL, 0, &length, cryptContext,
-							 sessionKeyContext1 );
+	status = cryptWrapKey( NULL, 0, &length, cryptContext,
+						   sessionKeyContext1 );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptExportKey() failed with error "
+		fprintf( outputStream, "cryptWrapKey() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		return( FALSE );
 		}
-	fprintf( outputStream, "cryptExportKey() reports exported key object "
+	fprintf( outputStream, "cryptWrapKey() reports exported key object "
 			 "will be %d bytes long\n", length );
 	if( ( buffer = malloc( length ) ) == NULL )
 		return( FALSE );
 
 	/* Export the session information */
-	status = cryptExportKey( buffer, length, &length, cryptContext,
-							 sessionKeyContext1 );
+	status = cryptWrapKey( buffer, length, &length, cryptContext,
+						   sessionKeyContext1 );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptExportKey() failed with error "
+		fprintf( outputStream, "cryptWrapKey() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		free( buffer );
 		return( FALSE );
@@ -978,13 +978,13 @@ static int conventionalExportImport( const CRYPT_CONTEXT cryptContext,
 		}
 	fprintf( outputStream, "cryptQueryObject() reports object type %d, "
 			 "algorithm %s, mode %d.\n", cryptObjectInfo.objectType, 
-			 algoName( cryptObjectInfo.cryptAlgo ), 
+			 algoToName( cryptObjectInfo.cryptAlgo ), 
 			 cryptObjectInfo.cryptMode );
 	fprintf( outputStream, "cryptQueryObject() reports key derivation info "
 			 "as an %d-byte salt\n  processed with %d iterations of PRF "
 			 "algorithm %s.\n", cryptObjectInfo.saltSize, 
 			 cryptObjectInfo.iterations, 
-			 algoName( cryptObjectInfo.hashAlgo ) );
+			 algoToName( cryptObjectInfo.hashAlgo ) );
 	if( aesKeysizeOpt == AES_NONE )
 		debugDump( "kek", buffer, length );
 	else
@@ -1001,8 +1001,8 @@ static int conventionalExportImport( const CRYPT_CONTEXT cryptContext,
 		{
 		fprintf( outputStream, "Key wrap with PRF algorithm %s reported "
 				 "algorithm as %s,\n" "line %d.\n", 
-				 algoName( altPrfAlgo ), 
-				 algoName( cryptObjectInfo.hashAlgo ), __LINE__ );
+				 algoToName( altPrfAlgo ), 
+				 algoToName( cryptObjectInfo.hashAlgo ), __LINE__ );
 		free( buffer );
 		return( FALSE );
 		}
@@ -1060,12 +1060,12 @@ static int conventionalExportImport( const CRYPT_CONTEXT cryptContext,
 				 "code %d, line %d.\n", status, __LINE__ );
 		return( FALSE );
 		}
-	status = cryptImportKey( buffer, length, decryptContext,
+	status = cryptUnwrapKey( buffer, length, decryptContext,
 							 sessionKeyContext2 );
 	if( cryptStatusError( status ) )
 		{
 		cryptDestroyContext( decryptContext );
-		fprintf( outputStream, "cryptImportKey() failed with error "
+		fprintf( outputStream, "cryptUnwrapKey() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		free( buffer );
 		return( FALSE );
@@ -1317,24 +1317,24 @@ int testMACExportImport( void )
 		return( FALSE );
 
 	/* Find out how big the exported key will be */
-	status = cryptExportKey( NULL, 0, &length1, cryptContext, macContext1 );
+	status = cryptWrapKey( NULL, 0, &length1, cryptContext, macContext1 );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptExportKey() failed with error "
+		fprintf( outputStream, "cryptWrapKey() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		return( FALSE );
 		}
-	fprintf( outputStream, "cryptExportKey() reports exported key object "
+	fprintf( outputStream, "cryptWrapKey() reports exported key object "
 			 "will be %d bytes long\n", length1 );
 	if( ( buffer = malloc( length1 ) ) == NULL )
 		return( FALSE );
 
 	/* Export the MAC information */
-	status = cryptExportKey( buffer, length1, &length1, cryptContext,
-							 macContext1 );
+	status = cryptWrapKey( buffer, length1, &length1, cryptContext,
+						   macContext1 );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptExportKey() failed with error "
+		fprintf( outputStream, "cryptWrapKey() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		free( buffer );
 		return( FALSE );
@@ -1351,7 +1351,7 @@ int testMACExportImport( void )
 		}
 	fprintf( outputStream, "cryptQueryObject() reports object type %d, "
 			 "algorithm %s, mode %d.\n", cryptObjectInfo.objectType, 
-			 algoName( cryptObjectInfo.cryptAlgo ), 
+			 algoToName( cryptObjectInfo.cryptAlgo ), 
 			 cryptObjectInfo.cryptMode );
 	debugDump( "kek_mac", buffer, length1 );
 
@@ -1374,13 +1374,13 @@ int testMACExportImport( void )
 									  userKey, userKeyLength );
 	if( cryptStatusOK( status ) )
 		{
-		status = cryptImportKey( buffer, length1, decryptContext,
+		status = cryptUnwrapKey( buffer, length1, decryptContext,
 								 macContext2 );
 		}
 	free( buffer );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptImportKey() failed with error "
+		fprintf( outputStream, "cryptUnwrapKey() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		return( FALSE );
 		}
@@ -1517,6 +1517,22 @@ int testSignData( void )
 	return( TRUE );
 	}
 
+/* A custom entry point for keyExportImport() that's used to check whether 
+   RSA keys read from keysets and other locations are working as expected */
+
+int testRSAContexts( const CRYPT_CONTEXT cryptContext,
+					 const CRYPT_CONTEXT decryptContext )
+	{
+#ifdef USE_INT_CMS
+	return( keyExportImport( CRYPT_ALGO_RSA, cryptContext, decryptContext, 
+							 CRYPT_FORMAT_CRYPTLIB ) );
+#else
+	fprintf( outputStream, "  (Skipping encrypt/decrypt test due to "
+			 "unavailability of keyex mechanism).\n" );
+	return( TRUE );
+#endif /* USE_INT_CMS */
+	}
+
 /* Test normal and asynchronous public-key generation */
 
 static int keygen( const CRYPT_ALGO_TYPE cryptAlgo, 
@@ -1626,11 +1642,11 @@ static int keygen( const CRYPT_ALGO_TYPE cryptAlgo,
 				status = cryptGenerateKey( sessionKeyContext1 );
 			if( cryptStatusError( status ) )
 				return( FALSE );
-			status = cryptExportKey( buffer, BUFFER_SIZE, &length, 
-									 cryptContext, sessionKeyContext1 );
+			status = cryptWrapKey( buffer, BUFFER_SIZE, &length, 
+								   cryptContext, sessionKeyContext1 );
 			if( cryptStatusOK( status ) )
 				{
-				status = cryptImportKey( buffer, length, cryptContext,
+				status = cryptUnwrapKey( buffer, length, cryptContext,
 										 sessionKeyContext2 );
 				}
 			cryptDestroyContext( cryptContext );
@@ -1656,17 +1672,22 @@ static int keygen( const CRYPT_ALGO_TYPE cryptAlgo,
 			}
 
 		case CRYPT_ALGO_ED25519:
-KLUDGE_WARN( "Ed25519 test because of special-case handling needed for Ed25519 signatures" );
-cryptDestroyContext( cryptContext );
-return( TRUE );
+			fprintf( outputStream, "Skipping Ed25519 test because of "
+					 "special-case handling needed for Ed25519 "
+					 "signatures.\n" );
+			cryptDestroyContext( cryptContext );
+			return( TRUE );
 
 		case CRYPT_ALGO_DH:
 		case CRYPT_ALGO_ECDH:
 		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_MLKEM:
 			{
-KLUDGE_WARN( "DH/ECDH/25519 test because of absence of DH/ECDH/25519 key exchange mechanism" );
-cryptDestroyContext( cryptContext );
-return( TRUE );
+			fprintf( outputStream, "Skipping %s test because of absence of "
+					 "%s key exchange mechanism.\n", 
+					 algoToName( cryptAlgo ), algoToName( cryptAlgo ) );
+			cryptDestroyContext( cryptContext );
+			return( TRUE );
 #if 0
 			CRYPT_CONTEXT dhContext;
 			CRYPT_CONTEXT sessionKeyContext1, sessionKeyContext2;
@@ -1686,21 +1707,21 @@ return( TRUE );
 				}
 			if( cryptStatusError( status ) )
 				return( FALSE );
-			status = cryptExportKey( buffer, BUFFER_SIZE, &length, 
-									 cryptContext, sessionKeyContext1 );
+			status = cryptWrapKey( buffer, BUFFER_SIZE, &length, 
+								   cryptContext, sessionKeyContext1 );
 			if( cryptStatusOK( status ) )
 				{
-				status = cryptImportKey( buffer, length, dhContext,
+				status = cryptUnwrapKey( buffer, length, dhContext,
 										 sessionKeyContext2 );
 				}
 			if( cryptStatusOK( status ) )
 				{
-				status = cryptExportKey( buffer, BUFFER_SIZE, &length, 
-										 dhContext, sessionKeyContext2 );
+				status = cryptWrapKey( buffer, BUFFER_SIZE, &length, 
+									   dhContext, sessionKeyContext2 );
 				}
 			if( cryptStatusOK( status ) )
 				{
-				status = cryptImportKey( buffer, length, cryptContext,
+				status = cryptUnwrapKey( buffer, length, cryptContext,
 										 sessionKeyContext1 );
 				}
 			cryptDestroyContext( cryptContext );
@@ -1781,6 +1802,9 @@ int testKeygen( void )
 		return( FALSE );
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) && \
 		!keygen( CRYPT_ALGO_ED25519, "Ed25519", CRYPT_USE_DEFAULT ) )
+		return( FALSE );
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_MLKEM, NULL ) ) && \
+		!keygen( CRYPT_ALGO_MLKEM, "ML-KEM", CRYPT_USE_DEFAULT ) )
 		return( FALSE );
 	fprintf( outputStream, "\n" );
 	return( TRUE );
@@ -1973,25 +1997,25 @@ static int exportImportCMS( const char *description,
 		}
 
 	/* Find out how big the exported key will be */
-	status = cryptExportKeyEx( NULL, 0, &length, CRYPT_FORMAT_SMIME,
-							   cryptContext, sessionKeyContext1 );
+	status = cryptWrapKeyEx( NULL, 0, &length, CRYPT_FORMAT_SMIME,
+							 cryptContext, sessionKeyContext1 );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptExportKeyEx() failed with error "
+		fprintf( outputStream, "cryptWrapKeyEx() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		return( FALSE );
 		}
-	fprintf( outputStream, "cryptExportKeyEx() reports CMS exported key "
+	fprintf( outputStream, "cryptWrapKeyEx() reports CMS exported key "
 			 "will be %d bytes long\n", length );
 	if( ( buffer = malloc( length ) ) == NULL )
 		return( FALSE );
 
 	/* Export the key */
-	status = cryptExportKeyEx( buffer, length, &length, CRYPT_FORMAT_SMIME,
-							   cryptContext, sessionKeyContext1 );
+	status = cryptWrapKeyEx( buffer, length, &length, CRYPT_FORMAT_SMIME,
+							 cryptContext, sessionKeyContext1 );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptExportKeyEx() failed with error "
+		fprintf( outputStream, "cryptWrapKeyEx() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		free( buffer );
 		return( FALSE );
@@ -2015,7 +2039,7 @@ static int exportImportCMS( const char *description,
 		}
 	fprintf( outputStream, "cryptQueryObject() reports object type %d, "
 			 "algorithm %s.\n", cryptObjectInfo.objectType, 
-			 algoName( cryptObjectInfo.cryptAlgo ) );
+			 algoToName( cryptObjectInfo.cryptAlgo ) );
 	memset( &cryptObjectInfo, 0, sizeof( CRYPT_OBJECT_INFO ) );
 	debugDump( ( altFormatType == 0 ) ? "cms_ri" : \
 			   ( altFormatType == 20 ) ? "cms_ri_oaep_sha1" : \
@@ -2025,11 +2049,11 @@ static int exportImportCMS( const char *description,
 			   buffer, length );
 
 	/* Import the encrypted key and load it into the session key context */
-	status = cryptImportKey( buffer, length, cryptContext,
+	status = cryptUnwrapKey( buffer, length, cryptContext,
 							 sessionKeyContext2 );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptImportKey() failed with error "
+		fprintf( outputStream, "cryptUnwrapKey() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		free( buffer );
 		return( FALSE );

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  Signature Read/Write Routines						*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -203,6 +203,7 @@ static int readCmsSignature( INOUT_PTR STREAM *stream,
 	status = getStreamObjectLength( stream, &length, 16 );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( startPos, length ) );
 	endPos = startPos + length;
 	ENSURES( isIntegerRangeNZ( endPos ) );
 
@@ -496,6 +497,7 @@ static int writeCryptlibSignature( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Write the header */
+	REQUIRES( !checkOverflowAdd3( signAlgoIdSize, hashAlgoIdSize, 1024 ) );
 	writeSequence( stream, sizeofShortInteger( SIGNATURE_EX_VERSION ) + \
 				   sizeofObject( keyIDlength ) + \
 				   signAlgoIdSize + hashAlgoIdSize + \
@@ -562,6 +564,7 @@ static int readTypeAndValue( INOUT_PTR STREAM *stream,
 		/* This is a somewhat different check to the above one in that out-
 		   of-range (but plausible) sizes are skipped rather than being 
 		   counted as an error */
+		REQUIRES( !checkOverflowAdd( nameLength, valueLength ) );
 		return( sSkip( stream, nameLength + valueLength, 
 					   MAX_INTLENGTH_SHORT ) );
 		}
@@ -614,7 +617,7 @@ static int readSignatureSubpackets( INOUT_PTR STREAM *stream,
 	REQUIRES( isBufsizeRange( startPos ) );
 	REQUIRES( startPos < stell( stream ) );
 	REQUIRES( isBooleanValue( isAuthenticated ) );
-	REQUIRES( endPos >= length && endPos < MAX_BUFFER_SIZE );
+	REQUIRES( isBufsizeRangeMin( endPos, length ) );
 
 	LOOP_MED( noSubpackets = 0, 
 			  noSubpackets < 30 && stell( stream ) < endPos,
@@ -798,12 +801,15 @@ static int readSignatureSubpackets( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readPgpOnepassSigPacket( INOUT_PTR STREAM *stream, 
-							 INOUT_PTR QUERY_INFO *queryInfo )
+							 OUT_PTR QUERY_INFO *queryInfo )
 	{
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
+
+	/* Clear return value */
+	memset( queryInfo, 0, sizeof( QUERY_INFO ) );
 
 	/* Make sure that the packet header is in order */
 	status = getPgpPacketInfo( stream, queryInfo, QUERYOBJECT_SIGNATURE );
@@ -946,6 +952,8 @@ static int readOpenPgpSigInfo( INOUT_PTR STREAM *stream,
 		return( status );
 	if( length < 0 || length > 2048 )
 		return( CRYPT_ERROR_BADDATA );
+	REQUIRES( !checkOverflowAdd( queryInfo->attributeLength, 
+								 UINT16_SIZE + length ) );
 	queryInfo->attributeLength += UINT16_SIZE + length;
 	if( length > 0 )
 		{
@@ -965,6 +973,7 @@ static int readOpenPgpSigInfo( INOUT_PTR STREAM *stream,
 		return( status );
 	if( length < 0 || length > 2048 )
 		return( CRYPT_ERROR_BADDATA );
+	REQUIRES( !checkOverflowAdd( UINT16_SIZE, length ) );
 	queryInfo->unauthAttributeLength = UINT16_SIZE + length;
 	if( length > 0 )
 		{
@@ -1047,6 +1056,8 @@ static int readPgpSignature( INOUT_PTR STREAM *stream,
 				}
 			if( cryptStatusError( status ) )
 				return( status );
+			REQUIRES( !checkOverflowSub( objectSize, 
+										 queryInfo->dataLength ) );
 			queryInfo->dataStart = objectSize - queryInfo->dataLength;
 			break;
 			}
@@ -1085,6 +1096,7 @@ static int readPgpSignature( INOUT_PTR STREAM *stream,
 				}
 			if( cryptStatusError( status ) )
 				return( status );
+			REQUIRES( !checkOverflowSub( dataStartPos, startPos ) );
 			queryInfo->dataStart = dataStartPos - startPos;
 			break;
 			}
@@ -1109,6 +1121,7 @@ static int readPgpSignature( INOUT_PTR STREAM *stream,
 				}
 			if( cryptStatusError( status ) )
 				return( status );
+			REQUIRES( !checkOverflowSub( dataStartPos, startPos ) );
 			queryInfo->dataStart = dataStartPos - startPos;
 			break;
 			}
@@ -1121,6 +1134,7 @@ static int readPgpSignature( INOUT_PTR STREAM *stream,
 	/* Make sure that we've read the entire object.  This check is necessary 
 	   to detect corrupted length values, which can result in reading past 
 	   the end of the object */
+	REQUIRES( !checkOverflowSub( stell( stream ), startPos ) );
 	if( ( stell( stream ) - startPos ) != queryInfo->size )
 		return( CRYPT_ERROR_BADDATA );
 

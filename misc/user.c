@@ -15,6 +15,11 @@
   #include "misc/user.h"
 #endif /* Compiler-specific includes */
 
+/* Although cryptlib was designed to have multiple users, for example if 
+   used as the firmware in an HSM, there have never been any requests for
+   this capability.  As a result the following code, despite having an 
+   outline for multiuser use, assumes a single user, the SO */
+
 /* The different types of userID that we can use to look up users in the 
    index */
 
@@ -516,7 +521,7 @@ static int writeUserIndexEntry( INOUT_PTR STREAM *stream,
 
 	writeSequence( stream, 2 * sizeofObject( KEYID_SIZE ) + \
 				   sizeofObject( userIndexPtr->userNameLength ) + \
-				   sizeofShortInteger( userIndexPtr->fileRef) );
+				   sizeofShortInteger( userIndexPtr->fileRef ) );
 	writeOctetString( stream, userIndexPtr->userID, KEYID_SIZE, DEFAULT_TAG );
 	writeOctetString( stream, userIndexPtr->creatorID, KEYID_SIZE, DEFAULT_TAG );
 	writeCharacterString( stream, userIndexPtr->userName,
@@ -698,7 +703,7 @@ static int commitUserData( IN_HANDLE const CRYPT_KEYSET iUserKeyset,
 /* Read a user's info from a user keyset and verify it using the creating
    SO's key */
 
-#if 0	/*!!!!!!!!!!!!!!! Needs a serious overhaul !!!!!!!!!!!!!!!!!!!!!*/
+#if 0	/*!!!!!!!!!!! Never completed due to zero demand !!!!!!!!!!!!!!!*/
 		/*!!!!!!!!!!!!! Should also do recursive walk !!!!!!!!!!!!!!!!!!*/
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -839,7 +844,7 @@ static int getCheckUserInfo( INOUT_PTR USER_FILE_INFO *userFileInfoPtr,
 
 	return( status );
 	}
-#endif /*!!!!!!!!!!!!!!! Needs a serious overhaul !!!!!!!!!!!!!!!!!!!!!*/
+#endif /*!!!!!!!!!!! Never completed due to zero demand !!!!!!!!!!!!!!!*/
 
 /****************************************************************************
 *																			*
@@ -933,10 +938,12 @@ static int createSOKey( IN_HANDLE const CRYPT_KEYSET iUserKeyset,
 					 &msgData, CRYPT_CTXINFO_LABEL );
 	status = krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_CTX_GENKEY );
 	if( cryptStatusOK( status ) )
+		{
 		status = krnlSendMessage( createInfo.cryptHandle,
 								  IMESSAGE_SETATTRIBUTE,
 								  ( int * ) &actionPerms,
 								  CRYPT_IATTRIBUTE_ACTIONPERMS );
+		}
 	if( cryptStatusError( status ) )
 		{
 		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
@@ -993,10 +1000,12 @@ static int createCAKey( IN_HANDLE const CRYPT_KEYSET iUserKeyset,
 					 &msgData, CRYPT_CTXINFO_LABEL );
 	status = krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_CTX_GENKEY );
 	if( cryptStatusOK( status ) )
+		{
 		status = krnlSendMessage( createInfo.cryptHandle,
 								  IMESSAGE_SETATTRIBUTE,
 								  ( int * ) &actionPerms,
 								  CRYPT_IATTRIBUTE_ACTIONPERMS );
+		}
 	if( cryptStatusError( status ) )
 		{
 		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );

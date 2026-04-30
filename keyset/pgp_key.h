@@ -146,16 +146,16 @@ typedef struct {
 STDC_NONNULL_ARG( ( 1 ) ) \
 void pgpFreeEntry( INOUT_PTR PGP_INFO *pgpInfo );
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
-BOOLEAN pgpCheckKeyMatch( const PGP_INFO *pgpInfo, 
-						  const PGP_KEYINFO *keyInfo, 
-						  const KEY_MATCH_INFO *keyMatchInfo );
+BOOLEAN pgpCheckKeyMatch( IN_PTR const PGP_INFO *pgpInfo, 
+						  IN_PTR const PGP_KEYINFO *keyInfo, 
+						  IN_PTR const KEY_MATCH_INFO *keyMatchInfo );
 
 /* Prototypes for functions in pgp_rd.c */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4, 5 ) ) \
 int pgpScanPubKeyring( INOUT_PTR STREAM *stream, 
 					   INOUT_PTR PGP_INFO *pgpInfo, 
-					   const KEY_MATCH_INFO *keyMatchInfo,
+					   IN_PTR const KEY_MATCH_INFO *keyMatchInfo,
 					   OUT_PTR_PTR_OPT PGP_KEYINFO **matchedKeyInfoPtrPtr,
 					   INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \

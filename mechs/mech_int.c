@@ -90,6 +90,7 @@ int adjustPKCS1Data( OUT_BUFFER_FIXED( outDataMaxLen ) BYTE *outData,
 	   key size.  To do this we copy the payload into the output buffer with
 	   enough leading-zero bytes to bring the total size up to the key size */
 	REQUIRES( boundsCheck( keySize - length, length, outDataMaxLen ) );
+	REQUIRES( !checkOverflowSub( keySize, length ) );
 	memset( outData, 0, keySize );
 	memcpy( outData + ( keySize - length ), inData, length );
 
@@ -180,7 +181,10 @@ int mgf1( OUT_BUFFER_FIXED( maskLen ) void *mask,
 		ENSURES( LOOP_INVARIANT_MED_XXX( maskIndex, 0, maskLen - 1 ) );
 				 /* maskIndex is incremented by the number of output bytes */
 
+		REQUIRES( !checkOverflowSub( maskLen, maskIndex ) );
+
 		/* Calculate hash( seed || counter ) */
+		REQUIRES( !checkOverflowInc( blockCount ) );
 		countBuffer[ 3 ] = ( BYTE ) blockCount++;
 		hashFunction( hashInfo, NULL, 0, seed, seedLen, HASH_STATE_START );
 		hashFunction( hashInfo, maskBuffer, hashSize, countBuffer, 4, 

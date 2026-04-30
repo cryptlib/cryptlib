@@ -333,6 +333,7 @@ void preInit( void )
 		   which point they can be detected */
 		retIntError_Void();
 		}
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	}
 
 void postShutdown( void )
@@ -359,6 +360,8 @@ int krnlBeginInit( void )
 	{
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 	int status;
+
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 
 #ifdef STATIC_INIT
 	/* If the krnlData hasn't been set up yet, set it up now */
@@ -449,6 +452,9 @@ int krnlBeginInit( void )
 	/* The kernel data block has been initialised */
 	krnlData->initLevel = INIT_LEVEL_KRNLDATA;
 
+	REQUIRES_MUTEX( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ),
+					initialisation );
+
 	/* Exit with the initialisation mutex still held */
 	return( CRYPT_OK );
 	}
@@ -492,6 +498,8 @@ int krnlBeginShutdown( void )
 
 	/* We can only begin a shutdown if we're fully initialised */
 	REQUIRES_MUTEX( krnlData->initLevel == INIT_LEVEL_FULL, \
+					initialisation );
+	REQUIRES_MUTEX( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ),
 					initialisation );
 
 	/* If we're already shut down, don't to anything */
@@ -543,6 +551,7 @@ int krnlCompleteShutdown( void )
 
 	/* At this point all kernel services have been shut down */
 	ENSURES( krnlData->shutdownLevel >= SHUTDOWN_LEVEL_MUTEXES );
+	ENSURES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 
 	/* Turn off the lights on the way out.  Note that the kernel data-
 	   clearing operation leaves the shutdown level set to handle any

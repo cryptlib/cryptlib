@@ -153,17 +153,19 @@ int processVersionInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* If it's the first message in the exchange then the outer version
 		   number is meaningless and often doesn't correspond to the inner 
 		   version number in the client/server hello, so all we do is check 
-		   that it's generally within range */
+		   that it's within range.  See the comment for the default: entry
+		   in the switch statement for why we cap the maximum version at
+		   TLS 1.2 */
 		if( generalCheckOnly )
 			{
 			if( version < TLS_MINOR_VERSION_SSL || \
-				version > TLS_MINOR_VERSION_TLS12 + 2 )
+				version > TLS_MINOR_VERSION_TLS12 )
 				{
 				retExt( CRYPT_ERROR_BADDATA,
 						( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 						  "Invalid version number 3.%d, should be "
 						  "3.0...3.%d", version, 
-						  TLS_MINOR_VERSION_TLS12 + 2 ) );
+						  TLS_MINOR_VERSION_TLS12 ) );
 				}
 			return( CRYPT_OK );
 			}
@@ -187,6 +189,10 @@ int processVersionInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 		return( CRYPT_OK );
 		}
+	
+	/* At this point we're being called from processHelloTLS(), this being 
+	   the first message in the exchange, so we need to handle fallback to
+	   other protocol versions */
 	DEBUG_PRINT(( "%s offered protocol version 3.%d (TLS 1.%d).\n", 
 				  isServer( sessionInfoPtr ) ? "Client" : "Server", 
 				  version, version - 1 ));
@@ -200,10 +206,18 @@ int processVersionInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  isServer( sessionInfoPtr ) ? "Client" : "Server" ) );
 
 		case TLS_MINOR_VERSION_TLS:
+#if 0	/* 18/11/24 Disabled as per the comment in session/tls.c:setAccessMethodTLS() */
 			/* If the other side can't do TLS 1.1, fall back to TLS 1.0 */
 			if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS11 )
 				sessionInfoPtr->version = TLS_MINOR_VERSION_TLS;
 			break;
+#else
+			retExt( CRYPT_ERROR_NOSECURE,
+					( CRYPT_ERROR_NOSECURE, SESSION_ERRINFO, 
+					  "%s requested use of obsolete TLS version 1.0, we can "
+					  "only do TLS 1.1 and higher", 
+					  isServer( sessionInfoPtr ) ? "Client" : "Server" ) );
+#endif /* 0 */
 
 		case TLS_MINOR_VERSION_TLS11:
 			/* If the other side can't do TLS 1.2, fall back to TLS 1.1 */
@@ -288,6 +302,11 @@ int processVersionInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 		}
 
+	/* Return the claimed version.  Note that this isn't the actual 
+	   negotiated version, which is stored in sessionInfoPtr->version, but
+	   just whatever version the other side has offered in its hello.  Only
+	   the server does anything with this, which is why it's identified as
+	   clientVersion */
 	*clientVersion = version;
 
 	return( CRYPT_OK );
@@ -314,20 +333,14 @@ static int processUnexpectedProtocol( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( isShortIntegerRangeNZ( headerSize ) );
 
-	/* First, check whether the other side is using the obsolete SSLv2 
-	   protocol */
-	if( headerBuffer[ 0 ] == TLS_MSG_V2HANDSHAKE )
-		{
-		retExt( CRYPT_ERROR_NOSECURE,
-				( CRYPT_ERROR_NOSECURE, SESSION_ERRINFO, 
-				  "%s sent handshake for the obsolete SSLv2 protocol", 
-				  peerName ) );
-		}
-
-	/* It's something other than an obsolete TLS message, try and read a bit 
-	   more of the message from the other side, since TLS_HEADER_SIZE only 
-	   provides the initial status code for something like SMTP or FTP that's
-	   typically used with TLS but none of the possible accompanying text */
+	/* Try and read a bit more of the message from the other side, since 
+	   TLS_HEADER_SIZE only provides the initial status code for something 
+	   like SMTP or FTP that's typically used with TLS but none of the 
+	   possible accompanying text.  We set a minimal timeout to make sure 
+	   that we don't hang for a long time trying to get who-knows-what, it's 
+	   really just an opportunistic read since we're about to end the 
+	   session, which is also why we don't bother resetting the timeout 
+	   after we're done */
 	memcpy( dataBuffer, headerBuffer, TLS_HEADER_SIZE );
 	sessionInfoPtr->readTimeout = 1;
 	sioctlSet( &sessionInfoPtr->stream, STREAM_IOCTL_PARTIALREAD, TRUE );
@@ -339,7 +352,9 @@ static int processUnexpectedProtocol( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			   CRYPT_MAX_TEXTSIZE - TLS_HEADER_SIZE );
 	if( !cryptStatusError( status ) )
 		{
-		/* This can't overflow, being at most CRYPT_MAX_TEXTSIZE */
+		/* This can't overflow, being at most CRYPT_MAX_TEXTSIZE, but we add
+		   the check anyway to document that it's safe */
+		REQUIRES( !checkOverflowAdd( dataBytes, bytesCopied ) );
 		dataBytes += bytesCopied;
 		}
 
@@ -358,12 +373,11 @@ static int processUnexpectedProtocol( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   will clean it up as required */
 	if( strIsPrintable( dataBuffer, min( dataBytes, 8 ) ) )
 		{
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "%s sent ASCII text string '%s...', is this the "
-				  "correct address/port?", peerName,
-				  sanitiseString( dataBuffer, CRYPT_MAX_TEXTSIZE, 
-								  dataBytes ) ) );
+		retExtSan( CRYPT_ERROR_BADDATA,
+				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+					 "%s sent ASCII text string '%s...', is this the "
+					 "correct address/port?", peerName, 0,
+					 dataBuffer, dataBytes, NULL, 0 ) );
 		}
 
 	/* It's something else, just provide a hex dump */
@@ -410,7 +424,7 @@ static int recoverPacketDataTLS13( IN_BUFFER( dataLength ) const BYTE *data,
 							OUT_RANGE( TLS_HAND_NONE, TLS_HAND_LAST ) \
 								int *packetType )
 	{
-	LOOP_INDEX i;
+	LOOP_INDEX payloadEnd;
 
 	assert( isReadPtr( data, dataLength ) );
 	assert( isWritePtr( payloadLength, sizeof( int ) ) );
@@ -426,19 +440,25 @@ static int recoverPacketDataTLS13( IN_BUFFER( dataLength ) const BYTE *data,
 	/* Find the end of the zero padding.  We need at least one byte of 
 	   content followed by the one-byte content-type value for a total of
 	   2 bytes */
-	LOOP_EXT_REV( i = dataLength - 1, i >= 2 && data[ i ] == 0, i--, 
-				  MAX_PACKET_SIZE + 1 )
+	LOOP_EXT_REV( payloadEnd = dataLength - 1, 
+				  payloadEnd >= 2 && data[ payloadEnd ] == 0, 
+				  payloadEnd--, MAX_PACKET_SIZE + 1 )
 		{
-		ENSURES( LOOP_INVARIANT_REV( i, 2, dataLength - 1 ) );
+		ENSURES( LOOP_INVARIANT_REV( payloadEnd, 2, dataLength - 1 ) );
 		}
 	ENSURES( LOOP_BOUND_EXT_REV_OK( MAX_PACKET_SIZE + 1 ) );
-	if( i < 2 )
+	if( payloadEnd < 2 )
+		return( CRYPT_ERROR_BADDATA );
+
+	/* Make sure that the content-type is valid */
+	if( data[ payloadEnd ] < TLS_HAND_FIRST || \
+		data[ payloadEnd ] > TLS_HAND_LAST )
 		return( CRYPT_ERROR_BADDATA );
 
 	/* Return the actual (not outer-packet camouflage) content-type and 
 	   actual payload length */
-	*packetType = data[ i ];
-	*payloadLength = i;
+	*packetType = data[ payloadEnd ];
+	*payloadLength = payloadEnd;
 
 	return( CRYPT_OK );
 	}
@@ -583,6 +603,7 @@ static int checkPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 					  "Error loading TLS explicit IV" ) );
 			}
+		REQUIRES( !checkOverflowSub( length, ivSize ) );
 		length -= ivSize;
 		ENSURES( length >= minLength + sessionInfoPtr->authBlocksize && \
 				 length <= maxLength );
@@ -615,7 +636,7 @@ int checkPacketHeaderTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   sessionInfoPtr->receiveBufSize, FALSE ) );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
+CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 int checkHSPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 						 INOUT_PTR STREAM *stream, 
 						 OUT_DATALENGTH_Z int *packetLength, 
@@ -623,7 +644,7 @@ int checkHSPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   TLS_HAND_LAST ) const int packetType, 
 						 IN_LENGTH_SHORT_Z const int minSize )
 	{
-	int type, length, status;
+	int messageType, messageLength, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -648,24 +669,36 @@ int checkHSPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "Invalid handshake packet header" ) );
 		}
 
-	/*	byte		ID = type
-		uint24		length */
-	status = type = sgetc( stream );
+	/* Read the handshake packet header, encapsulated within the overall 
+	   record-layer header:
+	   
+	  [	byte		contentType = TLS_MSG_HANDSHAKE
+	    byte[2]		version
+	    uint16		length ]
+	
+		byte		handshakeMessageType
+		uint24		handshakeMessageLength 
+		
+	   Note that there can be fragmentation in effect (see the comment 
+	   further down) so handshakeMessageLength can be greater than the
+	   record length */
+	status = messageType = sgetc( stream );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( type != packetType )
+	if( messageType != packetType )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid handshake packet %s (%d), expected %s (%d)", 
-				  getTLSHSPacketName( type ), type, 
+				  getTLSHSPacketName( messageType ), messageType, 
 				  getTLSHSPacketName( packetType ), packetType ) );
 		}
-	status = length = readUint24( stream );
+	status = messageLength = readUint24( stream );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( length < minSize || length > MAX_PACKET_SIZE || \
-		length > sMemDataLeft( stream ) )
+	if( messageLength < minSize || \
+		messageLength > sMemDataLeft( stream ) || \
+		messageLength > MAX_PACKET_SIZE )
 		{
 		const int dataLeft = sMemDataLeft( stream );
 		
@@ -674,24 +707,24 @@ int checkHSPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   that the're fragmented across multiple TLS packets (see the 
 		   comment in processCertRequest() in tls_cli.c).  If we encounter 
 		   one of these then we allow up to a full extra encapsulated packet 
-		   which will be handled specially by the caller */
+		   and let the caller know that something odd is going on */
 		REQUIRES( !checkOverflowAdd( dataLeft, MAX_PACKET_SIZE - 512 ) );
-		if( type == TLS_HAND_SERVER_CERTREQUEST && \
-			length >= minSize && \
-			length < dataLeft + ( MAX_PACKET_SIZE - 512 ) )
+		if( messageType == TLS_HAND_SERVER_CERTREQUEST && \
+			messageLength >= minSize && \
+			messageLength < dataLeft + ( MAX_PACKET_SIZE - 512 ) )
 			{
-			*packetLength = length;
+			*packetLength = messageLength;
 			DEBUG_PRINT_BEGIN();
 			DEBUG_PRINT(( "Read over-long %s (%d) handshake packet, "
-						  "length %d.\n", getTLSHSPacketName( type ), type, 
-						  length ));
+						  "length %d.\n", getTLSHSPacketName( messageType ), 
+						  messageType, messageLength ));
 			DEBUG_PRINT(( "  First fragment of length %d follows.\n",
 						  dataLeft ));
 			DEBUG_DUMP_DATA( sessionInfoPtr->receiveBuffer + stell( stream ), 
 							 dataLeft );
 			DEBUG_PRINT_END();
 
-			return( CRYPT_OK );
+			return( OK_SPECIAL );
 			}
 
 		/* The complex expression for the maximum length is because dataLeft 
@@ -700,17 +733,18 @@ int checkHSPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid length %d for %s (%d) handshake packet, should "
-				  "be %d...%d", length, getTLSHSPacketName( type ), 
-				  type, minSize, 
+				  "be %d...%d", messageLength, 
+				  getTLSHSPacketName( messageType ), messageType, minSize, 
 				  ( dataLeft < minSize ) ? \
 					MAX_PACKET_SIZE : min( MAX_PACKET_SIZE, dataLeft ) ) );
 		}
-	*packetLength = length;
+	*packetLength = messageLength;
 	DEBUG_PRINT_BEGIN();
-	DEBUG_PRINT(( "Read %s (%d) handshake packet, length %ld.\n", 
-				  getTLSHSPacketName( type ), type, length ));
+	DEBUG_PRINT(( "Read %s (%d) handshake packet, length %d.\n", 
+				  getTLSHSPacketName( messageType ), messageType, 
+				  messageLength ));
 	DEBUG_DUMP_DATA( sessionInfoPtr->receiveBuffer + stell( stream ), 
-					 length );
+					 messageLength );
 	DEBUG_PRINT_END();
 
 	return( CRYPT_OK );
@@ -774,7 +808,8 @@ static int unwrapPacketTLSStd( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											 *dataLength ) void *data, 
 							   IN_DATALENGTH const int dataMaxLength, 
 							   OUT_DATALENGTH_Z int *dataLength,
-							   IN_RANGE( TLS_HAND_FIRST, TLS_HAND_LAST ) \
+							   IN_RANGE( TLS_PACKETTYPE_FIRST, \
+										 TLS_PACKETTYPE_LAST ) \
 									const int packetType )
 	{
 	BYTE dummyDataBuffer[ CRYPT_MAX_HASHSIZE + 8 ];
@@ -791,7 +826,8 @@ static int unwrapPacketTLSStd( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   sessionInfoPtr->authBlocksize + 256 && \
 			  dataMaxLength < MAX_BUFFER_SIZE );
 	REQUIRES( ( dataMaxLength % sessionInfoPtr->cryptBlocksize ) == 0 );
-	REQUIRES( packetType >= TLS_HAND_FIRST && packetType <= TLS_HAND_LAST );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 
 	/* Clear return value */
 	*dataLength = 0;
@@ -818,10 +854,22 @@ static int unwrapPacketTLSStd( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   location in the packet (which MS Outlook does however manage to 
 		   do), but we take this step anyway just to be safe */
 		badDecrypt = TRUE;
+		REQUIRES( !checkOverflowAdd( MAX_PACKET_SIZE, 
+									 sessionInfoPtr->authBlocksize ) );
 		length = min( dataMaxLength, 
 					  MAX_PACKET_SIZE + sessionInfoPtr->authBlocksize );
 		}
-	payloadLength = length - sessionInfoPtr->authBlocksize;
+	if( length < sessionInfoPtr->authBlocksize )
+		{
+		/* There's not enough data left for a MAC, see the comment below */
+		payloadLength = UNDERFLOW_MARKER;
+		}
+	else
+		{
+		REQUIRES( !checkOverflowSub( length, 
+									 sessionInfoPtr->authBlocksize ) );
+		payloadLength = length - sessionInfoPtr->authBlocksize;
+		}
 	if( payloadLength < 0 || payloadLength > MAX_PACKET_SIZE )
 		{
 		/* This is a bit of an odd situation and can really only occur if 
@@ -869,7 +917,8 @@ static int unwrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											 *dataLength ) void *data, 
 							   IN_DATALENGTH const int dataMaxLength, 
 							   OUT_DATALENGTH_Z int *dataLength,
-							   IN_RANGE( TLS_HAND_FIRST, TLS_HAND_LAST ) \
+							   IN_RANGE( TLS_PACKETTYPE_FIRST, \
+										 TLS_PACKETTYPE_LAST ) \
 									const int packetType )
 	{
 #ifdef USE_POLY1305
@@ -890,7 +939,8 @@ static int unwrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  dataMaxLength < MAX_BUFFER_SIZE );
 	REQUIRES( ( ( dataMaxLength - sessionInfoPtr->authBlocksize ) % \
 				sessionInfoPtr->cryptBlocksize ) == 0 );
-	REQUIRES( packetType >= TLS_HAND_FIRST && packetType <= TLS_HAND_LAST );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 
 	/* Clear return value */
 	*dataLength = 0;
@@ -904,6 +954,8 @@ static int unwrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( status );
 
 		/* MAC the encrypted data */
+		REQUIRES( !checkOverflowSub( length, 
+									 sessionInfoPtr->authBlocksize ) );
 		status = checkMacTLSBernstein( sessionInfoPtr, data, length, 
 									  length - sessionInfoPtr->authBlocksize, 
 									  packetType);
@@ -914,6 +966,8 @@ static int unwrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #endif /* USE_POLY1305 */
 		{
 		/* MAC the encrypted data */
+		REQUIRES( !checkOverflowSub( length, 
+									 sessionInfoPtr->authBlocksize ) );
 		status = checkMacTLS( sessionInfoPtr, data, length, 
 							  length - sessionInfoPtr->authBlocksize, 
 							  packetType, FALSE );
@@ -922,6 +976,7 @@ static int unwrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 
 	/* Decrypt the packet in the buffer */
+	REQUIRES( !checkOverflowSub( length, sessionInfoPtr->authBlocksize ) );
 	status = decryptData( sessionInfoPtr, data, 
 						  length - sessionInfoPtr->authBlocksize, &length );
 	if( cryptStatusError( status ) )
@@ -944,7 +999,8 @@ static int unwrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											 *dataLength ) void *data, 
 							   IN_DATALENGTH const int dataMaxLength, 
 							   OUT_DATALENGTH_Z int *dataLength,
-							   IN_RANGE( TLS_HAND_FIRST, TLS_HAND_LAST ) \
+							   IN_RANGE( TLS_PACKETTYPE_FIRST, \
+										 TLS_PACKETTYPE_LAST ) \
 									const int packetType )
 	{
 	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
@@ -959,7 +1015,8 @@ static int unwrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  dataMaxLength <= MAX_PACKET_SIZE + \
 							   sessionInfoPtr->authBlocksize + 256 && \
 			  dataMaxLength < MAX_BUFFER_SIZE );
-	REQUIRES( packetType >= TLS_HAND_FIRST && packetType <= TLS_HAND_LAST );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 
 	/* Clear return value */
 	*dataLength = 0;
@@ -979,6 +1036,7 @@ static int unwrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   follows is because TLS 1.3 has an additional byte containing the 
 	   actual packet type (see tls_rd.c:recoverPacketDataTLS13()) at the end 
 	   of the data */
+	REQUIRES( !checkOverflowSub( length, sessionInfoPtr->authBlocksize ) );
 	length -= sessionInfoPtr->authBlocksize;	/* Checked for overflow above */
 	if( length < 0 || \
 		length > MAX_PACKET_SIZE + \
@@ -996,6 +1054,16 @@ static int unwrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							length, packetType );
 	if( cryptStatusError( status ) )
 		return( status );
+	if( checkOverflowInc( tlsInfo->readSeqNo ) )
+		{
+		/* This is a should-never-occur condition so in theory we could just
+		   make it an ENSURES() condition */
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO,
+				  "Packet read sequence number overflow reading %s (%d) "
+				  "packet, length %d", getTLSPacketName( packetType ), 
+				  packetType, length ));
+		}
 	tlsInfo->readSeqNo++;
 
 	/* Decrypt the packet in the buffer */
@@ -1025,8 +1093,8 @@ int unwrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   *dataLength ) void *data, 
 					 IN_DATALENGTH const int dataMaxLength, 
 					 OUT_DATALENGTH_Z int *dataLength,
-					 IN_RANGE( TLS_HAND_FIRST, TLS_HAND_LAST ) \
-							const int packetType )
+					 IN_RANGE( TLS_PACKETTYPE_FIRST, \
+							   TLS_PACKETTYPE_LAST ) const int packetType )
 	{
 	int status;
 
@@ -1040,7 +1108,8 @@ int unwrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  dataMaxLength <= MAX_PACKET_SIZE + \
 							   sessionInfoPtr->authBlocksize + 256 && \
 			  dataMaxLength < MAX_BUFFER_SIZE );
-	REQUIRES( packetType >= TLS_HAND_FIRST && packetType <= TLS_HAND_LAST );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 
 	/* Clear return value */
 	*dataLength = 0;
@@ -1054,7 +1123,13 @@ int unwrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					dataMaxLength - sessionInfoPtr->authBlocksize : \
 					dataMaxLength;
 
-		if( ( encryptedDataSize % sessionInfoPtr->cryptBlocksize ) != 0 )
+		ENSURES( !TEST_FLAG( sessionInfoPtr->protocolFlags, 
+							 TLS_PFLAG_ENCTHENMAC ) || \
+				 !checkOverflowSub( dataMaxLength, 
+									sessionInfoPtr->authBlocksize ) );
+
+		if( !isIntegerRange( encryptedDataSize ) || \
+			( encryptedDataSize % sessionInfoPtr->cryptBlocksize ) != 0 )
 			{
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
@@ -1101,7 +1176,8 @@ int unwrapPacketTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   OUT_DATALENGTH_Z int *dataLength,
 					   OUT_RANGE( TLS_HAND_NONE, TLS_HAND_LAST ) \
 							int *actualPacketType,
-					   IN_RANGE( TLS_HAND_FIRST, TLS_HAND_LAST ) \
+					   IN_RANGE( TLS_PACKETTYPE_FIRST, \
+								 TLS_PACKETTYPE_LAST ) \
 							const int packetType )
 	{
 	int length, status;
@@ -1117,7 +1193,8 @@ int unwrapPacketTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  dataMaxLength <= MAX_PACKET_SIZE + \
 							   sessionInfoPtr->authBlocksize + 256 && \
 			  dataMaxLength < MAX_BUFFER_SIZE );
-	REQUIRES( packetType >= TLS_HAND_FIRST && packetType <= TLS_HAND_LAST );
+	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
+			  packetType <= TLS_PACKETTYPE_LAST );
 	REQUIRES( sessionInfoPtr->cryptBlocksize == 1 );
 
 	/* Clear return value */
@@ -1142,8 +1219,8 @@ int unwrapPacketTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Recover the actual payload of the packet.  The packet type is always
 	   TLS_MSG_HANDSHAKE during the handshake process but we check it just
 	   in case */
-	status = recoverPacketDataTLS13( sessionInfoPtr->receiveBuffer, length, 
-									 &length, actualPacketType );
+	status = recoverPacketDataTLS13( data, length, &length, 
+									 actualPacketType );
 	if( cryptStatusError( status ) )
 		return( status );
 	DEBUG_PRINT_BEGIN();
@@ -1250,14 +1327,14 @@ int readHSPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				packetType == TLS_MSG_FIRST_ENCRHANDSHAKE || \
 				packetType == TLS_MSG_TLS13_FIRST_ENCRHANDSHAKE || \
 				packetType == TLS_MSG_TLS13_HELLORETRY ) );
-	REQUIRES( sessionInfoPtr->receiveBufStartOfs >= TLS_HEADER_SIZE && \
-			  sessionInfoPtr->receiveBufStartOfs < \
-							TLS_HEADER_SIZE + CRYPT_MAX_IVSIZE );
 
 	/* Clear return value */
 	*packetLength = 0;
 
 	/* Read and process the header */
+	REQUIRES( sessionInfoPtr->receiveBufStartOfs >= TLS_HEADER_SIZE && \
+			  sessionInfoPtr->receiveBufStartOfs <= \
+							TLS_HEADER_SIZE + CRYPT_MAX_IVSIZE );
 	status = readFixedHeaderAtomic( sessionInfoPtr, headerBuffer,
 									sessionInfoPtr->receiveBufStartOfs );
 	if( cryptStatusError( status ) )
@@ -1453,6 +1530,8 @@ static const ALERT_INFO alertInfo[] = {
 	  ALERT_TEXT( "Decode error", 12 ) CRYPT_ERROR_FAILED },
 	{ TLS_ALERT_DECRYPT_ERROR, 
 	  ALERT_TEXT( "Decrypt error", 13 ) CRYPT_ERROR_WRONGKEY },
+	{ TLS_ALERT_TOO_MANY_CIDS,
+	  ALERT_TEXT( "Too many CIDs", 13 ) CRYPT_ERROR_OVERFLOW },
 	{ TLS_ALERT_EXPORT_RESTRICTION, 
 	  ALERT_TEXT( "Export restriction", 18 ) CRYPT_ERROR_FAILED },
 	{ TLS_ALERT_PROTOCOL_VERSION, 
@@ -1483,8 +1562,12 @@ static const ALERT_INFO alertInfo[] = {
 	  ALERT_TEXT( "Unknown PSK identity", 20 ) CRYPT_ERROR_NOTFOUND },
 	{ TLS_ALERT_CERTIFICATE_REQUIRED, 
 	  ALERT_TEXT( "Certificate required", 20 ) CRYPT_ERROR_PERMISSION },
+	{ TLS_ALERT_GENERAL_ERROR,
+	  ALERT_TEXT( "General error", 13 ) CRYPT_ERROR_FAILED },
 	{ TLS_ALERT_NO_APPLICATION_PROTOCOL, 
 	  ALERT_TEXT( "No application protocol", 23 ) CRYPT_ERROR_PERMISSION },
+	{ TLS_ALERT_ECH_REQUIRED,
+	  ALERT_TEXT( "ECH required", 12 ) CRYPT_ERROR_INVALID },
 	{ CRYPT_ERROR, ALERT_TEXT( NULL, 0 ) CRYPT_ERROR }, 
 		{ CRYPT_ERROR, ALERT_TEXT( NULL, 0 ) CRYPT_ERROR }
 	};
@@ -1728,9 +1811,20 @@ int processAlertTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( readInfo == NULL || \
 			isWritePtr( readInfo, sizeof( READSTATE_INFO ) ) );
 
-	/* TLS 1.3 hides the alert packet inside an encrypted application data
-	   packet (!!) so we just pass the contents on as is since it's already
-	   been unwrapped */
+	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
+	REQUIRES( isBufsizeRangeNZ( dataLength ) );
+
+	/* TLS 1.3 hides the Alert packet inside an encrypted application data
+	   packet (!!) because no-one would ever guess that the last packet in
+	   an exchange of exactly the size of an encrypted Alert packet actually 
+	   is one, so we just pass the contents on as is since it's already been 
+	   unwrapped */
+	if( dataLength != ALERTINFO_SIZE )
+		{
+		retExt( CRYPT_ERROR_BADDATA,
+				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+				  "Invalid alert message length %d", dataLength ) );
+		}
 	return( processAlertData( sessionInfoPtr, data, dataLength, readInfo ) );
 	}
 #endif /* USE_TLS13 */

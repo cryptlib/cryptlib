@@ -34,7 +34,10 @@
 *																			*
 ****************************************************************************/
 
-/* Read and write 16-, 32-, and 64-bit integer values */
+/* Read and write 16-, 32-, and 64-bit integer values.  Note that the uint64
+   functions actually work with standard integers, they're just used because
+   someone's spec requires encoding as a 64-bit integer even though it 
+   isn't */
 
 RETVAL_RANGE( 0, 0xFFFF ) STDC_NONNULL_ARG( ( 1 ) ) \
 int readUint16( INOUT_PTR STREAM *stream );
@@ -44,8 +47,10 @@ RETVAL_RANGE( 0, INT_MAX ) STDC_NONNULL_ARG( ( 1 ) ) \
 int readUint32( INOUT_PTR STREAM *stream );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeUint32( INOUT_PTR STREAM *stream, IN_INT_Z const long value );
+#ifdef USE_WEBSOCKETS
 RETVAL_RANGE( 0, INT_MAX ) STDC_NONNULL_ARG( ( 1 ) ) \
 int readUint64( INOUT_PTR STREAM *stream );
+#endif /* USE_WEBSOCKETS */
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeUint64( INOUT_PTR STREAM *stream, IN_INT_Z const long value );
 
@@ -57,7 +62,9 @@ int readUint32Time( INOUT_PTR STREAM *stream,
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeUint32Time( INOUT_PTR STREAM *stream, const time_t timeVal );
 
-/* Read and write strings preceded by 32-bit lengths */
+/* Read and write strings preceded by 32-bit lengths.  The difference 
+   between readString32() and readString32Opt() is that the latter allows
+   zero-length strings */
 
 #define sizeofString32( stringLength )	( UINT32_SIZE + ( stringLength ) )
 

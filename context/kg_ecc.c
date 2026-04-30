@@ -197,6 +197,7 @@ static int generateECCPrivateValue( INOUT_PTR PKC_INFO *pkcInfo,
 	   possible fit within the range) */
 	dLen = BN_num_bits( d );
 	REQUIRES( dLen > 0 && dLen <= bytesToBits( CRYPT_MAX_PKCSIZE_ECC ) );
+	REQUIRES( !checkOverflowSub( keyBits, 5 ) );
 	if( dLen < keyBits - 5 )
 		{
 		status = generateBignum( d, keyBits - 1, 0xC0, 0 );
@@ -269,7 +270,7 @@ static BOOLEAN checkComponentLength( IN_PTR const BIGNUM *component,
 	assert( isReadPtr( component, sizeof( BIGNUM ) ) );
 	assert( isReadPtr( p, sizeof( BIGNUM ) ) );
 
-	REQUIRES( isBooleanValue( lowerBoundZero ) );
+	REQUIRES_B( isBooleanValue( lowerBoundZero ) );
 
 	/* Make sure that the component is in the range 0...p - 1 (optionally
 	   MIN_PKCSIZE_ECC if lowerBoundZero is false) */
@@ -303,11 +304,11 @@ static BOOLEAN isPointOnCurve( const BIGNUM *x, const BIGNUM *y,
 	assert( isReadPtr( p, sizeof( BIGNUM ) ) );
 	assert( isWritePtr( pkcInfo, sizeof( PKC_INFO ) ) );
 
-	REQUIRES( sanityCheckBignum( x ) );
-	REQUIRES( sanityCheckBignum( y ) );
-	REQUIRES( sanityCheckBignum( a ) );
-	REQUIRES( sanityCheckBignum( b ) );
-	REQUIRES( sanityCheckPKCInfo( pkcInfo ) );
+	REQUIRES_B( sanityCheckBignum( x ) );
+	REQUIRES_B( sanityCheckBignum( y ) );
+	REQUIRES_B( sanityCheckBignum( a ) );
+	REQUIRES_B( sanityCheckBignum( b ) );
+	REQUIRES_B( sanityCheckPKCInfo( pkcInfo ) );
 
 	CK( BN_mod_mul( tmp1, y, y, p, ctx ) );
 	CK( BN_mod_mul( tmp2, x, x, p, ctx ) );
@@ -829,8 +830,7 @@ int generateECCkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	/* Checksum the bignums to try and detect fault attacks.  Since we're
 	   setting the checksum at this point there's no need to check the 
 	   return value */
-	( void ) checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo, 
-								  TRUE );
+	( void ) checksumContextData( pkcInfo, TRUE );
 
 	/* Make sure that the generated values are valid */
 	status = checkECCDomainParameters( pkcInfo, TRUE );
@@ -846,8 +846,7 @@ int generateECCkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Make sure that what we generated is still valid */
 	if( cryptStatusError( \
-			checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo, 
-								 TRUE ) ) )
+			checksumContextData( pkcInfo, TRUE ) ) )
 		{
 		DEBUG_DIAG(( "Generated ECC key memory corruption detected" ));
 		return( CRYPT_ERROR_FAILED );
@@ -1008,7 +1007,7 @@ int initCheckECCkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   to be because the bignum values are read by the calling code from 
 	   their stored form a second time and compared to the values that we're 
 	   checksumming here */
-	( void ) checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo,
+	( void ) checksumContextData( pkcInfo, 
 								  ( isPrivateKey || generatedD ) ? \
 								    TRUE : FALSE );
 

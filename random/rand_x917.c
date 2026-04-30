@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib X9.17 Generator Routines					*
-*						Copyright Peter Gutmann 1995-2017					*
+*						Copyright Peter Gutmann 1995-2024					*
 *																			*
 ****************************************************************************/
 
@@ -152,8 +152,8 @@ int setKeyX917( INOUT_PTR RANDOM_INFO *randomInfo,
 		desStatus = des_key_sched( ( des_cblock * ) \
 								   ( key + bitsToBytes( 64 ) ),
 								   des3Key->desKey2 );
+		memcpy( des3Key->desKey3, des3Key->desKey1, DES_KEYSIZE );
 		}
-	memcpy( des3Key->desKey3, des3Key->desKey1, DES_KEYSIZE );
 	if( desStatus )
 		{
 		/* There was a problem initialising the keys, don't try and go any
@@ -199,9 +199,12 @@ int setKeyX917( INOUT_PTR RANDOM_INFO *randomInfo,
 	AES_KEY *aesKey = DATAPTR_GET( randomInfo->x917Key );
 	int aesStatus;
 
+	static_assert( X917_KEYSIZE == X917_POOLSIZE,
+				   "X9.17 key vs.pool size" );
+
 	assert( isWritePtr( randomInfo, sizeof( RANDOM_INFO ) ) );
 	assert( isReadPtr( key, X917_KEYSIZE ) );
-	assert( isReadPtr( state, X917_KEYSIZE ) );
+	assert( isReadPtr( state, X917_POOLSIZE ) );
 	assert( dateTime == NULL || isReadPtr( dateTime, X917_KEYSIZE ) );
 
 	/* Precondition: the key and seed aren't being taken from the same 
@@ -256,12 +259,16 @@ int generateX917( INOUT_PTR RANDOM_INFO *randomInfo,
 	assert( isWritePtr( randomInfo, sizeof( RANDOM_INFO ) ) );
 	assert( isReadPtrDynamic( data, length ) );
 
+	static_assert( RANDOMPOOL_ALLOCSIZE % X917_POOLSIZE == 0,
+				   "Random pool alloc size vs. X9.17 pool size" );
+
 	/* Precondition: The generator has been initialised, we're not asking 
-	   for more data than the maximum that should be needed, and the
-	   cryptovariables aren't past their use-by date */
+	   for more data than the maximum that should be needed (in fact we're 
+	   only ever called in stereotyped form with one of two lengths), and 
+	   the cryptovariables aren't past their use-by date */
 	REQUIRES( sanityCheckRandom( randomInfo ) );
 	REQUIRES( randomInfo->x917Inited == TRUE );
-	REQUIRES( length > 0 && length <= RANDOMPOOL_ALLOCSIZE );
+	REQUIRES( length == X917_POOLSIZE || length == RANDOMPOOL_ALLOCSIZE );
 	REQUIRES( randomInfo->x917Count >= 0 && \
 			  randomInfo->x917Count < X917_MAX_CYCLES );
 
@@ -282,6 +289,8 @@ int generateX917( INOUT_PTR RANDOM_INFO *randomInfo,
 
 		ENSURES( LOOP_INVARIANT_LARGE_XXX( dataBlockPos, 0, length - 1 ) );
 
+		REQUIRES( !checkOverflowSub( length, dataBlockPos ) );
+
 		/* Precondition: We're processing from 1...X917_POOLSIZE bytes of
 		   data */
 		REQUIRES( bytesToCopy >= 1 && bytesToCopy <= X917_POOLSIZE );
@@ -299,7 +308,15 @@ int generateX917( INOUT_PTR RANDOM_INFO *randomInfo,
 			{
 			/* It's the X9.17 seed-via-DT interpretation, the user input is
 			   DT.  Copy in as much timestamp (+ other assorted data) as we
-			   can into the DT value */
+			   can into the DT value.
+			   
+			   In theory this could copy in less than the full X917_POOLSIZE 
+			   bytes if bytesToCopy < X917_POOLSIZE, but this is fine since 
+			   we'll reuse the previous data in the buffer.  All that matters 
+			   is that there's at least one byte of difference.  In any case 
+			   though we're only ever called with either 
+			   length == X917_POOLSIZE or length == RANDOMPOOL_ALLOCSIZE, so
+			   we always copy a full X917_POOLSIZE worth of data */
 			REQUIRES( rangeCheck( bytesToCopy, 1, X917_POOLSIZE ) );
 			memcpy( encTime, dataPtr, bytesToCopy );
 
@@ -386,6 +403,7 @@ int generateX917( INOUT_PTR RANDOM_INFO *randomInfo,
 
 		/* Move on to the next block */
 		dataPtr += bytesToCopy;
+		REQUIRES( !checkOverflowInc( randomInfo->x917Count ) );
 		randomInfo->x917Count++;
 
 		/* Postcondition: We've processed one more block of data */
@@ -413,23 +431,15 @@ int generateX917( INOUT_PTR RANDOM_INFO *randomInfo,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initX917( INOUT_PTR RANDOM_INFO *randomInfo )
 	{
-	void *keyDataPtr = &randomInfo->x917KeyData;
+	void *keyDataPtr;
 
 	assert( isWritePtr( randomInfo, sizeof( RANDOM_INFO ) ) );
 
 	/* The X9.17 RNG calls down into low-level internal code at a level
 	   that bypasses the usual encryption context management.  Since the
 	   underlying hardware implementation may impose alignment constraints
-	   on the key storage, we have to manually align it here.  The alignment
-	   value that we use is 16 bytes, required by some AES hardware */
-#ifdef USE_3DES_X917
-	static_assert( sizeof( X917_KEYDATA ) >= ( 3 * DES_KEYSIZE ) + 16,
-				   "X.917 key storage" );
-#else
-	static_assert( sizeof( X917_KEYDATA ) >= AES_KEYSIZE + 16,
-				   "X.917 key storage" );
-#endif /* USE_3DES_X917 */
-	keyDataPtr = ( void * ) roundUp( ( uintptr_t ) keyDataPtr, 16 );
+	   on the key storage, we have to align it here */
+	keyDataPtr = ALIGN_GET_PTR( randomInfo->x917KeyData, 16 );
 	DATAPTR_SET( randomInfo->x917Key, keyDataPtr );
 
 	ENSURES( sanityCheckRandom( randomInfo ) );

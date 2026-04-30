@@ -778,6 +778,7 @@ int readCRLentry( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeNZ( endPos ) );
 
@@ -901,6 +902,8 @@ int readCRLentries( INOUT_PTR STREAM *stream,
 		if( cryptStatusError( status ) )
 			return( status );
 		length -= objectSize;
+				  /* We don't check for a subtract overflow here because the 
+				     length going negative will exit the loop */
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( noCrlEntries >= MAX_CRL_ENTRIES )
@@ -969,6 +972,7 @@ int sizeofCRLentries( IN_DATAPTR const DATAPTR crlEntries,
 		status = crlEntrySize = sizeofCRLentry( revocationInfo );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( revocationInfoLength, crlEntrySize ) );
 		revocationInfoLength += crlEntrySize;
 
 		/* If there are per-entry extensions present then it's a v2 CRL */
@@ -1439,6 +1443,7 @@ static int readOcspRequestEntry( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeNZ( endPos ) );
 
@@ -1574,6 +1579,8 @@ int readOcspRequestEntries( INOUT_PTR STREAM *stream,
 						 noRequestEntries ) );
 			}
 		length -= objectSize;
+				  /* We don't check for a subtract overflow here because the 
+				     length going negative will exit the loop */
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( noRequestEntries >= 100 )
@@ -1646,6 +1653,7 @@ int sizeofOcspRequestEntries( IN_DATAPTR const DATAPTR ocspEntries )
 						sizeofOcspRequestEntry( revocationInfo );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( requestInfoLength, requestEntrySize ) );
 		requestInfoLength += requestEntrySize;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -1780,6 +1788,7 @@ static int readOcspResponseEntry( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeNZ( endPos ) );
 
@@ -1996,6 +2005,8 @@ int readOcspResponseEntries( INOUT_PTR STREAM *stream,
 						 noResponseEntries ) );
 			}
 		length -= objectSize;
+				  /* We don't check for a subtract overflow here because the 
+				     length going negative will exit the loop */
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( noResponseEntries >= 100 )
@@ -2067,6 +2078,8 @@ int sizeofOcspResponseEntries( IN_DATAPTR const DATAPTR ocspEntries )
 						sizeofOcspResponseEntry( revocationInfo );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( responseInfoLength, 
+									 responseEntrySize ) );
 		responseInfoLength += responseEntrySize;
 		}
 	ENSURES( LOOP_BOUND_OK );

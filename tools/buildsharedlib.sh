@@ -183,7 +183,16 @@ case $OSNAME in
 			$LD $LDFLAGS -o "$LIBNAME" $(cat $LINKFILE) \
 				$(./tools/getlibs.sh $LD $OSNAME $CROSSCOMPILE) ;
 		fi
-		if [ "$(which objdump)" ] && [ "$(objdump -p $LIBNAME | grep -c TEXTREL)" -gt '0' ] ; then
+
+		# Check for leftover TEXTREL records, which are a problem because it
+		# means the .text segment has to be made shared-writable so the
+		# linker can fix it up.  In theory we can do this with GNU ld by
+		# using --warn-shared-textrel, but the following is more portable.
+		#
+		# We also redirect stderr to stdout since, if binutils is out of step
+		# with whatever compiler is being used, it'll produce a spew of
+		# warnings about unknown records in the binary.
+		if [ "$(which objdump)" ] && [ "$(objdump -p $LIBNAME 2>&1 | grep -c TEXTREL)" -gt '0' ] ; then
 			echo "Warning: Shared library still contains TEXTREL records." >&2 ;
 		fi
 		$STRIP "$LIBNAME" ;;

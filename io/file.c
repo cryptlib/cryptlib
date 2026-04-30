@@ -172,7 +172,8 @@ static int appendFilename( INOUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	/* User-defined filenames are a bit more complex because we have to
 	   safely append a variable-length quantity to the path (the +1 is for
 	   the null terminator) */
-	if( partialPathLen + fileNameLen + 4 + 1 > pathMaxLen )
+	if( checkOverflowAdd( partialPathLen, fileNameLen + 4 + 1 ) || \
+		partialPathLen + fileNameLen + 4 + 1 > pathMaxLen )
 		return( CRYPT_ERROR_OVERFLOW );
 	REQUIRES( boundsCheck( partialPathLen, fileNameLen + 4 + 1, 
 						   pathMaxLen ) );
@@ -198,7 +199,7 @@ static int appendFilename( INOUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 				{
 				DEBUG_DIAG(( "Clearing leftover zero-length file %s", 
 							 path ));
-				remove( path );
+				( void ) remove( path );
 				}
 			fclose( filePtr );
 			}
@@ -255,7 +256,8 @@ static int appendFilenameEBCDIC( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	/* User-defined filenames are a bit more complex because we have to
 	   safely append a variable-length quantity to the path (the +1 is for
 	   the null terminator) */
-	if( partialPathLen + fileNameLen + 4 + 1 > pathMaxLen )
+	if( checkOverflowAdd( partialPathLen, fileNameLen + 4 + 1 ) \
+		partialPathLen + fileNameLen + 4 + 1 > pathMaxLen )
 		return( CRYPT_ERROR_OVERFLOW );
 	REQUIRES( boundsCheck( partialPathLen + fileNameLen, fileNameLen, 
 						   pathMaxLen ) );
@@ -319,6 +321,7 @@ static void eraseFile( STREAM *stream, long position, long length )
 		status = fileWrite( stream, buffer, bytesToWrite );
 		if( cryptStatusError( status ) )
 			break;	/* An error occurred while writing, exit */
+		REQUIRES_V( !checkOverflowSub( length, bytesToWrite ) );
 		length -= bytesToWrite;
 		}
 	ENSURES_V( LOOP_BOUND_OK );
@@ -501,6 +504,7 @@ void fileClearToEOF( STREAM *stream )
 	length = fileInfo._xxx;
 	if( ( position = fjtell( stream->fd ) ) < 0 )
 		return;
+	REQUIRES_V( !checkOverflowSub( length, position ) );
 	length -= position;
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
@@ -789,6 +793,7 @@ void fileClearToEOF( STREAM *stream )
 	position = FS_FTell( stream->pFile );
 	if( position == -1 )
 		return;
+	REQUIRES_V( !checkOverflowSub( length, position ) );
 	length -= position;
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
@@ -1062,7 +1067,7 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
-	FSIZE_t position;
+	FSIZE_t position, fileSize;
 	long length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -1073,7 +1078,9 @@ void fileClearToEOF( STREAM *stream )
 	position = f_tell( &stream->fileInfo );
 	if( position < 0 )
 		return;
-	length = f_size( &stream->fileInfo ) - position;
+	fileSize = f_size( &stream->fileInfo );
+	REQUIRES_V( !checkOverflowSub( fileSize, position ) );
+	length = fileSize - position;
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
 	eraseFile( stream, position, length );
@@ -1586,6 +1593,7 @@ void fileClearToEOF( STREAM *stream )
 	if( GetFPos( stream->refNum, &position ) != noErr || \
 		GetEOF( stream->refNum, &eof ) != noErr )
 		return;
+	REQUIRES_V( !checkOverflowSub( eof, position ) );
 	length = eof - position;
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
@@ -2706,6 +2714,7 @@ void fileClearToEOF( STREAM *stream )
 	if( VFSFileSize( stream->fileRef, &length ) != errNone || \
 		VFSFileTell( stream->fileRef, &position ) != errNone )
 		return;
+	REQUIRES_V( !checkOverflowSub( length, position ) );
 	length -= position;
 	if( length <= 0 || length > MAX_BUFFER_SIZE )
 		{
@@ -2981,7 +2990,7 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
-	long length, position;
+	long length, fileSize, position;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -3002,7 +3011,14 @@ void fileClearToEOF( STREAM *stream )
 	if( position < 0 )
 		return;
 	fsm_seek( stream->filePtr, 0, F_SEEK_END );
-	length = fsm_tell( stream->filePtr ) - position;
+	fileSize = fsm_tell( stream->filePtr );
+	if( fileSize < position )
+		length = UNDERFLOW_MARKER;
+	else
+		{
+		REQUIRES_V( !checkOverflowSub( fileSize, position ) );
+		length = fileSize - position;
+		}
 	fsm_seek( stream->filePtr, position, F_SEEK_SET );
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
@@ -3290,6 +3306,7 @@ void fileClearToEOF( STREAM *stream )
 	if( ( position = m2m_fs_tell( stream->filePtr ) ) == 0 && \
 		m2m_fs_last_error() != M2M_F_NO_ERROR )
 		return;
+	REQUIRES_V( !checkOverflowSub( length, position ) );
 	length -= position;
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
@@ -3523,6 +3540,7 @@ int fileRead( INOUT_PTR STREAM *stream,
 						&byteCount ) != FX_SUCCESS ) || \
 		byteCount != length )
 		return( sSetError( stream, CRYPT_ERROR_READ ) );
+	REQUIRES( !checkOverflowAdd( stream->position, byteCount ) );
 	stream->position += byteCount;
 	*bytesRead = byteCount;
 
@@ -3542,6 +3560,7 @@ int fileWrite( INOUT_PTR STREAM *stream,
 
 	if( fx_file_write( stream->filePtr, buffer, length ) != FX_SUCCESS )
 		return( sSetError( stream, CRYPT_ERROR_WRITE ) );
+	REQUIRES( !checkOverflowAdd( stream->position, length ) );
 	stream->position += length;
 
 	return( CRYPT_OK );
@@ -3837,6 +3856,11 @@ static int openFile( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 	   things like /dev/random because they're symlinks on some OSes, but 
 	   these types of files aren't accessed through this function.
 	   
+	   We also use the O_NONBLOCK flag to deal with DoSes, this has no
+	   effect for normal files which is what we're expecting to read but
+	   will ensure that someone who's tricked us into opening something
+	   like a FIFO can't cause a hang.
+	   
 	   Note that this code leaks file handles.  This is by design since 
 	   we're trying to consume the handles in the standard I/O handle 
 	   range */
@@ -3844,7 +3868,7 @@ static int openFile( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 		{
 		ENSURES( LOOP_INVARIANT_SMALL( count, 0, 3 ) );
 
-		fd = open( fileName, flags, openMode | O_NOFOLLOW );
+		fd = open( fileName, flags, openMode | O_NONBLOCK | O_NOFOLLOW );
 		if( fd < 0 )
 			{
 			/* If we're creating the file, the only error condition is a
@@ -4487,6 +4511,7 @@ void fileClearToEOF( STREAM *stream )
 	if( fstat( stream->fd, &fstatInfo ) < 0 )
 		return;
 	position = lseek( stream->fd, 0, SEEK_CUR );
+	REQUIRES_V( !checkOverflowSub( fstatInfo.st_size, position ) );
 	length = fstatInfo.st_size - position;
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
@@ -4769,6 +4794,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	memcpy( path, passwd->pw_dir, length );
 	if( path[ length - 1 ] != '/' )
 		path[ length++ ] = '/';
+	REQUIRES( !checkOverflowSub( pathMaxLen, length ) );
 #if defined( __APPLE__ )
 	/* Like Windows, OS X has a predefined location for storing user config
 	   data */
@@ -5161,14 +5187,28 @@ void fileClearToEOF( STREAM *stream )
 #else
 	if( ioctl( stream->fd, FIOFSTATGET, &statStruct ) != ERROR )
 #endif /* _WRS_KERNEL */
-		length = statStruct.st_size  - position;
+		{
+		REQUIRES_V( !checkOverflowSub( statStruct.st_size, position ) );
+		length = statStruct.st_size - position;
+		}
 	else
 		{
+		long endPos;
+		
 		/* No stat support, do it via lseek() instead */
 		lseek( stream->fd, 0, SEEK_END );
-		length = ioctl( stream->fd, FIOWHERE, 0 ) - position;
+		endPos = ioctl( stream->fd, FIOWHERE, 0 );
 		lseek( stream->fd, position, SEEK_SET );
+		if( endPos < position )
+			length = UNDERFLOW_MARKER;
+		else
+			{
+			REQUIRES_V( !checkOverflowSub( endPos, position ) );
+			length = endPos - position;
+			}
 		}
+	if( length < 0 )
+		return;		/* Nothing to do */
 	eraseFile( stream, position, length );
 	ioctl( stream->fd, FIOTRUNC, position );
 	}
@@ -5582,6 +5622,7 @@ static BOOLEAN checkUserKnown( IN_BUFFER( fileNameLength ) const char *fileName,
 		}
 	REQUIRES_B( boundsCheck( serverNameLength, 1, PATH_BUFFER_SIZE ) );
 	memmove( pathBuffer, fileNamePtr, serverNameLength );
+	REQUIRES_B( !checkOverflowSub( PATH_BUFFER_SIZE, serverNameLength ) );
 	strlcpy_s( pathBuffer + serverNameLength, 
 			   PATH_BUFFER_SIZE - serverNameLength, "\\" );
 
@@ -6126,6 +6167,7 @@ void fileClearToEOF( STREAM *stream )
 	if( ( length = GetFileSize( stream->hFile, 
 								NULL ) ) == INVALID_FILE_SIZE )
 		return;
+	REQUIRES_V( !checkOverflowSub( length, position ) );
 	length -= position;
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
@@ -6367,6 +6409,7 @@ static int getFolderPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 			   to its own directories, which is the Windows directory.  This 
 			   is safe because LocalSystem always has permission to write 
 			   there */
+			REQUIRES( !checkOverflowSub( pathMaxLen, 8 ) );
 			if( !GetWindowsDirectory( path, pathMaxLen - 8 ) )
 				*path = '\0';
 			*pathLen = strnlen_s( path, MAX_PATH_LENGTH );
@@ -6383,6 +6426,7 @@ static int getFolderPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	   problems as the Windows directory for non-admin users, but we try it 
 	   just in case the user manually copied the config there as a last 
 	   resort */
+	REQUIRES( !checkOverflowSub( pathMaxLen, 8 ) );
 	if( GetWindowsDirectory( path, pathMaxLen - 8 ) )
 		*pathLen = strnlen_s( path, MAX_PATH_LENGTH );
 	else
@@ -6447,8 +6491,10 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	status = getFolderPath( path, pathMaxLen, &length );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( length + 16 >= pathMaxLen )
+	if( checkOverflowAdd( length, 16 ) || \
+		length + 16 >= pathMaxLen )
 		return( CRYPT_ERROR_OVERFLOW );
+	REQUIRES( !checkOverflowSub( pathMaxLen, length ) );
 	strlcpy_s( pathPtr + length, pathMaxLen - length, "\\cryptlib" );
 #elif defined( __WINCE__ )
 	if( SHGetSpecialFolderPath( NULL, pathPtr, CSIDL_APPDATA, TRUE ) || \
@@ -6917,7 +6963,7 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
-	off_t position;
+	off_t position, fileSize;
 	long length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -6930,7 +6976,15 @@ void fileClearToEOF( STREAM *stream )
 		return;
 	if( fs_seek( &stream->fileInfo, position, FS_SEEK_END ) != 0 )
 		return;
-	length = fs_tell( &stream->fileInfo ) - position;
+	if( ( fileSize = fs_tell( &stream->fileInfo ) ) < 0 )
+		return;
+	if( fileSize < position )
+		length = UNDERFLOW_MARKER;
+	else
+		{
+		REQUIRES_V( !checkOverflowSub( fileSize, position ) );
+		length = fileSize - position;
+		}
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
 	eraseFile( stream, position, length );
@@ -7331,7 +7385,7 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
-	long position, length;
+	long position, fileSize, length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -7339,9 +7393,20 @@ void fileClearToEOF( STREAM *stream )
 
 	/* Wipe everything past the current position in the file */
 	position = ftell( stream->filePtr );
+	if( position < 0 )
+		return;
 	fseek( stream->filePtr, 0, SEEK_END );
-	length = ftell( stream->filePtr ) - position;
+	fileSize = ftell( stream->filePtr );
 	fseek( stream->filePtr, position, SEEK_SET );
+	if( fileSize < position )
+		length = UNDERFLOW_MARKER;
+	else
+		{
+		REQUIRES_V( !checkOverflowSub( fileSize, position ) );
+		length = fileSize - position;
+		}
+	if( length <= 0 )
+		return;
 	eraseFile( stream, position, length );
 #if defined( __AMIGA__ )
 	SetFileSize( fileno( stream->filePtr ), OFFSET_BEGINNING, position );
@@ -7493,6 +7558,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 							fileNameLen, option ) );
 #elif defined( __WIN16__ )
 	clearErrno();
+	REQUIRES( !checkOverflowSub( pathMaxLen, 32 ) );
 	GetWindowsDirectory( path, pathMaxLen - 32 );
 	strlcat_s( path, pathMaxLen, "\\cryptlib" );
 

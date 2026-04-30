@@ -35,7 +35,7 @@
   #include "crypt/ecx.h"
 #endif /* Compiler-specific includes */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 #if defined(X25519_ASM) && (defined(__x86_64) || defined(__x86_64__) || \
                             defined(_M_AMD64) || defined(_M_X64))
@@ -5971,4 +5971,4 @@ ossl_x25519_public_from_private(uint8_t out_public_value[32],
 
     OPENSSL_cleanse(e, sizeof(e));
 }
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */

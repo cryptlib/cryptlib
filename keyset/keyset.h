@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib Keyset Interface Header File 				*
-*						Copyright Peter Gutmann 1996-2005					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -329,7 +329,7 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 											const CRYPT_ATTRIBUTE_TYPE type );
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 	int ( *KEY_SETATTRIBUTE_FUNCTION )( INOUT_PTR struct KI *keysetInfo, 
-										const void *data,
+										IN_PTR const void *data,
 										IN_ATTRIBUTE \
 											const CRYPT_ATTRIBUTE_TYPE type );
 #endif /* USE_LDAP */
@@ -344,8 +344,8 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
 								   IN_PTR_OPT void *auxInfo, 
 								   INOUT_PTR_OPT int *auxInfoLength, 
 								   IN_FLAGS_Z( KEYMGMT ) const int flags );
-typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
-	int ( *KEY_GETSPECIALITEM_FUNCTION )( INOUT_PTR struct KI *keysetInfoPtr,
+typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 5 ) ) \
+	int ( *KEY_GETSPECIALITEM_FUNCTION )( INOUT_PTR struct KI *keysetInfo,
 										  IN_ATTRIBUTE \
 											const CRYPT_ATTRIBUTE_TYPE dataType,
 										  OUT_BUFFER( dataMaxLength, \
@@ -356,7 +356,7 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
 										  OUT_LENGTH_BOUNDED_Z( dataMaxLength ) \
 											int *dataLength );
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-	int ( *KEY_SETITEM_FUNCTION )( INOUT_PTR struct KI *deviceInfo,
+	int ( *KEY_SETITEM_FUNCTION )( INOUT_PTR struct KI *keysetInfo,
 								   IN_HANDLE const CRYPT_HANDLE iCryptHandle,
 								   IN_ENUM( KEYMGMT_ITEM ) \
 									const KEYMGMT_ITEM_TYPE itemType,
@@ -365,7 +365,7 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 								   IN_LENGTH_NAME_Z const int passwordLength,
 								   IN_FLAGS( KEYMGMT ) const int flags );
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-	int ( *KEY_SETSPECIALITEM_FUNCTION )( INOUT_PTR struct KI *deviceInfo,
+	int ( *KEY_SETSPECIALITEM_FUNCTION )( INOUT_PTR struct KI *keysetInfo,
 										  IN_ATTRIBUTE \
 											const CRYPT_ATTRIBUTE_TYPE dataType,
 										  IN_BUFFER( dataLength ) const void *data, 
@@ -399,7 +399,7 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 										/* May be absent for an ongoing query run as 
 										   { getItem, getNext, getNext, ... } */
 									   IN_FLAGS_Z( KEYMGMT ) const int options );
-typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+typedef CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 	BOOLEAN ( *KEY_ISBUSY_FUNCTION )( INOUT_PTR struct KI *keysetInfo );
 
 typedef struct KI {

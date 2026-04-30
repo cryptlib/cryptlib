@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							cryptlib TLS Client								*
-*					   Copyright Peter Gutmann 1998-2021					*
+*					   Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -309,6 +309,7 @@ static int writeCipherSuiteList( INOUT_PTR STREAM *stream,
 	ENSURES( cipherSuiteCount > 0 && cipherSuiteCount < MAX_NO_SUITES );
 
 	/* Encode the list of available cipher suites */
+	REQUIRES( !checkOverflowMul( cipherSuiteCount, UINT16_SIZE ) );
 	status = writeUint16( stream, cipherSuiteCount * UINT16_SIZE );
 	LOOP_EXT( suiteIndex = 0, 
 			  suiteIndex < cipherSuiteCount && cryptStatusOK( status ), 
@@ -383,7 +384,10 @@ static int processFragmentedRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( totalLength >= 1 && totalLength <= MAX_PACKET_SIZE * 2 );
 	REQUIRES( isShortIntegerRange( dataLeft ) );
+	REQUIRES( !checkOverflowSub( totalLength, dataLeft ) );
 	REQUIRES( isShortIntegerRangeNZ( remainder ) );
+			  /* Remainder can't be zero because the packet size is larger
+			     than the current fragment in the stream buffer */
 
 	/* Skip the remaining data in the packet if there is any */
 	if( dataLeft > 0 )
@@ -419,6 +423,7 @@ static int processFragmentedRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = sSkip( stream, length, MAX_INTLENGTH_SHORT );
 		if( cryptStatusError( status ) )
 			break;
+		REQUIRES( !checkOverflowSub( remainder, length ) );
 		remainder -= length;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -448,7 +453,9 @@ static int processCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 							   INOUT_PTR STREAM *stream )
 	{
-	int packetLength, length, status;
+	BOOLEAN fragmentedPacket = FALSE;
+	int packetLength, length, maxLength, packetHeaderStart, packetHeaderSize;
+	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
@@ -461,7 +468,8 @@ static int processCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   
 	   This packet may be longer than the encapsulating TLS packet, 
 	   checkHSPacketHeader() has code to special-case this and allow an
-	   over-sized packetLength value */
+	   over-sized packetLength value, letting us know via an OK_SPECIAL
+	   return status */
 	status = checkHSPacketHeader( sessionInfoPtr, stream, &packetLength,
 								  TLS_HAND_SERVER_CERTREQUEST,
 								  1 + 1 + ( ( sessionInfoPtr->version >= \
@@ -469,8 +477,22 @@ static int processCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										  ( UINT16_SIZE + 1 + 1 ) : 0 ) + \
 								  UINT16_SIZE );
 	if( cryptStatusError( status ) )
-		return( status );
-	status = length = sgetc( stream );
+		{
+		if( status != OK_SPECIAL )
+			return( status );
+		
+		/* It's an over-long request fragmented across several packets,
+		   remember this */
+		REQUIRES( packetLength > min( MAX_PACKET_SIZE, \
+									  sMemDataLeft( stream ) ) );
+		fragmentedPacket = TRUE;
+		}
+	packetHeaderStart = stell( stream );
+	ENSURES( isShortIntegerRangeMin( packetHeaderStart, 
+									 ID_SIZE + LENGTH_SIZE ) );
+
+	/* Process the certificate-type information */
+	status = length = sgetc( stream );			/* certTypeLen */
 	if( !cryptStatusError( status ) )
 		{
 		if( length < 1 || length > 64 )
@@ -490,7 +512,7 @@ static int processCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   information */
 	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS12 )
 		{
-		status = length = readUint16( stream );
+		status = length = readUint16( stream );	/* sigHashListLen */
 		if( !cryptStatusError( status ) )
 			{
 			if( length < UINT16_SIZE || length > 64 || \
@@ -511,8 +533,10 @@ static int processCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Finally, skip the CA name list.  Since the packet could be an over-
 	   length and therefore fragmented packet we can't use readUniversal16() 
 	   but have to apply custom proccessing that deals with over-long 
-	   packets */
-	status = length = readUint16( stream );
+	   packets.  We're also more careful than usual in checking the length
+	   to make sure that someone can't mess with us using a fragemented
+	   packet */
+	status = length = readUint16( stream );		/* caNameListLen */
 	if( cryptStatusError( status ) )
 		return( status );
 	if( length <= 0 )
@@ -520,15 +544,31 @@ static int processCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* Zero-length CA name list */
 		return( CRYPT_OK );
 		}
-	if( length < ( UINT16_SIZE + 16 ) || \
-		length > sMemDataLeft( stream ) + ( MAX_PACKET_SIZE - 512 ) )
+	packetHeaderSize = stell( stream ) - packetHeaderStart;
+	ENSURES( isShortIntegerRangeMin( packetHeaderSize,
+						1 + 1 + ( ( sessionInfoPtr->version >= \
+									TLS_MINOR_VERSION_TLS12 ) ? \
+								  ( UINT16_SIZE + 1 + 1 ) : 0 ) + \
+								  UINT16_SIZE ) );
+	maxLength = sMemDataLeft( stream );
+	if( fragmentedPacket )
 		{
-		/* We limit the over-sized length to the amount of data left in the 
-		   current packet, typically a few kB under MAX_PACKET_SIZE, and 
-		   almost another MAX_PACKET_SIZE packet, so roughly 
-		   MAX_PACKET_SIZE * 2.  We don't allow a second full MAX_PACKET_SIZE
-		   packet because that would mean there's a third and possibly 
-		   fourth fragment present which we can't currently process */
+		/* If it's a fragmented packet then we limit the over-sized length 
+		   to the amount of data left in the current packet, typically a few 
+		   kB under MAX_PACKET_SIZE, and almost another MAX_PACKET_SIZE 
+		   packet, so roughly MAX_PACKET_SIZE * 2.  We don't allow a second 
+		   full MAX_PACKET_SIZE packet because that would mean there's a 
+		   third and possibly fourth fragment present that we can't 
+		   currently process and in any case would seem to indicate an error
+		   since there aren't that many CAs on the planet to put into the
+		   list */
+		REQUIRES( !checkOverflowAdd( maxLength, MAX_PACKET_SIZE - 512 ) );
+		maxLength += MAX_PACKET_SIZE - 512;
+		}
+	if( length < ( UINT16_SIZE + 16 ) || \
+		checkOverflowSub( packetLength, packetHeaderSize ) || \
+		length != packetLength - packetHeaderSize || length > maxLength )
+		{
 		status = CRYPT_ERROR_BADDATA;
 		}
 	else
@@ -536,7 +576,7 @@ static int processCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* If the server sent an insanely long certificate request packet
 		   that's fragmented across multiple TLS packets, process the
 		   fragments */
-		if( length > sMemDataLeft( stream ) )
+		if( fragmentedPacket )
 			{
 			status = processFragmentedRequest( sessionInfoPtr, handshakeInfo, 
 											   stream, length );
@@ -916,8 +956,8 @@ static int processServerKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	ENSURES( !cryptStatusError( status ) );
 	status = sseek( stream, publicValueOffset );
 	ENSURES( cryptStatusOK( status ) );
-	status = completeTLSKeyex( handshakeInfo, stream, isTLSLTS, FALSE,
-							   SESSION_ERRINFO );
+	status = completeTLSKeyex( handshakeInfo, stream, FALSE, isTLSLTS, 
+							   FALSE, SESSION_ERRINFO );
 	if( cryptStatusOK( status ) )
 		status = sseek( stream, offset );
 	if( cryptStatusError( status ) )
@@ -1010,15 +1050,15 @@ static int createClientKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			memcpy( premasterTempBuffer, handshakeInfo->premasterSecret,
 					handshakeInfo->premasterSecretSize );
 			status = createSharedPremasterSecret( \
-							handshakeInfo->premasterSecret,
-							CRYPT_MAX_PKCSIZE + CRYPT_MAX_TEXTSIZE,
-							&handshakeInfo->premasterSecretSize,
-							passwordPtr->value, 
-							passwordPtr->valueLength, 
-							premasterTempBuffer, premasterTempSize,
-							TEST_FLAG( passwordPtr->flags, 
-									   ATTR_FLAG_ENCODEDVALUE ) ? \
-								TRUE : FALSE );
+								handshakeInfo->premasterSecret,
+								KEYEX_SECRET_STORAGE_SIZE,
+								&handshakeInfo->premasterSecretSize,
+								passwordPtr->value, 
+								passwordPtr->valueLength, 
+								premasterTempBuffer, premasterTempSize,
+								TEST_FLAG( passwordPtr->flags, 
+										   ATTR_FLAG_ENCODEDVALUE ) ? \
+									TRUE : FALSE );
 			zeroise( premasterTempBuffer, CRYPT_MAX_PKCSIZE );
 			if( cryptStatusError( status ) )
 				{
@@ -1061,14 +1101,14 @@ static int createClientKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* Create the shared premaster secret from the user password */
 		status = createSharedPremasterSecret( \
-							handshakeInfo->premasterSecret,
-							CRYPT_MAX_PKCSIZE + CRYPT_MAX_TEXTSIZE,
-							&handshakeInfo->premasterSecretSize,
-							passwordPtr->value, 
-							passwordPtr->valueLength, NULL, 0,
-							TEST_FLAG( passwordPtr->flags, 
-									   ATTR_FLAG_ENCODEDVALUE ) ? \
-								TRUE : FALSE );
+								handshakeInfo->premasterSecret,
+								KEYEX_SECRET_STORAGE_SIZE,
+								&handshakeInfo->premasterSecretSize,
+								passwordPtr->value, 
+								passwordPtr->valueLength, NULL, 0,
+								TEST_FLAG( passwordPtr->flags, 
+										   ATTR_FLAG_ENCODEDVALUE ) ? \
+									TRUE : FALSE );
 		if( cryptStatusError( status ) )
 			{
 			retExt( status,
@@ -1119,7 +1159,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	BOOLEAN sessionIDsent = FALSE, resumeSession = FALSE;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 	int packetOffset, clientHelloLength DUMMY_INIT, serverHelloLength;
-	int sentSessionIDlength DUMMY_INIT, status;
+	int sentSessionIDlength = 0, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
@@ -1181,65 +1221,16 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* If we're using TLS 1.3 with its guessed keyex, create the 
-	   DH/ECDH/25519 contexts that we'll need in order to populate the 
-	   client hello */
-#ifdef USE_TLS13
+	/* If we're using TLS 1.3 with its guessed keyex, create the various 
+	   contexts that we'll need in order to populate the client hello */
+#if defined( USE_TLS13 ) && !defined( CONFIG_FUZZ )
 	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
 		{
-  #if 0	/* See comment in session/tls_ext_rw.c:writeSupportedGroups() */
-		status = createKeyexContextTLS( &handshakeInfo->keyexContext, 
-										CRYPT_ALGO_DH );
-		if( cryptStatusOK( status ) )
-			{
-			/* Indicate that we're using the nonstandard DH keys required
-			   by TLS 1.3 */
-			static const int dhKeySize = bitsToBytes( 2048 ) | 1;
-
-			status = krnlSendMessage( handshakeInfo->keyexContext, 
-									  IMESSAGE_SETATTRIBUTE, 
-									  ( MESSAGE_CAST ) &dhKeySize, 
-									  CRYPT_IATTRIBUTE_KEY_DLPPARAM );
-			}
+		status = createKeyexContextsTLS13( handshakeInfo );
 		if( cryptStatusError( status ) )
 			return( status );
-  #endif /* 0 */
-  #ifndef CONFIG_FUZZ
-		if( algoAvailable( CRYPT_ALGO_ECDH ) )
-			{
-			status = createKeyexContextTLS( &handshakeInfo->keyexEcdhContext, 
-											CRYPT_ALGO_ECDH );
-			if( cryptStatusOK( status ) )
-				{
-				static const int ecdhKeyType = CRYPT_ECCCURVE_P256;
-
-				status = krnlSendMessage( handshakeInfo->keyexEcdhContext, 
-										  IMESSAGE_SETATTRIBUTE, 
-										  ( MESSAGE_CAST ) &ecdhKeyType, 
-										  CRYPT_IATTRIBUTE_KEY_ECCPARAM );
-				}
-			if( cryptStatusError( status ) )
-				return( status );
-			}
-  #ifdef USE_25519
-		if( algoAvailable( CRYPT_ALGO_25519 ) )
-			{
-			status = createKeyexContextTLS( &handshakeInfo->keyex25519Context, 
-											CRYPT_ALGO_25519 );
-			if( cryptStatusOK( status ) )
-				{
-				status = krnlSendMessage( handshakeInfo->keyex25519Context, 
-										  IMESSAGE_SETATTRIBUTE, 
-										  MESSAGE_VALUE_TRUE, 
-										  CRYPT_IATTRIBUTE_KEY_IMPLICIT );
-				}
-			if( cryptStatusError( status ) )
-				return( status );
-			}
-  #endif /* USE_25519 */
-  #endif /* CONFIG_FUZZ */
 		}
-#endif /* USE_TLS13 */
+#endif /* USE_TLS13 && !CONFIG_FUZZ */
 
 	/* Build the client hello packet:
 
@@ -1527,6 +1518,9 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = refreshHSStream( sessionInfoPtr, handshakeInfo );
 	if( cryptStatusError( status ) )
 		return( status );
+#if 0	/* 18/2/26 This code was present from 3.3.1 in 2006 until 3.4.9 in
+				   2026 without ever being triggered so it's unlikely to be 
+				   needed */
 	if( sPeek( stream ) == TLS_HAND_SUPPLEMENTAL_DATA )
 		{
 		status = checkHSPacketHeader( sessionInfoPtr, stream, &length,
@@ -1550,6 +1544,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  length ));
 		assert_nofuzz( DEBUG_WARN );
 		}
+#endif /* 0 */
 	CFI_CHECK_UPDATE( "checkHSPacketHeader" );
 
 #ifndef CONFIG_FUZZ
@@ -1578,6 +1573,8 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			sMemDisconnect( stream );
 			return( status );
 			}
+		DEBUG_PRINT(( "Handshake authentication algorithm set to %s.\n",
+					  getAlgoName( handshakeInfo->authAlgo ) ));
 
 		/* Check the details in the certificate chain */
 		status = checkTLSCertificateInfo( sessionInfoPtr );

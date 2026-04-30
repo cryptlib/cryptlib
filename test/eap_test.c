@@ -39,9 +39,9 @@
 
 /* EAP subprotocol and authentication types */
 
-typedef enum { PROTOCOL_EAPTTLS, PROTOCOL_PEAP, PROTOCOL_PEAP_LOOPBACK, 
-			   PROTOCOL_PEAP_NPS, PROTOCOL_PEAP_NPS_LOOPBACK, 
-			   PROTOCOL_LAST } PROTOCOL_TYPE; 
+typedef enum { PROTOCOL_RADIUSPING, PROTOCOL_EAPTTLS, PROTOCOL_PEAP, 
+			   PROTOCOL_PEAP_LOOPBACK, PROTOCOL_PEAP_NPS, 
+			   PROTOCOL_PEAP_NPS_LOOPBACK, PROTOCOL_LAST } PROTOCOL_TYPE; 
 typedef enum { AUTH_PAP, AUTH_CHAP, AUTH_MSCHAPV2, AUTH_LAST } AUTH_TYPE;
 
 /* The maximum size of the buffer to hold the authentication data sent over
@@ -89,7 +89,8 @@ typedef enum { TEST_NORMAL, TEST_WRONGUSER, TEST_WRONGPASSWORD,
    types.  These must match the corresponding PROTOCOL_xxx/AUTH_xxx values */
 
 static const char *protocolName[] = {
-	"EAP-TTLS", "PEAP", "<<<Unknown>>>", "<<<Unknown>>>"
+	"RFC 5997 Status Request", "EAP-TTLS", "PEAP", 
+	"<<<Unknown>>>", "<<<Unknown>>>"
 	};
 static const char *authName[] = {
 	"PAP", "CHAP", "MSCHAPv2", "<<<Unknown>>>", "<<<Unknown>>>"
@@ -170,6 +171,7 @@ static int createEAPsession( CRYPT_SESSION *cryptEAPSession,
 	/* Select EAP-TTLS or PEAP as required */
 	switch( protocolType )
 		{
+		case PROTOCOL_RADIUSPING:
 		case PROTOCOL_EAPTTLS:
 			status = cryptSetAttribute( cryptSession, 
 										CRYPT_SESSINFO_TLS_SUBPROTOCOL, 
@@ -259,6 +261,13 @@ static int testEAPSubprotocol( const PROTOCOL_TYPE protocolType,
 	/* Make sure that a valid test has been selected */
 	switch( protocolType )
 		{
+		case PROTOCOL_RADIUSPING:
+			/* N2, FreeRADIUS */
+			serverName = "odroid.n2.lan:1812";
+			user = "[ping]";
+			password = "testing123";
+			break;
+
 		case PROTOCOL_EAPTTLS:
 			/* XU4, EAP-TTLS on FreeRADIUS */
 			serverName = "odroid.xu4.lan:1812";
@@ -369,6 +378,13 @@ static int testEAPSubprotocol( const PROTOCOL_TYPE protocolType,
 	cryptSetAttribute( cryptSession, CRYPT_SESSINFO_TLS_OPTIONS, 
 					   CRYPT_TLSOPTION_DISABLE_NAMEVERIFY );
 
+	/* Set a shorter timeout on connect for testing purposes.  This allows
+	   for testing of problematic servers without waiting for the full 30s
+	   each time */
+#if 0
+	cryptSetAttribute( cryptSession, CRYPT_OPTION_NET_CONNECTTIMEOUT, 5 );
+#endif /* 0 */
+
 	/* Activate the EAP-TTLS or PEAP tunnel.  cryptlib sends the identity
 	   in the outermost RADIUS tunnel as "anonymous" as required by several
 	   usage documents, this is allowed by default by FreeRADIUS but not 
@@ -426,8 +442,17 @@ static int testEAPSubprotocol( const PROTOCOL_TYPE protocolType,
 				  "received from the server if\n  an incorrect password is "
 				  "used.\n" );
 			}
- 		cryptDestroySession( cryptSession );
+		cryptDestroySession( cryptSession );
 		return( FALSE );
+		}
+
+	/* If we're doing a RADIUS ping then there's nothing further to do, 
+	   however we continue anyway to make sure that the session object can 
+	   handle a not-opened-but-complete-anyway session */
+	if( protocolType == PROTOCOL_RADIUSPING )
+		{
+		printf( "RADIUS ping succeeded, continuing with EAP negotiation "
+				"which should produce\n  an error.\n" );
 		}
 
 	/* At this point PEAP and EAP-TTLS diverge, so we complete the handshake
@@ -491,6 +516,9 @@ static int testEAPSubprotocol( const PROTOCOL_TYPE protocolType,
 
 int testEAP( void )
 	{
+#if 1
+	testEAPSubprotocol( PROTOCOL_RADIUSPING, AUTH_PAP, TEST_NORMAL, FALSE );
+#endif /* RADIUS ping */
 #if 0
 	testEAPSubprotocol( PROTOCOL_EAPTTLS, AUTH_PAP, TEST_NORMAL, FALSE );
 	testEAPSubprotocol( PROTOCOL_EAPTTLS, AUTH_PAP, TEST_WRONGUSER, FALSE );
@@ -499,7 +527,7 @@ int testEAP( void )
 	testEAPSubprotocol( PROTOCOL_EAPTTLS, AUTH_MSCHAPV2, TEST_NORMAL, FALSE );
 	testEAPSubprotocol( PROTOCOL_EAPTTLS, AUTH_MSCHAPV2, TEST_WRONGPASSWORD, FALSE );
 #endif /* EAP-TTLS */
-#if 1
+#if 0
 	testEAPSubprotocol( PROTOCOL_PEAP, AUTH_MSCHAPV2, TEST_NORMAL, FALSE );
 	testEAPSubprotocol( PROTOCOL_PEAP, AUTH_MSCHAPV2, TEST_WRONGUSER, FALSE );
 	testEAPSubprotocol( PROTOCOL_PEAP, AUTH_MSCHAPV2, TEST_WRONGPASSWORD, FALSE );

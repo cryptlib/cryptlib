@@ -158,6 +158,8 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 		{
 		/* It's a nonstandard format, figure out the size due to the 
 		   additional signature wrapper and other odds and ends */
+		REQUIRES( !checkOverflowAdd( signatureLength, 
+									 formatInfo->extraLength ) );
 		totalSigLength = \
 				sizeofShortObject( signatureLength + formatInfo->extraLength );
 		if( formatInfo->isExplicit )
@@ -168,7 +170,8 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 	/* Make sure that there's enough room for the signed object in the 
 	   output buffer.  This will be checked by the stream handling anyway 
 	   but we make it explicit here */
-	if( sizeofObject( objectLength + totalSigLength ) > signedObjectMaxLength )
+	if( checkOverflowAdd( objectLength, totalSigLength ) || \
+		sizeofObject( objectLength + totalSigLength ) > signedObjectMaxLength )
 		return( CRYPT_ERROR_OVERFLOW );
 
 	/* Write the outer SEQUENCE wrapper and copy the payload into place 
@@ -176,6 +179,7 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 	   writes to allow for a single retExtErr() exit at the end */
 	sMemOpen( &stream, signedObject, signedObjectMaxLength );
 	writeSequence( &stream, objectLength + totalSigLength );
+							/* Checked earlier */
 	swrite( &stream, object, objectLength );
 
 	/* If it's a nonstandard (b0rken PKI protocol) signature then we have to 
@@ -188,6 +192,7 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 			writeConstructed( &stream, 
 							  sizeofObject( signatureLength + \
 											formatInfo->extraLength ),
+											/* Checked earlier */
 							  formatInfo->tag );
 			writeSequence( &stream, 
 						   signatureLength + formatInfo->extraLength );
@@ -197,6 +202,7 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 			writeConstructed( &stream, 
 							  signatureLength + formatInfo->extraLength,
 							  formatInfo->tag );
+							  /* Checked earlier */
 			}
 		}
 

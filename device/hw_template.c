@@ -513,6 +513,7 @@ int hwStorageUpdateNotify( IN_PTR_OPT void *contextHandle,
 	   so the entire data block will be updated at once, there won't be any
 	   random-access changes made to ranges within the data block */
 	/* ... */
+	REQUIRES( !checkOverflowSub( STORAGE_SIZE, dataLength ) );
 	memset( storage + dataLength, 0, STORAGE_SIZE - dataLength );
 
 	return( CRYPT_OK );

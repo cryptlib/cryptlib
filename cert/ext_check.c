@@ -302,6 +302,7 @@ static int updateStackedInfo( INOUT_ARRAY_C( ATTRIBUTE_STACKSIZE ) \
 		ENSURES( count > 0 && count <= currentStackPos );
 
 		/* Unstack the current entry */
+		REQUIRES( !checkOverflowDec( currentStackPos ) );
 		currentStackPos--;
 		ENSURES( currentStackPos >= 0 && \
 				 currentStackPos < ATTRIBUTE_STACKSIZE );
@@ -384,6 +385,8 @@ static int updateStackedInfo( INOUT_ARRAY_C( ATTRIBUTE_STACKSIZE ) \
 			   nesting level so if we're unnesting by a relative amount we 
 			   adjust the nesting count to give a net change of zero for this
 			   item */
+			REQUIRES( !checkOverflowAdd3( stack[ currentStackPos - 1 ].size,
+										  size, newLength ) );
 			stack[ currentStackPos - 1 ].size += size + newLength;
 			if( isRelative )
 				count++;
@@ -392,6 +395,8 @@ static int updateStackedInfo( INOUT_ARRAY_C( ATTRIBUTE_STACKSIZE ) \
 			{
 			/* It's a constructed field, percolate the encapsulated content
 			   size up the stack */
+			REQUIRES( !checkOverflowAdd( stack[ currentStackPos - 1 ].size,
+										 sizeofShortObject( size ) ) );
 			stack[ currentStackPos - 1 ].size += sizeofShortObject( size );
 			}
 		ENSURES( isIntegerRangeNZ( stack[ currentStackPos - 1 ].size ) );
@@ -452,10 +457,21 @@ static int checkComponentPresent( IN_RANGE( CRYPT_ATTRIBUTE_NONE + 1,
 		ENSURES( !isAttributeTableEnd( attributeInfoPtr ) );
 
 		/* Adjust the nesting level depending on whether we're entering or
-		   leaving a sequence */
+		   leaving a sequence.  For complex extensions with optional nested
+		   fields we don't always return to a nestLevel of zero because we
+		   don't know how many levels we went down before this point (see 
+		   for example the end of certPolicies in certs/ext_def.c), so we
+		   explicitly check for an underflow */
 		if( attributeInfoPtr->fieldType == BER_SEQUENCE )
 			nestLevel++;
-		nestLevel -= decodeNestingLevel( attributeInfoPtr->encodingFlags );
+		if( nestLevel < decodeNestingLevel( attributeInfoPtr->encodingFlags ) )
+			nestLevel = UNDERFLOW_MARKER;
+		else
+			{
+			REQUIRES( !checkOverflowSub( nestLevel, 
+						decodeNestingLevel( attributeInfoPtr->encodingFlags ) ) );
+			nestLevel -= decodeNestingLevel( attributeInfoPtr->encodingFlags );
+			}
 
 		/* If the field is present in this attributeTypeAndValue, return */
 		if( attributeInfoPtr->fieldID == fieldID )
@@ -646,6 +662,9 @@ static int checkAttributeEntry( INOUT_PTR ATTRIBUTE_CHECK_INFO *attributeCheckIn
 		attributeListPtr->encodedSize = size;
 		if( attributeCheckInfo->stackPos > 0 )
 			{
+			REQUIRES( !checkOverflowAdd( \
+							stack[ attributeCheckInfo->stackPos - 1 ].size,
+							attributeListPtr->encodedSize ) );
 			stack[ attributeCheckInfo->stackPos - 1 ].size += \
 										attributeListPtr->encodedSize;
 			}
@@ -905,6 +924,8 @@ static int checkAttribute( INOUT_PTR ATTRIBUTE_CHECK_INFO *attributeCheckInfo )
 			attributeCheckInfo->attributeInfoPtr = restartPoint;
 			if( attributeCheckInfo->stackPos > restartStackPos )
 				{
+				REQUIRES( !checkOverflowSub( attributeCheckInfo->stackPos,
+											 restartStackPos ) );
 				status = updateStackedInfo( attributeCheckInfo->stack,
 											attributeCheckInfo->stackPos,
 											&attributeCheckInfo->stackPos,
@@ -937,6 +958,8 @@ static int checkAttribute( INOUT_PTR ATTRIBUTE_CHECK_INFO *attributeCheckInfo )
 	   objects stacked, unstack them and update their length information.  If
 	   it's a sequence with all fields optional (so that nothing gets
 	   encoded) this won't do anything */
+	REQUIRES( !checkOverflowSub( attributeCheckInfo->stackPos,
+								 attributeCheckInfo->stackMarkerPos ) );
 	status = updateStackedInfo( attributeCheckInfo->stack, 
 								attributeCheckInfo->stackPos,
 								&attributeCheckInfo->stackPos,

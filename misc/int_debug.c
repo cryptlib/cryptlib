@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Internal Debugging API						*
-*						Copyright Peter Gutmann 1992-2019					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -76,21 +76,20 @@ int remove( const char *pathname )
    OutputDebugString() so that enough delay is inserted to allow other 
    callers and the code being debugged to get out of each others' hair */
 
-int debugPrintf( IN_STRING const char *format, ... )
+static int debugPrintfArgPtr( IN_STRING const char *format, 
+							  va_list argPtr )
 	{
-	va_list argPtr;
 	char buffer[ 1024 + 8 ];
 	int length;
 
 	assert( isReadPtr( format, 2 ) );
 
-	va_start( argPtr, format );
 #if VC_GE_2005( _MSC_VER )
 	length = vsnprintf_s( buffer, 1024, _TRUNCATE, format, argPtr );
 #else
 	length = vsprintf( buffer, format, argPtr );
 #endif /* VC++ 2005 or newer */
-	va_end( argPtr );
+	ENSURES( rangeCheck( length, 1, 1023 ) );
 #if defined( __WIN32__ ) 
 	OutputDebugString( buffer );
 #else
@@ -127,20 +126,20 @@ int debugPrintfAtomic( IN_STRING const char *file,
 	totalLength = length;
 	length = vsnprintf_s( buffer + length, 1536 - length, _TRUNCATE, 
 						  format, argPtr );
-	ENSURES( rangeCheck( length, 8, 1536 - 1 ) );
+	ENSURES( rangeCheck( length, 8, 1536 - ( length + 1 ) ) );
 	totalLength += length;
 	length = sprintf_s( buffer + totalLength, 1536 - totalLength, ".\n" );
-	ENSURES( rangeCheck( length, 2, 1536 - 1 ) );
+	ENSURES( rangeCheck( length, 2, 1536 - ( totalLength + 1 ) ) );
 	totalLength += length;
 #else
 	length = sprintf( buffer, "%s:%s:%d: ", file, function, line ); 
 	ENSURES( rangeCheck( length, 8, 1536 - 1 ) );
 	totalLength = length;
 	length = vsprintf( buffer + length, format, argPtr );
-	ENSURES( rangeCheck( length, 8, 1536 - 1 ) );
+	ENSURES( rangeCheck( length, 8, 1536 - ( length + 1 ) ) );
 	totalLength += length;
 	length = sprintf( buffer + totalLength, ".\n" );
-	ENSURES( rangeCheck( length, 2, 1536 - 1 ) );
+	ENSURES( rangeCheck( length, 2, 1536 - ( totalLength + 1 ) ) );
 	totalLength += length;
 #endif /* VC++ 2005 or newer */
 	va_end( argPtr );
@@ -157,16 +156,14 @@ int debugPrintfAtomic( IN_STRING const char *file,
 
 #include <stdarg.h>			/* Needed for va_list */
 
-int debugPrintf( const char *format, ... )
+static int debugPrintfArgPtr( IN_STRING const char *format, 
+							  va_list argPtr )
 	{
-	va_list argPtr;
 	int length;
 
 	assert( isReadPtr( format, 2 ) );
 
-	va_start( argPtr, format );
 	length = vfprintf( stderr, format, argPtr );
-	va_end( argPtr );
 	fflush( stderr );	/* Just in case it gets stuck in a buffer */
 
 	return( length );
@@ -181,18 +178,17 @@ int debugPrintf( const char *format, ... )
    vsPrintf_s() that handles all of the format types that cryptlib uses, 
    and then convert the result to EBCDIC */
 
-int debugPrintf( const char *format, ... )
+static int debugPrintfArgPtr( IN_STRING const char *format, 
+							  va_list argPtr )
 	{
-	va_list argPtr;
 	char buffer[ 1024 + 8 ];
 	int length;
 
 	assert( isReadPtr( format, 2 ) );
 
 	/* Format the arguments as an ASCII string */
-	va_start( argPtr, format );
 	length = vsPrintf_s( buffer, 1024, format, argPtr );
-	va_end( argPtr );
+	ENSURES( rangeCheck( length, 1, 1023 ) );
 
 	/* Convert it to EBCDIC and display it */
 	bufferToEbcdic( buffer, buffer );
@@ -207,24 +203,18 @@ int debugPrintf( const char *format, ... )
 
 #include <stdarg.h>			/* Needed for va_list */
 
-int debugPrintf( const char *format, ... )
+static int debugPrintfArgPtr( IN_STRING const char *format, 
+							  va_list argPtr )
 	{
-	va_list argPtr;
-	int length;
-
 	assert( isReadPtr( format, 2 ) );
 
-	va_start( argPtr, format );
-	length = vprintf( format, argPtr );
-	va_end( argPtr );
-
-	return( length );
+	return( vprintf( format, argPtr ) );
 	}
 #endif /* OS-specific debug output functions */
 
 /* When debugging a multithreaded application the output from different
-   threads can interfere with each other, so we provide a locking
-   mechanism around a series of output operations to keep things clear */
+   threads can interfere with each other so we provide a locking mechanism 
+   around a series of output operations to keep things clear */
 
 #ifdef __WIN32__
   static CRITICAL_SECTION printMutex;
@@ -248,6 +238,25 @@ void debugPrintEnd( void )
 #ifdef __WIN32__
 	LeaveCriticalSection( &printMutex );
 #endif /* __WIN32__ */
+	}
+
+/* General entry point for the functions used by the DEBUG_PUTS()/
+   DEBUG_PRINT() macros */
+
+int debugPrintf( IN_STRING const char *format, ... )
+	{
+	va_list argPtr;
+	int length;
+
+	assert( isReadPtr( format, 2 ) );
+
+	DEBUG_PRINT_BEGIN();
+	va_start( argPtr, format );
+	length = debugPrintfArgPtr( format, argPtr );
+	va_end( argPtr );
+	DEBUG_PRINT_END();
+	
+	return( length );
 	}
 
 /* The __FILE__ value contains the full path, which is a lot of unnecessary
@@ -325,6 +334,7 @@ void debugSanitiseFilename( INOUT_STRING char *fileName )
 		/* Strip out the non-filename character.  Note that the length - i
 		   expression includes the trailing null */
 		memmove( fileName + i, fileName + i + 1, length - i );
+		REQUIRES_V( !checkOverflowDec( length ) );
 		length--;
 		i--;
 		}
@@ -573,15 +583,10 @@ void debugDumpFileCert( IN_STRING const char *fileName,
    buffer is to allow the hex dump to be performed from multiple threads 
    without them fighting over stdout */
 
-#ifdef __WIN32__
-  static CRITICAL_SECTION dumpHexMutex;
-  static int dumpHexMutexInited = FALSE;
-#endif /* __WIN32__ */
-
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
-void debugDumpHex( IN_STRING const char *prefixString, 
-				   IN_BUFFER( dataLength ) const void *data, 
-				   IN_LENGTH const int dataLength )
+static void dumpHex( IN_STRING const char *prefixString, 
+					 IN_BUFFER( dataLength ) const void *data, 
+					 IN_LENGTH const int dataLength )
 	{
 	char dumpBuffer[ 128 + 1 + 8 ];
 	LOOP_INDEX i;
@@ -592,17 +597,6 @@ void debugDumpHex( IN_STRING const char *prefixString,
 	assert( isIntegerRange( dataLength ) );
 
 	ANALYSER_HINT_STRING( prefixString );
-
-	/* Since dumping a block of memory can take awhile, other threads can 
-	   interfere with it, so we wrap it in a mutex */
-#ifdef __WIN32__
-	if( !dumpHexMutexInited )
-		{
-		InitializeCriticalSection( &dumpHexMutex );
-		dumpHexMutexInited = TRUE;
-		}
-	EnterCriticalSection( &dumpHexMutex );
-#endif /* __WIN32__ */
 
 	offset = sprintf_s( dumpBuffer, 128, "%3s %4d %04X ", 
 						prefixString, dataLength, 
@@ -627,13 +621,13 @@ void debugDumpHex( IN_STRING const char *prefixString,
 			{
 			length = sprintf_s( dumpBuffer + offset, 128 - offset, "%02X ",
 								byteToInt( ( ( BYTE * ) data )[ i + j ] ) );
-			ENSURES_V( rangeCheck( length, 2, 128 - 1 ) );
+			ENSURES_V( rangeCheck( length, 2, 128 - ( offset + 1 ) ) );
 			offset += length;
 			}
 		LOOP_MAX_CHECKINC_ALT( j < 16, j++ )
 			{
 			length = sprintf_s( dumpBuffer + offset, 128 - offset, "   " );
-			ENSURES_V( rangeCheck( length, 2, 128 - 1 ) );
+			ENSURES_V( rangeCheck( length, 2, 128 - ( offset + 1 ) ) );
 			offset += length;
 			}
 		ENSURES_V( LOOP_BOUND_OK_ALT );
@@ -646,7 +640,7 @@ void debugDumpHex( IN_STRING const char *prefixString,
 			ch = byteToInt( ( ( BYTE * ) data )[ i + j ] );
 			length = sprintf_s( dumpBuffer + offset, 128 - offset, "%c",
 								isPrint( ch ) ? ch : '.' );
-			ENSURES_V( rangeCheck( length, 1, 128 - 1 ) );
+			ENSURES_V( rangeCheck( length, 1, 128 - ( offset + 1 ) ) );
 			offset += length;
 			}
 		ENSURES_V( LOOP_BOUND_OK_ALT );
@@ -658,10 +652,16 @@ void debugDumpHex( IN_STRING const char *prefixString,
 	   ( defined( __MQXRTOS__ ) && defined( MQX_SUPPRESS_STDIO_MACROS ) ) )
 	fflush( stdout );
 #endif /* Systems where output doesn't to go stdout */
+	}
 
-#ifdef __WIN32__
-	LeaveCriticalSection( &dumpHexMutex );
-#endif /* __WIN32__ */
+STDC_NONNULL_ARG( ( 1, 2 ) ) \
+void debugDumpHex( IN_STRING const char *prefixString, 
+				   IN_BUFFER( dataLength ) const void *data, 
+				   IN_LENGTH const int dataLength )
+	{
+	DEBUG_PRINT_BEGIN();
+	dumpHex( prefixString, data, dataLength );
+	DEBUG_PRINT_END();
 	}
 
 /* Variants of debugDumpHex() that only output the raw hex data, for use in
@@ -677,20 +677,9 @@ static void dumpData( IN_STRING_OPT const char *label,
 	LOOP_INDEX i;
 	int offset, length;
 
-	assert( label == NULL || isReadPtr( label, sizeof( 4 ) ) );
+	assert( label == NULL || isReadPtr( label, 4 ) );
 	assert( isReadPtr( data, dataLength ) );
 	assert( isIntegerRange( dataLength ) );
-
-	/* Since dumping a block of memory can take awhile, other threads can 
-	   interfere with it, so we wrap it in a mutex */
-#ifdef __WIN32__
-	if( !dumpHexMutexInited )
-		{
-		InitializeCriticalSection( &dumpHexMutex );
-		dumpHexMutexInited = TRUE;
-		}
-	EnterCriticalSection( &dumpHexMutex );
-#endif /* __WIN32__ */
 
 	/* If there's a label present, print it on a separate line */
 	if( label != NULL )
@@ -710,14 +699,14 @@ static void dumpData( IN_STRING_OPT const char *label,
 			{
 			length = sprintf_s( dumpBuffer + offset, 128 - offset, "%02X ",
 								byteToInt( ( ( BYTE * ) data )[ i + j ] ) );
-			ENSURES_V( rangeCheck( length, 2, 128 - 1 ) );
+			ENSURES_V( rangeCheck( length, 2, 128 - ( offset + 1 ) ) );
 			offset += length;
 			}
 		ENSURES_V( LOOP_BOUND_OK_ALT );
 		LOOP_MAX_CHECKINC_ALT( j < 16, j++ )
 			{
 			length = sprintf_s( dumpBuffer + offset, 128 - offset, "   " );
-			ENSURES_V( rangeCheck( length, 2, 128 - 1 ) );
+			ENSURES_V( rangeCheck( length, 2, 128 - ( offset + 1 ) ) );
 			offset += length;
 			}
 		ENSURES_V( LOOP_BOUND_OK_ALT );
@@ -730,7 +719,7 @@ static void dumpData( IN_STRING_OPT const char *label,
 			ch = byteToInt( ( ( BYTE * ) data )[ i + j ] );
 			length = sprintf_s( dumpBuffer + offset, 128 - offset, "%c",
 								isPrint( ch ) ? ch : '.' );
-			ENSURES_V( rangeCheck( length, 1, 128 - 1 ) );
+			ENSURES_V( rangeCheck( length, 1, 128 - ( offset + 1 ) ) );
 			offset += length;
 			}
 		ENSURES_V( LOOP_BOUND_OK_ALT );
@@ -742,10 +731,6 @@ static void dumpData( IN_STRING_OPT const char *label,
 	   ( defined( __MQXRTOS__ ) && defined( MQX_SUPPRESS_STDIO_MACROS ) ) )
 	fflush( stdout );
 #endif /* Systems where output doesn't to go stdout */
-
-#ifdef __WIN32__
-	LeaveCriticalSection( &dumpHexMutex );
-#endif /* __WIN32__ */
 	}
 
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
@@ -753,7 +738,7 @@ void debugDumpDataLabel( IN_STRING const char *label,
 						 IN_BUFFER( dataLength ) const void *data, 
 						 IN_LENGTH const int dataLength )
 	{
-	assert( isReadPtr( label, sizeof( 4 ) ) );
+	assert( isReadPtr( label, 4 ) );
 
 	DEBUG_PRINT_BEGIN();
 	dumpData( label, data, dataLength );

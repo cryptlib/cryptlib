@@ -1336,7 +1336,8 @@ int loadDHparams( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		return( CRYPT_ERROR_NOTAVAIL );
 
 	/* Make sure that the domain parameters are in order */
-	if( !checksumDomainParameters( domainParams, FALSE ) )
+	if( !checksumDomainParameters( domainParams, 
+								   pkcInfo->cryptAlgo ) )
 		{
 		DEBUG_DIAG(( "Fixed DH value for requested %d-bit key has been "
 					 "corrupted", requestedKeySize ));
@@ -2491,7 +2492,7 @@ int loadECCparams( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	pkcInfo->keySizeBits = curveSizeBits;
 
 	/* Make sure that the domain parameters are in order */
-	if( !checksumDomainParameters( domainParams, TRUE ) )
+	if( !checksumDomainParameters( domainParams, pkcInfo->cryptAlgo ) )
 		{
 		DEBUG_DIAG(( "ECC domain parameters for curve ID %d key has been "
 					 "corrupted", curveType ));

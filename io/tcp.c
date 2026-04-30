@@ -108,7 +108,7 @@ int netInitTCP( void )
 				 "UnixWare socket bug\n         workaround, file " __FILE__
 				 ", line %d.  This may cause\n         false SIGIO/SIGPOLL "
 				"errors.\n", __LINE__ );
-		sigaction( SIGIO, &oact, &act );
+		( void ) sigaction( SIGIO, &oact, &act );
 		}
 #endif /* UnixWare/SCO */
 
@@ -225,10 +225,10 @@ static int my_getsockopt( int socket, int level, int option,
 		return( 0 );
 	*( ( int * ) data ) = 0;	/* Clear return status */
 
-	/* It's unclear whether the following setsockopt actually does anything
+	/* It's unclear whether the following getsockopt actually does anything
 	   under BeOS or not.  If it fails, the alternative below may work */
 #if 1
-	return( setsockopt( socket, level, option, data, *size ) );
+	return( getsockopt( socket, level, option, data, *size ) );
 #else
 	BYTE buffer[ 8 + 8 ];
 	int count;
@@ -251,7 +251,7 @@ static int lastErrno = 0;
 
 int getErrno( SOCKET socket )
 	{
-	int errno, status;
+	int embErrno, status;
 
 	/* If there's no socket available to get the error code from, return a 
 	   generic error */
@@ -260,7 +260,7 @@ int getErrno( SOCKET socket )
 
 	/* Try and get the last socket error.  If this fails, we return the 
 	   generic IP_ERR_MISC */
-	status = IP_SOCK_getsockopt( socket, SOL_SOCKET, SO_ERROR, &errno, 
+	status = IP_SOCK_getsockopt( socket, SOL_SOCKET, SO_ERROR, &embErrno, 
 								 sizeof( int ) );
 	if( status != 0 )
 		return( IP_ERR_MISC );
@@ -268,11 +268,11 @@ int getErrno( SOCKET socket )
 	/* Reading the SO_ERROR value clears it, so if we read a zero value we 
 	   return the last read error value, to mimic the behaviour of the Unix 
 	   errno */
-	if( errno == 0 )
+	if( embErrno == 0 )
 		return( lastErrno );
 
-	lastErrno = errno;
-	return( errno );
+	lastErrno = embErrno;
+	return( embErrno );
 	}
 
 void clearErrno( void )
@@ -295,7 +295,9 @@ int my_getsockopt( int sockfd, int level, int optname, void *optval,
 	}
 
 /* embOS/IP doesn't have inet_ntoa() or inet_addr() so we have to provide 
-   our own */
+   our own.  Note that the following isn't thread-safe, the classic 
+   inet_ntoa() problem, but it'll only be called from a single task so
+   this isn't an issue */
 
 char *inet_ntoa( const struct in_addr in )
 	{
@@ -325,13 +327,19 @@ unsigned long inet_addr( const char *cp )
 
 /* LWIP doesn't currently support getnameinfo() or lwip_gai_strerror() so we 
    provide our own versions.  For getnameinfo() this is fairly minimal since 
-   it knows it'll always be called with NI_NUMERICHOST and NI_NUMERICSRV */
+   it knows it'll always be called with NI_NUMERICHOST and NI_NUMERICSRV.
+   
+   These are bare-bones emulation functions that will only be called in a
+   particular manner from cryptlib, so they don't perform extensive error
+   checking */
 
 int lwip_getnameinfo( const struct sockaddr *sa, socklen_t salen,
 					  char *host, size_t hostlen,
 					  char *serv, size_t servlen, int flags )
 	{
-	const struct sockaddr_in *sockAddr = (const struct sockaddr_in *) sa;
+	const struct sockaddr_in *sockAddr = ( const struct sockaddr_in * ) sa;
+
+	assert( isReadPtr( sa, sizeof( struct sockaddr ) ) );
 
 	if( inet_ntop( AF_INET, &sockAddr->sin_addr, host, hostlen ) == NULL )
 		return( EAI_OVERFLOW );
@@ -343,7 +351,7 @@ int lwip_getnameinfo( const struct sockaddr *sa, socklen_t salen,
 
 const char *lwip_gai_strerror( int errcode )
 	{
-	const char errorString = "getaddrinfo() error";
+	const char *errorString = "getaddrinfo() error";
 
 	switch( errcode )
 		{
@@ -373,16 +381,23 @@ const char *lwip_gai_strerror( int errcode )
 
 #undef select	/* Reset to the standard MQX select() */
 
-int mqx_select( int socket_range, rtcs_fd_set *read_bits,
-				rtcs_fd_set *write_bits,
-				rtcs_fd_set *exception_bits,
-				struct timeval *timeout )
+int my_select( int socket_range, rtcs_fd_set *read_bits,
+			   rtcs_fd_set *write_bits,
+			   rtcs_fd_set *exception_bits,
+			   struct timeval *timeout )
 	{
 	uint32_t timeout_ms;
 
 	/* Turn the seconds : microseconds timeout value into a millisecond 
 	   value */
-	timeout_ms = ( timeout->tv_sec * 1000 ) * ( timeout->tv_usec / 1000 );
+	if( timeout == NULL )
+		{
+		/* Technically valid to mean wait-forever, although we never use 
+		   it */
+		timeout_ms = 0;
+		}
+	else
+		timeout_ms = ( timeout->tv_sec * 1000 ) + ( timeout->tv_usec / 1000 );
 
 	/* The rounding from microseconds to milliseconds can leave the timeout
 	   set to zero, which is bad for MQX sinze a value of zero means wait

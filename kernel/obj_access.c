@@ -105,6 +105,7 @@ static int checkAccessValid( IN_HANDLE const int objectHandle,
 	OBJECT_INFO *objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
 	const OBJECT_INFO *objectInfoPtr;
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isEnumRange( checkType, ACCESS_CHECK ) );
 	REQUIRES( cryptStatusError( errorCode ) );
@@ -244,6 +245,7 @@ static int getObject( IN_HANDLE const int objectHandle,
 			  refCount == CRYPT_UNUSED ) );
 
 	/* Preconditions: It's a valid object */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( isValidHandle( objectHandle ) );
 #ifndef CONFIG_FUZZ		/* To directly inject data into objects */
 	REQUIRES( isValidType( type ) && \
@@ -266,6 +268,7 @@ static int getObject( IN_HANDLE const int objectHandle,
 	THREAD_NOTIFY_PREPARE( objectHandle );
 	MUTEX_LOCK( objectTable );
 	objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 
 	/* Perform similar access checks to the ones performed in
 	   krnlSendMessage(), as well as situation-specific additional checks 
@@ -322,7 +325,11 @@ static int getObject( IN_HANDLE const int objectHandle,
 	   reference count to reserve it for our exclusive use */
 	if( checkType == ACCESS_CHECK_EXTACCESS || \
 		checkType == ACCESS_CHECK_KEYACCESS )
+		{
+		REQUIRES_MUTEX( !checkOverflowInc( objectInfoPtr->lockCount ),
+						objectTable );
 		objectInfoPtr->lockCount++;
+		}
 	else
 		{
 		/* If we're resuming use of an object that we suspended to allow 
@@ -374,6 +381,7 @@ static int releaseObject( IN_HANDLE const int objectHandle,
 			  isWritePtr( refCount, sizeof( int ) ) ) );
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( isEnumRange( checkType, ACCESS_CHECK ) );
 	REQUIRES( ( ( checkType == ACCESS_CHECK_EXTACCESS || \
 				  checkType == ACCESS_CHECK_KEYACCESS ) && \
@@ -384,6 +392,7 @@ static int releaseObject( IN_HANDLE const int objectHandle,
 	THREAD_NOTIFY_PREPARE( objectHandle );
 	MUTEX_LOCK( objectTable );
 	objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 
 	/* Preconditions: It's a valid object in use by the caller.  Since these 
 	   checks require access to the object table we can only perform them 
@@ -429,6 +438,8 @@ static int releaseObject( IN_HANDLE const int objectHandle,
 		{
 		STORE_ORIGINAL_INT( lockCount, objectInfoPtr->lockCount );
 
+		REQUIRES_MUTEX( !checkOverflowDec( objectInfoPtr->lockCount ), 
+						objectTable  );
 		objectInfoPtr->lockCount--;
 
 		/* Postcondition: The object's lock count has been decremented and 

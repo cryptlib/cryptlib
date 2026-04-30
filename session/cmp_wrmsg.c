@@ -123,7 +123,9 @@ static int writeResponseBodyHeader( INOUT_PTR STREAM *stream,
 		return( writePkiStatusInfo( stream, CRYPT_OK, 0 ) );
 		}
 
-	/* Calculate the overall size of the header and payload */
+	/* Calculate the overall size of the header and payload.  There's no 
+	   need to guard with a checkOverflowAdd() because payloadSize is a
+	   short integer */
 	totalPayloadSize = payloadSize + sizeofShortInteger( 0 ) + \
 					   statusInfoLength;
 
@@ -237,7 +239,7 @@ static int writeEncryptedResponseBody( INOUT_PTR STREAM *stream,
 				the start of the wrapped certificate */
 	REQUIRES( rangeCheck( dataLength, 1, destLength ) );
 	memmove( destPtr, srcPtr, dataLength );
-	return( sSkip( stream, dataLength, SSKIP_MAX ) );
+	return( sExtend( stream, dataLength, SSKIP_MAX ) );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \

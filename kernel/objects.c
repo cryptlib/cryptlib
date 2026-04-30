@@ -132,6 +132,9 @@ int initObjects( void )
 	LOOP_INDEX i;
 	int status;
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+
 	/* Perform a consistency check on various things that need to be set
 	   up in a certain way for things to work properly */
 	static_assert( MAX_NO_OBJECTS >= 16, "Object table param" );
@@ -204,6 +207,7 @@ int initObjects( void )
 					 sizeof( OBJECT_INFO ) ) );
 	ENSURES( krnlData->objectStateInfo.objectHandle == SYSTEM_OBJECT_HANDLE - 1 );
 	ENSURES( krnlData->objectUniqueID == 0 );
+	ENSURES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 
 	return( CRYPT_OK );
 	}
@@ -212,6 +216,12 @@ void endObjects( void )
 	{
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 	OBJECT_INFO *objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
+
+	static_assert( sizeof( OBJECT_INFO ) * MAX_NO_OBJECTS < MAX_INTLENGTH,
+				   "OBJECT_INFO * MAX_NO_OBJECTS overflow" );
+
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 
 	/* Hinc igitur effuge */
 	MUTEX_LOCK( objectTable );
@@ -239,6 +249,7 @@ int destroyObjectData( IN_HANDLE const int objectHandle )
 	int status;
 
 	/* Precondition: It's a valid object */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 
 	objectInfoPtr = &objectTable[ objectHandle ];
@@ -286,6 +297,7 @@ static int destroyObject( IN_HANDLE const int objectHandle )
 	MESSAGE_FUNCTION messageFunction;
 
 	/* Precondition: It's a valid object */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 
 	/* Get the object info and message function.  We don't throw an 
@@ -343,6 +355,7 @@ static int destroySelectedObjects( IN_RANGE( 1, 3 ) const int currentDepth )
 	/* Enter with the object table mutex held */
 
 	/* Preconditions: We're destroying objects at a fixed depth */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( currentDepth >= 1 && currentDepth <= 3 );
 
 	LOOP_EXT( objectHandle = NO_SYSTEM_OBJECTS,
@@ -395,6 +408,8 @@ static int destroySelectedObjects( IN_RANGE( 1, 3 ) const int currentDepth )
 			{
 			KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 
+			REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+
 			DEBUG_DIAG(( "Destroying leftover %s, ID = %d", 
 						 getObjectDescriptionNT( objectHandle ),
 						 objectTable[ objectHandle ].uniqueID ));
@@ -404,6 +419,7 @@ static int destroySelectedObjects( IN_RANGE( 1, 3 ) const int currentDepth )
 			status = CRYPT_ERROR_INCOMPLETE;
 			MUTEX_LOCK( objectTable );
 			objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
+			REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 			}
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -427,6 +443,8 @@ int destroyObjects( void )
 	/* Preconditions: We either didn't complete the initialisation and are 
 	   shutting down during a krnlBeginInit(), or we've completed 
 	   initialisation and are shutting down after a krnlBeginShutdown() */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( ( krnlData->initLevel == INIT_LEVEL_KRNLDATA && \
 				krnlData->shutdownLevel == SHUTDOWN_LEVEL_NONE ) || \
 			  ( krnlData->initLevel == INIT_LEVEL_KRNLDATA && \
@@ -605,6 +623,7 @@ static int findFreeObjectEntry( int value )
 
 	/* Preconditions: We're starting with a valid object handle, and it's not
 	   a system object */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidHandle( value ) && value >= NO_SYSTEM_OBJECTS );
 
 	/* Step through the entire table looking for a free entry */
@@ -617,6 +636,7 @@ static int findFreeObjectEntry( int value )
 
 		/* Get the next value: Multiply by x and reduce by the polynomial */
 #ifdef USE_FIXED_OBJECTHANDLES
+		REQUIRES( !checkOverflowInc( value ) );
 		value++;
 #else
 		value <<= 1;
@@ -700,6 +720,8 @@ int krnlCreateObject( OUT_HANDLE_OPT int *objectHandle,
 	   which ensures that we don't try and create multi-typed objects, the
 	   sole exception to this rule is the default user object, which acts as
 	   both a user and an SO object) */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( objectDataSize > 16 && \
 			  ( ( !( type == OBJECT_TYPE_CONTEXT && subType == SUBTYPE_CTX_PKC ) && \
 				objectDataSize < MAX_INTLENGTH_SHORT ) || \
@@ -981,9 +1003,16 @@ int krnlCreateObject( OUT_HANDLE_OPT int *objectHandle,
 	/* Update the object unique ID value */
 	if( krnlData->objectUniqueID < 0 || \
 		krnlData->objectUniqueID >= INT_MAX - 1 )
+		{
+		/* Value is out of range, reset it to the start of the valid range */
 		krnlData->objectUniqueID = NO_SYSTEM_OBJECTS;
+		}
 	else
+		{
+		ENSURES_MUTEX( !checkOverflowInc( krnlData->objectUniqueID ),
+					   objectTable ); 
 		krnlData->objectUniqueID++;
+		}
 	ENSURES_MUTEX( krnlData->objectUniqueID > 0 && \
 				   krnlData->objectUniqueID < INT_MAX, objectTable );
 

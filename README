@@ -1,3 +1,31 @@
+Changes in 3.4.9.1 release
+==========================
+
+cryptlib 3.4.9.1 is an intermediate release to prepare for the cleanup changes
+in 3.5, which will remove a number of obsolete and unused algorithms and
+attributes.  In particular:
+
+- The obsolete IDEA algorithm, which was only present for PGP 2.x support,
+  will be removed in 3.5.  To this end the CRYPT_ALGO_IDEA identifier is still
+  present but any attempt to create an IDEA context will fail.
+
+- The obsolete DES and RC4 algorithms, which were present but disabled, will
+  be removed in 3.5.  To this end the CRYPT_ALGO_DES and CRYPT_ALGO_RC4
+  identifiers are still present but any attempt to create a DES or RC4 context
+  will fail.
+
+- The ability to call cryptEncrypt()/cryptDecrypt() with RSA keys has been
+  removed since the same functionality is already provided through
+  cryptWrapKey()/cryptUnwrapKey().  This change brings the usage into line
+  with other algorithms like DSA, DH, ElGamal, ECDH, and ECDSA that can't be
+  used directly with cryptEncrypt()/cryptDecrypt(), and even for RSA it
+  required custom code to perform PKCS #1/PSS/OAEP padding and unpadding.
+
+- The cryptExportKey() and cryptImportKey() functions have been renamed to
+  cryptWrapKey() and cryptUnwrapKey() to reduce confusion over their use.
+  When building with 3.4.9.1, most common compilers will emit a warning to
+  switch to the new function names.
+
 Changes in 3.4.9 release
 ========================
 

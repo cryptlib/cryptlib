@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TLS Session Management						*
-*					   Copyright Peter Gutmann 1998-2022					*
+*					   Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -118,8 +118,7 @@ BOOLEAN sanityCheckTLSHandshakeInfo( IN_PTR \
 		handshakeInfo->sessionHashSize < 0 || \
 		handshakeInfo->sessionHashSize > CRYPT_MAX_HASHSIZE || \
 		handshakeInfo->premasterSecretSize < 0 || \
-		handshakeInfo->premasterSecretSize > CRYPT_MAX_PKCSIZE + \
-											 CRYPT_MAX_TEXTSIZE + 8 )
+		handshakeInfo->premasterSecretSize > KEYEX_SECRET_STORAGE_SIZE + 8 )
 		{
 		DEBUG_PUTS(( "sanityCheckTLSHandshakeInfo: Hello hash/premaster information" ));
 		return( FALSE );
@@ -131,10 +130,14 @@ BOOLEAN sanityCheckTLSHandshakeInfo( IN_PTR \
 #ifdef USE_TLS13
 		!( handshakeInfo->keyexEcdhContext == CRYPT_ERROR || \
 		   isHandleRangeValid( handshakeInfo->keyexEcdhContext ) ) || 
-  #ifdef USE_25519
+  #ifdef USE_X25519
 		!( handshakeInfo->keyex25519Context == CRYPT_ERROR || \
 		   isHandleRangeValid( handshakeInfo->keyex25519Context ) ) || 
-  #endif /* USE_25519 */
+  #endif /* USE_X25519 */
+  #ifdef USE_MLKEM
+		!( handshakeInfo->keyexAltContext == CRYPT_ERROR || \
+		   isHandleRangeValid( handshakeInfo->keyexAltContext ) ) || 
+  #endif /* USE_MLKEM */
 #endif /* USE_TLS13 */
 		!( handshakeInfo->keyexAlgo == CRYPT_ALGO_NONE || \
 		   isKeyexAlgo( handshakeInfo->keyexAlgo ) || \
@@ -221,7 +224,7 @@ void debugDumpTLS( const SESSION_INFO *sessionInfoPtr,
 	result = sprintf_s( fileName, 1024, "tls3%d_%02d%c_", 
 						sessionInfoPtr->version, messageCount++, 
 						isRead ? 'r' : 'w' );
-	assert( isShortIntegerRangeNZ( result ) );
+	assert( rangeCheck( result, 9, 1023 ) );
 	if( bufPtr[ 0 ] == TLS_MSG_HANDSHAKE && !encryptionActive )
 		{
 		if( isRead && buffer2size >= 1 )
@@ -335,6 +338,8 @@ static int pushHandshakeInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize, 
+								 sizeof( TLS_HANDSHAKE_INFO ) ) );
 
 	/* Save the handshake state so that we can resume the handshake later 
 	   on.  This is somewhat ugly in that we need to store 
@@ -415,7 +420,7 @@ int writeUint24( INOUT_PTR STREAM *stream, IN_LENGTH_Z const int length )
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
 	REQUIRES_S( length >= 0 && \
-				length < MAX_PACKET_SIZE + EXTRA_PACKET_SIZE );
+				length <= MAX_PACKET_SIZE + EXTRA_PACKET_SIZE );
 
 	sputc( stream, 0 );
 	return( writeUint16( stream, length ) );
@@ -685,6 +690,18 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				( CRYPT_ERROR_PERMISSION, SESSION_ERRINFO, 
 				  "Received TLS alert message: No certificate" ) );
 		}
+
+	/* We're past the special-case values, now we need at least 
+	   LENGTH_SIZE + MIN_CERTSIZE bytes of data.  As before, the error 
+	   message used is the one from checkHSPacketHeader()	*/
+	if( length < LENGTH_SIZE + MIN_CERTSIZE )
+		{
+		retExt( CRYPT_ERROR_BADDATA,
+				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+				  "Invalid packet length %d for %s (%d) packet", 
+				  length, getTLSPacketName( TLS_HAND_CERTIFICATE ), 
+				  TLS_HAND_CERTIFICATE ) );
+		}
 	
 	/* Handle the TLS 1.3 gratuitously incompatible form of the packet, 
 	   which adds a binary certificate-context blob at this point */
@@ -710,13 +727,14 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								certContextLength );
 				}
 			}
-		if( cryptStatusError( status ) )
+		if( cryptStatusError( status ) || length < certContextLength + 1 )
 			{
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 					  "Invalid certificate chain context value" ) );
 			}
 		handshakeInfo->tls13CertContextLen = certContextLength;
+		REQUIRES( !checkOverflowSub( length, 1 + certContextLength ) );
 		length -= 1 + certContextLength;
 		}
 #endif /* USE_TLS13 */
@@ -730,6 +748,7 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "Invalid certificate chain length information" ) );
 		}
 	if( !isShortIntegerRangeMin( chainLength, MIN_CERTSIZE ) || \
+		checkOverflowSub( length, LENGTH_SIZE ) || \
 		chainLength != length - LENGTH_SIZE )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
@@ -778,8 +797,7 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   handshake so we set it now from the certificate */
 #ifdef USE_TLS13
 	handshakeInfo->authAlgo = certAlgo;
-#endif /* USE_TLS13 */
-
+#else
 	/* If we're the client, make sure that the certificate algorithm matches
 	   what was negotiated in the handshake */
 	if( !isServer && certAlgo != handshakeInfo->authAlgo )
@@ -791,6 +809,7 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "algorithm %s", getAlgoName( certAlgo ), 
 				  getAlgoName( handshakeInfo->authAlgo ) ) );
 		}
+#endif /* USE_TLS13 */
 
 	/* Either compare the certificate fingerprint to a supplied one or save 
 	   it for the caller to examine */
@@ -895,6 +914,7 @@ int writeTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   INOUT_PTR STREAM *stream )
 	{
 	int packetOffset, certListOffset DUMMY_INIT, certListEndPos, status;
+	DEBUG_OP( int certAlgo );
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
@@ -950,9 +970,16 @@ int writeTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 	certListEndPos = stell( stream );
 	ENSURES( isIntegerRangeNZ( certListEndPos ) );
+	DEBUG_OP( krnlSendMessage( sessionInfoPtr->privateKey, 
+							   IMESSAGE_GETATTRIBUTE, &certAlgo, 
+							   CRYPT_CTXINFO_ALGO ) );
+	DEBUG_PRINT(( "Handshake authentication algorithm set to %s.\n",
+				  getAlgoName( certAlgo ) ));
 
 	/* Go back and insert the length, then wrap up the packet */
+	REQUIRES( !checkOverflowSub( certListOffset, LENGTH_SIZE ) );
 	sseek( stream, certListOffset - LENGTH_SIZE );
+	REQUIRES( !checkOverflowSub( certListEndPos, certListOffset ) );
 	status = writeUint24( stream, certListEndPos - certListOffset );
 	sseek( stream, certListEndPos );
 	if( cryptStatusError( status ) )

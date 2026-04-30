@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Certificate DN Read/Write Routines					*
-*						Copyright Peter Gutmann 1996-2015					*
+*						Copyright Peter Gutmann 1996-2024					*
 *																			*
 ****************************************************************************/
 
@@ -194,8 +194,9 @@ static int readRDNcomponent( INOUT_PTR STREAM *stream,
 	   checked for below).  This is defined in a series of ub-XXX-name 
 	   values in the standard which are recorded in the DN_COMPONENT_INFO,
 	   however since most implementations and CAs ignore these values we
-	   only enforce a general large upper limit of 128 bytes */
-	if( valueLength > 256 )
+	   only enforce a general large upper limit of MAX_ATTRIBUTE_SIZE / 4 
+	   bytes, see the comment for copyFromASN1String() below */
+	if( valueLength > MAX_ATTRIBUTE_SIZE / 4 )
 		return( CRYPT_ERROR_OVERFLOW );
 
 	/* Skip broken AVAs with zero-length strings */
@@ -214,11 +215,16 @@ static int readRDNcomponent( INOUT_PTR STREAM *stream,
 	   +10 value is the minimum length for an AVA: SEQUENCE { OID, value } 
 	   (2-bytes SEQUENCE + 5 bytes OID + 2 bytes (tag + length) + 1 byte min-
 	   length data) */
+	REQUIRES( !checkOverflowSub( stell( stream ), rdnStart ) );
 	if( rdnDataLeft >= ( stell( stream ) - rdnStart ) + 10 )
 		flags |= DN_FLAG_CONTINUED;
 
-	/* Convert the string into the local character set */
-	status = copyFromAsn1String( stringBuffer, MAX_ATTRIBUTE_SIZE, 
+	/* Convert the string into the local character set.  This may result in 
+	   a worst-case expansion of 1 -> 4 if we're going from an 8-bit 
+	   character set to a 32-bit wchar_t, so the code above limits the 
+	   string size to a maximum of MAX_ATTRIBUTE_SIZE / 4 to accommodate this
+	   expansion */
+	status = copyFromASN1String( stringBuffer, MAX_ATTRIBUTE_SIZE, 
 								 &valueLength, &valueStringType, value, 
 								 valueLength, stringTag );
 	if( cryptStatusError( status ) )
@@ -273,7 +279,13 @@ static int readDNComponent( INOUT_PTR STREAM *stream,
 			}
 		if( cryptStatusError( status ) )
 			return( status );
-		rdnLength -= objectSize;
+		if( rdnLength < objectSize )
+			rdnLength = UNDERFLOW_MARKER;
+		else
+			{
+			REQUIRES( !checkOverflowSub( rdnLength, objectSize ) );
+			rdnLength -= objectSize;
+			}
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( rdnLength < 0 || noComponents >= 32 )
@@ -327,7 +339,13 @@ int readDN( INOUT_PTR STREAM *stream,
 			}
 		if( cryptStatusError( status ) )
 			break;
-		length -= objectSize;
+		if( length < objectSize )
+			length = UNDERFLOW_MARKER;
+		else
+			{
+			REQUIRES( !checkOverflowSub( length, objectSize ) );
+			length -= objectSize;
+			}
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( cryptStatusError( status ) || \
@@ -359,7 +377,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int preEncodeDN( INOUT_PTR DN_COMPONENT *dnComponentPtr, 
 						OUT_LENGTH_SHORT_Z int *length )
 	{
-	int size = 0, LOOP_ITERATOR;
+	LOOP_INDEX size = 0;
 
 	assert( isWritePtr( dnComponentPtr, sizeof( DN_COMPONENT ) ) );
 	assert( isWritePtr( length, sizeof( int ) ) );
@@ -402,7 +420,7 @@ static int preEncodeDN( INOUT_PTR DN_COMPONENT *dnComponentPtr,
 				}
 
 			dnComponentInfo = dnComponentPtr->typeInfo;
-			status = getAsn1StringInfo( dnComponentPtr->value, 
+			status = getASN1StringInfo( dnComponentPtr->value, 
 										dnComponentPtr->valueLength,
 										&dnComponentPtr->valueStringType, 
 										&dnComponentPtr->asn1EncodedStringType,
@@ -445,7 +463,7 @@ int sizeofDN( IN_DATAPTR_OPT const DATAPTR_DN dn )
 
 	/* Null DNs produce a zero-length SEQUENCE */
 	if( DATAPTR_ISNULL( dn ) )
-		return( sizeofObject( 0 ) );
+		return( sizeofShortObject( 0 ) );
 
 	dnComponentList = DATAPTR_GET( dn );
 	ENSURES( dnComponentList != NULL );
@@ -514,7 +532,7 @@ int writeDN( INOUT_PTR STREAM *stream,
 
 		/* Convert the string to an ASN.1-compatible format and write it
 		   out */
-		status = copyToAsn1String( dnString, MAX_ATTRIBUTE_SIZE, 
+		status = copyToASN1String( dnString, MAX_ATTRIBUTE_SIZE, 
 								   &dnStringLength, dnComponentPtr->value,
 								   dnComponentPtr->valueLength,
 								   dnComponentPtr->valueStringType );

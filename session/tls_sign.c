@@ -271,6 +271,7 @@ int createSessionHash( IN_PTR const SESSION_INFO *sessionInfoPtr,
 			krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
 			return( status );
 			}
+		REQUIRES( !checkOverflowAdd( hash1Size, hash2Size ) );
 		handshakeInfo->sessionHashSize = hash1Size + hash2Size;
 		}
 	else
@@ -374,7 +375,7 @@ int createCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											certName, CRYPT_MAX_TEXTSIZE ) ) );
 			}
 		
-		return( sSkip( stream, length, MAX_INTLENGTH_SHORT ) );
+		return( sExtend( stream, length, MAX_INTLENGTH_SHORT ) );
 		}
 
 	/* Create the signature on the handshake message transcript, with the
@@ -422,7 +423,7 @@ int createCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										certName, CRYPT_MAX_TEXTSIZE ) ) );
 		}
 
-	return( sSkip( stream, length, MAX_INTLENGTH_SHORT ) );
+	return( sExtend( stream, length, MAX_INTLENGTH_SHORT ) );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
@@ -777,7 +778,7 @@ int createKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	INJECT_FAULT( BADSIG_SIG, SESSION_BADSIG_SIG_TLS_1 );
 
-	return( sSkip( stream, sigLength, MAX_INTLENGTH_SHORT ) );
+	return( sExtend( stream, sigLength, MAX_INTLENGTH_SHORT ) );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4, 7 ) ) \
@@ -957,6 +958,7 @@ int checkKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   keyex key size otherwise fashion dictums are violated (if you 
 		   could just sign size n with size n+1 then you wouldn't need 
 		   hashsize n/n+1 and keysize n/n+1 and whatnot) */
+		REQUIRES( !checkOverflowSub( keyexKeySize, bitsToBytes( 8 ) ) );
 		if( sigKeySize < keyexKeySize - bitsToBytes( 8 ) )
 			{
 			retExt( CRYPT_ERROR_NOSECURE,
@@ -987,6 +989,8 @@ int checkKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   bit key a more viable target for attack than the singleton 1024-
 		   bit one.  Because of this we allow a difference of up to 512 bits
 		   between the signing key and the keyex key */
+		REQUIRES( !checkOverflowSub( keyexKeySize, 
+									 bitsToBytes( 512 + 32 ) ) );
 		if( sigKeySize < keyexKeySize - bitsToBytes( 512 + 32 ) )
 			{
 			retExt( CRYPT_ERROR_NOSECURE,
@@ -999,6 +1003,7 @@ int checkKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* For conventional keyex/signatures the bounds are a bit looser 
 		   because non-ECC keygen mechanisms can result in a wider variation 
 		   of actual vs. nominal key size */
+		REQUIRES( !checkOverflowSub( keyexKeySize, bitsToBytes( 32 ) ) );
 		if( sigKeySize < keyexKeySize - bitsToBytes( 32 ) )
 			return( CRYPT_ERROR_NOSECURE );
 #endif /* 0 */

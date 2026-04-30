@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Key Exchange Routines							*
-*						Copyright Peter Gutmann 1993-2019					*
+*						Copyright Peter Gutmann 1993-2025					*
 *																			*
 ****************************************************************************/
 
@@ -29,7 +29,10 @@
 *																			*
 ****************************************************************************/
 
-/* Try and determine the format of the encrypted data */
+/* Try and determine the format of the encrypted data.  Note that this is
+   content-sniffing rather than an absolute check, so all it does is tell
+   the caller to try processing it as CMS data or PGP data, with the actual
+   processing being applied determining whether it's valid or not */
 
 CHECK_RETVAL_ENUM( CRYPT_FORMAT ) STDC_NONNULL_ARG( ( 1 ) ) \
 static CRYPT_FORMAT_TYPE getFormatType( IN_BUFFER( dataLength ) const void *data, 
@@ -143,6 +146,7 @@ static int checkWrapKey( IN_HANDLE int importKey,
 											MESSAGE_CHECK_PKC_ENCRYPT ) );
 		}
 
+	/* For the non-PKC algoriths, we can use a standard external message */
 	return( krnlSendMessage( importKey, MESSAGE_CHECK, NULL, 
 							 MESSAGE_CHECK_CRYPT ) );
 	}
@@ -240,8 +244,8 @@ static int checkContextsEncodable( IN_HANDLE const CRYPT_HANDLE exportKey,
 				{
 				int exportMode;	/* int vs.enum */
 
-				/* If it's a conventional key export there's no key wrap as 
-				   in CMS (the session-key context isn't used), so the 
+				/* If it's a conventional key export then there's no key wrap 
+				   as in CMS (the session-key context isn't used), so the 
 				   "export context" mode must be CFB */
 				status = krnlSendMessage( exportKey, MESSAGE_GETATTRIBUTE, 
 										  &exportMode, CRYPT_CTXINFO_MODE );
@@ -262,14 +266,14 @@ static int checkContextsEncodable( IN_HANDLE const CRYPT_HANDLE exportKey,
 
 /****************************************************************************
 *																			*
-*								Import a Session Key						*
+*								Unwrap a Session Key						*
 *																			*
 ****************************************************************************/
 
-/* Import an extended encrypted key, either a cryptlib key or a CMS key */
+/* Unwrap an encrypted key */
 
 C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
-C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
+C_RET cryptUnwrapKeyEx( C_IN void C_PTR encryptedKey,
 						C_IN int encryptedKeyLength,
 						C_IN CRYPT_CONTEXT importKey,
 						C_IN CRYPT_CONTEXT sessionKeyContext,
@@ -312,6 +316,12 @@ C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
 	/* Check the session key */
 	if( formatType == CRYPT_FORMAT_PGP )
 		{
+		/* PGP doesn't do conventional-key wrap (it derives a key from a 
+		   password but doesn't do key wrap) so we can only continue if 
+		   we've been given a PKC context */
+		if( !isPkcAlgo( importAlgo ) )
+			return( CRYPT_ERROR_PARAM3 );
+		
 		/* PGP stores the session key information with the encrypted key
 		   data, so the user can't provide a context */
 		if( sessionKeyContext != CRYPT_UNUSED )
@@ -397,7 +407,7 @@ C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
 	/* If it's a PGP key import then the session key was recreated from 
 	   information stored with the wrapped key so we have to make it 
 	   externally visible before it can be used by the caller */
-	if( formatType == CRYPT_FORMAT_PGP && isPkcAlgo( importAlgo ) )
+	if( formatType == CRYPT_FORMAT_PGP )
 		{
 		/* If the importing key is owned, set the imported key's owner */
 		if( owner != CRYPT_ERROR )
@@ -429,30 +439,62 @@ C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
 	}
 
 C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
+C_RET cryptUnwrapKey( C_IN void C_PTR encryptedKey,
+					  C_IN int encryptedKeyLength,
+					  C_IN CRYPT_CONTEXT importKey,
+					  C_IN CRYPT_CONTEXT sessionKeyContext )
+	{
+	return( cryptUnwrapKeyEx( encryptedKey, encryptedKeyLength, importKey,
+							  sessionKeyContext, NULL ) );
+	}
+
+/* Pre-3.4.9 versions of the functions.  Since these are marked as 
+   deprecated in general we need to disable the warnings for this module */
+
+#if defined( __clang__ ) && ( __clang_major__ >= 8 )
+  #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined( __GNUC__ ) && ( __GNUC__ >= 4 )
+  #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#elif defined( _MSC_VER ) && ( _MSC_VER >= 1300 )
+  #pragma warning ( disable : 4995 ) 
+#endif /* VC++ */
+
+C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
+C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
+						C_IN int encryptedKeyLength,
+						C_IN CRYPT_CONTEXT importKey,
+						C_IN CRYPT_CONTEXT sessionKeyContext,
+						C_OUT_OPT CRYPT_CONTEXT C_PTR returnedContext )
+	{
+	return( cryptUnwrapKeyEx( encryptedKey, encryptedKeyLength, importKey,
+							  sessionKeyContext, returnedContext ) );
+	}
+
+C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
 C_RET cryptImportKey( C_IN void C_PTR encryptedKey,
 					  C_IN int encryptedKeyLength,
 					  C_IN CRYPT_CONTEXT importKey,
 					  C_IN CRYPT_CONTEXT sessionKeyContext )
 	{
-	return( cryptImportKeyEx( encryptedKey, encryptedKeyLength, importKey,
+	return( cryptUnwrapKeyEx( encryptedKey, encryptedKeyLength, importKey,
 							  sessionKeyContext, NULL ) );
 	}
 
 /****************************************************************************
 *																			*
-*								Export a Session Key						*
+*								Wrap a Session Key							*
 *																			*
 ****************************************************************************/
 
-/* Export an extended encrypted key, either a cryptlib key or a CMS key */
+/* Wrap an encrypted key */
 
 C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
-C_RET cryptExportKeyEx( C_OUT_OPT void C_PTR encryptedKey,
-						C_IN int encryptedKeyMaxLength,
-						C_OUT int C_PTR encryptedKeyLength,
-						C_IN CRYPT_FORMAT_TYPE formatType,
-						C_IN CRYPT_HANDLE exportKey,
-						C_IN CRYPT_CONTEXT sessionKeyContext )
+C_RET cryptWrapKeyEx( C_OUT_OPT void C_PTR encryptedKey,
+					  C_IN int encryptedKeyMaxLength,
+					  C_OUT int C_PTR encryptedKeyLength,
+					  C_IN CRYPT_FORMAT_TYPE formatType,
+					  C_IN CRYPT_HANDLE exportKey,
+					  C_IN CRYPT_CONTEXT sessionKeyContext )
 	{
 	CRYPT_ALGO_TYPE exportAlgo;
 	ERROR_INFO localErrorInfo;
@@ -461,8 +503,8 @@ C_RET cryptExportKeyEx( C_OUT_OPT void C_PTR encryptedKey,
 	/* Perform basic error checking */
 	if( encryptedKey != NULL )
 		{
-		if( encryptedKeyMaxLength < MIN_CRYPT_OBJECTSIZE || \
-			encryptedKeyMaxLength >= MAX_BUFFER_SIZE )
+		if( !isIntegerRangeMin( encryptedKeyMaxLength, \
+								MIN_CRYPT_OBJECTSIZE ) )
 			return( CRYPT_ERROR_PARAM2 );
 		if( !isWritePtrDynamic( encryptedKey, encryptedKeyMaxLength ) )
 			return( CRYPT_ERROR_PARAM1 );
@@ -507,7 +549,15 @@ C_RET cryptExportKeyEx( C_OUT_OPT void C_PTR encryptedKey,
 				CRYPT_ERROR_PARAM4 );
 		}
 
-	/* Check the exported key */
+	/* Check the session key */
+	if( formatType == CRYPT_FORMAT_PGP )
+		{
+		/* PGP doesn't do conventional-key wrap (it derives a key from a 
+		   password but doesn't do key wrap) so we can only continue if 
+		   we've been given a PKC context */
+		if( !isPkcAlgo( exportAlgo ) )
+			return( CRYPT_ERROR_PARAM3 );
+		}
 	status = krnlSendMessage( sessionKeyContext, MESSAGE_GETATTRIBUTE,
 							  &sessionKeyAlgo, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
@@ -518,9 +568,10 @@ C_RET cryptExportKeyEx( C_OUT_OPT void C_PTR encryptedKey,
 	if( cryptStatusError( status ) )
 		return( cryptArgError( status ) ? CRYPT_ERROR_PARAM6 : status );
 
-	/* Export the key via the shared export function.  Since there's nothing 
-	   to return the error information through we don't do anything with 
-	   it */
+	/* Export the key via the shared export function.  The reason for the 
+	   min() part of the expression is that iCryptExportKey/ImportKey() gets 
+	   suspicious of very large buffer sizes.  Since there's nothing to 
+	   return the error information through we don't do anything with it */
 	clearErrorInfo( &localErrorInfo );
 	status = iCryptExportKey( encryptedKey, 
 							  min( encryptedKeyMaxLength, 
@@ -539,6 +590,37 @@ C_RET cryptExportKeyEx( C_OUT_OPT void C_PTR encryptedKey,
 	}
 
 C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
+C_RET cryptWrapKey( C_OUT_OPT void C_PTR encryptedKey,
+					C_IN int encryptedKeyMaxLength,
+					C_OUT int C_PTR encryptedKeyLength,
+					C_IN CRYPT_HANDLE exportKey,
+					C_IN CRYPT_CONTEXT sessionKeyContext )
+	{
+	int status;
+
+	status = cryptWrapKeyEx( encryptedKey, encryptedKeyMaxLength,
+							 encryptedKeyLength, CRYPT_FORMAT_CRYPTLIB,
+							 exportKey, sessionKeyContext );
+	return( ( status == CRYPT_ERROR_PARAM5 ) ? CRYPT_ERROR_PARAM4 : \
+			( status == CRYPT_ERROR_PARAM6 ) ? CRYPT_ERROR_PARAM5 : status );
+	}
+
+/* Pre-3.4.9 versions of the functions */
+
+C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
+C_RET cryptExportKeyEx( C_OUT_OPT void C_PTR encryptedKey,
+						C_IN int encryptedKeyMaxLength,
+						C_OUT int C_PTR encryptedKeyLength,
+						C_IN CRYPT_FORMAT_TYPE formatType,
+						C_IN CRYPT_HANDLE exportKey,
+						C_IN CRYPT_CONTEXT sessionKeyContext )
+	{
+	return( cryptWrapKeyEx( encryptedKey, encryptedKeyMaxLength,
+							encryptedKeyLength, formatType, exportKey,
+							sessionKeyContext ) );
+	}
+
+C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
 C_RET cryptExportKey( C_OUT_OPT void C_PTR encryptedKey,
 					  C_IN int encryptedKeyMaxLength,
 					  C_OUT int C_PTR encryptedKeyLength,
@@ -547,9 +629,9 @@ C_RET cryptExportKey( C_OUT_OPT void C_PTR encryptedKey,
 	{
 	int status;
 
-	status = cryptExportKeyEx( encryptedKey, encryptedKeyMaxLength,
-							   encryptedKeyLength, CRYPT_FORMAT_CRYPTLIB,
-							   exportKey, sessionKeyContext );
+	status = cryptWrapKeyEx( encryptedKey, encryptedKeyMaxLength,
+							 encryptedKeyLength, CRYPT_FORMAT_CRYPTLIB,
+							 exportKey, sessionKeyContext );
 	return( ( status == CRYPT_ERROR_PARAM5 ) ? CRYPT_ERROR_PARAM4 : \
 			( status == CRYPT_ERROR_PARAM6 ) ? CRYPT_ERROR_PARAM5 : status );
 	}
@@ -607,9 +689,7 @@ int iCryptImportKey( IN_BUFFER( encryptedKeyLength ) \
 	if( iReturnedContext != NULL )
 		*iReturnedContext = CRYPT_ERROR;
 
-	/* Import it as appropriate.  We don't handle key agreement at this
-	   level since it's a protocol-specific mechanism used by SSH and SSL,
-	   which are internal-only formats */
+	/* Import it as appropriate */
 	status = krnlSendMessage( iImportKey, IMESSAGE_GETATTRIBUTE, &importAlgo,
 							  CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
@@ -779,7 +859,7 @@ int iCryptExportKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
 *																			*
 ****************************************************************************/
 
-C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
+C_RET cryptUnwrapKeyEx( C_IN void C_PTR encryptedKey,
 						C_IN int encryptedKeyLength,
 						C_IN CRYPT_CONTEXT importKey,
 						C_IN CRYPT_CONTEXT sessionKeyContext,
@@ -791,7 +871,7 @@ C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
 	return( CRYPT_ERROR_NOTAVAIL );
 	}
 
-C_RET cryptImportKey( C_IN void C_PTR encryptedKey,
+C_RET cryptUnwrapKey( C_IN void C_PTR encryptedKey,
 					  C_IN int encryptedKeyLength,
 					  C_IN CRYPT_CONTEXT importKey,
 					  C_IN CRYPT_CONTEXT sessionKeyContext )
@@ -799,6 +879,63 @@ C_RET cryptImportKey( C_IN void C_PTR encryptedKey,
 	UNUSED_ARG( encryptedKey );
 
 	return( CRYPT_ERROR_NOTAVAIL );
+	}
+
+C_RET cryptWrapKeyEx( C_OUT_OPT void C_PTR encryptedKey,
+					  C_IN int encryptedKeyMaxLength,
+					  C_OUT int C_PTR encryptedKeyLength,
+					  C_IN CRYPT_FORMAT_TYPE formatType,
+					  C_IN CRYPT_HANDLE exportKey,
+					  C_IN CRYPT_CONTEXT sessionKeyContext )
+	{
+	UNUSED_ARG( encryptedKey );
+	UNUSED_ARG( encryptedKeyLength );
+
+	return( CRYPT_ERROR_NOTAVAIL );
+	}
+
+C_RET cryptWrapKey( C_OUT_OPT void C_PTR encryptedKey,
+					C_IN int encryptedKeyMaxLength,
+					C_OUT int C_PTR encryptedKeyLength,
+					C_IN CRYPT_HANDLE exportKey,
+					C_IN CRYPT_CONTEXT sessionKeyContext )
+	{
+	UNUSED_ARG( encryptedKey );
+	UNUSED_ARG( encryptedKeyLength );
+
+	return( CRYPT_ERROR_NOTAVAIL );
+	}
+
+/* Pre-3.4.9 versions of the functions.  Since these are marked as 
+   deprecated in general we need to disable the warnings for this module */
+
+#if defined( __clang__ ) && ( __clang_major__ >= 8 )
+  #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined( __GNUC__ ) && ( __GNUC__ >= 4 )
+  #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#elif defined( _MSC_VER ) && ( _MSC_VER >= 1300 )
+  #pragma warning ( disable : 4995 ) 
+#endif /* VC++ */
+
+C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
+C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
+						C_IN int encryptedKeyLength,
+						C_IN CRYPT_CONTEXT importKey,
+						C_IN CRYPT_CONTEXT sessionKeyContext,
+						C_OUT_OPT CRYPT_CONTEXT C_PTR returnedContext )
+	{
+	return( cryptUnwrapKeyEx( encryptedKey, encryptedKeyLength, importKey,
+							  sessionKeyContext, returnedContext ) );
+	}
+
+C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
+C_RET cryptImportKey( C_IN void C_PTR encryptedKey,
+					  C_IN int encryptedKeyLength,
+					  C_IN CRYPT_CONTEXT importKey,
+					  C_IN CRYPT_CONTEXT sessionKeyContext )
+	{
+	return( cryptUnwrapKeyEx( encryptedKey, encryptedKeyLength, importKey,
+							  sessionKeyContext, NULL ) );
 	}
 
 C_RET cryptExportKeyEx( C_OUT_OPT void C_PTR encryptedKey,

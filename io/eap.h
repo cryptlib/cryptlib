@@ -162,7 +162,7 @@ typedef enum {
 	RADIUS_TYPE_ADD_RELEASE, RADIUS_TYPE_ERROR,
 
 	/* The RADIUS type value is a single byte, so values up to 255 are valid 
-	   (EAP_SUBTYPE_LAST is one larger than the highest possible value) */
+	   (RADIUS_SUBTYPE_LAST is one larger than the highest possible value) */
 	RADIUS_TYPE_LAST = 256
 	} RADIUS_TYPE;
 
@@ -390,7 +390,7 @@ typedef struct {
 	int eapRemainderLength;			/* Remaining data to be read */
 
 	/* The RADIUS state */
-	int radiusType;					/* RADIUS type */
+	RADIUS_TYPE radiusType;			/* RADIUS type */
 	int radiusLength;				/* RADIUS length */
 	int radiusCtr;					/* RADIUS counter (=ID) */
 	BUFFER_FIXED( RADIUS_NONCE_SIZE ) \

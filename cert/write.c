@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Certificate Write Routines						*
-*						Copyright Peter Gutmann 1996-2016					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -233,14 +233,14 @@ static int writeCertInfo( INOUT_PTR STREAM *stream,
 							certCertInfo->serialNumberLength ) + \
 			 algoIdInfoSize + \
 			 subjectCertInfoPtr->issuerDNsize + \
-			 sizeofObject( sizeofTime( subjectCertInfoPtr->startTime ) + \
-						   sizeofTime( subjectCertInfoPtr->endTime ) ) + \
+			 sizeofShortObject( sizeofTime( subjectCertInfoPtr->startTime ) + \
+								sizeofTime( subjectCertInfoPtr->endTime ) ) + \
 			 subjectCertInfoPtr->subjectDNsize + \
 			 subjectCertInfoPtr->publicKeyInfoSize;
 	if( extensionSize > 0 )
 		{
-		length += sizeofObject( sizeofShortInteger( X509VERSION_3 ) ) + \
-				  sizeofObject( sizeofObject( extensionSize ) );
+		length += sizeofShortObject( sizeofShortInteger( X509VERSION_3 ) ) + \
+				  sizeofShortObject( sizeofShortObject( extensionSize ) );
 		}
 
 	/* Write the outer SEQUENCE wrapper */
@@ -427,13 +427,17 @@ static int writeAttributeCertInfo( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 	length = sizeofShortInteger( X509ACVERSION_2 ) + \
-			 sizeofObject( sizeofObject( sizeofObject( holderNameSize ) ) ) + \
-			 sizeofObject( sizeofObject( sizeofObject( issuerNameSize ) ) ) + \
+			 sizeofShortObject( \
+				sizeofShortObject( \
+					sizeofShortObject( holderNameSize ) ) ) + \
+			 sizeofShortObject( \
+				sizeofShortObject( \
+					sizeofShortObject( issuerNameSize ) ) ) + \
 			 algoIdInfoSize + \
 			 sizeofInteger( certCertInfo->serialNumber,
 							certCertInfo->serialNumberLength ) + \
-			 sizeofObject( sizeofGeneralizedTime() * 2 ) + \
-			 sizeofObject( DUMMY_ATTRIBUTE_SIZE );
+			 sizeofShortObject( sizeofGeneralizedTime() * 2 ) + \
+			 sizeofShortObject( DUMMY_ATTRIBUTE_SIZE );
 	if( extensionSize > 0 )
 		length += sizeofShortObject( extensionSize );
 
@@ -444,16 +448,18 @@ static int writeAttributeCertInfo( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Write the owner and issuer name */
-	writeSequence( stream, sizeofObject( sizeofObject( holderNameSize ) ) );
-	writeConstructed( stream, sizeofObject( holderNameSize ), 
+	writeSequence( stream, sizeofShortObject( \
+								sizeofShortObject( holderNameSize ) ) );
+	writeConstructed( stream, sizeofShortObject( holderNameSize ), 
 					  CTAG_AC_HOLDER_ENTITYNAME );
 	writeConstructed( stream, holderNameSize, 4 );
 	status = writeDN( stream, subjectCertInfoPtr->subjectName, DEFAULT_TAG );
 	if( cryptStatusOK( status ) )
 		{
 		writeConstructed( stream, 
-						  sizeofObject( sizeofObject( issuerNameSize ) ), 0 );
-		writeSequence( stream, sizeofObject( issuerNameSize ) );
+						  sizeofShortObject( \
+								sizeofShortObject( issuerNameSize ) ), 0 );
+		writeSequence( stream, sizeofShortObject( issuerNameSize ) );
 		writeConstructed( stream, issuerNameSize, 4 );
 		if( issuerCertInfoPtr->subjectDNptr != NULL )
 			{
@@ -620,10 +626,11 @@ static int writeCRLInfo( INOUT_PTR STREAM *stream,
 			 ( ( subjectCertInfoPtr->endTime > MIN_TIME_VALUE ) ? \
 				sizeofTime( subjectCertInfoPtr->endTime ) : 0 ) + \
 			 sizeofObject( revocationInfoLength );
+			 /* Not sizeofShortObject() since CRLs can get enormous */
 	if( extensionSize > 0 )
 		{
 		length += sizeofShortInteger( X509VERSION_2 ) + \
-			 	  sizeofObject( sizeofObject( extensionSize ) );
+			 	  sizeofShortObject( sizeofShortObject( extensionSize ) );
 		}
 
 	/* Write the outer SEQUENCE wrapper */
@@ -809,25 +816,25 @@ static int writeCrmfRequestInfo( INOUT_PTR STREAM *stream,
 		if( cryptStatusError( status ) )
 			return( status );
 		subjectCertInfoPtr->subjectDNsize = subjectDNsize;
-		payloadLength += sizeofObject( subjectDNsize );
+		payloadLength += sizeofShortObject( subjectDNsize );
 		}
 	if( subjectCertInfoPtr->startTime > MIN_TIME_VALUE )
-		timeSize = sizeofObject( sizeofGeneralizedTime() );
+		timeSize = sizeofShortObject( sizeofGeneralizedTime() );
 	if( subjectCertInfoPtr->endTime > MIN_TIME_VALUE )
-		timeSize += sizeofObject( sizeofGeneralizedTime() );
+		timeSize += sizeofShortObject( sizeofGeneralizedTime() );
 	if( timeSize > 0 ) 
-		payloadLength += sizeofObject( timeSize );
+		payloadLength += sizeofShortObject( timeSize );
 	status = extensionSize = \
 					sizeofAttributes( subjectCertInfoPtr->attributes,
 									  CRYPT_CERTTYPE_REQUEST_CERT );
 	if( cryptStatusError( status ) )
 		return( status );
 	if( extensionSize > 0 )
-		payloadLength += sizeofObject( extensionSize );
+		payloadLength += sizeofShortObject( extensionSize );
 
 	/* Write the header, request ID, inner header, DN, and public key */
 	writeSequence( stream, sizeofShortInteger( 0 ) + \
-				   sizeofObject( payloadLength ) );
+						   sizeofShortObject( payloadLength ) );
 	writeShortInteger( stream, 0, DEFAULT_TAG );
 	writeSequence( stream, payloadLength );
 	if( timeSize > 0 )
@@ -920,12 +927,12 @@ static int writeRevRequestInfo( INOUT_PTR STREAM *stream,
 		return( status );
 	payloadLength = sizeofInteger( subjectCertInfoPtr->cCertCert->serialNumber,
 								   subjectCertInfoPtr->cCertCert->serialNumberLength ) + \
-					sizeofObject( subjectCertInfoPtr->issuerDNsize );
+					sizeofShortObject( subjectCertInfoPtr->issuerDNsize );
 	if( extensionSize > 0 )
-		payloadLength += sizeofObject( extensionSize );
+		payloadLength += sizeofShortObject( extensionSize );
 
 	/* Write the header, inner header, serial number and issuer DN */
-	writeSequence( stream, sizeofObject( payloadLength ) );
+	writeSequence( stream, sizeofShortObject( payloadLength ) );
 	writeSequence( stream, payloadLength );
 	writeInteger( stream, subjectCertInfoPtr->cCertCert->serialNumber,
 				  subjectCertInfoPtr->cCertCert->serialNumberLength,
@@ -1010,8 +1017,9 @@ static int writeRtcsRequestInfo( INOUT_PTR STREAM *stream,
 									  CRYPT_CERTTYPE_RTCS_REQUEST );
 	if( cryptStatusError( status ) )
 		return( status );
-	length = sizeofObject( requestInfoLength ) + \
-			 ( ( extensionSize > 0 ) ? sizeofObject( extensionSize ) : 0 );
+	length = sizeofShortObject( requestInfoLength ) + \
+			 ( ( extensionSize > 0 ) ? \
+			   sizeofShortObject( extensionSize ) : 0 );
 
 	/* Write the outer SEQUENCE wrapper */
 	writeSequence( stream, length );
@@ -1197,12 +1205,15 @@ static int writeOcspRequestInfo( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 	length = ( ( subjectCertInfoPtr->version == 2 ) ? \
-				 sizeofObject( sizeofShortInteger( CTAG_OR_VERSION ) ) : 0 ) + \
+				 sizeofShortObject( \
+					sizeofShortInteger( CTAG_OR_VERSION ) ) : 0 ) + \
 			 ( ( issuerCertInfoPtr != NULL ) ? \
-				 sizeofObject( sizeofObject( issuerCertInfoPtr->subjectDNsize ) ) : 0 ) + \
-			 sizeofObject( revocationInfoLength );
+				 sizeofShortObject( \
+					sizeofShortObject( \
+						issuerCertInfoPtr->subjectDNsize ) ) : 0 ) + \
+			 sizeofShortObject( revocationInfoLength );
 	if( extensionSize > 0 )
-		length += sizeofObject( sizeofObject( extensionSize ) );
+		length += sizeofShortObject( sizeofShortObject( extensionSize ) );
 
 	/* Write the outer SEQUENCE wrapper */
 	writeSequence( stream, length );
@@ -1220,7 +1231,7 @@ static int writeOcspRequestInfo( INOUT_PTR STREAM *stream,
 	if( issuerCertInfoPtr != NULL )
 		{
 		writeConstructed( stream,
-						  sizeofObject( issuerCertInfoPtr->subjectDNsize ), 1 );
+						  sizeofShortObject( issuerCertInfoPtr->subjectDNsize ), 1 );
 		writeConstructed( stream, issuerCertInfoPtr->subjectDNsize, 4 );
 		status = swrite( stream, issuerCertInfoPtr->subjectDNptr,
 						 issuerCertInfoPtr->subjectDNsize );
@@ -1288,12 +1299,12 @@ static int writeOcspResponseInfo( INOUT_PTR STREAM *stream,
 									  CRYPT_CERTTYPE_OCSP_RESPONSE );
 	if( cryptStatusError( status ) )
 		return( status );
-	length = sizeofObject( sizeofShortInteger( CTAG_OP_VERSION ) ) + \
-			 sizeofObject( issuerCertInfoPtr->subjectDNsize ) + \
+	length = sizeofShortObject( sizeofShortInteger( CTAG_OP_VERSION ) ) + \
+			 sizeofShortObject( issuerCertInfoPtr->subjectDNsize ) + \
 			 sizeofGeneralizedTime() + \
-			 sizeofObject( revocationInfoLength );
+			 sizeofShortObject( revocationInfoLength );
 	if( extensionSize > 0 )
-		length += sizeofObject( sizeofObject( extensionSize ) );
+		length += sizeofShortObject( sizeofShortObject( extensionSize ) );
 
 	/* Write the outer SEQUENCE wrapper, version, and issuer DN and 
 	   producedAt time */
@@ -1492,7 +1503,8 @@ static int createPkiUserInfo( INOUT_PTR CERT_PKIUSER_INFO *certUserInfo,
 
 	/* Encode the user information so that it can be encrypted */
 	sMemOpen( &stream, userInfo, maxUserInfoSize );
-	writeSequence( &stream, 2 * sizeofObject( PKIUSER_AUTHENTICATOR_SIZE ) );
+	writeSequence( &stream, 
+				   2 * sizeofShortObject( PKIUSER_AUTHENTICATOR_SIZE ) );
 	writeOctetString( &stream, certUserInfo->pkiIssuePW,
 					  PKIUSER_AUTHENTICATOR_SIZE, DEFAULT_TAG );
 	status = writeOctetString( &stream, certUserInfo->pkiRevPW,

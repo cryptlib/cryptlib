@@ -239,7 +239,7 @@ static BOOLEAN checkKeysetFunctions( IN_PTR const KEYSET_INFO *keysetInfoPtr )
 				!FNPTR_ISSET( keysetInfoPtr->getAttributeFunction ) || \
 				!FNPTR_ISSET( keysetInfoPtr->setAttributeFunction ) )
 				{
-				DEBUG_PUTS(( "checkKeysetFunctions: DBMS functions" ));
+				DEBUG_PUTS(( "checkKeysetFunctions: LDAP functions" ));
 				return( FALSE );
 				}
 			break;
@@ -1077,8 +1077,8 @@ static BOOLEAN isKeysetStorageOK( IN_ENUM( KEYSET_SUBTYPE ) \
 	int algorithm;	/* enum vs. int */
 	int status;
 	
-	REQUIRES( isEnumRange( subType, KEYSET_SUBTYPE ) );
-	REQUIRES( isHandleRangeValid( iCryptContext ) );
+	REQUIRES_B( isEnumRange( subType, KEYSET_SUBTYPE ) );
+	REQUIRES_B( isHandleRangeValid( iCryptContext ) );
 
 	/* Find out what algorithm we're dealing with */	
 	status = krnlSendMessage( iCryptContext, IMESSAGE_GETATTRIBUTE,
@@ -1750,13 +1750,19 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 				/* Update access not allowed */
 				if( options != CRYPT_KEYOPT_READONLY && \
 					options != CRYPT_KEYOPT_CREATE )
+					{
+					sFileClose( &stream );
 					return( CRYPT_ARGERROR_NUM2 );
+					}
 				break;
 
 			case SUBTYPE_KEYSET_FILE_READONLY:
 				/* Only read access allowed */
 				if( options != CRYPT_KEYOPT_READONLY )
+					{
+					sFileClose( &stream );
 					return( CRYPT_ARGERROR_NUM2 );
+					}
 				break;
 
 			default:
@@ -2046,9 +2052,13 @@ int createKeysetIndirect( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 		{
 		if( streamConnected )
 			sMemDisconnect( &stream );
+
+		/* Enqueue a destroy message for the keyset and tell the kernel 
+		   that we're done */
 		krnlSendNotifier( iCryptKeyset, IMESSAGE_DESTROY );
 		krnlSendMessage( iCryptKeyset, IMESSAGE_SETATTRIBUTE,
 						 MESSAGE_VALUE_OK, CRYPT_IATTRIBUTE_STATUS );
+
 		return( CRYPT_ERROR_NOTAVAIL );
 		}
 	ENSURES( checkKeysetFunctions( keysetInfoPtr ) );

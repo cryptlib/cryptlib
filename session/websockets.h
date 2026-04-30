@@ -28,7 +28,8 @@
 #define WS_PACKET_PING			0x89
 #define	WS_PACKET_PONG			0x8A
 
-/* A WebSockets Pong packet, sent in response to a received Ping packet */
+/* A WebSockets Pong packet, sent in response to a received Ping packet.  
+   Note that this then needs to be masked if it's sent by the client */
 
 #define WS_PONG_DATA_CLIENT		"\x8A\x80"
 #define WS_PONG_DATA_SERVER		"\x8A\x00"

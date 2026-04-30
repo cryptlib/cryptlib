@@ -516,7 +516,7 @@ int selftestDevice( INOUT_PTR DEVICE_INFO *deviceInfo,
 #else
   #define deviceInitTPM()				CRYPT_OK
   #define deviceEndTPM()
-  #define setDeviceTPM( x, y, z )		CRYPT_ARGERROR_NUM1
+  #define setDeviceTPM( x )				CRYPT_ARGERROR_NUM1
 #endif /* USE_TPM */
 #ifdef USE_HARDWARE
   CHECK_RETVAL \

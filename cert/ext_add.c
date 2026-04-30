@@ -338,7 +338,7 @@ assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_BLOB_PAYLOAD | ATTR_FLAG_CRITICA
 		case BER_STRING_ISO646:
 		case BER_STRING_PRINTABLE:
 			/* Make sure that it can be encoded as an ASN.1 text string */
-			if( !isValidASN1TextString( data, dataLength, 
+			if( !isASN1ValidTextString( data, dataLength, 
 					( attributeInfoPtr->fieldType == BER_STRING_PRINTABLE ) ? \
 					TRUE : FALSE ) )
 				{
@@ -1068,9 +1068,6 @@ int deleteCompositeAttributeField( INOUT_PTR DATAPTR_ATTRIBUTE *attributePtr,
 								   INOUT_PTR DATAPTR_DN *dnCursor )
 	{
 	CRYPT_ATTRIBUTE_TYPE attributeID, fieldID;
-	DATAPTR_ATTRIBUTE attribute = *attributePtr;
-	const DATAPTR_ATTRIBUTE cursor = ( cursorPtr == NULL ) ? \
-									 DATAPTR_NULL : *cursorPtr;
 	ATTRIBUTE_LIST *listItemPtr;
 	LOOP_INDEX_PTR ATTRIBUTE_LIST *attributeListCursor;
 
@@ -1080,8 +1077,6 @@ int deleteCompositeAttributeField( INOUT_PTR DATAPTR_ATTRIBUTE *attributePtr,
 	assert( dnCursor == NULL || \
 			isReadPtr( dnCursor, sizeof( DATAPTR_DN ) ) );
 
-	REQUIRES( DATAPTR_ISVALID( attribute ) );
-	REQUIRES( DATAPTR_ISVALID( cursor ) );
 	REQUIRES( DATAPTR_ISSET( listItem ) );
 
 	listItemPtr = DATAPTR_GET( listItem );
@@ -1185,8 +1180,6 @@ int deleteCompleteAttribute( INOUT_PTR DATAPTR_ATTRIBUTE *attributePtr,
 							 INOUT_PTR DATAPTR_DN *dnCursor )
 	{
 	DATAPTR_ATTRIBUTE attribute = *attributePtr, listItem;
-	const DATAPTR_ATTRIBUTE cursor = ( cursorPtr == NULL ) ? \
-									 DATAPTR_NULL : *cursorPtr;
 	const ATTRIBUTE_LIST *attributeListCursorNext;
 	LOOP_INDEX_PTR ATTRIBUTE_LIST *attributeListCursor;
 
@@ -1195,7 +1188,6 @@ int deleteCompleteAttribute( INOUT_PTR DATAPTR_ATTRIBUTE *attributePtr,
 	assert( isReadPtr( dnCursor, sizeof( DATAPTR_DN ) ) );
 
 	REQUIRES( DATAPTR_ISVALID( attribute ) );
-	REQUIRES( DATAPTR_ISVALID( cursor ) );
 	REQUIRES( isValidExtension( attributeID ) );
 
 	/* We're deleting an entire (constructed) attribute that won't have an 

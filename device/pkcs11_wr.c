@@ -253,6 +253,7 @@ static int updateCertificate( INOUT_PTR PKCS11_INFO *pkcs11Info,
 		   and-miss, some drivers from ca.2000 support it but others from 
 		   ca.2007 still don't so if we get a CKR_ATTRIBUTE_TYPE_INVALID 
 		   return code we try again without the CKA_URL */
+		REQUIRES( !checkOverflowDec( templateCount ) );
 		templateCount--;
 		status = C_CreateObject( pkcs11Info->hSession,
 								 ( CK_ATTRIBUTE_PTR ) certTemplate, 
@@ -264,6 +265,7 @@ static int updateCertificate( INOUT_PTR PKCS11_INFO *pkcs11Info,
 		/* Even support for dates is hit-and-miss so if we're still getting
 		   CKR_ATTRIBUTE_TYPE_INVALID we try again without the 
 		   CKA_START_DATE/CKA_END_DATE */
+		REQUIRES( !checkOverflowSub( templateCount, 2 ) );
 		templateCount -= 2;
 		status = C_CreateObject( pkcs11Info->hSession,
 								 ( CK_ATTRIBUTE_PTR ) certTemplate, 

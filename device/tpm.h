@@ -116,32 +116,38 @@ typedef TSS2_RC ( *TSS2_MU_TPM2B_PUBLIC_UNMARSHAL )( uint8_t const buffer[],
 								Tss2_MU_TPM2B_PUBLIC_Unmarshal
 #else
 
+extern FAPI_FREE pFapi_Free;
+
+#ifdef USE_TPM_EXT
 extern FAPI_CREATEKEY pFapi_CreateKey;
 extern FAPI_DECRYPT pFapi_Decrypt;
 extern FAPI_DELETE pFapi_Delete;
-extern FAPI_FREE pFapi_Free;
 extern FAPI_GETTPMBLOBS pFapi_GetTpmBlobs;
 extern FAPI_SIGN pFapi_Sign;
 extern TSS2_MU_TPM2B_PUBLIC_UNMARSHAL pTss2_MU_TPM2B_PUBLIC_Unmarshal;
+#endif /* USE_TPM_EXT */
 
-#define Fapi_CreateKey		( *pFapi_CreateKey )
-#define Fapi_CreateNv		( *pFapi_CreateNv )
 #define Fapi_CreateSeal		( *pFapi_CreateSeal )
-#define Fapi_Decrypt		( *pFapi_Decrypt )
-#define Fapi_Delete			( *pFapi_Delete )
 #define Fapi_Finalize		( *pFapi_Finalize )
 #define Fapi_Free			( *pFapi_Free )
-#define Fapi_GetAppData		( *pFapi_GetAppData )
 #define Fapi_GetInfo		( *pFapi_GetInfo )
 #define Fapi_GetRandom		( *pFapi_GetRandom )
-#define Fapi_GetTpmBlobs	( *pFapi_GetTpmBlobs )
 #define Fapi_Initialize		( *pFapi_Initialize )
 #define Fapi_Provision		( *pFapi_Provision )
+#define Fapi_Unseal			( *pFapi_Unseal )
+
+#ifdef USE_TPM_EXT
+#define Fapi_CreateKey		( *pFapi_CreateKey )
+#define Fapi_CreateNv		( *pFapi_CreateNv )
+#define Fapi_Decrypt		( *pFapi_Decrypt )
+#define Fapi_Delete			( *pFapi_Delete )
+#define Fapi_GetAppData		( *pFapi_GetAppData )
+#define Fapi_GetTpmBlobs	( *pFapi_GetTpmBlobs )
 #define Fapi_SetAppData		( *pFapi_SetAppData )
 #define Fapi_Sign			( *pFapi_Sign )
-#define Fapi_Unseal			( *pFapi_Unseal )
 #define Tss2_MU_TPM2B_PUBLIC_Unmarshal \
 							( *pTss2_MU_TPM2B_PUBLIC_Unmarshal )
+#endif /* USE_TPM_EXT */
 
 #endif /* USE_TPM_EMULATION */
 

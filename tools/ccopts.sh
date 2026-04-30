@@ -137,11 +137,19 @@ getFQDNName()
 	# case we fall back to the bare host name.  Also in some cases
 	# 'hostname -f' will return "localhost" while the bare 'hostname' will
 	# return the (unqualified) hostname, so we check for this case as well.
+	# In addition 'hostname -f' can return an unqualified name in which case
+	# the (nonstandard) '-A' option may return the FQDN.  This isn't what
+	# it's documented to do, which is return FQDNs for all interfaces, but
+	# it seems to do the job when '-f' doesn't work.
 	if hostname -f >/dev/null 2>&1 ; then
 		HOSTNAME="$(hostname -f)" ;
 		if [ $HOSTNAME = "localhost" ] ; then
 			HOSTNAME="$(hostname)" ;
 		fi ;
+		if [ "$(echo $HOSTNAME | grep -c "\.")" -le 0 ] && \
+		   hostname -A >/dev/null 2>&1 ; then
+			HOSTNAME="$(hostname -A)" ;
+		fi
 	else
 		HOSTNAME="$(hostname)" ;
 	fi
@@ -197,8 +205,6 @@ checkForDevSystem()
 	# uname varies from system to system, some return just the node name,
 	# some return an FQDN, and some return something that isn't anything like
 	# the machine name:
-	#	cfarm110 = "gcc1-power7"
-	#	cfarm111 = "power-aix"
 	#	cfarm112 = "gcc2-power8"
 	#	cfarm210 = "gcc-solaris10"
 	#	cfarm211 = "gcc-solaris11"
@@ -207,7 +213,7 @@ checkForDevSystem()
 	# so we have to delete everything past the first dot and explicitly
 	# check for weird names.
 	case $NODENAME in
-		'gcc1-power7'|'power-aix'|'gcc2-power8'|'gcc-solaris10'|'gcc-solaris11'|'gcc400')
+		'gcc2-power8'|'gcc-solaris10'|'gcc-solaris11'|'s11-i386'|'gcc400')
 			ISDEVELOPMENT=1 ;
 			return ;;
 	esac ;
@@ -216,13 +222,13 @@ checkForDevSystem()
 			'cfarm27'|'cfarm70'|'cfarm94'|'cfarm95')
 				ISDEVELOPMENT=1 ;
 				return ;;
-			'cfarm104'|'cfarm110'|'cfarm111'|'cfarm112'|'cfarm121'|'cfarm185')
+			'cfarm104'|'cfarm112'|'cfarm121'|'cfarm185')
 				ISDEVELOPMENT=1 ;
 				return ;;
 			'cfarm210'|'cfarm211'|'cfarm215'|'cfarm216'|'cfarm220'|'cfarm230'|'cfarm231'|'cfarm240')
 				ISDEVELOPMENT=1 ;
 				return ;;
-			'cfarm400')
+			'cfarm400'|'cfarm439'|'cfarm440')
 				# As of late 2024, cfarm400 is still called gcc400 so it's
 				# identified via the custom $NODENAME check earlier.
 				ISDEVELOPMENT=1 ;

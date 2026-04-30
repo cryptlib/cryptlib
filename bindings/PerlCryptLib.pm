@@ -119,7 +119,7 @@ our $VERSION = '1.11';
 							cryptSetAttribute cryptSetAttributeString cryptGetAttribute cryptGetAttributeString cryptDeleteAttribute 
 							cryptAddRandom 
 							cryptQueryObject 
-							cryptExportKey cryptExportKeyEx cryptImportKey cryptImportKeyEx 
+							cryptWrapKey cryptWrapKeyEx cryptUnwrapKey cryptUnwrapKeyEx 
 							cryptCreateSignature cryptCreateSignatureEx cryptCheckSignature cryptCheckSignatureEx 
 							cryptKeysetOpen cryptKeysetClose cryptGetPublicKey cryptGetPrivateKey cryptAddPublicKey cryptAddPrivateKey cryptDeleteKey 
 							cryptCreateCert cryptDestroyCert cryptGetCertExtension cryptAddCertExtension cryptDeleteCertExtension cryptSignCert cryptCheckCert cryptImportCert cryptExportCert 
@@ -325,7 +325,7 @@ them "allocating" the needed space, for example using:
  
  my $maxLength = 1024;
  my $key = ' ' x $maxLength;
- cryptExportKey($key, $maxLength, $keyLength, $context, $cert);
+ cryptWrapKey($key, $maxLength, $keyLength, $context, $cert);
 
 =back
 
@@ -346,7 +346,7 @@ However, when used in pass-by-reference calls, MUST be declared as 0x0
 scalar values:
 
  $null = 0x0;
- cryptExportKey($null, 0, $maxLength, $context, $cert);
+ cryptWrapKey($null, 0, $maxLength, $context, $cert);
 
 =back
 

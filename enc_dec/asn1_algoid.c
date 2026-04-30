@@ -23,11 +23,11 @@
 /* The minimum size of an encoded OID.  Usually these are at least 7 bytes 
    long, but 25519 uses very short OIDs */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
   #define MIN_ALGOID_OID_SIZE		MIN_OID_SIZE
 #else
   #define MIN_ALGOID_OID_SIZE		7
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 
 /****************************************************************************
 *																			*
@@ -258,7 +258,7 @@ static int getPKCSparamSize( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 	/* If the algorithm used is SHA-1 then we're using default parameters,
 	   a zero-length SEQUENCE */
 	if( algoIDparams->hashAlgo == CRYPT_ALGO_SHA1 )
-		return( sizeofObject( 0 ) );
+		return( sizeofShortObject( 0 ) );
 
 	/* It's a non-default hash algorithm, calculate the size of the 
 	   structure required to specify it */
@@ -267,18 +267,19 @@ static int getPKCSparamSize( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 	oid = algorithmToOID( algoIDparams->hashAlgo, &hashAlgoIDparams, 
 						  ALGOTOOID_REQUIRE_VALID );
 	REQUIRES( oid != NULL );
-	hashAlgoIDsize = sizeofObject( sizeofOID( oid ) + sizeofNull() );
-	algoIDparamSize = sizeofObject( hashAlgoIDsize ) + \
-					  sizeofObject( \
-						sizeofObject( sizeofOID( OID_PKCS1_MGF ) + \
-									  hashAlgoIDsize ) );
+	hashAlgoIDsize = sizeofShortObject( sizeofOID( oid ) + sizeofNull() );
+	algoIDparamSize = sizeofShortObject( hashAlgoIDsize ) + \
+					  sizeofShortObject( \
+						sizeofShortObject( sizeofOID( OID_PKCS1_MGF ) + \
+										   hashAlgoIDsize ) );
 	if( algoIDparams->encodingType == ALGOID_ENCODING_PSS )
 		{
 		algoIDparamSize += \
-				sizeofObject( sizeofShortInteger( algoIDparams->hashParam ) );
+				sizeofShortObject( \
+					sizeofShortInteger( algoIDparams->hashParam ) );
 		}
 
-	return( sizeofObject( algoIDparamSize ) );
+	return( sizeofShortObject( algoIDparamSize ) );
 	}
 
 RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
@@ -308,15 +309,16 @@ static int writePKCSparams( INOUT_PTR STREAM *stream,
 	oid = algorithmToOID( algoIDparams->hashAlgo, &hashAlgoIDparams, 
 						  ALGOTOOID_REQUIRE_VALID );
 	REQUIRES_S( oid != NULL );
-	hashAlgoIDsize = sizeofObject( sizeofOID( oid ) + sizeofNull() );
-	algoIDparamSize = sizeofObject( hashAlgoIDsize ) + \
-					  sizeofObject( \
-						sizeofObject( sizeofOID( OID_PKCS1_MGF ) + \
-									  hashAlgoIDsize ) );
+	hashAlgoIDsize = sizeofShortObject( sizeofOID( oid ) + sizeofNull() );
+	algoIDparamSize = sizeofShortObject( hashAlgoIDsize ) + \
+					  sizeofShortObject( \
+						sizeofShortObject( sizeofOID( OID_PKCS1_MGF ) + \
+										   hashAlgoIDsize ) );
 	if( algoIDparams->encodingType == ALGOID_ENCODING_PSS )
 		{
 		algoIDparamSize += \
-				sizeofObject( sizeofShortInteger( algoIDparams->hashParam ) );
+				sizeofShortObject( \
+					sizeofShortInteger( algoIDparams->hashParam ) );
 		}
 
 	/* Write the algorithm parameters.  It would probably make more sense to 
@@ -326,13 +328,13 @@ static int writePKCSparams( INOUT_PTR STREAM *stream,
 	   is added */
 	writeSequence( stream, algoIDparamSize );
 	writeConstructed( stream, 
-					  sizeofObject( sizeofOID( oid ) + sizeofNull() ),
+					  sizeofShortObject( sizeofOID( oid ) + sizeofNull() ),
 					  CTAG_PP_HASHALGO );
 	writeSequence( stream, sizeofOID( oid ) + sizeofNull() );
 	writeOID( stream, oid );
 	writeNull( stream, DEFAULT_TAG );
 	writeConstructed( stream, 
-					  sizeofObject( \
+					  sizeofShortObject( \
 						sizeofOID( OID_PKCS1_MGF ) + hashAlgoIDsize ),
 					  CTAG_PP_MASKGENALGO );
 	writeSequence( stream, sizeofOID( OID_PKCS1_MGF ) + hashAlgoIDsize );
@@ -378,8 +380,9 @@ static int readPKCSparams( INOUT_PTR STREAM *stream,
 
 		return( CRYPT_OK );
 		}
+	REQUIRES_S( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
-	ENSURES( isIntegerRangeMin( endPos, length + 1 ) );
+	ENSURES_S( isIntegerRangeMin( endPos, length + 1 ) );
 
 	/* Read the hash algorithm */
 	status = readConstructed( stream, NULL, CTAG_PP_HASHALGO );
@@ -717,6 +720,12 @@ static int readAlgoIDparams( INOUT_PTR STREAM *stream,
 							 BER_OBJECT_IDENTIFIER );
 	if( cryptStatusError( status ) )
 		return( status );
+	if( oidLength > length )
+		{
+		/* Make sure that the calculations that follow work */
+		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+		}
+	REQUIRES_S( !checkOverflowSub( length, oidLength ) );
 	length -= oidLength;
 
 	/* Check that the OID length is valid */

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				Miscellaneous (Non-ASN.1) Routines Header File				*
-*					  Copyright Peter Gutmann 1992-2004						*
+*					  Copyright Peter Gutmann 1992-2024						*
 *																			*
 ****************************************************************************/
 
@@ -26,12 +26,12 @@
 *																			*
 ****************************************************************************/
 
-/* Read/write PGP length values */
+/* Read/write PGP length values.  For the length encoding, 0...191 = 1 byte,
+   192...8383 = 2 bytes, > 8383 = 0xFF marker + 4-byte encoding */
 
 #define pgpSizeofLength( length ) \
-		( ( ( length ) < 0 ) ? length : \
-		  ( ( length ) <= 191 ) ? 1 : \
-		  ( ( length ) <= 8383 ) ? 2 : 4 )
+		( ( ( length ) <= 191 ) ? 1 : \
+		  ( ( length ) <= 8383 ) ? 2 : 5 )
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int pgpReadShortLength( INOUT_PTR STREAM *stream, 
 						OUT_LENGTH_SHORT_Z int *length, 
@@ -53,7 +53,7 @@ int pgpReadPacketHeader( INOUT_PTR STREAM *stream, OUT_OPT_BYTE int *ctb,
 						 OUT_OPT_LENGTH_Z long *length, 
 						 IN_LENGTH_SHORT const int minLength,
 						 IN_LENGTH const long maxLength );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1 ) ) \
 int pgpReadPacketHeaderI( INOUT_PTR STREAM *stream, OUT_OPT_BYTE int *ctb, 
 						  OUT_OPT_LENGTH_Z long *length, 
 						  IN_LENGTH_SHORT const int minLength );

@@ -51,7 +51,7 @@ int kdfHKDF( STDC_UNUSED void *dummy,
 			 INOUT_PTR MECHANISM_KDF_INFO *mechanismInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int kdfSelftest( STDC_UNUSED void *dummy, 
-				 STDC_UNUSED MECHANISM_DERIVE_INFO *mechanismInfo );
+				 STDC_UNUSED MECHANISM_KDF_INFO *mechanismInfo );
 
 /* Signature mechanisms */
 
@@ -142,7 +142,9 @@ int importPrivateKeyOpenPGP( STDC_UNUSED void *dummy,
 
 /* A data structure for mapping mechanisms to the functions that implement 
    them.  The device info pointer is optional and used for mechanisms that 
-   are tied to particular devices */
+   are tied to particular devices.  Note that we have to declare this as a
+   'void *' rather than a 'DEVICE_INFO *' because it's also used in the 
+   mechanism functions which don't know about 'DEVICE_INFO' */
 
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 		int ( *MECHANISM_FUNCTION )( IN_PTR_OPT void *deviceInfoPtr,

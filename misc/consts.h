@@ -38,7 +38,7 @@
 #ifdef USE_DES
   #define MIN_KEYSIZE			bitsToBytes( 64 )
 #else
-  #define MIN_KEYSIZE			bitsToBytes( 80 )
+  #define MIN_KEYSIZE			bitsToBytes( 128 )
 #endif /* USE_DES */
 #define MAX_WORKING_KEYSIZE		bitsToBytes( 256 )
 
@@ -85,6 +85,13 @@
 
 #define MIN_PKCSIZE_BERNSTEIN	32
 #define MAX_PKCSIZE_BERNSTEIN	32
+
+/* Yet another special case, the huge keys needed for PQC algorithms.  At
+   the moment we only support ML-KEM768, which means we can fix the key size
+   at MLKEM768_PUBLICKEYBYTES as defined in context/ctx_mlkem.c */
+
+#define MIN_PKCSIZE_PQC			1184
+#define MAX_PKCSIZE_PQC			1184
 
 /* The minimum hash/MAC size */
 
@@ -248,11 +255,11 @@
    PKCS #10 certificate requests can result in unusually small objects so we
    allow shorter-than-normal sizes if they're being used */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
   #define MIN_CERTSIZE			200
 #else
   #define MIN_CERTSIZE			256
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 
 /* The maximum size of an object attribute.  In theory this can be any size,
    but in practice we limit it to the following maximum to stop people
@@ -292,7 +299,11 @@
    IPv6 loopback tests when reading the TLS SNI in 
    session/tls_ext.c:readSNI() and when parsing URLs in 
    io/net_url.c:parseURL() and the accompanying sanity-check function, which 
-   special-case the length value there */
+   special-case the length value there.
+   
+   For the URL size, URLs can be much longer than this but as used in 
+   certificates with "scheme fqdn port" a legitimate URL should be well 
+   under the size used here */
 
 #define MIN_DNS_SIZE			5			/* x.com */
 #define MAX_DNS_SIZE			255			/* Max hostname size */
@@ -379,11 +390,14 @@
 		  __DATE__[ 2 ] == "Nov"[ 2 ] ? 304 : \
 		  __DATE__[ 2 ] == "Dec"[ 2 ] ? 334 : 0 )
 
+#if 0	/* Not currently needed */
+
 #define DATE_DAY \
 		( __DATE__[ 4 ] == '?' ? 0 : \
 		  ( ( __DATE__[ 4 ] == ' ' ) ? \
 		  	( __DATE__[ 5 ] - '0' ) : \
-		  	( ( ( __DATE__[ 4 ] - '0' ) * 10 ) + __DATE__[ 5 ] - '0' ) ) )
+		  	( ( ( __DATE__[ 4 ] - '0' ) * 10 ) + ( __DATE__[ 5 ] - '0' ) ) ) )
+#endif /* 0 */
 
 #ifdef SYSTEM_64BIT
   #define YEARS_TO_SECONDS( years ) ( ( years ) * 365 * 86400LL )
@@ -441,10 +455,13 @@
    down to 21 (= FTP) rather than the more obvious 22 (= SSH) provided by
    cryptlib sessions because the URL-handling code is also used for general-
    purpose URI parsing for which the lowest-numbered one that we'd normally
-   run into is FTP.  For desitnation ports we set the upper bound at the end
-   of the non-ephemeral port range, 49152-65535 is for ephemeral source
-   ports that are only valid for the duration of a TCP session */
-
+   run into is FTP.  For destination ports we set the upper bound at the end
+   of the traditional non-ephemeral port range, 49152-65535 is for ephemeral 
+   source ports that are only valid for the duration of a TCP session.  
+   Although this can configuration-dependant, most systems will be using the 
+   default range, and it's unlikely someone will want to be using port 64567 
+   as a non-ephemeral port */
+	   
 #define MIN_PORT_NUMBER			21
 #define MAX_DEST_PORT_NUMBER	49151L
 #define MAX_SRC_PORT_NUMBER		65534L

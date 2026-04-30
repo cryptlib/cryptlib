@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib File Keyset Test Routines					*
-*						Copyright Peter Gutmann 1995-2009					*
+*						Copyright Peter Gutmann 1995-2026					*
 *																			*
 ****************************************************************************/
 
@@ -91,7 +91,7 @@ static int loadPrivateKeyContext( CRYPT_CONTEXT *cryptContext,
 			return( loadECDSAContexts( CRYPT_UNUSED, NULL, cryptContext ) );
 
 		case CRYPT_ALGO_ED25519:
-			return( load25519Contexts( CRYPT_UNUSED, NULL, cryptContext ) );
+			return( loadEd25519Contexts( CRYPT_UNUSED, NULL, cryptContext ) );
 		}
 
 	fprintf( outputStream, "Algorithm %d not available, line %d.\n", 
@@ -133,16 +133,20 @@ static int checkCertPresence( const CRYPT_HANDLE cryptHandle,
 		return( TRUE );
 		}
 
-	/* Make sure that we can't use the read key (the certificate constrains 
-	   it from being used externally) */
+	/* Make sure that we can't use the key we've read via the low-level
+	   functions (the certificate constrains it from being used externally) */
+#if 0	/* No longer possible as of 3.5 where raw PKC operations were made 
+		   internal-only */
 	status = testCrypt( cryptHandle, cryptHandle, value, NULL, FALSE, TRUE );
 	if( status != CRYPT_ERROR_NOTAVAIL && status != CRYPT_ERROR_PERMISSION )
 		{
 		fputs( "Attempt to perform external operation on context with "
-			   "internal-only action\npermissions succeeded.\n", 
+			   "internal-only action\npermissions succeeded, should have "
+			   "failed.\n", 
 			   outputStream );
 		return( FALSE );
 		}
+#endif /* 0 */
 
 	return( TRUE );
 	}
@@ -479,8 +483,11 @@ int testGetPGPPrivateKey( void )
 
 	/* PGP 2.x file, RSA with IDEA, secring.pgp */
 #ifdef USE_PGP2
-	if( !getPGPPrivateKey( KEYFILE_PGP, FALSE, "PGP" ) )
-		return( FALSE );
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_IDEA, NULL ) ) )
+		{ 
+		if( !getPGPPrivateKey( KEYFILE_PGP, FALSE, "PGP" ) )
+			return( FALSE );
+		}
 #endif /* USE_PGP2 */
 
 	/* OpenPGP file, DSA+Elgamal with 3DES, sec_hash.gpg.  Create with:
@@ -529,7 +536,8 @@ int testGetPGPPrivateKey( void )
 
 	/* OpenPGP file, RSA with IDEA, sec_nai.skr */
 #ifdef USE_PGP2
-	if( !getPGPPrivateKey( KEYFILE_NAIPGP, FALSE, "OpenPGP (NAI)" ) )
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_IDEA, NULL ) ) && \
+		!getPGPPrivateKey( KEYFILE_NAIPGP, FALSE, "OpenPGP (NAI)" ) )
 		return( FALSE );
 #endif /* USE_PGP2 */
 
@@ -1415,7 +1423,7 @@ static int readFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 	int status;
 
 	fprintf( outputStream, "Testing %s private key read from %skey "
-			 "file%s...\n", algoName( cryptAlgo ), keyFileDescr,
+			 "file%s...\n", algoToName( cryptAlgo ), keyFileDescr,
 			 useWildcardRead ? " using wildcard ID" : "" );
 
 	/* Open the file keyset */
@@ -1466,9 +1474,7 @@ static int readFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 	   which we only have the public key */
 	if( cryptAlgo == CRYPT_ALGO_RSA && formatType != CRYPT_FORMAT_PGP )
 		{
-		status = testCrypt( cryptContext, cryptContext, cryptAlgo, NULL, 
-							FALSE, FALSE );
-		if( cryptStatusError( status ) )
+		if( !testRSAContexts( cryptContext, cryptContext ) )
 			return( FALSE );
 		}
 	cryptDestroyContext( cryptContext );
@@ -1483,7 +1489,7 @@ static int readFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 		}
 
 	fprintf( outputStream, "Read of %s private key from %skey file "
-			 "succeeded.\n\n", algoName( cryptAlgo ), keyFileDescr );
+			 "succeeded.\n\n", algoToName( cryptAlgo ), keyFileDescr );
 	return( TRUE );
 	}
 
@@ -1508,7 +1514,7 @@ static int writeFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 	int status;
 
 	fprintf( outputStream, "Testing %s private key write to %skey "
-			 "file...\n", algoName( cryptAlgo ), keyFileDescr );
+			 "file...\n", algoToName( cryptAlgo ), keyFileDescr );
 
 	/* Create the private key context */
 	if( !loadPrivateKeyContext( &privateKeyContext, cryptAlgo ) )
@@ -1587,7 +1593,7 @@ static int writeFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 						{
 						fprintf( outputStream, "Failed to detect addition of "
 								 "duplicate %s key to %skey file.\n\n", 
-								 algoName( cryptAlgo ), keyFileDescr );
+								 algoToName( cryptAlgo ), keyFileDescr );
 						return( FALSE );
 						}
 					status = CRYPT_OK;
@@ -1599,7 +1605,7 @@ static int writeFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 						{
 						fprintf( outputStream, "Failed to detect addition of "
 								 "second %s key to %skey file.\n\n", 
-								 algoName( cryptAlgo ), keyFileDescr );
+								 algoToName( cryptAlgo ), keyFileDescr );
 						return( FALSE );
 						}
 					status = CRYPT_OK;
@@ -1654,7 +1660,7 @@ static int writeFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 		{
 		fprintf( outputStream, "Detection of incomplete update of %s "
 				 "key to %skey file succeeded.\n\n", 
-				 algoName( cryptAlgo ), keyFileDescr );
+				 algoToName( cryptAlgo ), keyFileDescr );
 		}
 	else
 		{
@@ -1663,12 +1669,13 @@ static int writeFileKey( const CRYPT_ALGO_TYPE cryptAlgo,
 			{
 			fprintf( outputStream, "Detection of dual-key %s write attempt "
 					 "to %skey file succeeded.\n\n", 
-					 algoName( cryptAlgo ), keyFileDescr );
+					 algoToName( cryptAlgo ), keyFileDescr );
 			}
 		else
 			{
 			fprintf( outputStream, "Write of %s private key to %skey file "
-					 "succeeded.\n\n", algoName( cryptAlgo ), keyFileDescr );
+					 "succeeded.\n\n", algoToName( cryptAlgo ), 
+					 keyFileDescr );
 			}
 		}
 	return( TRUE );
@@ -2652,7 +2659,7 @@ static int writeSingleStepFileCert( const CRYPT_ALGO_TYPE cryptAlgo,
 	int status;
 
 	fprintf( outputStream, "Testing single-step %s key+certificate write to "
-			 "%skey file...\n", algoName( cryptAlgo ), 
+			 "%skey file...\n", algoToName( cryptAlgo ), 
 			 useAltKeyFile ? "alternative " : "" );
 
 	if( useCombinedKeyCert )
@@ -2736,7 +2743,7 @@ static int writeSingleStepFileCert( const CRYPT_ALGO_TYPE cryptAlgo,
 			fprintf( outputStream, "%s key+certificate doesn't contain "
 					 "additional unused parameters required\n  by the "
 					 "alternative format and can't be written to the "
-					 "keyset.\n", algoName( cryptAlgo ) );
+					 "keyset.\n", algoToName( cryptAlgo ) );
 			fputs( "  (This is an expected result since this test verifies "
 				   "handling of\n   this key type).\n\n", outputStream );
 
@@ -2806,7 +2813,7 @@ static int writeSingleStepFileCert( const CRYPT_ALGO_TYPE cryptAlgo,
 		}
 
 	fprintf( outputStream, "Single-step %s key+certificate write to %skey "
-			 "file succeeded.\n\n", algoName( cryptAlgo ), 
+			 "file succeeded.\n\n", algoToName( cryptAlgo ), 
 			 useAltKeyFile ? "alternative " : "" );
 	return( TRUE );
 	}

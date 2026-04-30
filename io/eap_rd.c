@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *			cryptlib Session EAP-TLS/TTLS/PEAP Read Routines				*
-*					Copyright Peter Gutmann 2016-2021 						*
+*					Copyright Peter Gutmann 2016-2025 						*
 *																			*
 ****************************************************************************/
 
@@ -98,6 +98,7 @@ static int copyPayloadData( INOUT_PTR STREAM *stream,
 	status = sread( stream, data, bytesToRead );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowSub( eapInfo->eapLength, bytesToRead ) );
 	eapInfo->eapLength -= bytesToRead;
 	ENSURES( isShortIntegerRange( eapInfo->eapLength ) );
 
@@ -125,9 +126,14 @@ static int updateEapState( INOUT_PTR STREAM *stream,
 	   remainder length if we're processing a new RADIUS message since it 
 	   applies for EAP fragments within the RADIUS message and there won't 
 	   be any yet at this point */
+	REQUIRES( !checkOverflowAdd( stream->bufPos, bufPos ) );
 	stream->bufPos += bufPos;
 	if( eapInfo->eapState != EAP_STATE_PROCESSMESSAGE )
+		{
+		REQUIRES( !checkOverflowSub( eapInfo->eapRemainderLength, bufPos ) );
 		eapInfo->eapRemainderLength -= bufPos;
+		}
+	REQUIRES( !checkOverflowSub( eapInfo->radiusLength, bufPos ) );
 	eapInfo->radiusLength -= bufPos;
 
 	/* Move on to the next state */
@@ -210,6 +216,7 @@ static int processVendorSpecific( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( eapInfo, sizeof( EAP_INFO ) ) );
 
 	REQUIRES( isShortIntegerRangeNZ( tlvLength ) );
+	REQUIRES( !checkOverflowSub( tlvLength, UINT32_SIZE ) );
 
 	/* Make sure that there's enough data for a vendor-specific packet.  We 
 	   need at least enough data for the vendor ID, the vendor type, and the 
@@ -263,6 +270,7 @@ static int processVendorSpecific( INOUT_PTR STREAM *stream,
 	   just metadata noise, skip the packet.  We also skip it if it's too 
 	   large to store in the extraData field */
 	if( eapInfo->radiusType != RADIUS_TYPE_ACCEPT || \
+		checkOverflowAdd( eapInfo->extraDataLength, extraDataLength ) || \
 		eapInfo->extraDataLength + extraDataLength > MAX_EXTRADATA_SIZE )
 		{
 		return( sSkip( stream, extraDataLength, MAX_INTLENGTH_SHORT ) );
@@ -293,7 +301,11 @@ static int processVendorSpecific( INOUT_PTR STREAM *stream,
 	status = sread( stream, eapInfo->extraData + eapInfo->extraDataLength, 
 					extraDataLength );
 	if( cryptStatusOK( status ) )
+		{
+		REQUIRES( !checkOverflowAdd( eapInfo->extraDataLength, 
+									 extraDataLength ) );
 		eapInfo->extraDataLength += extraDataLength;
+		}
 
 	return( status );
 	}
@@ -443,6 +455,7 @@ int readRADIUSMessage( INOUT_PTR STREAM *stream,
 		/* It's a response (challenge), replace the authenticator (MD5 hash) 
 		   value in the message with the original nonce that was used to 
 		   create it, then hash the message */
+		REQUIRES( boundsCheck( 4, RADIUS_NONCE_SIZE, stream->bufSize ) );
 		memcpy( stream->buffer + 4, eapInfo->radiusNonce, 
 				RADIUS_NONCE_SIZE );
 		status = radiusMD5HashBuffer( hashValue, 16, stream->buffer, 
@@ -471,6 +484,7 @@ int readRADIUSMessage( INOUT_PTR STREAM *stream,
 #endif /* CONFIG_FUZZ */
 		}
 	eapInfo->radiusType = type;
+	REQUIRES( !checkOverflowSub( totalLength, RADIUS_HEADER_SIZE ) );
 	totalLength -= RADIUS_HEADER_SIZE;
 
 	/* If this is the initial wakeup packet from the client, remember the 
@@ -497,6 +511,11 @@ int readRADIUSMessage( INOUT_PTR STREAM *stream,
 		}
 	stream->bufEnd = eapInfo->radiusLength = totalLength;
 	stream->bufPos = 0;
+	REQUIRES( !checkOverflowSub( totalLength, 
+								 bytesRead - RADIUS_HEADER_SIZE ) );
+			  /* checkOverflowSub3() has different precedence of operands 
+			     so we can't use it here, but bytesRead - R_H_S overflow
+			     will be detected so we can use the two-operand form */
 	totalLength -= bytesRead - RADIUS_HEADER_SIZE;
 	ENSURES( totalLength >= 0 && \
 			 totalLength <= RADIUS_MAX_PACKET_SIZE - RADIUS_HEADER_SIZE );
@@ -520,7 +539,8 @@ int readRADIUSMessage( INOUT_PTR STREAM *stream,
 									 MAX_RADIUS_FRAGMENTS - 1 ) );
 
 		assert( DEBUG_WARN );
-		if( stream->bufEnd + totalLength > stream->bufSize )
+		if( checkOverflowAdd( stream->bufEnd, totalLength ) || \
+			stream->bufEnd + totalLength > stream->bufSize )
 			return( CRYPT_ERROR_OVERFLOW );
 		status = transportReadFunction( netStream, 
 										stream->buffer + stream->bufEnd, 
@@ -537,7 +557,9 @@ int readRADIUSMessage( INOUT_PTR STREAM *stream,
 					  getRADIUSPacketName( eapInfo->radiusType ), 
 					  eapInfo->radiusType, bytesRead, totalLength ) );
 			}
+		REQUIRES( !checkOverflowAdd( stream->bufEnd, bytesRead ) );
 		stream->bufEnd += bytesRead;
+		REQUIRES( !checkOverflowSub( totalLength, bytesRead ) );
 		totalLength -= bytesRead;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -656,8 +678,7 @@ int readRADIUSPingResponse( INOUT_PTR STREAM *stream,
 	DEBUG_PRINT_BEGIN();
 	DEBUG_PRINT(( "Read %s (%d) RADIUS packet, length %d, packet ID %d.\n", 
 				  getRADIUSPacketName( eapInfo->radiusType ), 
-				  eapInfo->radiusType, eapInfo->radiusLength,
-				  counter ));
+				  eapInfo->radiusType, totalLength, counter ));
 #ifdef DEBUG_TRACE_RADIUS
 	DEBUG_DUMP_DATA( stream->buffer, eapInfo->radiusLength );
 #endif /* DEBUG_TRACE_RADIUS */
@@ -750,6 +771,7 @@ int processRADIUSTLVs( INOUT_PTR STREAM *stream,
 					  RADIUS_TLV_HEADER_SIZE + RADIUS_MIN_TLV_SIZE, 
 					  RADIUS_TLV_HEADER_SIZE + RADIUS_MAX_TLV_SIZE ) );
 			}
+		REQUIRES( !checkOverflowSub( tlvLength, RADIUS_TLV_HEADER_SIZE ) );
 		tlvLength -= RADIUS_TLV_HEADER_SIZE;
 		ENSURES( tlvLength >= RADIUS_MIN_TLV_SIZE && \
 				 tlvLength <= RADIUS_MAX_TLV_SIZE );
@@ -795,6 +817,8 @@ int processRADIUSTLVs( INOUT_PTR STREAM *stream,
 											&headerBytesRead, tlvLength );
 					if( cryptStatusError( status ) )
 						break;
+					REQUIRES( !checkOverflowSub( tlvLength, 
+												 headerBytesRead ) );
 					tlvLength -= headerBytesRead;
 					if( tlvLength <= 0 )
 						break;
@@ -817,18 +841,23 @@ int processRADIUSTLVs( INOUT_PTR STREAM *stream,
 					}
 
 				/* Copy out as much payload data as we can */
+				REQUIRES( !checkOverflowSub( dataMaxLength, bytesRead ) );
 				status = copyPayloadData( stream, tlvLength, eapInfo, 
 										  bufPtr + bytesRead, 
 										  dataMaxLength - bytesRead, 
 										  &payloadBytesCopied );
 				if( cryptStatusError( status ) && status != OK_SPECIAL )
 					break;
+				REQUIRES( !checkOverflowAdd( bytesRead, 
+											 payloadBytesCopied ) );
 				bytesRead += payloadBytesCopied;
 
 				/* If we've only read part of the data that's present, 
 				   remember where we'll restart from and exit */
 				if( status == OK_SPECIAL )
 					{
+					REQUIRES( !checkOverflowSub( tlvLength, 
+												 payloadBytesCopied ) );
 					eapInfo->eapRemainderLength = \
 									tlvLength - payloadBytesCopied;
 					partialRead = TRUE;
@@ -850,7 +879,7 @@ int processRADIUSTLVs( INOUT_PTR STREAM *stream,
 				break;
 
 			case RADIUS_SUBTYPE_STATE:
-				if( tlvLength < min( 1, RADIUS_MIN_TLV_SIZE ) || \
+				if( tlvLength < RADIUS_MIN_TLV_SIZE || \
 					tlvLength > CRYPT_MAX_HASHSIZE )
 					{
 					status = CRYPT_ERROR_BADDATA;
@@ -932,7 +961,7 @@ static int readRADIUSEAP( INOUT_PTR STREAM *stream,
 	{
 	BOOLEAN isReqResp = FALSE;
 	const int startPos = stell( stream );
-	int type, subType = EAP_SUBTYPE_NONE, counter, length, status;
+	int type, subType = EAP_SUBTYPE_NONE, counter, length, totalLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( eapInfo, sizeof( EAP_INFO ) ) );
@@ -944,10 +973,15 @@ static int readRADIUSEAP( INOUT_PTR STREAM *stream,
 	/* Clear return value */
 	*bytesProcessed = 0;
 
+	/* Make sure that there's at least enough data present to read the
+	   header */
+	if( radiusEncapsLength < 1 + 1 + UINT16_SIZE + 1 )
+		return( CRYPT_ERROR_BADDATA );
+
 	/* Read the EAP packet header and optional subtype information */
 	type = sgetc( stream );
 	counter = sgetc( stream );
-	status = length = readUint16( stream );
+	status = totalLength = readUint16( stream );
 	if( !cryptStatusError( status ) && \
 		( type == EAP_TYPE_REQUEST || type == EAP_TYPE_RESPONSE ) )
 		{
@@ -959,11 +993,13 @@ static int readRADIUSEAP( INOUT_PTR STREAM *stream,
 
 	/* Check that the length is OK.  EAP packets can be fragmented inside 
 	   RADIUS TLVs so the EAP length may be greater than the encapsulating 
-	   RADIUS length rather than equal to it, however there should be at 
+	   RADIUS length rather than equal to it.  However, there should be at 
 	   least as much EAP data as there is RADIUS data */
-	if( length < radiusEncapsLength )
+	if( totalLength < radiusEncapsLength )
 		return( CRYPT_ERROR_BADDATA );
-	length -= EAP_HEADER_LENGTH + ( isReqResp ? 1 : 0 );
+	REQUIRES( !checkOverflowSub( totalLength, EAP_HEADER_LENGTH + \
+											  ( isReqResp ? 1 : 0 ) ) );
+	length = totalLength - ( EAP_HEADER_LENGTH + ( isReqResp ? 1 : 0 ) );
 	if( length < 0 || length > RADIUS_MAX_PACKET_SIZE - EAP_HEADER_LENGTH )
 		return( CRYPT_ERROR_BADDATA );
 
@@ -993,6 +1029,18 @@ static int readRADIUSEAP( INOUT_PTR STREAM *stream,
 				  "length %d, ID %d.\n", getEAPPacketName( type ), type, 
 				  getEAPSubtypeName( subType ), subType, length, counter ));
 
+	/* Alongside the earlier check that there's at least as much EAP data as 
+	   RADIUS data, we have to have at least as much EAP data present as 
+	   there is RADIUS data.  Since we can only get to here if isReqResp is
+	   true we don't need to perform the previous conditional calculation 
+	   for the header length */
+	if( totalLength > radiusEncapsLength )
+		{
+		REQUIRES( !checkOverflowSub( radiusEncapsLength,
+									 EAP_HEADER_LENGTH + 1 ) );
+		length = radiusEncapsLength - ( EAP_HEADER_LENGTH + 1 );
+		}
+
 	/* Read any further data */
 	switch( eapInfo->eapSubtypeRead )
 		{
@@ -1004,9 +1052,12 @@ static int readRADIUSEAP( INOUT_PTR STREAM *stream,
 
 			/* Read the EAP-TLS/TTLS/PEAP flags, which tell us what else 
 			   might be present before the payload turns up */
+			if( length < 1 )
+				return( CRYPT_ERROR_BADDATA );
 			status = flags = sgetc( stream );
 			if( cryptStatusError( status ) )
 				return( status );
+			REQUIRES( !checkOverflowDec( length ) );
 			length--;
 			if( flags & EAPTLS_FLAG_HASLENGTH )
 				{
@@ -1014,9 +1065,12 @@ static int readRADIUSEAP( INOUT_PTR STREAM *stream,
 				   present just in case the RADIUS and EAP lengths (as well 
 				   as the encapsulated TLS lengths) aren't convincing 
 				   enough, skip it and continue */
+				if( length < UINT32_SIZE )
+					return( CRYPT_ERROR_BADDATA );
 				status = readUint32( stream );
 				if( cryptStatusError( status ) )
 					return( status );
+				REQUIRES( !checkOverflowSub( length, UINT32_SIZE ) );
 				length -= UINT32_SIZE;
 				}
 			if( length < 0 || \
@@ -1112,7 +1166,7 @@ static int readFunction( INOUT_PTR STREAM *stream,
 	int bufSize = maxLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isReadPtrDynamic( buffer, maxLength ) );
+	assert( isWritePtrDynamic( buffer, maxLength ) );
 	assert( isWritePtr( length, sizeof( int ) ) );
 
 	REQUIRES( netStream != NULL && sanityCheckNetStreamEAP( netStream ) );
@@ -1200,6 +1254,7 @@ static int readFunction( INOUT_PTR STREAM *stream,
 			{
 			BOOLEAN isPartialRead = FALSE;
 
+			REQUIRES( !checkOverflowSub( stream->bufEnd, stream->bufPos ) );
 			sMemConnect( &radiusStream, 
 						 stream->buffer + stream->bufPos, 
 						 stream->bufEnd - stream->bufPos );
@@ -1245,6 +1300,7 @@ static int readFunction( INOUT_PTR STREAM *stream,
 			if( cryptStatusError( status ) )
 				return( status );
 			bufPtr += bytesCopied;
+			REQUIRES( !checkOverflowSub( bufSize, bytesCopied ) );
 			bufSize -= bytesCopied;
 			}
 
@@ -1286,6 +1342,7 @@ static int readFunction( INOUT_PTR STREAM *stream,
 				  "Encountered more than %d RADIUS packets to comunicate "
 				  "one EAP packet", noPackets ) );
 		}
+	REQUIRES( !checkOverflowSub( maxLength, bufSize ) );
 	*length = maxLength - bufSize;
 
 	ENSURES( sanityCheckNetStreamEAP( netStream ) );

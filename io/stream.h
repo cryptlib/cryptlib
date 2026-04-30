@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					STREAM Class Constants and Structures					*
-*					  Copyright Peter Gutmann 1993-2020						*
+*					  Copyright Peter Gutmann 1993-2025						*
 *																			*
 ****************************************************************************/
 
@@ -205,8 +205,9 @@ typedef enum {
    defined in stdio.h instead of limits.h where it should be.  
    
    FILENAME_MAX isn't really correct since it's the maximum length of a 
-   filename rather than a path, but some environments treat it as if it 
-   were PATH_MAX and in any case it's the best that we can do in the absence 
+   filename rather than a path but some environments treat it as if it 
+   were PATH_MAX, for example embedded systems that don't support 
+   directories, and in any case it's the best that we can do in the absence 
    of anything better.
    
    The one exception to all of this is GNU Hurd, which explicitly doesn't
@@ -534,11 +535,12 @@ typedef struct {
 	int contentTypeLen;	
 
 	/* HTTP read/write control flags.  If the bufferResize flag is set then 
-	   the HTTP read code can dynamically resize the buffer in order to read 
-	   arbitrary-length input.  If the buffer was resized during the read 
-	   then the flag is returned set and the caller has to reset their read 
-	   buffer to { buffer, bufSize }.  If no resize took place then the flag 
-	   is returned cleared.
+	   the HTTP read code can dynamically resize the buffer up to 
+	   MAX_HTTP_DATASIZE (declared in io/http.h) in order to read longer-
+	   length input like giant CRLs.  If the buffer was resized during the 
+	   read then the flag is returned set and the caller has to reset their 
+	   read buffer to { buffer, bufSize }.  If no resize took place then the 
+	   flag is returned cleared.
 	   
 	   If the responseIsText flag is set then a text/plain response from the 
 	   server is valid.  Normally messages have application-specific message 
@@ -611,7 +613,7 @@ int swrite( INOUT_PTR STREAM *stream,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int sflush( INOUT_PTR STREAM *stream );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int sseek( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long position );
+int sseek( INOUT_PTR STREAM *stream, IN_LENGTH_Z const int position );
 CHECK_RETVAL_RANGE_NOERROR( 0, MAX_BUFFER_SIZE ) STDC_NONNULL_ARG( ( 1 ) ) \
 int stell( const STREAM *stream );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -630,14 +632,27 @@ int sioctlGet( INOUT_PTR STREAM *stream,
 			   IN_LENGTH_SHORT const int dataMaxLen );
 
 /* Nonstandard functions: Skip a number of bytes in a stream, peek at the
-   next value in the stream.  The sSkip() call applies a bounds check, the
-   define SSKIP_MAX can be used to denote the maximum length allowed */
+   next value in the stream.  The skip call comes in two variants, sSkip()
+   which moves ahead in the data in a stream, for example to skip an 
+   object of a known size, and sExtend() which extends the EOF point in the
+   stream.  This is used in combination with functions that write directly
+   into the stream buffer, for example when exporting a certificate, where
+   sExtend() has to then move the stream position past the deposited 
+   certificate.
+   
+   The sSkip() call applies a bounds check, the define SSKIP_MAX can be used 
+   to denote the maximum length allowed */
 
 #define SSKIP_MAX	( MAX_BUFFER_SIZE - 1 )
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int sSkip( INOUT_PTR STREAM *stream, const long offset, 
-		   IN_DATALENGTH const long maxOffset );
+int sSkip( INOUT_PTR STREAM *stream, 
+		   IN_DATALENGTH const int offset, 
+		   IN_DATALENGTH const int maxOffset );
+RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int sExtend( INOUT_PTR STREAM *stream, 
+			 IN_DATALENGTH const int offset, 
+			 IN_DATALENGTH const int maxOffset );
 CHECK_RETVAL_RANGE( 0, 0xFF ) STDC_NONNULL_ARG( ( 1 ) ) \
 int sPeek( INOUT_PTR STREAM *stream );
 

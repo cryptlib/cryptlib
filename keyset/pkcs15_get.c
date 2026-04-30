@@ -133,6 +133,7 @@ static int getTrustedCert( IN_ARRAY( noPkcs15objects ) \
 		/* Move on to the next certificate */
 		if( trustedCertIndex >= noPkcs15objects - 1 )
 			return( CRYPT_ERROR_NOTFOUND );
+		REQUIRES( !checkOverflowInc( trustedCertIndex ) );
 		trustedCertIndex++;	
 		}
 	ENSURES( rangeCheck( trustedCertIndex, 0, noPkcs15objects - 1 ) );
@@ -157,6 +158,7 @@ static int getTrustedCert( IN_ARRAY( noPkcs15objects ) \
 	certDataTotalSize = pkcs15infoPtr->certDataSize;
 
 	/* Return the data to the caller */
+	REQUIRES( !checkOverflowSub( certDataTotalSize, certStartOffset ) );
 	REQUIRES( boundsCheck( certStartOffset, 
 						   certDataTotalSize - certStartOffset,
 						   certDataTotalSize ) );
@@ -226,11 +228,13 @@ static int getConfigItem( IN_ARRAY( noPkcs15objects ) \
 	/* If it's just a length check, we're done */
 	if( data == NULL )
 		{
+		REQUIRES( !checkOverflowSub( dataTotalSize, dataStartOffset ) );
 		*dataLength = dataTotalSize - dataStartOffset;
 		return( CRYPT_OK );
 		}
 
 	/* Return the data to the caller */
+	REQUIRES( !checkOverflowSub( dataTotalSize, dataStartOffset ) );
 	REQUIRES( boundsCheck( dataStartOffset, 
 						   dataTotalSize - dataStartOffset,
 						   dataTotalSize ) );
@@ -549,6 +553,7 @@ static int getSpecialItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	if( dataType == CRYPT_IATTRIBUTE_TRUSTEDCERT || \
 		dataType == CRYPT_IATTRIBUTE_TRUSTEDCERT_NEXT )
 		{
+		ANALYSER_HINT( data != NULL );
 		return( getTrustedCert( pkcs15info, keysetInfoPtr->keyDataNoObjects, 
 								data, dataMaxLength, dataLength,
 								( dataType == CRYPT_IATTRIBUTE_TRUSTEDCERT ) ? \
@@ -657,6 +662,7 @@ static int getItem( INOUT_ARRAY( noPkcs15objects ) PKCS15_INFO *pkcs15info,
 	certDataTotalSize = pkcs15infoPtr->certDataSize;
 	tag = *certDataPtr;
 	*certDataPtr = BER_SEQUENCE;
+	REQUIRES( !checkOverflowSub( certDataTotalSize, certStartOffset ) );
 	REQUIRES( boundsCheck( certStartOffset, 
 						   certDataTotalSize - certStartOffset,
 						   certDataTotalSize ) );

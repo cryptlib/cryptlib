@@ -390,7 +390,7 @@ static int writePrivateKeyEccFunction( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 static int writePrivateKey25519Function( INOUT_PTR STREAM *stream, 
@@ -458,7 +458,44 @@ static int writePrivateKey25519Function( INOUT_PTR STREAM *stream,
 	
 	return( status );
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
+
+#if defined( USE_MLKEM )
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
+static int writePrivateKeyMlkemFunction( INOUT_PTR STREAM *stream, 
+											const CONTEXT_INFO *contextInfoPtr,
+										 IN_ENUM( KEYFORMAT ) \
+											const KEYFORMAT_TYPE formatType,
+										 IN_BUFFER( accessKeyLen ) \
+											const char *accessKey, 
+										 IN_LENGTH_FIXED( 11 ) \
+											const int accessKeyLen )
+	{
+	const PKC_INFO *pqcKey = contextInfoPtr->ctxPKC;
+	const CAPABILITY_INFO *capabilityInfoPtr = \
+								DATAPTR_GET( contextInfoPtr->capabilityInfo );
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+	assert( isReadPtrDynamic( accessKey, accessKeyLen ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( capabilityInfoPtr != NULL );
+	REQUIRES( contextInfoPtr->type == CONTEXT_PKC && \
+			  ( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_MLKEM ) );
+	REQUIRES( sanityCheckPKCInfo( pqcKey ) );
+	REQUIRES( isEnumRange( formatType, KEYFORMAT ) );
+	REQUIRES( accessKeyLen == 11 );
+
+	/* Make sure that we really intended to call this function */
+	if( accessKeyLen != 11 || memcmp( accessKey, "private_key", 11 ) || \
+		formatType != KEYFORMAT_PRIVATE )
+		retIntError();
+
+	return( CRYPT_ERROR_NOTAVAIL );
+	}
+#endif /* USE_MLKEM */
 #endif /* USE_INT_ASN1 */
 
 /****************************************************************************
@@ -493,7 +530,6 @@ void initPrivKeyWrite( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	CRYPT_ALGO_TYPE cryptAlgo;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -501,49 +537,64 @@ void initPrivKeyWrite( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	REQUIRES_V( contextInfoPtr->type == CONTEXT_PKC );
 	REQUIRES_V( capabilityInfoPtr != NULL );
 
-	cryptAlgo = capabilityInfoPtr->cryptAlgo;
-
 	/* Set the access method pointers */
-	if( isDlpAlgo( cryptAlgo ) )
+	switch( capabilityInfoPtr->cryptAlgo )
 		{
+		case CRYPT_ALGO_RSA:
 #ifdef USE_INT_ASN1
-		FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyDlpFunction );
-#else
-		FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyNullFunction );
-#endif /* USE_INT_ASN1 */
-
-		return;
-		}
-#if defined( USE_ECDH ) || defined( USE_ECDSA ) || \
-	defined( USE_25519 ) || defined( USE_ED25519 )
-	if( isEccAlgo( cryptAlgo ) )
-		{
-#if defined( USE_25519 ) || defined( USE_ED25519 )
-		if( isBernsteinAlgo( cryptAlgo ) )
-			{
-#ifdef USE_INT_ASN1
-			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKey25519Function );
+			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyRsaFunction );
 #else
 			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyNullFunction );
 #endif /* USE_INT_ASN1 */
-			return;
-			}
-#endif /* USE_25519 || USE_ED25519 */
+			break;
 
+		case CRYPT_ALGO_DH:
+#if defined( USE_DSA ) || defined( USE_ELGAMAL )
+		case CRYPT_ALGO_DSA:
+		case CRYPT_ALGO_ELGAMAL:
+#endif /* USE_DSA || USE_ELGAMAL */
 #ifdef USE_INT_ASN1
-		FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyEccFunction );
+			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyDlpFunction );
 #else
-		FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyNullFunction );
+			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyNullFunction );
 #endif /* USE_INT_ASN1 */
+			break;
 
-		return;
+#if defined( USE_ECDSA ) || defined( USE_ECDH )
+		case CRYPT_ALGO_ECDSA:
+		case CRYPT_ALGO_ECDH:
+  #ifdef USE_INT_ASN1
+			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyEccFunction );
+  #else
+			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyNullFunction );
+  #endif /* USE_INT_ASN1 */
+			break;
+#endif /* USE_ECDSA || USE_ECDH */
+
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
+		case CRYPT_ALGO_25519:
+		case CRYPT_ALGO_ED25519:
+  #ifdef USE_INT_ASN1
+			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKey25519Function );
+  #else
+			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyNullFunction );
+  #endif /* USE_INT_ASN1 */
+			break;
+#endif /* USE_X25519 || USE_ED25519 */
+
+#if defined( USE_MLKEM ) 
+		case CRYPT_ALGO_MLKEM:
+  #ifdef USE_INT_ASN1
+			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyMlkemFunction );
+  #else
+			FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyNullFunction );
+  #endif /* USE_INT_ASN1 */
+			break;
+#endif /* USE_MLKEM */
+
+		default:
+			retIntError_Void();
 		}
-#endif /* USE_ECDH || USE_ECDSA || USE_25519 || USE_ED25519 */
-#ifdef USE_INT_ASN1
-	FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyRsaFunction );
-#else
-	FNPTR_SET( pkcInfo->writePrivateKeyFunction, writePrivateKeyNullFunction );
-#endif /* USE_INT_ASN1 */
 	}
 #else
 

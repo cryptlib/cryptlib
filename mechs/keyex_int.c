@@ -254,10 +254,12 @@ int exportPublicKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
 					 INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	MECHANISM_WRAP_INFO mechanismInfo;
-	const WRITEKEYTRANS_FUNCTION writeKeytransFunction = getWriteKeytransFunction( keyexType );
+	const WRITEKEYTRANS_FUNCTION writeKeytransFunction = \
+									getWriteKeytransFunction( keyexType );
 	STREAM stream;
 	const BOOLEAN requiresSizeFixup = \
-				( ( keyexType == KEYEX_CMS || keyexType == KEYEX_CRYPTLIB ) && \
+				( ( keyexType == KEYEX_CMS || \
+					keyexType == KEYEX_CRYPTLIB ) && \
 				  ( encryptedKey != NULL ) ) ? TRUE : FALSE;
 	const BOOLEAN isOAEP = \
 				( keyexType == KEYEX_CMS_OAEP || \
@@ -328,12 +330,17 @@ int exportPublicKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
 		if( cryptStatusError( status ) )
 			return( status );
 		mechanismInfo.auxInfo = value;
+#if 0	/* Currently we always use SHA-256, since OAEP isn't used for 
+		   anything.  If it's necessary to use other variants then it'll
+		   require adding a new field, auxInfoParam, to MECHANISM_WRAP_INFO
+		   to support this */
 		status = krnlSendMessage( DEFAULTUSER_OBJECT_HANDLE, 
 								  IMESSAGE_GETATTRIBUTE, &value, 
 								  CRYPT_OPTION_ENCR_HASHPARAM );
 		if( cryptStatusError( status ) )
 			return( status );
-		/* mechanismInfo.auxInfoParam = value; */ 
+		mechanismInfo.auxInfoParam = value;
+#endif /* 0 */
 		}
 	status = krnlSendMessage( iExportContext, IMESSAGE_DEV_EXPORT,
 							  &mechanismInfo, 
@@ -372,6 +379,8 @@ int exportPublicKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
 		{
 		const int delta = exportKeySize - mechanismInfo.wrappedDataLength;
 
+		REQUIRES( !checkOverflowSub( exportKeySize, 
+									 mechanismInfo.wrappedDataLength ) );
 		REQUIRES( boundsCheck( delta, mechanismInfo.wrappedDataLength, 
 							   MAX_PKCENCRYPTED_SIZE ) );
 		memmove( ( BYTE * ) mechanismInfo.wrappedData + delta, 

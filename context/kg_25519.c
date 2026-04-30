@@ -21,7 +21,7 @@
 
 #define CURVE25519_SIZE		32
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 /****************************************************************************
 *																			*
@@ -75,13 +75,14 @@ static BOOLEAN checkMagnitude25519( IN_BUFFER( CURVE25519_SIZE ) \
 		LOOP_MED_REV( i = CURVE25519_SIZE - 1, \
 					  i > CURVE25519_SIZE - NO_CHECK_BYTES, i-- )
 			{
-			ENSURES( LOOP_INVARIANT_REV( i, CURVE25519_SIZE - ( NO_CHECK_BYTES - 1 ), 
-										 CURVE25519_SIZE - 1 ) );
+			ENSURES_EXT( \
+				LOOP_INVARIANT_REV( i, CURVE25519_SIZE - ( NO_CHECK_BYTES - 1 ), 
+									CURVE25519_SIZE - 1 ), TRUE );
 
 			if( value[ i ] != 0 )
 				return( TRUE );
 			}
-		ENSURES( LOOP_BOUND_MED_REV_OK );
+		ENSURES_EXT( LOOP_BOUND_MED_REV_OK, TRUE );
 	
 		return( FALSE );
 		}
@@ -101,13 +102,14 @@ static BOOLEAN checkMagnitude25519( IN_BUFFER( CURVE25519_SIZE ) \
 	LOOP_MED_REV( i = CURVE25519_SIZE - 2, \
 				  i > CURVE25519_SIZE - NO_CHECK_BYTES, i-- )
 		{
-		ENSURES( LOOP_INVARIANT_REV( i, CURVE25519_SIZE - ( NO_CHECK_BYTES - 1 ), 
-									 CURVE25519_SIZE - 2 ) );
+		ENSURES_EXT( \
+			LOOP_INVARIANT_REV( i, CURVE25519_SIZE - ( NO_CHECK_BYTES - 1 ), 
+								CURVE25519_SIZE - 2 ), TRUE );
 
 		if( value[ i ] != 0 )
 			return( TRUE );
 		}
-	ENSURES( LOOP_BOUND_MED_REV_OK );
+	ENSURES_EXT( LOOP_BOUND_MED_REV_OK, TRUE );
 	
 	return( FALSE );
 	}
@@ -272,7 +274,10 @@ static int ed25519SToPublic( INOUT_PTR PKC_INFO *pkcInfo,
 	/* If we're doing a consistency check that the public key can be derived
 	   from the private key, return the value to the caller */
 	if( returnedPubKey != NULL )
+		{
 		memcpy( returnedPubKey, pubKey, CURVE25519_SIZE );
+		status = CRYPT_OK;
+		}
 	else
 		{
 		/* We're setting up the public key, store the value in bignum storage */
@@ -488,9 +493,15 @@ static int checkCurve25519PrivateKey( INOUT_PTR PKC_INFO *pkcInfo,
 	zeroise( privKey, CURVE25519_SIZE );
 	zeroise( pubKey, CURVE25519_SIZE );
 
+	if( cryptStatusError( status ) )
+		{
+		DEBUG_DIAG(( "25519 private key is invalid" ));
+		return( CRYPT_ERROR_FAILED );
+		}
+
 	ENSURES( sanityCheckPKCInfo( pkcInfo ) );
 
-	return( status );
+	return( CRYPT_OK );
 	}
 
 /****************************************************************************
@@ -533,8 +544,7 @@ int generate25519Key( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	/* Checksum the bignums to try and detect fault attacks.  Since we're
 	   setting the checksum at this point there's no need to check the 
 	   return value */
-	( void ) checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo, 
-								  TRUE );
+	( void ) checksumContextData( pkcInfo, TRUE );
 
 	/* Make sure that the generated values are valid */
 	status = checkCurve25519PublicValue( pkcInfo,
@@ -549,8 +559,7 @@ int generate25519Key( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 
 	/* Make sure that what we generated is still valid */
 	if( cryptStatusError( \
-			checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo, 
-								 TRUE ) ) )
+			checksumContextData( pkcInfo, TRUE ) ) )
 		{
 		DEBUG_DIAG(( "Generated 25519 key memory corruption detected" ));
 		return( CRYPT_ERROR_FAILED );
@@ -643,7 +652,7 @@ int initCheck25519Key( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	   to be because the bignum values are read by the calling code from 
 	   their stored form a second time and compared to the values that we're 
 	   checksumming here */
-	( void ) checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo,
+	( void ) checksumContextData( pkcInfo, 
 								  ( isPrivateKey || generatedPrivateValue ) ? \
 								    TRUE : FALSE );
 
@@ -651,4 +660,4 @@ int initCheck25519Key( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 
 	return( CRYPT_OK );
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */

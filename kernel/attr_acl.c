@@ -599,9 +599,12 @@ static const int allowedPKCKeysizes[] = {
 #if defined( USE_ECDH ) || defined( USE_ECDSA )
 	sizeof( CRYPT_PKCINFO_ECC ), 
 #endif /* USE_ECDH || USE_ECDSA */
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 	sizeof( CRYPT_PKCINFO_DJB ), 
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
+#ifdef USE_MLKEM
+	sizeof( CRYPT_PKCINFO_PQC ),
+#endif /* USE_MLKEM */
 	CRYPT_ERROR, CRYPT_ERROR 
 	};
 static const int allowedKeyingAlgos[] = {
@@ -4103,7 +4106,7 @@ static const ATTRIBUTE_ACL internalACL[] = {
 		MKPERM_INT( RWx_RWx ),
 		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( 8, 8 ) ),
 #if !( defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	   defined( USE_25519 ) || defined( USE_ED25519 ) )
+	   defined( USE_X25519 ) || defined( USE_ED25519 ) )
 	MKACL_S_EX(	/* Ctx: SubjectPublicKeyInfo */
 		/* The attribute length values are only approximate because there's
 		   wrapper data involved, and (for the maximum length) several of
@@ -4188,7 +4191,7 @@ static const ATTRIBUTE_ACL internalACL[] = {
 		ST_CTX_PKC, ST_NONE, ST_NONE, 
 		MKPERM_INT_PGP( xxx_xWx ),
 		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( 10 + MIN_PKCSIZE_ECCPOINT_THRESHOLD, CRYPT_MAX_PKCSIZE * 3 ) ),
-#endif /* !( USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 ) */
+#endif /* !( USE_ECDSA || USE_ECDH || USE_X25519 || USE_ED25519 ) */
 #if !defined( USE_DH )
 	MKACL_N_EX(	/* DLP domain parameters */
 		CRYPT_IATTRIBUTE_KEY_DLPPARAM,
@@ -4215,7 +4218,7 @@ static const ATTRIBUTE_ACL internalACL[] = {
 		MKPERM_INT( Rxx_xWx ), ATTRIBUTE_FLAG_TRIGGER,
 		ROUTE( OBJECT_TYPE_CONTEXT ), RANGE( CRYPT_ECCCURVE_NONE + 1, CRYPT_ECCCURVE_LAST - 1 ) ),
 #endif /* !( USE_ECDH || USE_ECDSA ) */
-#if !defined( USE_25519 ) 
+#if !defined( USE_X25519 ) 
 	MKACL(		/* ECC implicit key */
 		CRYPT_IATTRIBUTE_KEY_IMPLICIT, ATTRIBUTE_VALUE_BOOLEAN,
 		ST_CTX_PKC, ST_NONE, ST_NONE,
@@ -4572,7 +4575,7 @@ static const ATTRIBUTE_ACL internalACL[] = {
 
 	/* User internal attributes */
 	MKACL_O(	/* User: Keyset to send trusted certs to */
-		CRYPT_IATTRUBUTE_CERTKEYSET,
+		CRYPT_IATTRIBUTE_CERTKEYSET,
 		ST_NONE, ST_NONE, ST_USER_ANY, 
 		MKPERM_INT( xWx_xxx ),
 		ROUTE( OBJECT_TYPE_USER ), &objectKeysetConfigdata ),
@@ -4884,7 +4887,7 @@ static BOOLEAN aclConsistent( const ATTRIBUTE_ACL *attributeACL,
 					  attributeACLPtr->valueType != ATTRIBUTE_VALUE_NONE,
 					  attributeACLPtr++ )
 				{
-				ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+				ENSURES_B( LOOP_INVARIANT_MED_GENERIC() );
 
 				if( !aclConsistent( attributeACLPtr, 
 #ifndef NDEBUG
@@ -4908,7 +4911,7 @@ static BOOLEAN aclConsistent( const ATTRIBUTE_ACL *attributeACL,
 					  attributeACLPtr->valueType != ATTRIBUTE_VALUE_NONE,
 					  attributeACLPtr++ )
 				{
-				ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+				ENSURES_B( LOOP_INVARIANT_MED_GENERIC() );
 
 				subTypes &= ~( attributeACLPtr->subTypeA | \
 							   attributeACLPtr->subTypeB | \

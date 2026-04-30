@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Session Scoreboard Header File					*
-*						Copyright Peter Gutmann 1998-2014					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -61,7 +61,7 @@ int lookupScoreboardEntry( INOUT_PTR struct SC *scoreboardIndexInfoPtr,
 						   IN_ENUM( SCOREBOARD_KEY ) \
 								const SCOREBOARD_KEY_TYPE keyType,
 						   IN_BUFFER( keyLength ) const void *key, 
-						   IN_LENGTH_SHORT_MIN( 2 ) const int keyLength, 
+						   IN_LENGTH_SHORT_MIN( 4 ) const int keyLength, 
 						   OUT_PTR SCOREBOARD_ENTRY_INFO *scoreboardInfo );
 #if defined( SCOREBOARD_KEY_MIN ) && ( SCOREBOARD_KEY_MIN != 4 )
   /* This is only visible inside session/scorebrd.c so we have to hardcode
@@ -79,16 +79,15 @@ int addScoreboardEntryEx( INOUT_PTR struct SC *scoreboardIndexInfoPtr,
 						  IN_BUFFER( keyLength ) const void *key, 
 						  IN_LENGTH_SHORT_MIN( 4 ) const int keyLength, 
 						  /* 4 = SCOREBOARD_KEY_MIN = MIN_SESSIONID_SIZE */
-						  IN_BUFFER( keyLength ) const void *altKey, 
+						  IN_BUFFER( altKeyLength ) const void *altKey, 
 						  IN_LENGTH_SHORT_MIN( 2 ) const int altKeyLength, 
 						  const SCOREBOARD_ENTRY_INFO *scoreboardInfo );
 STDC_NONNULL_ARG( ( 1 ) ) \
 void deleteScoreboardEntry( INOUT_PTR struct SC *scoreboardIndexInfoPtr, 
 							IN_INT_Z const int uniqueID );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int initScoreboard( INOUT_PTR struct SC *scoreboardIndexInfoPtr );
-STDC_NONNULL_ARG( ( 1 ) ) \
-void endScoreboard( INOUT_PTR struct SC *scoreboardIndexInfoPtr );
+CHECK_RETVAL \
+int initScoreboard( void );
+void endScoreboard( void );
 
 #else
 

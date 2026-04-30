@@ -409,6 +409,9 @@ static int processCertWrapper( INOUT_PTR STREAM *stream,
 	   encapsulation */
 	*objectOffset = stell( stream );
 	ENSURES( isShortIntegerRangeNZ( *objectOffset ) );
+	REQUIRES( !checkOverflowSub( *objectOffset, innerOffset ) );
+	REQUIRES( !checkOverflowSub( innerLength, 
+								 *objectOffset - innerOffset ) );
 	innerLength -= *objectOffset - innerOffset;
 	if( !isIntegerRangeMin( innerLength, MIN_CERTSIZE ) )
 		return( CRYPT_ERROR_BADDATA );

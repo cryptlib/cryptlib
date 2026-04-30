@@ -901,6 +901,7 @@ static int processICMP( IN_BUFFER( icmpPacketLength ) const BYTE *icmpPacket,
 
 		/* Make sure that we got enough data back for an ICMP reply */
 		if( headerLength < IP4_MIN_HEADERSIZE || \
+			checkOverflowSub( icmpPacketLength, ICMP_MIN_PACKETSIZE ) || \
 			headerLength > icmpPacketLength - ICMP_MIN_PACKETSIZE )
 			return( CRYPT_ERROR_BADDATA );
 

@@ -427,7 +427,8 @@ static int sizeofObjectIDs( const PKCS15_INFO *pkcs15infoPtr )
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int writeObjectIDs( INOUT_PTR STREAM *stream, 
 						   const PKCS15_INFO *pkcs15infoPtr,
-						   IN_LENGTH_SHORT_MIN( MIN_OBJECT_SIZE ) const int length, 
+						   IN_LENGTH_SHORT_MIN( MIN_P15_OBJECT_SIZE ) \
+								const int length, 
 						   IN_TAG const int tag )
 	{
 	int status;
@@ -435,7 +436,7 @@ static int writeObjectIDs( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( pkcs15infoPtr, sizeof( PKCS15_INFO ) ) );
 	
-	REQUIRES( isShortIntegerRangeMin( length, MIN_OBJECT_SIZE ) );
+	REQUIRES( isShortIntegerRangeMin( length, MIN_P15_OBJECT_SIZE ) );
 	REQUIRES( tag >= 0 && tag < MAX_TAG_VALUE );
 
 	writeConstructed( stream, length, tag );
@@ -576,7 +577,7 @@ int writeKeyAttributes( OUT_BUFFER( privKeyAttributeMaxLen, \
 		return( CRYPT_ERROR_PERMISSION );	/* No easy way to report this one */
 
 	/* Determine how big the private key attribute collections will be */
-	commonAttributeSize = ( int) sizeofObject( pkcs15infoPtr->labelLength );
+	commonAttributeSize = sizeofShortObject( pkcs15infoPtr->labelLength );
 	commonKeyAttributeSize = sizeofShortObject( pkcs15infoPtr->iDlength ) + \
 							 sizeofBitString( keyUsage ) + \
 							 sizeofBitString( KEYATTR_ACCESS_PRIVATE );
@@ -614,13 +615,13 @@ int writeKeyAttributes( OUT_BUFFER( privKeyAttributeMaxLen, \
 		   writeCertAttributes()), but only as subclass attributes for 
 		   private keys, and not at all for public keys.  Because of this we
 		   can only write them for private keys */
-		writeConstructed( &stream, sizeofObject( \
-									sizeofObject( keyIdentifierDataSize ) ), 
+		writeConstructed( &stream, sizeofShortObject( \
+									sizeofShortObject( keyIdentifierDataSize ) ), 
 						  CTAG_OB_SUBCLASSATTR );
-		writeSequence( &stream, sizeofObject( keyIdentifierDataSize ) );
+		writeSequence( &stream, sizeofShortObject( keyIdentifierDataSize ) );
 		status = writeObjectIDs( &stream, pkcs15infoPtr, 
 								 keyIdentifierDataSize, 
-								 CTAG_PK_IDENTIFIERS );
+								 CTAG_IA_IDENTIFIERS );
 		}
 	if( cryptStatusOK( status ) )
 		*privKeyAttributeSize = stell( &stream );

@@ -16,6 +16,9 @@
 
 #ifdef USE_MD5
 
+/* Obsolete algorithm, this is only present because it's required for 
+   TLS < 1.2 */
+
 #define HASH_STATE_SIZE		sizeof( MD5_CTX )
 
 /****************************************************************************

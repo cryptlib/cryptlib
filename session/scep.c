@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib SCEP Session Management					*
-*						Copyright Peter Gutmann 1999-2019					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -64,6 +64,8 @@ CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN sanityCheckSCEPProtocolInfo( IN_PTR \
 										const SCEP_PROTOCOL_INFO *protocolInfo )
 	{
+	assert( isReadPtr( protocolInfo, sizeof( SCEP_PROTOCOL_INFO ) ) );
+
 	/* Check session state information */
 	if( protocolInfo->transIDsize < 0 || \
 		protocolInfo->transIDsize > CRYPT_MAX_HASHSIZE || \
@@ -254,9 +256,14 @@ static int processUserName( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #endif /* USE_BASE64 */
 		if( cryptStatusOK( status ) )
 			{
-			status = addSessionInfoEx( sessionInfoPtr, CRYPT_SESSINFO_USERNAME, 
-									   transID, 16, CRYPT_MAX_TEXTSIZE,
-									   ATTR_FLAG_NONE );
+			/* Add the value as a fixed-length nonce.  This is done to 
+			   accommodate both options above which start with 16 bytes of
+			   data, if USE_BASE64 is defined then the encoding produces a 
+			   slightly longer encoded form that gets truncated, if it's not 
+			   defined then we get 16 bytes out from the 16 bytes in */
+			status = addSessionInfoEx( sessionInfoPtr, 
+									   CRYPT_SESSINFO_USERNAME, transID, 16, 
+									   CRYPT_MAX_TEXTSIZE, ATTR_FLAG_NONE );
 			}
 		if( cryptStatusError( status ) )
 			return( status );
@@ -486,12 +493,17 @@ int createScepAttributes( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* If we're the client, generate a new nonce */
 		setMessageData( &msgData, protocolInfo->nonce, SCEP_NONCE_SIZE );
-		krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_GETATTRIBUTE_S,
-						 &msgData, CRYPT_IATTRIBUTE_RANDOM_NONCE );
-		protocolInfo->nonceSize = SCEP_NONCE_SIZE;
-		status = krnlSendMessage( iCmsAttributes, IMESSAGE_SETATTRIBUTE_S,
-								  &msgData, 
-								  CRYPT_CERTINFO_SCEP_SENDERNONCE );
+		status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, 
+								  IMESSAGE_GETATTRIBUTE_S, &msgData, 
+								  CRYPT_IATTRIBUTE_RANDOM_NONCE );
+		if( cryptStatusOK( status ) )
+			{
+			protocolInfo->nonceSize = SCEP_NONCE_SIZE;
+			status = krnlSendMessage( iCmsAttributes, 
+									  IMESSAGE_SETATTRIBUTE_S,
+									  &msgData, 
+									  CRYPT_CERTINFO_SCEP_SENDERNONCE );
+			}
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -633,7 +645,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			retExt( CRYPT_ARGERROR_NUM1,
 					( CRYPT_ARGERROR_NUM1, SESSION_ERRINFO,
 					  "Request type %d isn't valid for SCEP", 
-					  CRYPT_REQUESTTYPE_KEYUPDATE ) );
+					  requestType ) );
 			}
 
 		/* For an initialisation request the private key must be a raw key
@@ -775,7 +787,10 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = processKeyFingerprint( sessionInfoPtr );
 		}
 	else
+		{
 		sessionInfoPtr->iCertRequest = cryptCert;
+		status = CRYPT_OK;
+		}
 
 	return( status );
 	}

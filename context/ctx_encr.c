@@ -57,7 +57,6 @@ static BOOLEAN checkContextStateData( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	if( contextInfoPtr->type == CONTEXT_PKC )
 		{
 		status = checksumContextData( contextInfoPtr->ctxPKC, 
-					capabilityInfoPtr->cryptAlgo, 
 					TEST_FLAG( contextInfoPtr->flags, 
 							   CONTEXT_FLAG_ISPUBLICKEY ) ? FALSE : TRUE );
 		}
@@ -266,69 +265,84 @@ static int encryptDataPKC( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					  FNPTR_GET( contextInfoPtr->encryptFunction );
 	REQUIRES( encryptFunction != NULL );
 
-	/* Key agreement algorithms are treated as a special case since they 
-	   don't actually encrypt the data */
-	if( isKeyexAlgo( capabilityInfoPtr->cryptAlgo ) )
+	/* Handle algorithm-specific encryption requirements */
+	switch( capabilityInfoPtr->cryptAlgo )
 		{
-		REQUIRES( dataLength == sizeof( KEYAGREE_PARAMS ) );
+		case CRYPT_ALGO_RSA:
+			REQUIRES( dataLength >= MIN_PKCSIZE && \
+					  dataLength <= CRYPT_MAX_PKCSIZE );
 
-		return( encryptFunction( contextInfoPtr, data, dataLength ) );
-		}
+			/* Save a copy of the plaintext, and encrypt it */
+			memcpy( savedData, data, ENCRYPT_CHECKSIZE );
+			status = encryptFunction( contextInfoPtr, data, dataLength );
+			if( cryptStatusError( status ) )
+				{
+				zeroise( savedData, ENCRYPT_CHECKSIZE );
+				return( status );
+				}
 
-	/* DLP algorithms have composite parameters and are handled differently 
-	   from standard algorithms.  Note that the keyex algorithms are also 
-	   DLP algorithms so the following check must follow the isKeyxAlgo() 
-	   check */
-	if( isDlpAlgo( capabilityInfoPtr->cryptAlgo ) || \
-		isEccAlgo( capabilityInfoPtr->cryptAlgo ) )
-		{
-		const DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) data;
+			/* Check for a catastrophic failure of the encryption */
+			if( !memcmp( savedData, data, ENCRYPT_CHECKSIZE ) )
+				status = CRYPT_ERROR_FAILED;
 
-		REQUIRES( dataLength == sizeof( DLP_PARAMS ) );
+			zeroise( savedData, ENCRYPT_CHECKSIZE );
+			return( status );
 
-		/* Save a copy of the plaintext, and encrypt it */
-		memcpy( savedData, dlpParams->inParam1, ENCRYPT_CHECKSIZE );
-		status = encryptFunction( contextInfoPtr, data, dataLength );
-		if( cryptStatusError( status ) )
+		case CRYPT_ALGO_DH:
+		case CRYPT_ALGO_ECDH:
+#ifdef USE_X25519
+		case CRYPT_ALGO_25519:
+#endif /* USE_X25519 */
+#ifdef USE_MLKEM
+		case CRYPT_ALGO_MLKEM:
+#endif /* USE_MLKEM */
+			/* Key agreement algorithms are a special case since they don't 
+			   actually encrypt the data.  ML-KEM is a special case in that
+			   although it's applied as a reverse-RSA the caller doesn't 
+			   control the secret being wrapped so it works like a keyex
+			   algorithm even though it's actually a key wrap */
+			REQUIRES( dataLength == sizeof( KEYAGREE_PARAMS ) );
+
+			return( encryptFunction( contextInfoPtr, data, dataLength ) );
+
+#ifdef USE_ELGAMAL
+		case CRYPT_ALGO_ELGAMAL:
 			{
+			/* DLP algorithms have composite parameters and are handled 
+			   differently from standard algorithms */
+			const DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) data;
+
+			REQUIRES( dataLength == sizeof( DLP_PARAMS ) );
+
+			/* Save a copy of the plaintext, and encrypt it */
+			memcpy( savedData, dlpParams->inParam1, ENCRYPT_CHECKSIZE );
+			status = encryptFunction( contextInfoPtr, data, dataLength );
+			if( cryptStatusError( status ) )
+				{
+				zeroise( savedData, ENCRYPT_CHECKSIZE );
+				return( status );
+				}
+
+			/* Check for a catastrophic failure of the encryption */
+			if( !memcmp( savedData, dlpParams->outParam, 
+						 ENCRYPT_CHECKSIZE ) )
+				status = CRYPT_ERROR_FAILED;
+
 			zeroise( savedData, ENCRYPT_CHECKSIZE );
 			return( status );
 			}
+#endif /* USE_ELGAMAL */
 
-		/* Check for a catastrophic failure of the encryption */
-		if( !memcmp( savedData, dlpParams->outParam, 
-					 ENCRYPT_CHECKSIZE ) )
-			status = CRYPT_ERROR_FAILED;
-
-		zeroise( savedData, ENCRYPT_CHECKSIZE );
-
-		return( status );
+		default:
+			retIntError();
 		}
 
-	REQUIRES( dataLength >= MIN_PKCSIZE && \
-			  dataLength <= CRYPT_MAX_PKCSIZE );
-
-	/* Save a copy of the plaintext, and encrypt it */
-	memcpy( savedData, data, ENCRYPT_CHECKSIZE );
-	status = encryptFunction( contextInfoPtr, data, dataLength );
-	if( cryptStatusError( status ) )
-		{
-		zeroise( savedData, ENCRYPT_CHECKSIZE );
-		return( status );
-		}
-
-	/* Check for a catastrophic failure of the encryption */
-	if( !memcmp( savedData, data, ENCRYPT_CHECKSIZE ) )
-		status = CRYPT_ERROR_FAILED;
-
-	zeroise( savedData, ENCRYPT_CHECKSIZE );
-
-	return( status );
+	retIntError();
 	}
 
 /****************************************************************************
 *																			*
-*								Encryption Data								*
+*								Encrypt Data								*
 *																			*
 ****************************************************************************/
 

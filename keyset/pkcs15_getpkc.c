@@ -214,6 +214,7 @@ int readPublicKeyComponents( IN_PTR const PKCS15_INFO *pkcs15infoPtr,
 
 		/* There's no certificate present, create the public-key context
 		   directly */
+		REQUIRES( !checkOverflowSub( pubKeyTotalSize, pubKeyStartOffset ) );
 		REQUIRES( boundsCheck( pubKeyStartOffset, 
 							   pubKeyTotalSize - pubKeyStartOffset,
 							   pubKeyTotalSize ) );
@@ -525,6 +526,7 @@ int readPrivateKeyComponents( IN_PTR const PKCS15_INFO *pkcs15infoPtr,
 	/* Skip the outer wrapper, version number, and header for the SET OF 
 	   EncryptionInfo, and query the exported key information to determine 
 	   the parameters required to reconstruct the decryption key */
+	REQUIRES( !checkOverflowSub( privKeyTotalSize, privKeyStartOffset ) );
 	REQUIRES( boundsCheck( privKeyStartOffset, 
 						   privKeyTotalSize - privKeyStartOffset,
 						   privKeyTotalSize ) );
@@ -627,7 +629,7 @@ int readPrivateKeyComponents( IN_PTR const PKCS15_INFO *pkcs15infoPtr,
 			}
 		if( cryptStatusOK( status ) && \
 			!isShortIntegerRangeMin( encryptedContentLength, 
-									 MIN_OBJECT_SIZE ) )
+									 MIN_P15_OBJECT_SIZE ) )
 			{
 			/* Too-small object */
 			status = CRYPT_ERROR_BADDATA;

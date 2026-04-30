@@ -91,6 +91,7 @@ static int hashToBignum( INOUT_PTR BIGNUM *bignum,
 	/* Shift out any extra bits */
 	if( hLen > qLen )
 		{
+		REQUIRES( !checkOverflowSub( hLen, qLen ) );
 		CK( BN_rshift( bignum, bignum, hLen - qLen ) );
 		if( bnStatusError( bnStatus ) )
 			return( getBnStatus( bnStatus ) );
@@ -386,7 +387,7 @@ static int selfTest( void )
 #else
 	/* Emulation of what the above code would do */
 	pkcInfo->dlpParam_g.d[ 8 ] ^= 0x0011;
-	status = checksumContextData( pkcInfo, CRYPT_ALGO_DSA, TRUE );
+	status = checksumContextData( pkcInfo, TRUE );
 	if( !cryptStatusError( status ) )
 		{
 		staticDestroyContext( &contextInfo );
@@ -734,7 +735,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		if( dsaKey->isPublicKey )
 			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPUBLICKEY );
 		else
-			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPRIVATEKEY );
+			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		status = importBignum( &pkcInfo->dlpParam_p, dsaKey->p, 
 							   bitsToBytes( dsaKey->pLen ),
 							   DLPPARAM_MIN_P, DLPPARAM_MAX_P, NULL, 

@@ -430,6 +430,8 @@ int getBlockListInfo( IN_PTR_OPT const void *currentBlockPtr,
 	assert( isReadPtr( address, sizeof( void * ) ) );
 	assert( isWritePtr( size, sizeof( int ) ) );
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+
 	/* Clear return values */
 	*address = NULL;
 	*size = 0;
@@ -463,6 +465,8 @@ static void touchAllocatedPages( void )
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 	LOOP_INDEX_PTR MEM_INFO_HEADER *memHdrPtr;
 	const int pageSize = getSysVar( SYSVAR_PAGESIZE );
+
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 
 	/* Lock the allocation object to ensure that other threads don't try to
 	   access them */
@@ -523,6 +527,8 @@ int initAllocation( void )
 
 	assert( isWritePtr( krnlData, sizeof( KERNEL_DATA ) ) );
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+
 	/* Clear the allocated block list head and tail pointers */
 	DATAPTR_SET( krnlData->allocatedListHead, NULL );
 	DATAPTR_SET( krnlData->allocatedListTail, NULL );
@@ -538,6 +544,8 @@ int initAllocation( void )
 void endAllocation( void )
 	{
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
+
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 
 	/* Destroy any data structures required to make the allocation thread-
 	   safe */
@@ -568,11 +576,13 @@ int krnlMemalloc( OUT_BUFFER_ALLOC_OPT( size ) void **pointer,
 	static_assert( MEM_INFO_HEADERSIZE >= sizeof( MEM_INFO_HEADER ), \
 				   "Memlock header size" );
 
-	/* Make sure that the parameters are in order */
-	if( !isWritePtr( pointer, sizeof( void * ) ) )
-		retIntError();
+	assert( isWritePtr( pointer, sizeof( void * ) ) );
 	
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( size >= MIN_ALLOC_SIZE && size <= MAX_ALLOC_SIZE );
+	REQUIRES( !checkOverflowRoundup( size, MEM_ROUNDSIZE ) );
+	REQUIRES( !checkOverflowAdd( alignedSize, MEM_INFO_HEADERSIZE + \
+											  MEM_INFO_TRAILERSIZE ) );
 
 	/* Clear return values */
 	*pointer = NULL;
@@ -657,11 +667,9 @@ int krnlMemfree( INOUT_PTR_PTR void **pointer )
 	int status;
 
 	assert( isReadPtr( pointer, sizeof( void * ) ) );
+	assert( isReadPtr( *pointer, MIN_ALLOC_SIZE ) );
 
-	/* Make sure that the parameters are in order */
-	if( !isReadPtr( pointer, sizeof( void * ) ) || \
-		!isReadPtr( *pointer, MIN_ALLOC_SIZE ) )
-		retIntError();
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 
 	/* Recover the actual allocated memory block data from the pointer */
 	memPtr = ( ( BYTE * ) *pointer ) - MEM_INFO_HEADERSIZE;

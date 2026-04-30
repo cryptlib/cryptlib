@@ -161,12 +161,12 @@ static int createStaticContext( OUT_PTR CONTEXT_INFO *staticContextInfo,
 			break;
 #endif /* USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 		case CRYPT_ALGO_25519:
 		case CRYPT_ALGO_ED25519:
 			readPublicKeyFunction = readPublicKey25519Function;
 			break;
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 
 		default:
 			retIntError();
@@ -401,6 +401,7 @@ static int calculateOpenPGPKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				  HASH_STATE_START );
 	hashFunction( hashInfo, hash, CRYPT_MAX_HASHSIZE, buffer, length, 
 				  HASH_STATE_END );
+	REQUIRES( !checkOverflowSub( hashSize, PGP_KEYID_SIZE ) );
 	memcpy( publicKey->openPgpKeyID, hash + hashSize - PGP_KEYID_SIZE, 
 			PGP_KEYID_SIZE );
 	sMemClose( &stream );
@@ -434,6 +435,7 @@ static int calculatePGPKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			return( status );
 		if( length > PGP_KEYID_SIZE )
 			{
+			REQUIRES( !checkOverflowSub( length, PGP_KEYID_SIZE ) );
 			memcpy( pkcInfo->pgp2KeyID, 
 					buffer + length - PGP_KEYID_SIZE, PGP_KEYID_SIZE );
 			SET_FLAG( contextInfoPtr->ctxPKC->flags, 

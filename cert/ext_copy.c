@@ -164,6 +164,7 @@ static int fixAttributeInfo( INOUT_PTR ATTRIBUTE_LIST *attributeListPtr,
 				return( OK_SPECIAL );
 				}
 
+			REQUIRES( !checkOverflowDec( attributeListPtr->intValue ) );
 			attributeListPtr->intValue--;
 			}
 		}

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Kernel Storage Regions							*
-*						Copyright Peter Gutmann 1997-2020					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -234,6 +234,43 @@ typedef BYTE HMAC_SHA2_STORAGE[ MAC_STORAGE( SHA2_MAC_STATE_SIZE ) ];
 *																			*
 ****************************************************************************/
 
+/* The fixed storage block statically allocates data items in adjacent 
+   memory locations, which means that we can use it like the safe buffer 
+   functions by placing canaries between the items.  This detects off-by-one 
+   array overruns and more general larger memory overwrites that eventually 
+   hit one of the canaries.
+
+   There are two types of data items in the fixed storage, a single 
+   structure like the kernel data and an array of items like the object 
+   table.  For the single structures we place a canary at the end of the 
+   structure, this is however unlikely to catch anything because it's not an 
+   array to run off the end of so at most it'll catch general corruption.  
+   For the arrays we over-allocate by two entries and overwrite the first 
+   over-allocated entry with canary data.
+
+   In terms of how to do the canaries, for the lesser-used array items like 
+   the socket pool, scoreboard, and configuration options we use larger 
+   canaries because they're rarely checked, because the fields of the 
+   structure stored in the array cover a considerable area so we can't just 
+   use a CANARY_SIZE_SHORT canary, and because the storage is free as it's 
+   part of the over-allocated array.
+
+   For the more frequently-used items like the kernel data and object table 
+   as well as single-structure items we use a quick-to-check/smaller
+   CANARY_SIZE_SHORT canary, this covers initial fields like the object type 
+   and optionally subtype which is sanity-checked so an attempt to write to 
+   a field past the canary, that wouldn't be detected by the canary check, 
+   will fail because the object won't pass its sanity check */
+
+#define CANARY_SIZE_SHORT	SAFEBUFFER_COOKIE_SIZE
+#define CANARY_SIZE			( 4 * SAFEBUFFER_COOKIE_SIZE )
+
+typedef BYTE STORAGE_CANARY_DATA[ CANARY_SIZE_SHORT ];
+
+static const BYTE canaryData[] = { 
+	SAFEBUFFER_COOKIE_DATA, SAFEBUFFER_COOKIE_DATA, 
+	SAFEBUFFER_COOKIE_DATA, SAFEBUFFER_COOKIE_DATA };
+
 /* cryptlib uses a preset amount of fixed storage for kernel data structures
    and built-in objects, which can be allocated statically at compile time
    rather than dynamically.  The following structure contains this fixed 
@@ -241,7 +278,7 @@ typedef BYTE HMAC_SHA2_STORAGE[ MAC_STORAGE( SHA2_MAC_STATE_SIZE ) ];
    fixed storage blocks that might be needed.  This is allocated in non-
    pageable storage if the underlying OS supports it, but the fact that it's 
    all co-located in a few constantly-accessed pages also greatly reduces 
-   its chances of being paged out anyway */
+   its chances of being paged out */
 
 #ifdef _MSC_VER
   #pragma warning( push )
@@ -251,32 +288,36 @@ typedef BYTE HMAC_SHA2_STORAGE[ MAC_STORAGE( SHA2_MAC_STATE_SIZE ) ];
 typedef struct {
 	/* The kernel data */
 	ALIGN_STRUCT_FIELD KERNEL_DATA krnlData;
+	const STORAGE_CANARY_DATA krnlDataCanary;
 
 	/* The object table */
-	ALIGN_STRUCT_FIELD OBJECT_INFO objectTable[ MAX_NO_OBJECTS ];
-
+	ALIGN_STRUCT_FIELD OBJECT_INFO objectTable[ MAX_NO_OBJECTS + 2 ];
+	
 	/* The randomness information */
 	ALIGN_STRUCT_FIELD RANDOM_INFO randomInfo;
+	const STORAGE_CANARY_DATA randomInfoCanary;
 
 	/* The certificate trust information */
 #ifdef USE_CERTIFICATES
 	ALIGN_STRUCT_FIELD TRUST_INFO_CONTAINER trustInfoContainer;	
+	const STORAGE_CANARY_DATA trustInfoContainerCanary;
 #endif /* USE_CERTIFICATES */
 
 	/* The network socket pool */
 #ifdef USE_TCP
-	ALIGN_STRUCT_FIELD SOCKET_INFO socketInfo[ SOCKETPOOL_SIZE ];
+	ALIGN_STRUCT_FIELD SOCKET_INFO socketInfo[ SOCKETPOOL_SIZE + 2 ];
 #endif /* USE_TCP */
 
 	/* The session scoreboard */
 #ifdef USE_TLS
 	ALIGN_STRUCT_FIELD SCOREBOARD_INFO scoreboardInfo;
+	const STORAGE_CANARY_DATA scoreboardInfoCanary;
 #endif /* USE_TLS */
 
 	/* The config option information.  This has a size defined by a complex
 	   preprocessor expression (it's not a fixed struct) so we allocate it
 	   as a byte array and let the caller manage it */
-	ALIGN_STRUCT_FIELD BYTE optionInfo[ OPTION_INFO_SIZE ];
+	ALIGN_STRUCT_FIELD OPTION_INFO optionInfo[ OPTION_INFO_COUNT + 2 ];
 
 	/* Object-specific storage.  We have to individually align each structure
 	   rather than just using 'X_STORAGE xStorage[ NO_ELEMENTS ]' because 
@@ -313,7 +354,21 @@ typedef struct {
 	BOOLEAN hmacSha2StorageUsed[ NO_HMAC_SHA2_CONTEXTS ];
 	} STORAGE_STRUCT;
 
-static STORAGE_STRUCT systemStorage;
+static STORAGE_STRUCT systemStorage = {
+	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* Kernel data */
+	{ 0 },									/* Object table */
+	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* Random info */
+#ifdef USE_CERTIFICATES
+	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* Trust info */
+#endif /* USE_CERTIFICATES */
+#ifdef USE_TCP
+	{ 0 },									/* Socket pool */
+#endif /* USE_TCP */
+#ifdef USE_TLS
+	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* Scoreboard */
+#endif /* USE_TLS */
+	{ 0 }									/* Option info */
+	};
 
 #ifdef _MSC_VER
   #pragma warning( pop )
@@ -330,7 +385,30 @@ static STORAGE_STRUCT systemStorage;
 void initBuiltinStorage( void )
 	{
 	( void ) lockMemory( &systemStorage, sizeof( STORAGE_STRUCT ) );
-	memset( &systemStorage, 0, sizeof( STORAGE_STRUCT ) );
+
+	/* Make sure that the canaries will fit into the array data fields.  
+	   The OBJECT_INFO is relatively large but for the smaller SOCKET_INFO 
+	   and OPTION_INFO items the canary covers both of the two over-
+	   allocated array entries */
+	static_assert( sizeof( OBJECT_INFO ) >= 32,
+				   "OBJECT_INFO is too small to fit the canary" );
+	static_assert( ( 2 * sizeof( SOCKET_INFO ) ) >= 32,
+				   "SOCKET_INFO is too small to fit the canary" );
+	static_assert( ( 2 * sizeof( OPTION_INFO ) ) >= 32,
+				   "OPTION_INFO is too small to fit the canary" );
+
+	/* Set up the canaries for the array data.  Note that we set the object
+	   table canary to the full-size value even though we only check the 
+	   short form to make sure that what's there is obviously invalid data 
+	   if it's ever read */
+	memcpy( &systemStorage.objectTable[ MAX_NO_OBJECTS ],
+			canaryData, CANARY_SIZE );
+#ifdef USE_TCP
+	memcpy( &systemStorage.socketInfo[ SOCKETPOOL_SIZE ],
+			canaryData, CANARY_SIZE );
+#endif /* USE_TCP */
+	memcpy( &systemStorage.optionInfo[ OPTION_INFO_COUNT ],
+			canaryData, CANARY_SIZE );
 
 	/* Some of the fields in structures within the built-in storage block
 	   need to be aligned to CPU-specific boundaries for CPUs that prefer
@@ -355,11 +433,38 @@ void initBuiltinStorage( void )
 	assert( ALIGN_FIELD_CHECK( &systemStorage.sha2Storage1 ) );
 	assert( ALIGN_FIELD_CHECK( &systemStorage.hmacSha2Storage0 ) );
 	assert( ALIGN_FIELD_CHECK( &systemStorage.hmacSha2Storage1 ) );
+
+	/* Check that the canaries are alive */
+	assert( !memcmp( systemStorage.krnlDataCanary, canaryData, 
+					 CANARY_SIZE_SHORT ) );
+	assert( !memcmp( &systemStorage.objectTable[ MAX_NO_OBJECTS ],
+					 canaryData, CANARY_SIZE ) );
+	assert( !memcmp( systemStorage.randomInfoCanary,
+					 canaryData, CANARY_SIZE_SHORT ) );
+#ifdef USE_CERTIFICATES
+	assert( !memcmp( systemStorage.trustInfoContainerCanary,
+					 canaryData, CANARY_SIZE_SHORT ) );
+#endif /* USE_CERTIFICATES */
+#ifdef USE_TCP
+	assert( !memcmp( &systemStorage.socketInfo[ SOCKETPOOL_SIZE ],
+					 canaryData, CANARY_SIZE ) );
+#endif /* USE_TCP */
+#ifdef USE_TLS
+	assert( !memcmp( systemStorage.scoreboardInfoCanary,
+					 canaryData, CANARY_SIZE_SHORT ) );
+#endif /* USE_TLS */
+	assert( !memcmp( &systemStorage.optionInfo[ OPTION_INFO_COUNT ],
+					 canaryData, CANARY_SIZE ) );
 	}
 
 void destroyBuiltinStorage( void )
 	{
-	memset( &systemStorage, 0, sizeof( STORAGE_STRUCT ) );
+	/* The following memory-clear can trigger warnings from code-analysis
+	   tools, there's no easy way around this because the struct contains a
+	   few const fields, these are required to be const because they should
+	   never be written but this does introduce enough const-ness to parts
+	   of the struct for tools to warn about it */
+	zeroise( &systemStorage, sizeof( STORAGE_STRUCT ) );
 	unlockMemory( &systemStorage, sizeof( STORAGE_STRUCT ), FALSE );
 	}
 
@@ -389,10 +494,10 @@ void clearKernelData( void )
 /* Access functions for the built-in storage, the first for kernel-internal 
    storage, the second for general storage */
 
-void *getSystemStorage( IN_ENUM( SYSTEM_STORAGE ) \
-							const SYSTEM_STORAGE_TYPE storageType )
+void *getSystemStorage( IN_ENUM( BUILTIN_STORAGE ) \
+							const BUILTIN_STORAGE_TYPE storageType )
 	{
-	REQUIRES_N( isEnumRange( storageType, SYSTEM_STORAGE ) );
+	REQUIRES_N( isEnumRange( storageType, BUILTIN_STORAGE ) );
 
 	switch( storageType )
 		{
@@ -442,6 +547,92 @@ void *getBuiltinStorage( IN_ENUM( BUILTIN_STORAGE ) \
 		}
 
 	retIntError_Null();
+	}
+
+/* Check the canary for a storage type, used after working with that storage
+   block to make sure that we haven't overrun the block */
+
+CHECK_RETVAL_BOOL \
+BOOLEAN checkBuiltinStorage( IN_ENUM( BUILTIN_STORAGE ) \
+								const BUILTIN_STORAGE_TYPE storageType )
+	{
+	REQUIRES_B( isEnumRange( storageType, BUILTIN_STORAGE ) );
+
+	switch( storageType )
+		{
+		case SYSTEM_STORAGE_KRNLDATA:
+			return( !memcmp( systemStorage.krnlDataCanary, canaryData,
+							 CANARY_SIZE_SHORT ) ? TRUE : FALSE );
+			#define NEXT_CANARY_NAME	systemStorage.krnlDataCanary
+
+		case SYSTEM_STORAGE_OBJECT_TABLE:
+			return( !memcmp( NEXT_CANARY_NAME, canaryData,
+							 CANARY_SIZE_SHORT ) && \
+					!memcmp( &systemStorage.objectTable[ MAX_NO_OBJECTS ],
+							 canaryData, CANARY_SIZE_SHORT ) ? \
+					TRUE : FALSE );
+			#undef NEXT_CANARY_NAME
+			#define NEXT_CANARY_NAME	&systemStorage.objectTable[ MAX_NO_OBJECTS ]
+
+		case BUILTIN_STORAGE_RANDOM_INFO:
+			return( !memcmp( NEXT_CANARY_NAME, canaryData,
+							 CANARY_SIZE_SHORT ) && \
+					!memcmp( systemStorage.randomInfoCanary,
+							 canaryData, CANARY_SIZE_SHORT ) ? \
+					TRUE : FALSE );
+			#undef NEXT_CANARY_NAME
+			#define NEXT_CANARY_NAME	systemStorage.randomInfoCanary
+			#define NEXT_CANARY_SIZE	CANARY_SIZE_SHORT
+			
+#ifdef USE_CERTIFICATES
+		case BUILTIN_STORAGE_TRUSTMGR:
+			return( !memcmp( NEXT_CANARY_NAME, canaryData,
+							 NEXT_CANARY_SIZE ) && \
+					!memcmp( systemStorage.trustInfoContainerCanary,
+							 canaryData, CANARY_SIZE_SHORT ) ? \
+					TRUE : FALSE );
+			#undef NEXT_CANARY_NAME
+			#define NEXT_CANARY_NAME	systemStorage.trustInfoContainerCanary
+#endif /* USE_CERTIFICATES */
+
+#ifdef USE_TCP
+		case BUILTIN_STORAGE_SOCKET_POOL:
+			return( !memcmp( NEXT_CANARY_NAME, canaryData,
+							 NEXT_CANARY_SIZE ) && \
+					!memcmp( &systemStorage.socketInfo[ SOCKETPOOL_SIZE ],
+							 canaryData, CANARY_SIZE ) ? \
+					TRUE : FALSE );
+			#undef NEXT_CANARY_NAME
+			#define NEXT_CANARY_NAME	&systemStorage.socketInfo[ SOCKETPOOL_SIZE ]
+			#undef NEXT_CANARY_SIZE
+			#define NEXT_CANARY_SIZE	CANARY_SIZE
+#endif /* USE_TCP */
+
+#ifdef USE_TLS
+		case BUILTIN_STORAGE_SCOREBOARD:
+			return( !memcmp( NEXT_CANARY_NAME, canaryData,
+							 NEXT_CANARY_SIZE ) && \
+					!memcmp( systemStorage.scoreboardInfoCanary,
+							 canaryData, CANARY_SIZE_SHORT ) ? \
+					TRUE : FALSE );
+			#undef NEXT_CANARY_NAME
+			#define NEXT_CANARY_NAME	systemStorage.scoreboardInfoCanary
+			#undef NEXT_CANARY_SIZE
+			#define NEXT_CANARY_SIZE	CANARY_SIZE_SHORT
+#endif /* USE_TLS */
+
+		case BUILTIN_STORAGE_OPTION_INFO:
+			return( !memcmp( NEXT_CANARY_NAME, canaryData,
+							 NEXT_CANARY_SIZE ) && \
+					!memcmp( &systemStorage.optionInfo[ OPTION_INFO_COUNT ],
+							 canaryData, CANARY_SIZE ) ? \
+					TRUE : FALSE );
+
+		default:
+			retIntError_Boolean();
+		}
+
+	retIntError_Boolean();
 	}
 
 /* Obtain and release context-specific storage from the built-in fixed 
@@ -762,10 +953,10 @@ int releaseBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 
 #ifndef NDEBUG
 
-int getSystemStorageSize( IN_ENUM( SYSTEM_STORAGE ) \
-								const SYSTEM_STORAGE_TYPE storageType )
+int getSystemStorageSize( IN_ENUM( BUILTIN_STORAGE ) \
+								const BUILTIN_STORAGE_TYPE storageType )
 	{
-	REQUIRES( isEnumRange( storageType, SYSTEM_STORAGE ) );
+	REQUIRES( isEnumRange( storageType, BUILTIN_STORAGE ) );
 
 	switch( storageType )
 		{
@@ -808,7 +999,7 @@ int getBuiltinStorageSize( IN_ENUM( BUILTIN_STORAGE ) \
 #endif /* USE_TLS */
 
 		case BUILTIN_STORAGE_OPTION_INFO:
-			return( OPTION_INFO_SIZE );
+			return( OPTION_INFO_COUNT * sizeof( OPTION_INFO ) );
 		
 		default:
 			retIntError();

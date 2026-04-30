@@ -54,7 +54,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int generatePKCcomponents( INOUT_PTR CONTEXT_INFO *contextInfoPtr, 
 						   OUT_PTR void *keyInfo, 
 						   IN_LENGTH_PKC_BITS const int keySizeBits );
-#endif /* !CONFIG_CRYPTO_HW1 && !CONFIG_CRYPTO_HW1 */
+#endif /* !CONFIG_CRYPTO_HW1 && !CONFIG_CRYPTO_HW2 */
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int getPKCinfo( const CONTEXT_INFO *contextInfoPtr, 
 				OUT_PTR void *keyInfo );

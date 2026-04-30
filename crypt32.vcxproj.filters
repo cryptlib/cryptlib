@@ -107,15 +107,7 @@
     </Object>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="crypt32.rc">
-      <Filter>Resource Files</Filter>
-    </ResourceCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="crypt32.ico">
-      <Filter>Resource Files</Filter>
-    </None>
-    <None Include="crypt32.def">
+    <None Include="cryptlib.def">
       <Filter>Source Files\Misc</Filter>
     </None>
   </ItemGroup>
@@ -1116,6 +1108,42 @@
     <ClCompile Include="kernel\sync.c">
       <Filter>Source Files\Kernel</Filter>
     </ClCompile>
+    <ClCompile Include="crypt\compress.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="crypt\fips202.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="crypt\fips202x4.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="crypt\indcpa.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="crypt\kem.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="crypt\poly.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="crypt\poly_k.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="crypt\sampling.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="crypt\verify.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="context\ctx_mlkem.c">
+      <Filter>Source Files\Contexts</Filter>
+    </ClCompile>
+    <ClCompile Include="crypt\keccakf1600.c">
+      <Filter>Source Files\Crypt/Hash Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="session\tls_keyex.c">
+      <Filter>Source Files\Sessions - TLS</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cert\trustmgr.h">
@@ -1346,5 +1374,24 @@
     <ClInclude Include="session\tls.h">
       <Filter>Header Files\Sessions - Headers</Filter>
     </ClInclude>
+    <ClInclude Include="crypt\common.h">
+      <Filter>Header Files\Crypt - Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="crypt\indcpa.h">
+      <Filter>Header Files\Crypt - Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="crypt\kem.h">
+      <Filter>Header Files\Crypt - Headers</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="cryptlib.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="cryptlib.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
 </Project>

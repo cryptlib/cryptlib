@@ -280,7 +280,11 @@ void sMemConnect( OUT_PTR STREAM *stream,
 	assert( isReadPtrDynamic( buffer, length ) );
 
 	/* Initialise the memory stream.  We don't use a REQUIRES() predicate 
-	   for the reasons given in the comments in initMemoryStream() */
+	   for the reasons given in the comments in initMemoryStream().  
+	   
+	   Since the stream buffer is a 'BYTE *' for streams that are writeable
+	   we have to cast away the const when we assign the pointer to avoid
+	   compiler complaints */
 	status = initMemoryStream( stream, FALSE );
 	ENSURES_V( cryptStatusOK( status ) );
 	status = checkMemoryStreamParams( stream, buffer, length );
@@ -296,6 +300,10 @@ void sMemConnect( OUT_PTR STREAM *stream,
 	}
 
 #ifndef CONFIG_CONSERVE_MEMORY_EXTRA
+
+/* This function is usually used for fuzzing as an updateable read-only
+   memory stream, but also in misc/int_api.c:testIntAPI() to test the
+   text read-line function */
 
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
 void sMemPseudoConnect( OUT_PTR STREAM *stream, 
@@ -368,7 +376,7 @@ static int getMemoryBlock( INOUT_PTR STREAM *stream,
 	   the request.  We check against bufSize rather than bufEnd since the
 	   caller may be asking for access to all remaining data space in the 
 	   stream rather than just all data read/written so far */
-	if( position + length < 0 || \
+	if( checkOverflowAdd( position, length ) || \
 		position + length > stream->bufSize )
 		return( sSetError( stream, CRYPT_ERROR_UNDERFLOW ) );
 
@@ -404,6 +412,7 @@ int sMemDataLeft( const STREAM *stream )
 	if( cryptStatusError( stream->status ) )
 		return( 0 );
 
+	REQUIRES_EXT( !checkOverflowSub( stream->bufSize, stream->bufPos ), 0 );
 	return( stream->bufSize - stream->bufPos );
 	}
 

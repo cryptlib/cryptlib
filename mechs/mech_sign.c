@@ -84,11 +84,12 @@ static int readRawObject( INOUT_PTR STREAM *stream,
 	if( length <= 0 || length > 0x7F )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	buffer[ offset++ ] = intToByte( length );
+	REQUIRES( !checkOverflowAdd( offset, length ) );
 	if( offset + length > bufferMaxLength )
 		return( sSetError( stream, CRYPT_ERROR_OVERFLOW ) );
 
 	/* Read in the rest of the data */
-	*bufferLength = offset + length;
+	*bufferLength = offset + length;	/* Checked earlier */
 	REQUIRES_S( boundsCheck( offset, length, bufferMaxLength ) );
 	return( sread( stream, buffer + offset, length ) );
 	}
@@ -196,11 +197,11 @@ static int readMessageDigest( INOUT_PTR STREAM *stream,
 	*hashSize = 0;
 
 	/* As used here this function doesn't actually read the message digest 
-	   but is merely used as a check for corrupted recovered signature data
-	   in order to return a CRYPT_ERROR_BADDATA rather than a generic 
-	   CRYPT_ERROR_SIGNATURE.  Because of this we don't need to emulate a 
-	   lot of asn1_rd.c code but can just perform a minimal check that things
-	   look OK:
+	   but is merely used in an encode-then-memcmp() process as a check for 
+	   corrupted recovered signature data in order to return a 
+	   CRYPT_ERROR_BADDATA rather than a generic CRYPT_ERROR_SIGNATURE.  
+	   Because of this we don't need to emulate a lot of asn1_rd.c code but 
+	   can just perform a minimal check that things look OK:
 
 		SEQUENCE {
 			SEQUENCE {
@@ -242,6 +243,7 @@ static int writeMessageDigest( INOUT_PTR STREAM *stream,
 
 	REQUIRES_S( isHashAlgo( hashAlgo ) );
 	REQUIRES_S( hashSize >= MIN_HASHSIZE && hashSize <= CRYPT_MAX_HASHSIZE );
+	ENSURES_S( oid != NULL );
 
 	/* writeSequence() */
 	writeHeader( stream, BER_SEQUENCE, 
@@ -301,6 +303,7 @@ static int encodePKCS1( INOUT_PTR STREAM *stream,
 	ENSURES( !cryptStatusError( status ) );
 	sputc( stream, 0 );
 	sputc( stream, 1 );
+	REQUIRES( !checkOverflowSub( length, payloadSize + 3 ) );
 	LOOP_EXT( i = 0, i < length - ( payloadSize + 3 ), i++,
 			  CRYPT_MAX_PKCSIZE )
 		{
@@ -334,12 +337,16 @@ static int decodePKCS1( INOUT_PTR STREAM *stream,
 	   truncates the RSA data, which would remove the leading zero from the 
 	   PKCS #1 padding and produce a CRYPT_ERROR_BADDATA error.  It's the 
 	   responsibility of the lower-level crypto layer to reformat the data 
-	   to return a correctly-formatted result if necessary */
+	   to return a correctly-formatted result if necessary.
+	   
+	   A PKCS #1 signature is a public value so there's no need to use any
+	   constant-time tricks in the following */
 	if( sgetc( stream ) != 0 || sgetc( stream ) != 1 )
 		{
 		/* No [ 0 ][ 1 ] at start */
 		return( CRYPT_ERROR_BADDATA );
 		}
+	REQUIRES( !checkOverflowSub( length, MIN_HASHSIZE ) );
 	LOOP_EXT( ( i = 2, ch = 0xFF ), 
 			  ( i < length - MIN_HASHSIZE ) && ( ch == 0xFF ), 
 			  i++, CRYPT_MAX_PKCSIZE + 1 )
@@ -353,7 +360,7 @@ static int decodePKCS1( INOUT_PTR STREAM *stream,
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( ch != 0 || i < getMinPadBytes( length ) || \
-		i >= length - MIN_HASHSIZE )
+		i >= length - MIN_HASHSIZE )	/* Checked earlier */
 		{
 		/* No [ 0 ] at end or insufficient/excessive 0xFF padding */
 		return( CRYPT_ERROR_BADDATA );
@@ -447,13 +454,7 @@ static int compareHashInfo( INOUT_PTR STREAM *stream,
 
 /* Make sure that the recovered signature data matches the data that we 
    originally signed, performed as a pairwise consistency check on the 
-   private-key signing operation.
-
-   Note that this check doesn't work for EdDSA because of braindamage in the
-   way it works, see among others section 9.1 of "Attacking Deterministic 
-   Signature Schemes Using Fault Attacks" by Poddebniak, Somorovsky, 
-   Schinzel, Lochter and Rösler, and "Ed25519 leaks private key if public 
-   key is incorrect", https://github.com/jedisct1/libsodium/issues/170/ */
+   private-key signing operation */
 
 static int checkRecoveredSignature( IN_HANDLE const CRYPT_CONTEXT iSignContext,
 									IN_BUFFER( preSigDataLen ) \
@@ -624,6 +625,7 @@ static int sign( INOUT_PTR MECHANISM_SIGN_INFO *mechanismInfo,
 				[ 0 ][ 1 ][ 0xFF padding ][ 0 ][ MD5 hash ][ SHA1 hash ] */
 			sputc( &stream, 0 );
 			sputc( &stream, 1 );
+			REQUIRES( !checkOverflowSub( length, hashSize + hashSize2 + 3 ) );
 			LOOP_EXT( i = 0, i < length - ( hashSize + hashSize2 + 3 ), i++,
 					  CRYPT_MAX_PKCSIZE )
 				{
@@ -938,8 +940,12 @@ static int getKeysizeBits( const CRYPT_CONTEXT iCryptContext )
 	readSequence( &stream, NULL );		/* SEQUENCE { */
 	readUniversal( &stream );				/* AlgoID */
 	readBitStringHole( &stream, NULL, 64, DEFAULT_TAG );/* BIT STRING */
-	readSequence( &stream, NULL );				/* SEQUENCE { */
-	status = readInteger( &stream, nBuffer, CRYPT_MAX_PKCSIZE, &nLength );
+	status = readSequence( &stream, NULL );	/* SEQUENCE { */
+	if( cryptStatusOK( status ) )
+		{
+		status = readInteger( &stream, nBuffer, CRYPT_MAX_PKCSIZE, 
+							  &nLength );
+		}
 	sMemDisconnect( &stream );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -968,12 +974,40 @@ static int getKeysizeBits( const CRYPT_CONTEXT iCryptContext )
 		ENSURES( LOOP_BOUND_OK );
 		}
 
+	REQUIRES( !checkOverflowSub( nLength * 8, bitCount ) );
 	return( ( nLength * 8 ) - bitCount );
 	}
 
-#define trimLeadingBits( data, dataLenBytes, pkcSizeBits ) \
-		data[ 0 ] &= 0xFF >> ( ( bytesToBits( dataLenBytes ) + 1 ) - ( pkcSizeBits ) )
+CHECK_RETVAL \
+static int trimLeadingBits( INOUT_BYTE BYTE *leadingByte, 
+							IN_LENGTH_PKC const int dataLenBytes, 
+							IN_RANGE( bytesToBits( MIN_PKCSIZE ),
+									  bytesToBits( CRYPT_MAX_PKCSIZE ) ) \
+								const int pkcSizeBits )
+	{
+	const int shiftAmount = \
+				( bytesToBits( dataLenBytes ) + 1 ) - pkcSizeBits;
+	
+	assert( isWritePtr( leadingByte, sizeof( BYTE ) ) );
 
+	REQUIRES( dataLenBytes >= MIN_PKCSIZE && \
+			  dataLenBytes <= CRYPT_MAX_PKCSIZE );
+	REQUIRES( pkcSizeBits >= bytesToBits( MIN_PKCSIZE ) && \
+			  pkcSizeBits <= bytesToBits( CRYPT_MAX_PKCSIZE ) );
+
+	REQUIRES( !checkOverflowSub( bytesToBits( dataLenBytes ) + 1, \
+								 pkcSizeBits ) );
+	if( shiftAmount <= 0 )
+		return( CRYPT_OK );		/* No-op */
+	if( shiftAmount > 8 )
+		{
+		*leadingByte = 0;
+		return( CRYPT_OK );
+		}
+	*leadingByte &= 0xFF >> shiftAmount;
+	return( CRYPT_OK );
+	}
+	
 /* Generate the mHash value by hashing '0x00 x 8 || hash || salt' */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4, 6 ) ) \
@@ -1105,7 +1139,9 @@ static int generatePssDataBlock( OUT_BUFFER_FIXED( dataMaxLen ) BYTE *data,
 
 	/* Calculate the size and position of the various data quantities */
 	db = data;
+	REQUIRES( !checkOverflowSub( dataMaxLen, hashSize + 1 ) );
 	dbLen = dataMaxLen - ( hashSize + 1 );
+	REQUIRES( !checkOverflowSub( dbLen, saltLen ) );
 	dbSaltPos = dbLen - saltLen;
 
 	ENSURES( dbSaltPos > 16 && \
@@ -1139,7 +1175,8 @@ static int generatePssDataBlock( OUT_BUFFER_FIXED( dataMaxLen ) BYTE *data,
 	data[ dbLen + hashSize ] = 0xBC;
 
 	/* Trim the data block down to size */
-	trimLeadingBits( data, dataMaxLen, pkcSizeBits );
+	status = trimLeadingBits( data, dataMaxLen, pkcSizeBits );
+	ENSURES( cryptStatusOK( status ) );	/* Can only be an internal error */
 
 	zeroise( mHash, CRYPT_MAX_HASHSIZE );
 	zeroise( dbMask, CRYPT_MAX_PKCSIZE );
@@ -1197,7 +1234,9 @@ static int recoverPssDataBlock( OUT_BUFFER( mHashMaxLen, *mHashLen ) \
 	memset( db, 0, CRYPT_MAX_PKCSIZE );
 
 	/* Calculate the size and position of the various data quantities */
+	REQUIRES( !checkOverflowSub( dataLen, hashSize + 1 ) );
 	dbLen = dataLen - ( hashSize + 1 );
+	REQUIRES( !checkOverflowSub( dbLen, hashSize ) );
 	padLen = dbLen - hashSize;
 
 	ENSURES( dbLen + hashSize + 1 == dataLen );
@@ -1222,7 +1261,8 @@ static int recoverPssDataBlock( OUT_BUFFER( mHashMaxLen, *mHashLen ) \
 	ENSURES( LOOP_BOUND_OK );
 
 	/* Trim the data block down to size */
-	trimLeadingBits( db, dataLen, pkcSizeBits );
+	status = trimLeadingBits( db, dataLen, pkcSizeBits );
+	ENSURES( cryptStatusOK( status ) );	/* Can only be an internal error */
 
 	/* The block is now: 
 
@@ -1255,14 +1295,14 @@ int signPSS( STDC_UNUSED void *dummy,
 	{
 	CRYPT_ALGO_TYPE hashAlgo DUMMY_INIT;
 	MESSAGE_DATA msgData;
-	BYTE hash[ CRYPT_MAX_HASHSIZE ], salt[ CRYPT_MAX_HASHSIZE + 8 ];
+	BYTE hash[ CRYPT_MAX_HASHSIZE + 8 ], salt[ CRYPT_MAX_HASHSIZE + 8 ];
 	BYTE preSigData[ CRYPT_MAX_PKCSIZE + 8 ];
 	BOOLEAN_INT sideChannelProtectionLevel DUMMY_INIT;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 	int length, keySizeBits DUMMY_INIT, hashSize, status;
 
 	UNUSED_ARG_OPT( dummy );
-	assert( isWritePtr( mechanismInfo, sizeof( MECHANISM_WRAP_INFO ) ) );
+	assert( isWritePtr( mechanismInfo, sizeof( MECHANISM_SIGN_INFO ) ) );
 
 	/* Clear return value */
 	if( mechanismInfo->signature != NULL )
@@ -1454,6 +1494,7 @@ int sigcheckPSS( STDC_UNUSED void *dummy,
 		}
 	CFI_CHECK_UPDATE( "recoverPssDataBlock" );
 	if( mHashLength != hashSize || \
+		checkOverflowSub( length, hashSize + 1 ) || \
 		compareDataConstTime( decryptedSignature + length - ( hashSize + 1 ), 
 							   mHash, mHashLength ) != TRUE )
 		{
@@ -1503,6 +1544,11 @@ typedef enum {
 #endif /* USE_PSS */
 	TEST_LAST				/* Last possible manipulation type */
 	} TEST_TYPE;
+
+typedef struct TI {
+	const TEST_TYPE testType;
+	const int testResult;
+	} TEST_INFO;
 
 static void manipulateDataBlock( INOUT_BUFFER_FIXED( length ) BYTE *buffer,
 								 IN_LENGTH_PKC const int length,
@@ -1774,6 +1820,26 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int signSelftest( STDC_UNUSED void *dummy, 
 				  STDC_UNUSED MECHANISM_SIGN_INFO *mechanismInfo )
 	{
+	static const TEST_INFO pkcs1testInfo[] = {
+		{ TEST_CORRUPT_START, CRYPT_ERROR_BADDATA },
+		{ TEST_CORRUPT_BLOCKTYPE, CRYPT_ERROR_BADDATA },
+		{ TEST_CORRUPT_PADDING, CRYPT_ERROR_BADDATA },
+		{ TEST_CORRUPT_END, CRYPT_ERROR_BADDATA },
+		{ TEST_CORRUPT_OID, CRYPT_ERROR_NOTAVAIL },
+		{ TEST_CORRUPT_HASH, CRYPT_ERROR_SIGNATURE },
+			{ TEST_NONE }, { TEST_NONE }
+		};
+#ifdef USE_PSS
+	static const TEST_INFO pssTestInfo[] = {
+		{ TEST_CORRUPT_START, CRYPT_ERROR_BADDATA },
+		{ TEST_CORRUPT_MASKEDDB, CRYPT_ERROR_BADDATA },
+		{ TEST_CORRUPT_MHASH, CRYPT_ERROR_BADDATA },
+		{ TEST_CORRUPT_BC, CRYPT_ERROR_BADDATA },
+		{ TEST_CORRUPT_SALT, CRYPT_ERROR_SIGNATURE },
+			{ TEST_NONE }, { TEST_NONE }
+		};
+#endif /* USE_PSS */
+	LOOP_INDEX i;
 	int status;
 
 	UNUSED_ARG_OPT( dummy );
@@ -1786,27 +1852,26 @@ int signSelftest( STDC_UNUSED void *dummy,
 					  "mechanism failed.\n" ));
 		return( status );
 		}
-	status = testPKCS1( TEST_CORRUPT_START );
-	if( status == CRYPT_ERROR_BADDATA )
-		status = testPKCS1( TEST_CORRUPT_BLOCKTYPE );
-	if( status == CRYPT_ERROR_BADDATA )
-		status = testPKCS1( TEST_CORRUPT_PADDING );
-	if( status == CRYPT_ERROR_BADDATA )
-		status = testPKCS1( TEST_CORRUPT_END );
-	if( status == CRYPT_ERROR_BADDATA )
-		status = testPKCS1( TEST_CORRUPT_OID );
-	else
-		status = CRYPT_OK;	/* Force following tests to fail */
-	if( status == CRYPT_ERROR_NOTAVAIL )
-		status = testPKCS1( TEST_CORRUPT_HASH );
-	else
-		status = CRYPT_OK;	/* Force following tests to fail */
-	if( status != CRYPT_ERROR_SIGNATURE )
+	LOOP_SMALL( i = 0, 
+				i < FAILSAFE_ARRAYSIZE( pkcs1testInfo, TEST_INFO ) && \
+					pkcs1testInfo[ i ].testType != TEST_NONE,
+				i++ )
 		{
-		DEBUG_PRINT(( "Data corruption self-test for PKCS1 sig/sigcheck "
-					  "mechanism failed.\n" ));
-		return( status );
+		ENSURES( LOOP_INVARIANT_SMALL( i, 0, 
+									   FAILSAFE_ARRAYSIZE( pkcs1testInfo, \
+														   TEST_INFO ) - 1 ) );
+
+		status = testPKCS1( pkcs1testInfo[ i ].testType );
+		if( status != pkcs1testInfo[ i ].testResult )
+			{
+			DEBUG_PRINT(( "Data corruption self-test %d for PKCS1 "
+						  "sig/sigcheck mechanism failed, got %d, should "
+						  "have been %d.\n", i, status, 
+						  pkcs1testInfo[ i ].testResult ));
+			return( status );
+			}
 		}
+	ENSURES( LOOP_BOUND_OK );
 #ifdef USE_PSS
 	status = testPSS( TEST_NORMAL );
 	if( cryptStatusError( status ) )
@@ -1815,23 +1880,26 @@ int signSelftest( STDC_UNUSED void *dummy,
 					  "mechanism failed.\n" ));
 		return( status );
 		}
-	status = testPSS( TEST_CORRUPT_START );
-	if( status == CRYPT_ERROR_BADDATA )
-		status = testPSS( TEST_CORRUPT_MASKEDDB );
-	if( status == CRYPT_ERROR_BADDATA )
-		status = testPSS( TEST_CORRUPT_MHASH );
-	if( status == CRYPT_ERROR_BADDATA )
-		status = testPSS( TEST_CORRUPT_BC );
-	if( status == CRYPT_ERROR_BADDATA )
-		status = testPSS( TEST_CORRUPT_SALT );
-	else
-		status = CRYPT_OK;	/* Force following tests to fail */
-	if( status != CRYPT_ERROR_SIGNATURE )
+	LOOP_SMALL( i = 0, 
+				i < FAILSAFE_ARRAYSIZE( pssTestInfo, TEST_INFO ) && \
+					pssTestInfo[ i ].testType != TEST_NONE,
+				i++ )
 		{
-		DEBUG_PRINT(( "Data corruption self-test for PSS sig/sigcheck "
-					  "mechanism failed.\n" ));
-		return( status );
+		ENSURES( LOOP_INVARIANT_SMALL( i, 0, 
+									   FAILSAFE_ARRAYSIZE( pssTestInfo, \
+														   TEST_INFO ) - 1 ) );
+
+		status = testPSS( pssTestInfo[ i ].testType );
+		if( status != pssTestInfo[ i ].testResult )
+			{
+			DEBUG_PRINT(( "Data corruption self-test %d for PSS "
+						  "sig/sigcheck mechanism failed, got %d, should "
+						  "have been %d.\n", i, status, 
+						  pssTestInfo[ i ].testResult ));
+			return( status );
+			}
 		}
+	ENSURES( LOOP_BOUND_OK );
 #endif /* USE_PSS */
 
 	return( CRYPT_OK );

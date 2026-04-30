@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib OS-specific Support Routines					*
-*					  Copyright Peter Gutmann 1992-2020						*
+*					  Copyright Peter Gutmann 1992-2024						*
 *																			*
 ****************************************************************************/
 
@@ -239,6 +239,7 @@ static const BYTE ebcdicToAsciiTbl[] = {
 
 /* Convert a string to/from EBCDIC */
 
+RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int asciiToEbcdic( char *dest, const char *src, const int length )
 	{
 	LOOP_INDEX i;
@@ -253,9 +254,11 @@ int asciiToEbcdic( char *dest, const char *src, const int length )
 		dest[ i ] = asciiToEbcdicTbl[ ( unsigned int ) src[ i ] ];
 		}
 	ENSURES( LOOP_BOUND_OK );
+
 	return( CRYPT_OK );
 	}
 
+RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int ebcdicToAscii( char *dest, const char *src, const int length )
 	{
 	LOOP_INDEX i;
@@ -270,6 +273,7 @@ int ebcdicToAscii( char *dest, const char *src, const int length )
 		dest[ i ] = ebcdicToAsciiTbl[ ( unsigned int ) src[ i ] ];
 		}
 	ENSURES( LOOP_BOUND_OK );
+
 	return( CRYPT_OK );
 	}
 #else
@@ -298,7 +302,10 @@ int ebcdicToAscii( char *dest, const char *src, const int length )
 #endif /* USE_ETOA */
 
 /* Convert a string to/from EBCDIC via a temporary buffer, used when passing 
-   an ASCII string to a system function that requires EBCDIC and vice versa */
+   an ASCII string to a system function that requires EBCDIC and vice versa.
+   These use inherently unsafe functions because they need to work with OS-
+   level null-terminated strings, but are called from functions that have
+   verified the string length and/or fit to buffer size */
 
 char *bufferToEbcdic( char *buffer, const char *string )
 	{
@@ -361,7 +368,8 @@ const BYTE asciiCtypeTbl[ 256 ] = {
 	   AL,	   AL,	   AL,	   AL,	   AL,	   AL,	   AL,	   AL,
 	/*	x		y		z		{		|		}		~	   DL */
 	   AL,	   AL,	   AL,		A,		A,		A,		A,		A,
-	/* High-bit-set characters */
+	/* High-bit-set characters, remaining 128 values all set to 0 by
+	   C array-initialistion rules */
 	0
 	};
 
@@ -466,7 +474,10 @@ int vsPrintf_s( INOUT_BUFFER_FIXED( bufSize ) char *buffer,
 				break;
 
 			case 'c' :
-				formatBuffer[ 0 ] = ( char )( va_arg( argPtr, char ) );
+				/* char is promoted to int in variadic argument passing so we
+				   specify the type as the misleading-looking int rather than
+				   char */ 
+				formatBuffer[ 0 ] = ( char )( va_arg( argPtr, int ) );
 				formatBuffer[ 1 ] = '\0';
 				break;
 
@@ -489,7 +500,7 @@ int vsPrintf_s( INOUT_BUFFER_FIXED( bufSize ) char *buffer,
 			case 'e':	/* For EBCDIC strings */ 
 				{
 				const char *bufPtr = va_arg( argPtr, char * );
-				const int bufStrLen = strnlen_s( bufPtr. 
+				const int bufStrLen = strnlen_s( bufPtr, 
 												 MAX_ATTRIBUTE_SIZE + 8 );
 
 				REQUIRES( isShortIntegerRange( bufStrLen ) );
@@ -550,6 +561,7 @@ int vsPrintf_s( INOUT_BUFFER_FIXED( bufSize ) char *buffer,
 			}
 		if( padCount > formatBufPos )
 			{
+			REQUIRES( !checkOverflowSub( padCount, formatBufPos ) );
 			LOOP_SMALL_REV( count = padCount - formatBufPos, 
 							count > 0 && bufPos < bufSize, 
 							count-- )
@@ -590,6 +602,7 @@ int sPrintf_s( char *buffer, const int bufSize, const char *format, ... )
 	va_start( argPtr, format );
 	length = vsPrintf_s( buffer, bufSize, format, argPtr );
 	va_end( argPtr );
+	ENSURES( rangeCheck( length, 1, bufSize - 1 ) );
 
 	return( length );
 	}
@@ -766,9 +779,9 @@ rtems_id threadSelf( void )
 *																			*
 ****************************************************************************/
 
-/* The Tandem mktime() is broken and can't convert dates beyond 2023, if
-   mktime() fails and the year is between then and the epoch try again with
-   a time that it can convert */
+/* Older versions of the Tandem mktime() are broken and can't convert dates 
+   beyond 2023, if mktime() fails and the year is between then and the epoch 
+   try again with a time that it can convert */
 
 #elif defined( __TANDEM_NSK__ ) || defined( __TANDEM_OSS__ )
 
@@ -797,10 +810,12 @@ time_t my_mktime( struct tm *timeptr )
 	  !( defined( __MVS__ ) || defined( __TANDEM_NSK__ ) || \
 		 defined( __TANDEM_OSS__ ) )
 
-#include <sys/time.h>
+#if !defined( NDEBUG ) && 0
 
 /* For performance evaluation purposes we provide the following function,
    which returns ticks of the 1us timer */
+
+#include <sys/time.h>
 
 long getTickCount( long startTime )
 	{
@@ -831,6 +846,7 @@ long getTickCount( long startTime )
 		}
 	return( timeDifference );
 	}
+#endif /* NDEBUG */
 
 /* SunOS and older Slowaris have broken sprintf() handling.  In SunOS 4.x
    this was documented as returning a pointer to the output data as per the
@@ -859,6 +875,21 @@ int fixedSprintf( char *buffer, const int bufSize, const char *format, ... )
 	return( length );
 	}
 #endif /* Old SunOS */
+
+/* Older versions of Solaris don't have strnlen().  They have strlcpy() and
+   strlcat() and others, but no strnlen() */
+
+#if defined( sun ) && ( OSVERSION <= 10 )
+
+size_t strnlen( const char *s, size_t n )
+	{
+	int i;
+
+	for( i = 0; i < n && s[ i ] != '\0'; i++ );
+
+	return( i );
+	}
+#endif /* Older Solaris */
 
 /****************************************************************************
 *																			*
@@ -942,7 +973,7 @@ void threadYield( void )
 	Sleep( sleepTime );
 	}
 
-#ifndef NDEBUG
+#if !defined( NDEBUG ) && 0
 
 /* For performance evaluation purposes we provide the following function,
    which returns ticks of the 3.579545 MHz hardware timer (see the long
@@ -1096,7 +1127,9 @@ static HMODULE WINAPI loadFromSystemDirectory( IN_BUFFER( fileNameLength ) \
 	/* Get the path to a DLL in the system directory */
 	pathLength = \
 		GetSystemDirectory( path, MAX_PATH - ( fileNameLength + 8 ) );
-	if( pathLength < 3 || pathLength + fileNameLength > MAX_PATH - 8 )
+	if( pathLength < 3 || \
+		checkOverflowAdd( pathLength, fileNameLength ) || \
+		pathLength + fileNameLength > MAX_PATH - 8 )
 		return( NULL );
 	path[ pathLength++ ] = '\\';
 	REQUIRES_N( boundsCheck( pathLength, fileNameLength, MAX_PATH ) );
@@ -1209,7 +1242,9 @@ HMODULE WINAPI SafeLoadLibrary( IN_STRING LPCTSTR lpFileName )
 		return( NULL );
 		}
 	pathLength = strnlen_s( path, MAX_PATH_LENGTH );
-	if( pathLength < 3 || pathLength + fileNameLength > MAX_PATH - 8 )
+	if( pathLength < 3 || \
+		checkOverflowAdd( pathLength, fileNameLength + 1 ) || \
+		pathLength + fileNameLength > MAX_PATH - 8 )
 		{
 		/* Under WinNT and Win2K the LocalSystem account doesn't have its 
 		   own profile so SHGetFolderPath() will report success but return a 
@@ -1280,7 +1315,9 @@ HMODULE WINAPI SafeLoadLibrary( IN_STRING LPCTSTR lpFileName )
 	/* Load the DLL from the system directory */
 	pathLength = \
 		GetSystemDirectory( path, MAX_PATH - ( fileNameLength + 8 ) );
-	if( pathLength < 3 || pathLength + fileNameLength > MAX_PATH - 8 )
+	if( pathLength < 3 || \
+		checkOverflowAdd( pathLength, fileNameLength + 1 ) || \
+		pathLength + fileNameLength > MAX_PATH - 8 )
 		return( NULL );
 	path[ pathLength++ ] = '\\';
 	REQUIRES_N( boundsCheck( pathLength, fileNameLength, MAX_PATH ) );
@@ -1548,7 +1585,12 @@ void vsAssert( const char *exprString, const char *fileName,
 	/* Emulate the standard assert() functionality.  Note that the spurious 
 	   spaces in the last line of the message are to ensure that the title
 	   text doesn't get truncated, since the message box width is determined 
-	   by the text in the dialog rather than the title length */
+	   by the text in the dialog rather than the title length.
+	   
+	   We don't check the return values of the sprintf_s() calls both 
+	   because the buffers are way too large to overflow on such short 
+	   strings and because calling assert() in an assert handler won't end 
+	   well */
 	sprintf_s( string, 1024, "File %s, line %d:\n\n  '%s'.\n\n"
 			   "Yes to debug, no to continue, cancel to exit.                  ", 
 			   fileName, lineNo, exprString );
@@ -1630,7 +1672,8 @@ int CALLBACK WEP( int nSystemExit )
 
 /* Check whether we're running inside a VM, which is a potential risk for
    cryptovariables.  It gets quite tricky to detect the various VMs so for
-   now the only one that we detect is the most widespread one, VMware */
+   now the only one that we detect is the most widespread Win32 one, 
+   VMware */
 
 #if defined( __WIN32__ ) && !defined( NO_ASM )
 
@@ -1662,7 +1705,7 @@ BOOLEAN isRunningInVM( void )
 		}
 	} __except (EXCEPTION_EXECUTE_HANDLER) {}
 
-	return( magicValue == 'VMXh' ) ? TRUE : FALSE );
+	return( ( magicValue == 'VMXh' ) ? TRUE : FALSE );
 	}
 #else
 
@@ -1735,7 +1778,7 @@ static time_t fileTimeToTimeT( const FILETIME *fileTime )
 	return( ( time_t ) largeInteger.QuadPart );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+STDC_NONNULL_ARG( ( 1 ) ) \
 static void timeTToFileTime( FILETIME *fileTime, const time_t timeT )
 	{
 	const LARGE_INTEGER *timeOffset = getTimeOffset();
@@ -3448,10 +3491,14 @@ void unlockMemory( IN_BUFFER( size ) void *address,
 /* Align a pointer to a given boundary.  This gets quite complicated because
    the only pointer arithmetic that's normally allowed is addition and 
    subtraction, but to align to a boundary we need to be able to perform 
-   bitwise operations.  First we convert the pointer to a char pointer so
+   bitwise operations.  First we convert the pointer to a BYTE pointer so
    that we can perform normal maths on it, and then we round in the usual
    manner used by roundUp().  Because we have to do pointer-casting we can't 
-   use roundUp() directly but have to build our own version here */
+   use roundUp() directly but have to build our own version here.
+   
+   Note that there's no standard way to do this, alignment attributes and
+   _Alignas()/alignas() only work on stack storage and memalign() is an 
+   aligned malloc  */
 
 STDC_NONNULL_ARG( ( 1 ) ) \
 void *ptr_align( const void *ptr, const int units )
@@ -3459,15 +3506,33 @@ void *ptr_align( const void *ptr, const int units )
 	assert( isReadPtr( ptr, 1 ) );
 	assert( isShortIntegerRangeNZ( units ) );
 
-	return( ( void * ) ( ( char * ) ptr + ( -( ( intptr_t )( ptr ) ) & ( units - 1 ) ) ) );
+	return( ( void * ) ( ( BYTE * ) ptr + ( -( ( intptr_t )( ptr ) ) & ( units - 1 ) ) ) );
 	}
 
 /* Determine the difference between two pointers, with some sanity 
    checking.  This assumes that the pointers are fairly close in location,
    used to determine whether pointers that were potentially relocated 
-   at some point via ptr_align() have moved */
+   at some point via ptr_align() have moved.
+   
+   The C11 standard's requirements for this are:
+   
+	When two pointers are subtracted, both shall point to elements of the 
+	same array object, or one past the last element of the array object; the 
+	result is the difference of the subscripts of the two array elements.  
+	The size of the result is implementation-defined, and its type (a signed 
+	integer type) is ptrdiff_t defined in the <stddef.h> header.  If the 
+	result is not representable in an object of that type, the behaviour is 
+	undefined.
+   
+   As called we're always pointing to the same object, however the compiler
+   may not be able to determine this, triggering yet another of C's 200+
+   UB booby-traps even though in every architecture in existence subtracting
+   one linear address from another is valid whether it points to the same
+   object or not.  However testing across every known architecture and 
+   compiler hasn't revealed any compiler braindamage in the handling of 
+   this, so it should be handled correctly */
 
-STDC_NONNULL_ARG( ( 1, 2 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int ptr_diff( const void *ptr1, const void *ptr2 )
 	{
 	ptrdiff_t diff;
@@ -3478,8 +3543,15 @@ int ptr_diff( const void *ptr1, const void *ptr2 )
 
 	diff = ( const BYTE * ) ptr1 - ( const BYTE * ) ptr2;
 	if( diff < 0 )
+		{
+		/* The following can in theory overflow on PTRDIFF_MIN, which would 
+		   be INT_MIN for a signed integer, however we're only using this to
+		   check for small shifts due to alignment considerations via 
+		   ptr_align() so the two pointers shouldn't even be anywhere near 
+		   MAX_INTLENGTH_SHORT apart */
 		diff = -diff;
-	if( diff >= MAX_INTLENGTH )
+		}
+	if( diff < 0 || diff >= MAX_INTLENGTH_SHORT )
 		return( -1 );
 
 	return( ( int ) diff );

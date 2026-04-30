@@ -113,6 +113,7 @@ static int hashToBignum( INOUT_PTR BIGNUM *bignum,
 		DEBUG_DIAG(( "Truncating hash to fit ECDSA curve size" ));
 		assert( DEBUG_WARN );
 
+		REQUIRES( !checkOverflowSub( hLen, nLen ) );
 		CK( BN_rshift( bignum, bignum, hLen - nLen ) );
 		if( bnStatusError( bnStatus ) )
 			return( getBnStatus( bnStatus ) );
@@ -331,7 +332,7 @@ static int selfTest( void )
 #else
 	/* Emulation of what the above code would do */
 	pkcInfo->eccParam_qx.d[ 1 ] ^= 0x1001;
-	status = checksumContextData( pkcInfo, CRYPT_ALGO_ECDSA, TRUE );
+	status = checksumContextData( pkcInfo, TRUE );
 	if( !cryptStatusError( status ) )
 		{
 		staticDestroyContext( &contextInfo );
@@ -765,7 +766,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		if( eccKey->isPublicKey )
 			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPUBLICKEY );
 		else
-			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPRIVATEKEY );
+			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 #if 0	/* We don't allow explicit ECC parameters since all curves are 
 		   predefined */
 		if( eccKey->curveType == CRYPT_ECCCURVE_NONE )

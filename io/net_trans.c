@@ -267,7 +267,7 @@ static int transportVirtualWriteFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 	   check otherwise we'd potentially be dereferencing a NULL pointer */
 	virtualPutDataFunction = ( STM_WRITE_FUNCTION ) \
 							 FNPTR_GET( netStream->virtualPutDataFunction );
-	REQUIRES( virtualPutDataFunction != NULL );
+	ENSURES( virtualPutDataFunction != NULL );
 	virtualStateInfo = ( void * ) DATAPTR_GET( netStream->virtualStateInfo );
 	ENSURES( virtualStateInfo != NULL );
 
@@ -280,7 +280,10 @@ static int transportVirtualWriteFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 		status = virtualPutDataFunction( virtualStateInfo, NULL, 0, 
 										 &flushBytesCopied );
 		if( cryptStatusOK( status ) )
+			{
+			REQUIRES( !checkOverflowAdd( *length, flushBytesCopied ) );
 			*length += flushBytesCopied;
+			}
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -359,6 +362,7 @@ int bufferedTransportRead( INOUT_PTR STREAM *stream,
 
 	REQUIRES_S( netStream != NULL && sanityCheckNetStream( netStream ) );
 	REQUIRES_S( isBufsizeRangeNZ( maxLength ) );
+	REQUIRES_S( !checkOverflowSub( stream->bufEnd, stream->bufPos ) );
 	REQUIRES_S( isShortIntegerRange( bytesLeft ) );
 	REQUIRES_S( isFlagRangeZ( flags, TRANSPORT ) );
 
@@ -378,6 +382,7 @@ int bufferedTransportRead( INOUT_PTR STREAM *stream,
 		if( maxLength == 1 )
 			{
 			/* Optimisation for char-at-a-time HTTP header reads */
+			REQUIRES( !checkOverflowInc( stream->bufPos ) );
 			*buffer = stream->buffer[ stream->bufPos++ ];
 			}
 		else
@@ -385,6 +390,7 @@ int bufferedTransportRead( INOUT_PTR STREAM *stream,
 			REQUIRES_S( boundsCheckZ( stream->bufPos, maxLength,
 									  stream->bufEnd ) );
 			memcpy( buffer, stream->buffer + stream->bufPos, maxLength );
+			REQUIRES_S( !checkOverflowAdd( stream->bufPos, maxLength ) );
 			stream->bufPos += maxLength;
 			}
 		*length = maxLength;
@@ -422,6 +428,7 @@ int bufferedTransportRead( INOUT_PTR STREAM *stream,
 		   less than the available buffer space we only read that much, any 
 		   further space will be filled (if possible) by the opportunistic 
 		   read that follows */
+		REQUIRES_S( !checkOverflowSub( stream->bufSize, stream->bufEnd ) );
 		bytesToRead = stream->bufSize - stream->bufEnd;
 		if( bytesToRead > maxLength )
 			bytesToRead = maxLength;
@@ -437,7 +444,8 @@ int bufferedTransportRead( INOUT_PTR STREAM *stream,
 										bytesToRead, &bytesRead, 
 										TRANSPORT_FLAG_BLOCKING );
 		if( cryptStatusError( status ) )
-			return( status );
+			return( sSetError( stream, status ) );
+		REQUIRES_S( !checkOverflowAdd( stream->bufEnd, bytesRead ) );
 		stream->bufEnd += bytesRead;
 
 		/* If there's room for more, perform an opportunistic nonblocking 
@@ -445,13 +453,19 @@ int bufferedTransportRead( INOUT_PTR STREAM *stream,
 		   isn't fatal since this was only a speculative read  */
 		if( stream->bufEnd < stream->bufSize )
 			{
+			REQUIRES_S( !checkOverflowSub( stream->bufSize, 
+										   stream->bufEnd ) );
 			status = transportReadFunction( netStream, 
 											stream->buffer + stream->bufEnd,
 											stream->bufSize - stream->bufEnd,
 											&bytesRead, 
 											TRANSPORT_FLAG_NONBLOCKING );
 			if( cryptStatusOK( status ) )
+				{
+				REQUIRES_S( !checkOverflowAdd( stream->bufEnd, 
+											   bytesRead ) );
 				stream->bufEnd += bytesRead;
+				}
 			}
 		}
 	ENSURES_S( sanityCheckNetStream( netStream ) );
@@ -478,13 +492,15 @@ int bufferedTransportRead( INOUT_PTR STREAM *stream,
 	   when we try and replenish the buffer from the network.  For now we 
 	   simply force the operation to be atomic since we're reading datagrams 
 	   that have to be read in their entirety */
+	REQUIRES_S( !checkOverflowSub( maxLength, bufferBytesRead ) );
 	REQUIRES_S( boundsCheck( bufferBytesRead, maxLength - bufferBytesRead, 
 							 maxLength ) );
 	status = transportReadFunction( netStream, buffer + bufferBytesRead, 
 									maxLength - bufferBytesRead, &bytesRead, 
 									TRANSPORT_FLAG_BLOCKING );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( sSetError( stream, status ) );
+	REQUIRES_S( !checkOverflowAdd( *length, bytesRead ) );
 	*length += bytesRead;
 
 	ENSURES_S( sanityCheckNetStream( netStream ) );
@@ -555,6 +571,8 @@ static int processIncompleteWrite( INOUT_PTR NET_STREAM_INFO *netStream,
 			  bytesWritten < netStream->writeBufEnd );
 	REQUIRES( isBufsizeRange( newDataToWrite ) );
 			  /* May be zero if the write buffer was already full */
+	REQUIRES( !checkOverflowSub( netStream->writeBufEnd, bytesWritten ) );
+	REQUIRES( isBufsizeRange( bytesLeftToWrite ) );
 
 	/* Clear return value */
 	*newDataWritten = 0;
@@ -577,7 +595,10 @@ static int processIncompleteWrite( INOUT_PTR NET_STREAM_INFO *netStream,
 	   bytesLeftToWrite reaches back into the existing data then no new data
 	   could be written */
 	if( bytesLeftToWrite < newDataToWrite )
+		{
+		REQUIRES( !checkOverflowSub( newDataToWrite, bytesLeftToWrite ) );
 		*newDataWritten = newDataToWrite - bytesLeftToWrite;
+		}
 
 	/* We couldn't write all of the data in the buffer, move what's left 
 	   down to the start.  This shouldn't be needed since the caller will 
@@ -624,6 +645,7 @@ int bufferedTransportWrite( INOUT_PTR STREAM *stream,
 
 	/* If it's not a flush and the buffer can absorb the data, copy it in and
 	   exit */
+	REQUIRES_S( !checkOverflowAdd( netStream->writeBufEnd, byteCount ) );
 	if( !( flags & TRANSPORT_FLAG_FLUSH ) && \
 		netStream->writeBufEnd + byteCount <= netStream->writeBufSize )
 		{
@@ -631,6 +653,7 @@ int bufferedTransportWrite( INOUT_PTR STREAM *stream,
 								  netStream->writeBufSize ) );
 		memcpy( netStream->writeBuffer + netStream->writeBufEnd, buffer, 
 				byteCount );
+		REQUIRES_S( !checkOverflowAdd( netStream->writeBufEnd, byteCount ) );
 		netStream->writeBufEnd += byteCount;
 		*length = byteCount;
 
@@ -647,6 +670,8 @@ int bufferedTransportWrite( INOUT_PTR STREAM *stream,
 
 		/* Calculate how much data we can still add to the buffer.  If the write 
 		   count is less than the available buffer size we only write that much */
+		REQUIRES_S( !checkOverflowSub( netStream->writeBufSize,
+									   netStream->writeBufEnd ) );
 		bytesToCopy = netStream->writeBufSize - netStream->writeBufEnd;
 		if( bytesToCopy > byteCount )
 			bytesToCopy = byteCount;
@@ -656,19 +681,21 @@ int bufferedTransportWrite( INOUT_PTR STREAM *stream,
 									 netStream->writeBufSize ) );
 			memcpy( netStream->writeBuffer + netStream->writeBufEnd, buffer,
 					bytesToCopy );
+			REQUIRES_S( !checkOverflowAdd( netStream->writeBufEnd, 
+										   bytesToCopy ) );
 			netStream->writeBufEnd += bytesToCopy;
 			}
 		status = transportWriteFunction( netStream, netStream->writeBuffer, 
 							netStream->writeBufEnd, &bytesWritten, 
 							TRANSPORT_FLAG_FLUSH );
 		if( cryptStatusError( status ) )
-			return( status );
+			return( sSetError( stream, status ) );
 		if( bytesWritten < netStream->writeBufEnd )
 			{
 			status = processIncompleteWrite( netStream, bytesWritten, 
 											 bytesToCopy, length );
 			if( cryptStatusError( status ) )
-				return( status );
+				return( sSetError( stream, status ) );
 
 			ENSURES_S( sanityCheckNetStream( netStream ) );
 
@@ -678,6 +705,7 @@ int bufferedTransportWrite( INOUT_PTR STREAM *stream,
 		if( bytesToCopy > 0 ) 
 			{
 			bufPtr += bytesToCopy;
+			REQUIRES_S( !checkOverflowSub( byteCount, bytesToCopy ) );
 			byteCount -= bytesToCopy;
 			if( byteCount <= 0 )
 				{
@@ -696,7 +724,7 @@ int bufferedTransportWrite( INOUT_PTR STREAM *stream,
 	status = transportWriteFunction( netStream, bufPtr, byteCount, 
 									 &bytesWritten, TRANSPORT_FLAG_FLUSH );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( sSetError( stream, status ) );
 	if( bytesWritten < byteCount )
 		{
 		/* Calculate how much remains to be written.  The overall amount 
@@ -704,7 +732,9 @@ int bufferedTransportWrite( INOUT_PTR STREAM *stream,
 		   unwritten.  We don't have to update the stream buffer 
 		   information this time because the write buffer has already been
 		   emptied */
+		REQUIRES_S( !checkOverflowSub( byteCount, bytesWritten ) );
 		byteCount -= bytesWritten;
+		REQUIRES_S( !checkOverflowSub( maxLength, byteCount ) );
 		*length = maxLength - byteCount;
 		}
 	else

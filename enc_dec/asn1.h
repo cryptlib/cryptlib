@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  ASN.1 Constants and Structures					*
-*						Copyright Peter Gutmann 1992-2015					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -85,7 +85,7 @@ enum { BER_ID_RESERVED, BER_ID_BOOLEAN, BER_ID_INTEGER, BER_ID_BITSTRING,
 #define BER_STRING_ISO646		( BER_UNIVERSAL | BER_PRIMITIVE | BER_ID_STRING_ISO646 )
 #define BER_STRING_GENERAL		( BER_UNIVERSAL | BER_PRIMITIVE | BER_ID_STRING_GENERAL )
 #define BER_STRING_UNIVERSAL	( BER_UNIVERSAL | BER_PRIMITIVE | BER_ID_STRING_UNIVERSAL )
-#define BER_29					( BER_UNIVERSAL | BER_PRIMITIVE | BER_ID_BER29 )
+#define BER_29					( BER_UNIVERSAL | BER_PRIMITIVE | BER_ID_29 )
 #define BER_STRING_BMP			( BER_UNIVERSAL | BER_PRIMITIVE | BER_ID_STRING_BMP )
 
 /* The encodings for constructed, indefinite-length tags and lengths */
@@ -169,6 +169,10 @@ enum { BER_ID_RESERVED, BER_ID_BOOLEAN, BER_ID_INTEGER, BER_ID_BITSTRING,
 #define MIN_OID_SIZE		5
 #define MAX_OID_SIZE		32
 
+/* The maximum allowed value for a BER_ENUMERATED value */
+
+#define MAX_ENUM_VALUE		128
+
 /* When reading an OID selection with readOID() we sometimes need to allow
    a catch-all default value that's used when nothing else matches.  This is
    typically used for type-and-value data where we want to ignore anything
@@ -244,9 +248,14 @@ int peekTag( INOUT_PTR STREAM *stream );
    that checks whether we should still be looking for new tags, for use
    when we're reading a SEQUENCE OF/SET OF.
    
-   Note that this sets status to a non-error/CRYPT_OK value, which means 
-   that the status can't be checked using cryptStatusOK() but has to be 
-   checked with !cryptStatusError() */
+   The return value of stell() isn't checked because we still want to set 
+   the status value via peekTag(), if the stream is in an error state then
+   the stell() return value will be less than endPos so the setting of
+   status on the next line will occur.
+   
+   The peekTag() sets status to a non-error/CRYPT_OK value which means that 
+   the status can't be checked using cryptStatusOK() but has to be checked 
+   with !cryptStatusError() */
 
 #define checkStatusLimitsPeekTag( stream, status, tag, endPos ) \
 		( !cryptStatusError( status ) && \
@@ -436,13 +445,17 @@ int checkBignumRead( INOUT_PTR STREAM *stream,
 					 IN_TAG_EXT const int tag );
 
 /* Generally most integers will be non-bignum values, so we also define
-   routines to handle values that will fit into a machine word */
+   routines to handle values that will fit into a machine word.  In almost
+   all cases these are single-digit values (IDs or version numbers) or
+   very small values under 100 (hash sizes, key size) and present as 
+   literals so the sizeof() expression evaluates to a constant.  Very rarely 
+   they're larger, key setup iterations */
 
 #define sizeofShortInteger( value )	\
 	( ( ( value ) < 0x80 ) ? 3 : \
-	  ( ( ( long ) value ) < 0x8000L ) ? 4 : \
-	  ( ( ( long ) value ) < 0x800000L ) ? 5 : \
-	  ( ( ( long ) value ) < 0x80000000UL ) ? 6 : 7 )
+	  ( ( value ) < 0x8000 ) ? 4 : \
+	  ( ( value ) < 0x800000 ) ? 5 : \
+	  ( ( value ) < 0x80000000UL ) ? 6 : 7 )
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeShortInteger( INOUT_PTR STREAM *stream, 
 					   IN_INT_Z const long integer, 

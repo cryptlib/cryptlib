@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Session Support Routines					*
-*						Copyright Peter Gutmann 1998-2015					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -249,6 +249,10 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int getSessionErrorInfo( IN_PTR const SESSION_INFO *sessionInfoPtr,
 						 INOUT_PTR ERROR_INFO *errorInfo )
 	{
+	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+
+	REQUIRES( sanityCheckSession( sessionInfoPtr ) );
+
 	copyErrorInfo( errorInfo, &sessionInfoPtr->errorInfo );
 
 	return( CRYPT_OK );
@@ -285,15 +289,20 @@ int checkServerCertValid( const CRYPT_CERTIFICATE iServerKey,
 
 	/* Check whether the certificate is valid at a standard level of 
 	   compliance, which catches expired certificates and other obvious
-	   problems */
-	krnlSendMessage( iCryptUser, IMESSAGE_SETATTRIBUTE, 
-					 ( MESSAGE_CAST ) &complianceLevelStandard, 
-					 CRYPT_OPTION_CERT_COMPLIANCELEVEL );
+	   problems.  We don't check the setting of the compliance level 
+	   both because there's no obvious way a "set a = b" call can fail
+	   (if it could the previous check would have already failed and
+	   we'd never get here) and because we're interested in the results 
+	   of the check to weed out basic issues like expired certificates, 
+	   not what level it's done at */
+	( void ) krnlSendMessage( iCryptUser, IMESSAGE_SETATTRIBUTE, 
+							  ( MESSAGE_CAST ) &complianceLevelStandard, 
+							  CRYPT_OPTION_CERT_COMPLIANCELEVEL );
 	status = krnlSendMessage( iServerKey, IMESSAGE_CHECK, NULL, 
 							  MESSAGE_CHECK_CERT );
-	krnlSendMessage( iCryptUser, IMESSAGE_SETATTRIBUTE, 
-					 ( MESSAGE_CAST ) &complianceLevel, 
-					 CRYPT_OPTION_CERT_COMPLIANCELEVEL );
+	( void ) krnlSendMessage( iCryptUser, IMESSAGE_SETATTRIBUTE, 
+							  ( MESSAGE_CAST ) &complianceLevel, 
+							  CRYPT_OPTION_CERT_COMPLIANCELEVEL );
 	if( cryptStatusOK( status ) )
 		return( CRYPT_OK );
 
@@ -398,6 +407,7 @@ int getPaddedSize( IN_DATALENGTH_Z const int length )
 		return( roundUp( length, 16 ) );
 	if( length <= 1024 )
 		return( roundUp( length, 64 ) );
+	REQUIRES( !checkOverflowRoundup( length, 128 ) );
 	return( roundUp( length, 128 ) );
 	}
 
@@ -421,6 +431,7 @@ int writeFixedsizeValue( INOUT_PTR STREAM *stream,
 	REQUIRES( fixedSize >= 20 && fixedSize <= CRYPT_MAX_PKCSIZE );
 
 	/* Calculate how much padding we'll need */
+	REQUIRES( !checkOverflowSub( fixedSize, dataLen ) );
 	noZeroes = fixedSize - dataLen;
 	REQUIRES( noZeroes >= 0 && noZeroes < fixedSize );
 
@@ -822,7 +833,19 @@ int activateSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		/* Try and activate the session */
 		status = activateConnection( sessionInfoPtr );
 		if( cryptStatusError( status ) )
+			{
+			/* If the session was run over another protocol at the network
+			   transport layer then it can conclude normally if the lower-
+			   level protocol negotiated this, so we convert the special-case
+			   success status to a normal OK status */
+			if( status == OK_SPECIAL )
+				{
+				DEBUG_DIAG(( "Session activation ended with lower-level "
+							 "protocol conclusing the exchange" ));
+				return( CRYPT_OK );
+				}
 			return( status );
+			}
 
 		/* The session activation succeeded, make sure that we don't try
 		   and replace the ephemeral attributes established during the 
@@ -881,7 +904,9 @@ int activateSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	/* Check whether the other side has indicated that it's closing the 
 	   stream and if it has, shut down our side as well and record the fact
-	   that the session is now closed */
+	   that the session is now closed.  This is used for request/response
+	   protocols that do this as part of their normal protocol operation,
+	   so it's regarded as a successful (non-error) run of the protocol */
 	status = sioctlGet( &sessionInfoPtr->stream, STREAM_IOCTL_CONNSTATE,
 						&streamState, sizeof( int ) );
 	if( cryptStatusError( status ) || !streamState )
@@ -892,7 +917,7 @@ int activateSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		REQUIRES( shutdownFunction != NULL );
 
 		CLEAR_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISOPEN );
-		shutdownFunction( sessionInfoPtr );
+		( void ) shutdownFunction( sessionInfoPtr );
 		}
 	return( CRYPT_OK );
 	}
@@ -1141,7 +1166,9 @@ static int defaultServerStartupFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr 
 	SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_NETSESSIONOPEN );
 
 	/* Save the client details for the caller, using the (always-present)
-	   receive buffer as the intermediate store */
+	   receive buffer as the intermediate store.  Because of the way the
+	   sioctl() API works we have to get this in two steps, first the
+	   length, then the data */
 	status = sioctlGet( &sessionInfoPtr->stream, 
 						STREAM_IOCTL_GETCLIENTNAMELEN, 
 						&nameLen, sizeof( int ) );
@@ -1150,7 +1177,7 @@ static int defaultServerStartupFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr 
 		status = sioctlGet( &sessionInfoPtr->stream, 
 							STREAM_IOCTL_GETCLIENTNAME,
 							sessionInfoPtr->receiveBuffer, 
-							CRYPT_MAX_TEXTSIZE );
+							nameLen );
 		}
 	if( cryptStatusError( status ) )
 		{

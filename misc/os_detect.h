@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib OS-Specific Config/Detection Header File 			*
-*						Copyright Peter Gutmann 1992-2022					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -359,6 +359,8 @@
 
 	 4206: Empty C module due to #ifdef'd out code.  Annoying noise caused 
 		   by empty modules due to disabled functionality.
+		   
+	 4234: structure was padded due to __declspec(align()).
 
 	 The only useful ones are 4057, which can be turned off on a one-off 
 	 basis to identify new true-positive issues before being disabled again 
@@ -369,6 +371,7 @@
   #pragma warning( disable: 4204 )	/* Struct initialised with non-const value */
   #pragma warning( disable: 4206 )	/* Empty C module due to #ifdef'd out code */
   #pragma warning( disable: 4221 )	/* Struct initialised with addr.of auto.var */
+  #pragma warning( disable: 4324 )	/* Struct padded due to declspac(align) */
   #if VC_GE_2005( _MSC_VER )
 	#pragma warning( disable: 4267 )/* int <-> size_t */
   #endif /* VC++ 2005 or newer */
@@ -409,6 +412,16 @@
 	 best to only enable them for one-off test builds requiring manual
 	 checking for real errors */
   #pragma warning( disable: 4100 )	/* Unreferenced parameter */
+
+  /* Conversely, some errors are only reported as warnings, with the 
+     compiler continuing with invalid code, so we convert them to actual
+     errors */
+  #pragma warning( error: 4002 )	/* Incorrect number of args to macro */
+  #pragma warning( error: 4003 )	/* Also incorrect no.of args to macro */
+  #pragma warning( error: 4020 )	/* Incorrect no.of args to function */
+  #pragma warning( error: 4024 )	/* Diff.types for declared and actual fn.param */
+  #pragma warning( error: 4026 )	/* Also diff.types for fn.params */
+  #pragma warning( error: 4098 )	/* Void function returning a value */
 #endif /* Visual C++ */
 
 /* Under VC++/VS a number of warnings are disabled by default, including 
@@ -711,7 +724,7 @@
   #elif defined( _BIG_ENDIAN )
 	#ifndef BYTE_ORDER
 	  #define BIG_ENDIAN		1234
-	  #define BYTE_ORDER		LITTLE_ENDIAN
+	  #define BYTE_ORDER		BIG_ENDIAN
 	#endif /* !BYTE_ORDER */
   #endif /* Sun-specific endianness defines */
 #elif defined( __GNUC__ )
@@ -775,8 +788,15 @@
 	#define DATA_BIGENDIAN		/* Sparc always big-endian */
   #elif defined( _ARCH_PPC ) || defined( _ARCH_PPC64 ) || \
 		defined( __powerpc ) || defined( __powerpc__ ) || \
-		defined( __ppc__ )
-	#define DATA_BIGENDIAN		/* PowerPC always big-endian */
+		defined( __ppc__ ) || defined( __ppc )
+	/* PPC is a bit problematic because it can be either big- or little-
+	   endian, including changing its nature at runtime.  In general though 
+	   it won't do this and also we shouldn't get to here because under any
+	   Unix-like system the build system will define the endianness, and if
+	   not the compiler defines above will sort it out.  This leaves a
+	   possibly nonexistent remainder of systems that don't fall into either
+	   category, for which we assume big-endian which is usually the case */
+	#define DATA_BIGENDIAN
   #elif defined( __AARCH64EB__ ) || defined( __ARMEB__ ) || \
 		defined( __MIPSEB ) || defined( __MIPSEB__ ) || \
 		defined( _MIPSEB ) || defined( __THUMBEB__ )

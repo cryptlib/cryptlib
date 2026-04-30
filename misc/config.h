@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Configuration Settings  					*
-*					   Copyright Peter Gutmann 1992-2025					*
+*					   Copyright Peter Gutmann 1992-2026					*
 *																			*
 ****************************************************************************/
 
@@ -11,6 +11,10 @@
 
 /* Insertion point for custom configuration profile options */
 
+/* #define CONFIG_PROFILE_SMIME */
+/* #define CONFIG_PROFILE_PGP */
+/* #define CONFIG_PROFILE_TLS */
+/* #define CONFIG_PROFILE_SSH */
 /* #define CONFIG_CUSTOM_1 */
 
 /* Insertion point for the CRYPTLIB_TEST_BUILD debug define.  It'd be better 
@@ -24,7 +28,7 @@
    defined in os_detect.h (cryptlib) and test.h (test code) */
 
 #if !defined( NDEBUG ) && \
-	defined( _MSC_VER ) && ( _MSC_VER == 1500 )
+	defined( _MSC_VER ) && ( _MSC_VER == 1500 ) && 0
 	#define CRYPTLIB_TEST_BUILD
 #endif /* VS 2008 development build */
 #if !defined( NDEBUG ) && \
@@ -38,18 +42,17 @@
    at the end.  The options are:
 
 	CONFIG_TEST_0: No-op filler.
-	CONFIG_TEST_1: Minimise memory use, CONFIG_CONSERVE_MEMORY.
+	CONFIG_TEST_1: Minimise memory use, CONFIG_CONSERVE_MEMORY, which also
+				   disables USE_ERRMSGS.
 	CONFIG_TEST_2: Minimise memory use even further, 
 				   CONFIG_CONSERVE_MEMORY + CONFIG_CONSERVE_MEMORY_EXTRA.
+				   For the sample embedded TLS build below this strips 
+				   another 100kB from the basic CONFIG_CONSERVE_MEMORY.
 	CONFIG_TEST_3: Disable selftests as well as the minimise-memory-use
 				   tests above, CONFIG_NO_SELFTEST.  Note that a minimal
 				   set of basic-functionality self-tests are still run if
 				   only CONFIG_NO_SELFTEST is defined, 
-				   CONFIG_CONSERVE_MEMORY_EXTRA disables those as well.
-	CONFIG_TEST_4: Disable extended diagnostics by undefining USE_ERRMSGS.
-				   This test is only needed for compile-time testing to 
-				   check that there are no dependencies on diagnostic-use-
-				   only variables */
+				   CONFIG_CONSERVE_MEMORY_EXTRA disables those as well */
 
 #define CONFIG_TEST_0
 
@@ -62,8 +65,6 @@
   #define CONFIG_CONSERVE_MEMORY
   #define CONFIG_CONSERVE_MEMORY_EXTRA
   #define CONFIG_NO_SELFTEST
-#elif defined( CONFIG_TEST_4 )
-  /* Handled by undefining USE_ERRMSGS at the end */
 #endif /* CONFIG_TEST_xxx options */
 
 /****************************************************************************
@@ -100,6 +101,9 @@
 #ifndef CONFIG_CONSERVE_MEMORY
   #define CONFIG_CONSERVE_MEMORY
 #endif /* CONFIG_CONSERVE_MEMORY */
+#ifndef CONFIG_CONSERVE_MEMORY_EXTRA
+  #define CONFIG_CONSERVE_MEMORY_EXTRA
+#endif /* CONFIG_CONSERVE_MEMORY_EXTRA */
 #define CONFIG_NO_KEYSETS		/* CONFIG_NO_xxx implied by CONFIG_PROFILE_xxx */
 #define CONFIG_NO_CERTIFICATES
 #define CONFIG_NO_DEVICES 
@@ -112,6 +116,9 @@
 #ifndef CONFIG_CONSERVE_MEMORY
   #define CONFIG_CONSERVE_MEMORY
 #endif /* CONFIG_CONSERVE_MEMORY */
+#ifndef CONFIG_CONSERVE_MEMORY_EXTRA
+  #define CONFIG_CONSERVE_MEMORY_EXTRA
+#endif /* CONFIG_CONSERVE_MEMORY_EXTRA */
 #define CONFIG_NO_KEYSETS		/* CONFIG_NO_xxx implied by CONFIG_PROFILE_xxx */
 #define CONFIG_NO_CERTIFICATES
 #define CONFIG_NO_DEVICES 
@@ -317,16 +324,11 @@
 ****************************************************************************/
 
 /* The umbrella define USE_DEPRECATED_ALGORITHMS can be used to drop 
-   deprecated (obsolete or weak) algorithms, and USE_OBSCURE_ALGORITHMS can 
-   be used to drop little-used algorithms */
+   deprecated (obsolete or weak) algorithms */
 
 #if 0
   #define USE_DEPRECATED_ALGORITHMS
 #endif /* 0 */
-#ifndef CONFIG_CONSERVE_MEMORY
-  #define USE_PATENTED_ALGORITHMS
-  #define USE_OBSCURE_ALGORITHMS
-#endif /* Low-memory builds */
 
 /* Obsolete and/or weak algorithms, disabled by default */
 
@@ -336,13 +338,6 @@
   #define USE_RC2
   #define USE_RC4
 #endif /* Obsolete and/or weak algorithms */
-
-/* Obscure algorithms */
-
-#ifdef USE_OBSCURE_ALGORITHMS
-  #define USE_ELGAMAL
-  #define USE_IDEA
-#endif /* Obscure algorithms */
 
 /* Problematic algorithms that can cause issues due to memory/code size (for
    example AES-GCM uses eight times as much memory as straight AES, and 
@@ -1327,16 +1322,19 @@
 	#define USE_CRYPTOAPI
   #endif /* VS 2019 and newer */
   #define USE_CFB
-  #define USE_DES
+////////////////////////////
+//  #define USE_DES
+////////////////////////////
   #define USE_DEVICES	/* Needed if USE_HARDWARE is defined */
   #define USE_ECDH
   #define USE_ECDSA
   #define USE_ED25519
-  #define USE_25519
+  #define USE_X25519
   #define USE_GCM
   #ifndef CONFIG_FUZZ
 	#define USE_HARDWARE
   #endif /* CONFIG_FUZZ */
+  #define USE_MLKEM
   #define USE_SHA2_EXT
   #if defined( USE_KEYSETS ) && defined( _MSC_VER  ) 
 	/* We only enable this unconditionally under Windows where it's always
@@ -1353,8 +1351,10 @@
   #ifdef USE_INT_ASN1
 	#define USE_PSS
   #endif /* USE_INT_ASN1 */
-  #define USE_RC2		/* Needed for PKCS #12 */
-  #define USE_RC4
+  #define USE_RC2		/* Needed for Microsoft's PKCS #12 */
+/////////////////////////////////////
+//  #define USE_RC4
+/////////////////////////////////////
   #if defined( USE_TCP ) && !defined( CONFIG_NO_SESSIONS )
 	#if defined( _MSC_VER ) && ( _MSC_VER >= 1400 )
 	  #define USE_DNSSRV
@@ -1377,8 +1377,8 @@
   #endif /* Windows || TMP support detected */
 #endif /* All-options build */
 
-/* If we're using a static analyser then we also enable some additional 
-   functionality to allow the analyser to check it */
+/* If we're using a static analyser then we enable additional functionality 
+   that opens up additional code paths so the analyser to check them */
 
 #if ( defined( _MSC_VER ) && defined( _PREFAST_ ) ) || \
 	defined( __clang_analyzer__ ) || defined( __COVERITY__ ) || \
@@ -1393,8 +1393,9 @@
   #define USE_ECDH
   #define USE_ECDSA
   #define USE_ED25519
-  #define USE_25519
+  #define USE_X25519
   #define USE_GCM
+  #define USE_MLKEM
   #define USE_SHA2_EXT
   #if defined( _PREFAST_ )
 	/* We can't define this for Unix analysers because it depends on ldap.h
@@ -1437,7 +1438,9 @@
    
    We can't unconditionally warn for use of RC2 because this needs to be 
    enabled for PKCS #12's (and specifically Microsoft's) use of RC2/40.  
-   Similarly we still need MD5 for TLS < 1.2 */
+   Similarly we still need MD5 for TLS < 1.2, although we currently only
+   allow TLS 1.1 as the minimum version so will be able to remove this
+   once we move to TLS 1.2 as the minimum */
 
 #if defined( CONFIG_ALL_OPTIONS ) || defined( CONFIG_FUZZ ) || \
 	defined( USE_DES ) || ( defined( USE_MD5 ) && !defined( USE_TLS ) ) || \
@@ -1446,14 +1449,6 @@
 	defined( USE_ANALYSER )
   #define USE_UNSAFE_BUILD_OPTIONS
 #endif /* Unsafe build options */
-
-/* For the custom build options test some options are handled by undefining
-   particular build settings rather than defining NO_xxx options.  These 
-   undefines are handled here */
-
-#if defined( CONFIG_TEST_4 )
-  #undef USE_ERRMSGS
-#endif /* CONFIG_TEST_xxx options */
 
 /* Rather than making everything even more complex and conditional than it
    already is, it's easier to undefine the features that we don't want in

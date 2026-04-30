@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib SSHv2 Session Read Routines					*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2026					*
 *																			*
 ****************************************************************************/
 
@@ -18,6 +18,11 @@
 #endif /* Compiler-specific includes */
 
 #ifdef USE_SSH
+
+/* The maximum number of no-op packets (SSH_MSG_IGNORE, SSH_MSG_DEBUG, etc) 
+   allowed when reading a standard packet */
+
+#define MAX_NOOP_PACKETS	3
 
 /****************************************************************************
 *																			*
@@ -45,9 +50,9 @@ const char *getSSHPacketName( IN_RANGE( 0, SSH_MSG_SPECIAL_LAST ) \
 		{ SSH_MSG_KEXINIT, "SSH_MSG_KEXINIT" },
 		{ SSH_MSG_NEWKEYS, "SSH_MSG_NEWKEYS" },
 		{ SSH_MSG_KEXDH_INIT, 
-		  "SSH_MSG_KEXDH_INIT/SSH_MSG_KEX_DH_GEX_REQUEST_OLD/SSH_MSG_KEX_ECDH_INIT" },
+		  "SSH_MSG_KEXDH_INIT/KEX_DH_GEX_REQUEST_OLD/KEX_ECDH_INIT/KEX_HYBRID_INIT" },
 		{ SSH_MSG_KEXDH_REPLY, 
-		  "SSH_MSG_KEXDH_REPLY/SSH_MSG_KEX_DH_GEX_GROUP/SSH_MSG_KEX_ECDH_REPLY" },
+		  "SSH_MSG_KEXDH_REPLY/KEX_DH_GEX_GROUP/KEX_ECDH_REPLY/KEX_HYBRID_REPLY" },
 		{ SSH_MSG_KEX_DH_GEX_INIT, "SSH_MSG_KEX_DH_GEX_INIT" },
 		{ SSH_MSG_KEX_DH_GEX_REPLY, "SSH_MSG_KEX_DH_GEX_REPLY" },
 		{ SSH_MSG_KEX_DH_GEX_REQUEST, "SSH_MSG_KEX_DH_GEX_REQUEST" },
@@ -119,7 +124,7 @@ static int checkHandshakePacketStatus( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									   IN_RANGE( MAX_ERROR, CRYPT_OK ) \
 											const int headerStatus,
 									   IN_BUFFER( headerLength ) const BYTE *header, 
-									   IN_LENGTH_SHORT_MIN( MIN_PACKET_SIZE ) \
+									   IN_LENGTH_SHORT_MIN( SSH_MIN_PACKET_SIZE ) \
 											const int headerLength,
 									   IN_RANGE( SSH_MSG_DISCONNECT, 
 												 SSH_MSG_SPECIAL_REQUEST ) \
@@ -131,7 +136,7 @@ static int checkHandshakePacketStatus( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( headerStatus == CRYPT_ERROR_READ || \
 			  cryptStatusOK( headerStatus ) );
-	REQUIRES( isShortIntegerRangeMin( headerLength, MIN_PACKET_SIZE ) );
+	REQUIRES( isShortIntegerRangeMin( headerLength, SSH_MIN_PACKET_SIZE ) );
 	REQUIRES( expectedType >= SSH_MSG_DISCONNECT && \
 			  expectedType < SSH_MSG_SPECIAL_LAST );
 
@@ -191,11 +196,12 @@ static int checkHandshakePacketStatus( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   we use the receive buffer to contain the data since we don't need
 		   it for any further processing */
 		memcpy( sessionInfoPtr->receiveBuffer, header, 
-				MIN_PACKET_SIZE );
+				SSH_MIN_PACKET_SIZE );
 
 		/* Read the rest of the error message */
+		REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufSize, 128 ) );
 		status = readTextLine( &sessionInfoPtr->stream, 
-							   sessionInfoPtr->receiveBuffer + MIN_PACKET_SIZE, 
+							   sessionInfoPtr->receiveBuffer + SSH_MIN_PACKET_SIZE, 
 							   min( MAX_ERRMSG_SIZE - 128, \
 									sessionInfoPtr->receiveBufSize - 128 ), 
 							   &length, &isTextDataError, NULL, 
@@ -206,7 +212,6 @@ static int checkHandshakePacketStatus( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			   go with what we've already got */
 			length = 0;
 			}
-		sessionInfoPtr->receiveBuffer[ MIN_PACKET_SIZE + length ] = '\0';
 
 		/* Report the error as a problem with the remote software.  Since
 		   the other side has bailed out, we mark the channel as closed to
@@ -214,12 +219,12 @@ static int checkHandshakePacketStatus( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   "The great thing about a conversation like this, you only have
 		   to have it once" - Gabriel, "The Prophecy" */
 		SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_SENDCLOSED );
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Remote SSH software has crashed, diagnostic was: '%s'",
-				  sanitiseString( sessionInfoPtr->receiveBuffer, 
-								  MAX_ERRMSG_SIZE - 64, 
-								  MIN_PACKET_SIZE + length ) ) );
+		REQUIRES( !checkOverflowAdd( SSH_MIN_PACKET_SIZE, length ) );
+		retExtSan( CRYPT_ERROR_BADDATA,
+				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+					 "Remote SSH software has crashed, diagnostic was: '%s'",
+					 sessionInfoPtr->receiveBuffer, 
+					 SSH_MIN_PACKET_SIZE + length, NULL, 0, NULL, 0 ) );
 		}
 
 	/* No (obviously) buggy behaviour detected */
@@ -227,7 +232,9 @@ static int checkHandshakePacketStatus( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	}
 
 /* Perform a preliminary check whether a packet is valid for a particular
-   situation */
+   situation.  This is merely a pre-filter for packets that are valid in 
+   that protocol state, rigorous checking is performed by the packet-read 
+   code */
 
 CHECK_RETVAL \
 static int checkPacketValid( IN_BYTE const int packetType, 
@@ -238,11 +245,16 @@ static int checkPacketValid( IN_BYTE const int packetType,
 		/* General messages */
 		SSH_MSG_DISCONNECT, SSH_MSG_IGNORE, SSH_MSG_DEBUG,
 		/* Handshake-only messages */
-		SSH_MSG_SERVICE_REQUEST, SSH_MSG_SERVICE_ACCEPT, SSH_MSG_EXT_INFO, 
 		SSH_MSG_KEXINIT, SSH_MSG_NEWKEYS, SSH_MSG_KEXDH_INIT, 
 		SSH_MSG_KEXDH_REPLY, SSH_MSG_KEX_DH_GEX_REQUEST_OLD, 
 		SSH_MSG_KEX_DH_GEX_GROUP, SSH_MSG_KEX_DH_GEX_INIT, 
 		SSH_MSG_KEX_DH_GEX_REPLY, SSH_MSG_KEX_DH_GEX_REQUEST, 
+		CRYPT_ERROR, CRYPT_ERROR };
+	static const int validPostHSPacketTbl[] = {
+		/* General messages */
+		SSH_MSG_DISCONNECT, SSH_MSG_IGNORE, SSH_MSG_DEBUG,
+		/* Post-handshake-only messages */
+		SSH_MSG_SERVICE_REQUEST, SSH_MSG_SERVICE_ACCEPT, SSH_MSG_EXT_INFO, 
 		/* Dual-use messages */
 		SSH_MSG_CHANNEL_OPEN, SSH_MSG_CHANNEL_OPEN_CONFIRMATION, 
 		SSH_MSG_CHANNEL_OPEN_FAILURE,
@@ -280,12 +292,17 @@ static int checkPacketValid( IN_BYTE const int packetType,
 		SSH_MSG_CHANNEL_SUCCESS, SSH_MSG_CHANNEL_FAILURE,
 		CRYPT_ERROR, CRYPT_ERROR };
 	const int *validPacketTbl = \
-			( protocolState == SSH_PROTOSTATE_HANDSHAKE ) ? validHSPacketTbl : \
-			( protocolState == SSH_PROTOSTATE_AUTH ) ? validAuthPacketTbl : \
-													   validDataPacketTbl;
+			( protocolState == SSH_PROTOSTATE_HANDSHAKE ) ? \
+			  validHSPacketTbl : \
+			( protocolState == SSH_PROTOSTATE_POSTHANDSHAKE ) ? \
+			  validPostHSPacketTbl : \
+			( protocolState == SSH_PROTOSTATE_AUTH ) ? \
+			  validAuthPacketTbl : validDataPacketTbl;
 	const int validPacketTblSize = \
 			( protocolState == SSH_PROTOSTATE_HANDSHAKE ) ? \
 			  FAILSAFE_ARRAYSIZE( validHSPacketTbl, int ) : \
+			( protocolState == SSH_PROTOSTATE_POSTHANDSHAKE ) ? \
+			  FAILSAFE_ARRAYSIZE( validPostHSPacketTbl, int ) : \
 			( protocolState == SSH_PROTOSTATE_AUTH ) ? \
 			  FAILSAFE_ARRAYSIZE( validAuthPacketTbl, int ) : \
 			  FAILSAFE_ARRAYSIZE( validDataPacketTbl, int );
@@ -417,7 +434,7 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_ETM ) ? \
 			TRUE : FALSE;
 	const int headerByteCount = isSecureRead && useETM ? \
-			LENGTH_SIZE + MIN_PACKET_SIZE : MIN_PACKET_SIZE;
+			LENGTH_SIZE + SSH_MIN_PACKET_SIZE : SSH_MIN_PACKET_SIZE;
 	int length, extraLength = 0, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -439,9 +456,9 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Make sure that the header buffers declared in session.h are big 
 	   enough to hold the data that we need to read into them.  It can't 
-	   be declared using LENGTH_SIZE and MIN_PACKET_SIZE because these 
+	   be declared using LENGTH_SIZE and SSH_MIN_PACKET_SIZE because these 
 	   aren't visible outside the SSH code */
-	static_assert( LENGTH_SIZE + MIN_PACKET_SIZE <= CRYPT_MAX_IVSIZE,
+	static_assert( LENGTH_SIZE + SSH_MIN_PACKET_SIZE <= CRYPT_MAX_IVSIZE,
 				   "Packet header size" );
 
 	/* SSH encrypts everything but the MAC (including the packet length in
@@ -511,7 +528,7 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( useETM )
 			{
 			memcpy( sshInfo->encryptedHeaderBuffer, payloadPtr, 
-					MIN_PACKET_SIZE );
+					SSH_MIN_PACKET_SIZE );
 			}
 #endif /* USE_SSH_OPENSSH */
 #ifdef USE_SSH_CTR
@@ -520,13 +537,13 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			status = ctrModeCrypt( sessionInfoPtr->iCryptInContext,
 								   sshInfo->readCTR, 
 								   sessionInfoPtr->cryptBlocksize,
-								   payloadPtr, MIN_PACKET_SIZE );
+								   payloadPtr, SSH_MIN_PACKET_SIZE );
 			}
 		else
 #endif /* USE_SSH_CTR */
 		status = krnlSendMessage( sessionInfoPtr->iCryptInContext,
 								  IMESSAGE_CTX_DECRYPT, payloadPtr,
-								  MIN_PACKET_SIZE );
+								  SSH_MIN_PACKET_SIZE );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
@@ -547,7 +564,7 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			long as the minimum-length packet */
 	sMemConnect( &stream, sshInfo->headerBuffer, headerByteCount );
 	status = length = readUint32( &stream );
-	static_assert( SSH_HEADER_REMAINDER_SIZE == MIN_PACKET_SIZE - \
+	static_assert( SSH_HEADER_REMAINDER_SIZE == SSH_MIN_PACKET_SIZE - \
 												LENGTH_SIZE, \
 				   "Header length calculation" );
 	if( cryptStatusError( status ) || \
@@ -558,6 +575,8 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		length + extraLength >= sessionInfoPtr->receiveBufSize )
 		{
 		sMemDisconnect( &stream );
+		REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufSize, 
+									 extraLength ) );
 		if( isSecureRead && \
 			length + extraLength >= sessionInfoPtr->receiveBufSize )
 			{
@@ -603,7 +622,7 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   information.  We have to leave this in place in the stream because 
 	   it's going to be read into the session buffer on so we can't read it 
 	   from the stream above but have to manually extract it here */
-	static_assert( LENGTH_SIZE + 1 + ID_SIZE <= MIN_PACKET_SIZE,
+	static_assert( LENGTH_SIZE + 1 + ID_SIZE <= SSH_MIN_PACKET_SIZE,
 				   "Header length calculation" );
 	sshInfo->padLength = sshInfo->headerBuffer[ LENGTH_SIZE ];
 	sshInfo->packetType = sshInfo->headerBuffer[ LENGTH_SIZE + 1 ];
@@ -640,6 +659,23 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  getSSHPacketName( expectedType ), expectedType ) );
 		}
 
+	/* If we're at the handshake phase, keep track of the packets that we've 
+	   seen */
+	if( protocolState == SSH_PROTOSTATE_HANDSHAKE )
+		{
+		if( sshInfo->packetTraceLength >= MAX_PACKET_TRACE_LENGTH )
+			{
+			sMemDisconnect( &stream );
+			retExt( CRYPT_ERROR_OVERFLOW,
+					( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO, 
+					  "%s sent excessive number (%d) of handshake packets",
+					  isServer( sessionInfoPtr ) ? "Client" : "Server",
+					  sshInfo->packetTraceLength ) );
+			}
+		sshInfo->packetTrace[ sshInfo->packetTraceLength++ ] = \
+									intToByte( sshInfo->packetType );
+		}
+
 	/* We've passed the crypto stage, errors are still fatal but no longer
 	   fatal crypto errors */
 	if( isSecureRead )
@@ -650,6 +686,7 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   it */
 	ENSURES( ( isHandshake && sessionInfoPtr->receiveBufPos == 0 ) || \
 			 !isHandshake );
+	REQUIRES( !checkOverflowSub( headerByteCount, LENGTH_SIZE ) );
 	ENSURES( boundsCheckZ( sessionInfoPtr->receiveBufPos, 
 						   headerByteCount - LENGTH_SIZE, 
 						   sessionInfoPtr->receiveBufSize ) );
@@ -663,7 +700,7 @@ int readPacketHeaderSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	*packetLength = length;
 	*packetExtraLength = extraLength;
 	*payloadBytesRead = headerByteCount - LENGTH_SIZE;
-
+						/* Overflow checked above */
 	return( CRYPT_OK );
 	}
 
@@ -701,6 +738,7 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  expectedType < SSH_MSG_SPECIAL_LAST );
 	REQUIRES( minPacketSize >= 1 && minPacketSize <= 1024 );
 	REQUIRES( protocolState == SSH_PROTOSTATE_HANDSHAKE || \
+			  protocolState == SSH_PROTOSTATE_POSTHANDSHAKE || \
 			  protocolState == SSH_PROTOSTATE_AUTH );
 
 	/* Errors in reading handshake packets are fatal */
@@ -715,14 +753,14 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   patientia nostra?) */
 	LOOP_SMALL( ( noPackets = 0, sshInfo->packetType = SSH_MSG_IGNORE ),
 				( sshInfo->packetType == SSH_MSG_IGNORE || \
-				  sshInfo->packetType == SSH_MSG_DEBUG || \
-				  sshInfo->packetType == SSH_MSG_USERAUTH_BANNER ) && \
-				noPackets <= 3, 
+				  sshInfo->packetType == SSH_MSG_DEBUG ) && \
+				noPackets < MAX_NOOP_PACKETS, 
 				noPackets++ )
 		{
 		int payloadLengthRead, extraLength, status;
 
-		ENSURES( LOOP_INVARIANT_SMALL( noPackets, 0, 4 ) );
+		ENSURES( LOOP_INVARIANT_SMALL( noPackets, 0, \
+									   MAX_NOOP_PACKETS - 1 ) );
 
 		/* Read the SSH handshake packet header:
 
@@ -753,13 +791,16 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* Read the remainder of the handshake-packet message.  The change 
 		   cipherspec message has length 0 so we only perform the read if 
 		   there's packet data present */
+		REQUIRES( !checkOverflowAdd( length, extraLength ) );
 		if( length + extraLength > payloadLengthRead )
 			{
 			const int remainingLength = length + extraLength - \
 										payloadLengthRead;
-			int readLength;				/* Range checked above */
+			int readLength;
 
-			REQUIRES( isBufsizeRange( remainingLength ) );
+			REQUIRES( !checkOverflowSub( length + extraLength, 
+										 payloadLengthRead ) );
+			ENSURES( isBufsizeRange( remainingLength ) );
 
 			/* Because this code is called conditionally we can't make the
 			   read part of the fixed-header read but have to do independent
@@ -807,7 +848,7 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				status = checkMacSSHIncremental( sessionInfoPtr->iAuthInContext,
 										sshInfo->readSeqNo, 
 										sshInfo->encryptedHeaderBuffer,
-										MIN_PACKET_SIZE, MIN_PACKET_SIZE, 
+										SSH_MIN_PACKET_SIZE, SSH_MIN_PACKET_SIZE, 
 										length, MAC_START, extraLength );
 				if( cryptStatusOK( status ) )
 					{
@@ -856,6 +897,7 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			   processing */
 			if( !useETM )
 				{
+				REQUIRES( !checkOverflowAdd( length, extraLength ) );
 				status = checkMacSSH( sessionInfoPtr->iAuthInContext,
 									  sshInfo->readSeqNo,
 									  sessionInfoPtr->receiveBuffer, 
@@ -890,6 +932,17 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			/* Errors are back to normal fatal errors */
 			*readInfo = READINFO_FATAL;
 			}
+		if( checkOverflowInc( sshInfo->readSeqNo ) )
+			{
+			/* This is a should-never-occur condition so in theory we could 
+			   just make it an ENSURES() condition */
+			retExt( CRYPT_ERROR_OVERFLOW,
+					( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO,
+					  "Packet read sequence number overflow reading %s (%d) "
+					  "packet, length %d",
+					  getSSHPacketName( sshInfo->packetType ),
+					  sshInfo->packetType, length ) );
+			}
 		sshInfo->readSeqNo++;
 		DEBUG_PRINT(( "Read %s (%d) packet, length %d.\n", 
 					  getSSHPacketName( sshInfo->packetType ), 
@@ -922,35 +975,42 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   vague on what's valid where so we can't be as strict as we'd like
 		   to in case there's some oddball implementation out there that 
 		   inserts them in unexpected but technically valid locations */
-		if( protocolState == SSH_PROTOSTATE_AUTH && \
+		if( sshInfo->packetType == SSH_MSG_GLOBAL_REQUEST && \
 			expectedType == SSH_MSG_SPECIAL_CHANNEL && \
-			sshInfo->packetType == SSH_MSG_GLOBAL_REQUEST )
+			protocolState == SSH_PROTOSTATE_AUTH )
 			{
 			/* Turn a bogus global request in the middle of the auth process
 			   into a no-op */
 			sshInfo->packetType = SSH_MSG_IGNORE;
 			}
-		if( sshInfo->packetType == SSH_MSG_USERAUTH_BANNER && \
-			( protocolState != SSH_PROTOSTATE_AUTH || \
-			  isServer( sessionInfoPtr ) ) )
+		if( sshInfo->packetType == SSH_MSG_USERAUTH_BANNER )
 			{
-			/* A banner message can only be sent by the server during the
-			   authentication process.  The protocol-state check has already
-			   been enforced earlier by checkPacketValid() but we make it
-			   explicit here */
-			retExt( CRYPT_ERROR_BADDATA,
-					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-					  "Received unexpected %s packet, length %d", 
-					  getSSHPacketName( sshInfo->packetType ), length ) );
+			if( isServer( sessionInfoPtr ) || \
+				protocolState != SSH_PROTOSTATE_AUTH )
+				{
+				/* A banner message can only be sent by the server during the
+				   authentication process.  The protocol-state check has 
+				   already been enforced earlier by checkPacketValid() but we 
+				   make it explicit here */
+				retExt( CRYPT_ERROR_BADDATA,
+						( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+						  "Received unexpected %s packet, length %d", 
+						  getSSHPacketName( sshInfo->packetType ), 
+						  length ) );
+				}
+			
+			/* We can't do anything with this, turn it into a no-op */
+			sshInfo->packetType = SSH_MSG_IGNORE;
 			}
 		}
 	ENSURES( LOOP_BOUND_OK );
-	if( noPackets > 3 )
+	if( noPackets >= MAX_NOOP_PACKETS )
 		{
 		/* We have to be a bit careful here in case this is a strange
 		   implementation that sends large numbers of no-op packets as cover
-		   traffic.  Complaining after 3 consecutive no-ops seems to be a 
-		   safe tradeoff between catching DoSes and handling cover traffic */
+		   traffic.  Complaining after MAX_NOOP_PACKETS consecutive no-ops 
+		   seems to be a safe tradeoff between catching DoSes and handling 
+		   cover traffic */
 		retExt( CRYPT_ERROR_OVERFLOW,
 				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO, 
 				  "%s sent an excessive number of consecutive no-op "
@@ -961,6 +1021,8 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Adjust the length to account for the fixed-size fields, remember
 	   where the data starts, and make sure that there's some payload
 	   present (there should always be at least one byte, the packet type) */
+	REQUIRES( !checkOverflowSub( length, 
+								 PADLENGTH_SIZE + sshInfo->padLength ) );
 	length -= PADLENGTH_SIZE + sshInfo->padLength;
 	if( sshInfo->packetType == SSH_MSG_DISCONNECT )
 		{
@@ -973,6 +1035,8 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		minPacketLength = ID_SIZE + UINT32_SIZE + \
 						  sizeofString32( 0 ) + sizeofString32( 0 );
 		}
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufSize,
+								 EXTRA_PACKET_SIZE ) );
 	if( !isShortIntegerRangeMin( length, minPacketLength ) || \
 		length > sessionInfoPtr->receiveBufSize - EXTRA_PACKET_SIZE )
 		{
@@ -988,6 +1052,7 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Although the packet type is theoretically part of the packet data we
 	   strip it since it's already reported in the sshInfo, leaving only the
 	   actual payload data in place */
+	REQUIRES( !checkOverflowSub( length, ID_SIZE ) );
 	length -= ID_SIZE;
 
 	/* Move the data that's left beyond the header down in the buffer to get 
@@ -1125,6 +1190,28 @@ int readHSPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	status = readHSPacket( sessionInfoPtr, expectedType, minPacketSize,
 						   &readInfo, SSH_PROTOSTATE_HANDSHAKE );
+	if( cryptStatusOK( status ) && readInfo == READINFO_FATAL_CRYPTO )
+		{
+		/* We have to explicitly handle crypto failures at this point 
+		   because we're not being called from the higher-level session
+		   read handlers that do this for us */
+		registerCryptoFailure();
+		}
+	return( status );
+	}
+
+CHECK_RETVAL_LENGTH_SHORT STDC_NONNULL_ARG( ( 1 ) ) \
+int readPostHSPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
+						  IN_RANGE( SSH_MSG_DISCONNECT, \
+									SSH_MSG_SPECIAL_LAST - 1 ) \
+							int expectedType,
+						  IN_RANGE( 1, 1024 ) const int minPacketSize )
+	{
+	READSTATE_INFO readInfo;
+	int status;
+
+	status = readHSPacket( sessionInfoPtr, expectedType, minPacketSize,
+						   &readInfo, SSH_PROTOSTATE_POSTHANDSHAKE );
 	if( cryptStatusOK( status ) && readInfo == READINFO_FATAL_CRYPTO )
 		{
 		/* We have to explicitly handle crypto failures at this point 

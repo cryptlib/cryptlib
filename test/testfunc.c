@@ -572,7 +572,7 @@ BOOLEAN testRandom( void )
 			   "number source.\n\n", outputStream );
 
 		/* Kludge the randomness routines so we can continue the self-tests */
-		cryptAddRandom( "xyzzy", 5 );
+		( void ) cryptAddRandom( "xyzzy", 5 );
 		}
 
 	return( TRUE );
@@ -1303,11 +1303,7 @@ BOOLEAN testSessionsLoopback( void )
 	if( !testSessionSSHClientServerDebugCheck() )
 		return( FALSE );
 
-	/* TLS tests */
-	if( !testSessionSSLClientServer() )
-		return( FALSE );
-	if( !testSessionSSLClientCertClientServer() )
-		return( FALSE );
+	/* TLS 1.0 tests, default disabled */
 	if( !testSessionTLSClientServer() )
 		return( FALSE );
 	if( !testSessionTLSSharedKeyClientServer() )
@@ -1318,10 +1314,16 @@ BOOLEAN testSessionsLoopback( void )
 		return( FALSE );
 	if( !testSessionTLSLocalServerSocketClientServer() )
 		return( FALSE );
+
+	/* TLS 1.1 tests */
 	if( !testSessionTLS11ClientServer() )
 		return( FALSE );
 	if( !testSessionTLS11ClientCertClientServer() )
 		return( FALSE );
+	if( !testSessionTLSClientServerDebugCheck() )
+		return( FALSE );
+	
+	/* TLS 1.2 tests */
 	if( !testSessionTLS12ClientServer() )
 		return( FALSE );
 	if( !testSessionTLS12ClientCertClientServer() )
@@ -1330,8 +1332,8 @@ BOOLEAN testSessionsLoopback( void )
 		return( FALSE );
 	if( !testSessionTLS12WebSocketsClientServer() )
 		return( FALSE );
-	if( !testSessionTLSClientServerDebugCheck() )
-		return( FALSE );
+
+	/* TLS 1.3 tests */
 	if( !testSessionTLS13ClientServer() )
 		return( FALSE );
 	if( !testSessionTLS13ClientServerEccKey() )
@@ -1341,6 +1343,10 @@ BOOLEAN testSessionsLoopback( void )
 	if( !testSessionTLS13ClientCertClientServer() )
 		return( FALSE );
 	if( !testSessionTLS13ForceTLS13ClientServer() )
+		return( FALSE );
+	if( !testSessionTLS13Client12ClientServer() )
+		return( FALSE );
+	if( !testSessionTLS13Server12ClientServer() )
 		return( FALSE );
 
 	/* PKI protocol tests */
@@ -1356,6 +1362,8 @@ BOOLEAN testSessionsLoopback( void )
 		return( FALSE );
 	if( !testSessionTSPClientServerPersistent() )
 		return( FALSE );
+
+	/* SCEP tests */
 	if( !testSessionSCEPClientServer() )
 		return( FALSE );
 	if( !testSessionSCEPSigonlyClientServer() )
@@ -1370,6 +1378,8 @@ BOOLEAN testSessionsLoopback( void )
 		return( FALSE );
 	if( !testSessionSCEPClientServerDebugCheck() )
 		return( FALSE );
+
+	/* CMP tests */
 	if( !testSessionCMPClientServer() )
 		return( FALSE );
 	if( !testSessionCMPAltAlgoClientServer() )

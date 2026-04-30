@@ -43,7 +43,10 @@ static int setEndTime( INOUT_PTR CERT_INFO *certInfoPtr,
 	/* Check for startTime + endTime overflowing MAX_TIME_VALUE.  The
 	   peculiar order of operations below is required to avoid an overflow
 	   during the check, it's checking that timeInSeconds fits into the
-	   interval between startTime and MAX_TIME */
+	   interval between startTime and MAX_TIME.  Note that we can't use
+	   checkOverflowAdd() or equivalent here because we don't know what
+	   type time_t is.  In theory we could kludge it with compiler-specific 
+	   typeof() hacks but it's easier to just use the portable form below */
 	timeInSeconds = timeInDays * ( time_t ) 86400UL;
 	if( timeInSeconds >= MAX_TIME_VALUE - certInfoPtr->startTime )
 		{
@@ -1053,7 +1056,8 @@ static int pseudoSignCertificate( INOUT_PTR CERT_INFO *certInfoPtr,
 		case CRYPT_CERTTYPE_REQUEST_CERT:
 			{
 			const int dataSize = certObjectLength + \
-								 sizeofObject( sizeofShortInteger( 0 ) );
+								 sizeofShortObject( \
+									sizeofShortInteger( 0 ) );
 
 			ENSURES( certInfoPtr->type == CRYPT_CERTTYPE_REQUEST_CERT );
 
@@ -1247,6 +1251,8 @@ static int signCertInfo( OUT_BUFFER( signedObjectMaxLength, \
 
 	/* If we need to include extra data with the signature attach it to the 
 	   end of the signature */
+	REQUIRES( !checkOverflowSub( signedObjectMaxLength, 
+								 *signedObjectLength ) );
 	ENSURES( boundsCheck( *signedObjectLength, 
 						  signedObjectMaxLength - *signedObjectLength, 
 						  signedObjectMaxLength ) );
@@ -1269,7 +1275,11 @@ static int signCertInfo( OUT_BUFFER( signedObjectMaxLength, \
 									 extraDataType );
 		}
 	if( cryptStatusOK( status ) )
+		{
+		REQUIRES( !checkOverflowAdd( *signedObjectLength, 
+									 stell( &stream ) ) );
 		*signedObjectLength += stell( &stream );
+		}
 	sMemDisconnect( &stream );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1330,6 +1340,8 @@ static int createSignedObject( INOUT_PTR CERT_INFO *certInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 	ANALYSER_HINT( isIntegerRangeNZ( certObjectLength ) );
+	REQUIRES( !checkOverflowAdd3( certObjectLength, 1024, 
+								  extraDataLength ) );
 	signedCertAllocSize = certObjectLength + 1024 + extraDataLength;
 	if( certObjectLength > 1024 )
 		{

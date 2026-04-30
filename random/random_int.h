@@ -86,35 +86,26 @@
 #define RANDOMPOOL_SAMPLE_SIZE	16
 
 /* The X9.17 generator can run with either the original 3DES algorithm 
-   (cryptlib 2.0 to 3.43) or the more recent AES one (cryptlib 3.44+).
-
+   (cryptlib 2.0 to 3.43) or the more recent AES one (cryptlib 3.44+).  
    Since there may be alignment requirements for underlying hardware crypto, 
-   we have to allow for padding alongside the key storage, see the comment 
-   in initX917() for details.  To deal with this we allocate X917_KEYDATA 
-   storage and then set up an aligned pointer to the X917_KEY within the 
-   X917_KEYDATA block */
+   we have to align the key storage, see the comment in initX917() for 
+   details */
 
 #ifdef USE_3DES_X917
 
 typedef struct {
 	Key_schedule desKey1, desKey2, desKey3;
 	} X917_KEY;
-typedef struct {
-	Key_schedule desKey1, desKey2, desKey3;
-	BYTE padding[ 16 ];
-	} X917_KEYDATA;
-#define DES_KEYSIZE		sizeof( Key_schedule )
+
+#define DES_KEYSIZE		sizeof( X917_KEY )
 
 #else
 
 typedef struct {
 	aes_encrypt_ctx aesKey;
 	} X917_KEY;
-typedef struct {
-	aes_encrypt_ctx aesKey;
-	BYTE padding[ 16 ];
-	} X917_KEYDATA;
-#define AES_KEYSIZE		sizeof( aes_encrypt_ctx )
+
+#define AES_KEYSIZE		sizeof( X917_KEY )
 
 #endif /* USE_3DES_X917 */
 
@@ -145,7 +136,7 @@ typedef struct RI {
 	BUFFER_FIXED( X917_POOLSIZE ) \
 	BYTE x917DT[ X917_POOLSIZE + 8 ];	/* Date/time vector */
 	DATAPTR x917Key;		/* Generator encryption key */
-	X917_KEYDATA x917KeyData;
+	ALIGN_DATA( x917KeyData, AES_KEYSIZE, 16 );
 	BOOLEAN x917Inited;		/* Whether generator has been inited */
 	int x917Count;			/* No.of times generator has been cycled */
 	BOOLEAN useX931;		/* X9.17 vs. X9.31 operation (see code comments */
@@ -157,7 +148,7 @@ typedef struct RI {
 	unsigned long x917PrevOutput[ RANDOMPOOL_SAMPLES + 2 ];
 	int prevOutputIndex;
 	BUFFER_FIXED( RANDOMPOOL_SAMPLE_SIZE ) \
-	BYTE x917OuputSample[ RANDOMPOOL_SAMPLE_SIZE + 8 ];
+	BYTE x917OutputSample[ RANDOMPOOL_SAMPLE_SIZE + 8 ];
 
 #if 0	/* See comment in addEntropyQuality() */
 	/* Other status information used to check the pool's operation */

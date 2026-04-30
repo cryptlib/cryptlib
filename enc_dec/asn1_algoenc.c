@@ -106,7 +106,7 @@ static int readGenericSecretParams( INOUT_PTR STREAM *stream,
 				startOffset < stell( stream ) );
 				/* Preceding algoID has already been read */
 
-	/* The caller needs a copy of the KFD, encryption and MAC parameters to 
+	/* The caller needs a copy of the KDF, encryption and MAC parameters to 
 	   use when creating the encryption and MAC contexts, so we record the 
 	   positions within the encoded parameter data */
 	status = readSequence( stream, NULL );
@@ -219,9 +219,9 @@ static int writeGenericSecretParams( INOUT_PTR STREAM *stream,
 
 	/* Write the pre-encoded AuthEnc parameter data */
 	writeSequence( stream, oidSize + \
-						   sizeofObject( kdfDataSize + \
-										 encAlgoDataSize + \
-										 macAlgoDataSize ) );
+						   sizeofShortObject( kdfDataSize + \
+											  encAlgoDataSize + \
+											  macAlgoDataSize ) );
 	swrite( stream, oid, oidSize );
 	writeSequence( stream, kdfDataSize + encAlgoDataSize + \
 						   macAlgoDataSize );

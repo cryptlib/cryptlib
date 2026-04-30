@@ -256,6 +256,7 @@ static int readObjectAttributes( INOUT_PTR STREAM *stream,
 	status = readSet( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 
@@ -369,7 +370,7 @@ static int readObjectInfo( INOUT_PTR STREAM *stream,
 							NULL, &length, READCMS_FLAG_INNERHEADER | \
 										   READCMS_FLAG_DEFINITELENGTH );
 	if( cryptStatusOK( status ) && \
-		( !isShortIntegerRangeMin( length, MIN_OBJECT_SIZE ) ) )
+		( !isShortIntegerRangeMin( length, MIN_P12_OBJECT_SIZE ) ) )
 		status = CRYPT_ERROR_BADDATA;
 	if( cryptStatusOK( status ) )
 		{
@@ -419,8 +420,8 @@ static BOOLEAN isIncorrectNestedContent( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( FALSE );
 	sMemConnect( &localStream, dataPtr, 8 );
-	status = readOctetStringHole( &localStream, &length, MIN_OBJECT_SIZE, 
-								  DEFAULT_TAG );
+	status = readOctetStringHole( &localStream, &length, 
+								  MIN_P12_OBJECT_SIZE, DEFAULT_TAG );
 	sMemDisconnect( &localStream );
 	if( cryptStatusError( status ) )
 		return( FALSE );
@@ -483,7 +484,7 @@ static int readEncryptedObjectInfo( INOUT_PTR STREAM *stream,
 	   object so we read it as a generic object.  readGenericHole()
 	   disallows indefinite-length encodings so we know that the returned 
 	   payload length will have a definite value */
-	status = readGenericHole( stream, &payloadLength, MIN_OBJECT_SIZE, 
+	status = readGenericHole( stream, &payloadLength, MIN_P12_OBJECT_SIZE, 
 							  DEFAULT_TAG );
 	if( cryptStatusOK( status ) && isEncryptedCert && \
 		( payloadLength % 4 ) == 0 && \
@@ -503,7 +504,7 @@ static int readEncryptedObjectInfo( INOUT_PTR STREAM *stream,
 		DEBUG_DIAG(( "Compensating for invalid content encoding of "
 					 "OCTET STRING inside [0] data" ));
 		status = readOctetStringHole( stream, &payloadLength, 
-									  MIN_OBJECT_SIZE, DEFAULT_TAG );
+									  MIN_P12_OBJECT_SIZE, DEFAULT_TAG );
 		}
 	if( cryptStatusOK( status ) )
 		{
@@ -554,7 +555,8 @@ int pkcs12ReadObject( INOUT_PTR STREAM *stream,
 
 	/* Read the current object's data */
 	status = readRawObjectAlloc( stream, &objectData, &objectLength,
-								 MIN_OBJECT_SIZE, MAX_INTLENGTH_SHORT - 1 );
+								 MIN_P12_OBJECT_SIZE, 
+								 MAX_INTLENGTH_SHORT - 1 );
 	if( cryptStatusError( status ) )
 		{
 		retExt( status, 

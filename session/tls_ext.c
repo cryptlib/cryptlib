@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib TLS Extension Management						*
-*					Copyright Peter Gutmann 1998-2024						*
+*					Copyright Peter Gutmann 1998-2025						*
 *																			*
 ****************************************************************************/
 
@@ -92,7 +92,7 @@ static int readExtension( INOUT_PTR STREAM *stream,
 							 isServer( sessionInfoPtr ) ? \
 								TRUE : FALSE ) );
 
-		case TLS_EXT_MAX_FRAGMENT_LENTH:
+		case TLS_EXT_MAX_FRAGMENT_LENGTH:
 			{
 /*			static const int fragmentTbl[] = \
 					{ 0, 512, 1024, 2048, 4096, 8192, 16384, 16384 }; */
@@ -168,7 +168,10 @@ static int readExtension( INOUT_PTR STREAM *stream,
 			   an attack.  The status code to return here is a bit 
 			   uncertain, but CRYPT_ERROR_INVALID seems to be the least
 			   inappropriate */
-			if( extLength != 1 || sgetc( stream ) != 0 )
+			status = value = sgetc( stream );
+			if( cryptStatusError( status ) )
+				return( status );
+			if( extLength != 1 || value != 0 )
 				return( CRYPT_ERROR_INVALID );
 
 			/* If we're the server, remember that we have to echo the 
@@ -217,7 +220,8 @@ static int readExtension( INOUT_PTR STREAM *stream,
 		case TLS_EXT_SUPPORTED_VERSIONS:
 			/* Read and process the version information */
 			return( readSupportedVersions( stream, sessionInfoPtr, 
-										   handshakeInfo, extLength ) );
+										   handshakeInfo, extLength, 
+										   extErrorInfoSet ) );
 
 #ifdef USE_TLS13
 		case TLS_EXT_KEY_SHARE:
@@ -261,7 +265,7 @@ static int readExtension( INOUT_PTR STREAM *stream,
 				handshakeInfo->flags |= HANDSHAKE_FLAG_ISSCANNER;
 				return( CRYPT_OK );
 				}
-			/* Fall through */
+			STDC_FALLTHROUGH;
 
 		default:
 			/* If it's an RFC 8701 / GREASE value, skip it */
@@ -306,6 +310,7 @@ int readExtensions( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( sanityCheckTLSHandshakeInfo( handshakeInfo ) );
 	REQUIRES( isShortIntegerRangeNZ( length ) );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	REQUIRES( isShortIntegerRangeMin( endPos, length ) );
 
 	/* Clear return value */
@@ -333,7 +338,8 @@ int readExtensions( INOUT_PTR STREAM *stream,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid TLS extension information" ) );
 		}
-	if( extListLen != length - UINT16_SIZE )
+	if( checkOverflowSub( length, UINT16_SIZE ) || \
+		extListLen != length - UINT16_SIZE )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
@@ -415,6 +421,10 @@ int readExtensions( INOUT_PTR STREAM *stream,
 				}
 			ENSURES( LOOP_BOUND_OK_ALT );
 			ENSURES( i <= MAX_EXTENSIONS );
+			
+			/* Remember the extension for next time */
+			REQUIRES( rangeCheck( extensionSeenLast, 
+								  0, MAX_EXTENSIONS - 1 ) );
 			extensionSeen[ extensionSeenLast++ ] = type;
 			}
 		DEBUG_PRINT_BEGIN();
@@ -519,6 +529,7 @@ typedef struct {
 	int pointFormatHdrLen, pointFormatExtLen;
 	int pskModeHdrLen, pskModeExtLen;
 	int keyexHdrLen, keyexExtLen;
+	int totalSize;
 	} EXT_SIZE_INFO;
 
 /* Calculate the size of the extensions */
@@ -561,6 +572,8 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 		sMemClose( &nullStream );
 		if( cryptStatusError( status ) )
 			return( status );
+		extSizeInfo->totalSize = extSizeInfo->serverNameHdrLen + \
+								 extSizeInfo->serverNameExtLen;	
 		}
 
 	/* Anything beyond this point is TLS 1.2+ so we don't go any further if 
@@ -583,6 +596,8 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 	sMemClose( &nullStream );
 	if( cryptStatusError( status ) )
 		return( status );
+	extSizeInfo->totalSize += extSizeInfo->supportedVersionsHdrLen + \
+							  extSizeInfo->supportedVersionsExtLen;
 
 	/* Signature and hash algorithms */
 	extSizeInfo->sigHashHdrLen = UINT16_SIZE + UINT16_SIZE;
@@ -596,6 +611,8 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 	sMemClose( &nullStream );
 	if( cryptStatusError( status ) )
 		return( status );
+	extSizeInfo->totalSize += extSizeInfo->sigHashHdrLen + \
+							  extSizeInfo->sigHashExtLen;
 
 	/* ECC information.  This is only sent if we're proposing ECC suites in 
 	   the client hello, in theory we could also write it for TLS 1.3 with 
@@ -616,11 +633,15 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 		sMemClose( &nullStream );
 		if( cryptStatusError( status ) )
 			return( status );
+		extSizeInfo->totalSize += extSizeInfo->supportedGroupsHdrLen + \
+								  extSizeInfo->supportedGroupsExtLen;
 
 		/* The point-format extension is fixed-length so we just hardcode 
 		   the length information here */
 		extSizeInfo->pointFormatHdrLen = UINT16_SIZE + UINT16_SIZE;
 		extSizeInfo->pointFormatExtLen = 1 + 1;
+		extSizeInfo->totalSize += extSizeInfo->pointFormatHdrLen + \
+								  extSizeInfo->pointFormatExtLen;	
 		}
 
 	/* Anything beyond this point is TLS 1.3+ so we don't go any further if 
@@ -632,12 +653,20 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 	/* PSK modes, TLS 1.3's version of session resumption */
 	extSizeInfo->pskModeHdrLen = UINT16_SIZE + UINT16_SIZE;
 	extSizeInfo->pskModeExtLen = 1 + 1;
+	extSizeInfo->totalSize += extSizeInfo->pskModeHdrLen + \
+							  extSizeInfo->pskModeExtLen;
 
 	/* Keyex inforation, which in TLS 1.3 is stuffed into an extension in 
-	   the client hello rather than being sent as an actual keyex */
+	   the client hello rather than being sent as an actual keyex.  The
+	   write function takes the handshake information as a non-const 
+	   parameter because the special-snowflake PQC algorithms modify it as 
+	   part of what should be a passive write, however for the size-
+	   calculation process nothing is changed so we just cast it to the
+	   appropriate form */
 	extSizeInfo->keyexHdrLen = UINT16_SIZE + UINT16_SIZE;
 	sMemNullOpen( &nullStream );
-	status = writeKeyexTLS13( &nullStream, handshakeInfo, FALSE );
+	status = writeKeyexTLS13( &nullStream, 
+					( TLS_HANDSHAKE_INFO * ) handshakeInfo, FALSE );
 	if( cryptStatusOK( status ) )
 		{
 		extSizeInfo->keyexExtLen = stell( &nullStream );
@@ -646,6 +675,24 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 	sMemClose( &nullStream );
 	if( cryptStatusError( status ) )
 		return( status );
+
+	/* All of the values before this point have been a handful of bytes
+	   but the TLS 1.3 keyex, particularly in the presence of post-magic 
+	   crypto, can be quite a bit longer, so we perform checks on this.
+	   We check for the maximum size minus a good allowance for extra
+	   space for other data */
+	REQUIRES( !checkOverflowAdd3( extSizeInfo->totalSize, 
+								  extSizeInfo->keyexHdrLen,
+								  extSizeInfo->keyexExtLen ) );
+	extSizeInfo->totalSize += extSizeInfo->keyexHdrLen + \
+							  extSizeInfo->keyexExtLen;
+	if( extSizeInfo->totalSize >= MAX_PACKET_SIZE - 1024 )
+		{
+		DEBUG_DIAG(( "Total TLS extension size %d too large",
+					 extSizeInfo->totalSize ));
+		assert( DEBUG_WARN );
+		return( CRYPT_ERROR_OVERFLOW );
+		}
 #endif /* USE_TLS13 */
 
 	return( CRYPT_OK );
@@ -702,24 +749,16 @@ int writeClientExtensions( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Write the list of extensions */
-	writeUint16( stream, extSizeInfo.serverNameHdrLen + \
-								extSizeInfo.serverNameExtLen + \
-						 extSizeInfo.supportedVersionsHdrLen + \
-								extSizeInfo.supportedVersionsExtLen + \
+	REQUIRES( !checkOverflowAdd( extSizeInfo.totalSize,
+								 RENEG_EXT_SIZE + \
+								 ( UINT16_SIZE + UINT16_SIZE ) + \
+								 ( UINT16_SIZE + UINT16_SIZE ) + \
+								 ( UINT16_SIZE + UINT16_SIZE ) ) );
+	writeUint16( stream, extSizeInfo.totalSize + \
 						 RENEG_EXT_SIZE +					/* Renegotiation */
 						 ( UINT16_SIZE + UINT16_SIZE ) +	/* EncThenMAC */
 						 ( UINT16_SIZE + UINT16_SIZE ) +	/* Extended MS */
-						 ( UINT16_SIZE + UINT16_SIZE ) +	/* TLS 1.2 LTS */
-						 extSizeInfo.sigHashHdrLen + \
-								extSizeInfo.sigHashExtLen + \
-						 extSizeInfo.supportedGroupsHdrLen + \
-								extSizeInfo.supportedGroupsExtLen + \
-						 extSizeInfo.pointFormatHdrLen + \
-								extSizeInfo.pointFormatExtLen + \
-						 extSizeInfo.pskModeHdrLen + \
-								extSizeInfo.pskModeExtLen + \
-						 extSizeInfo.keyexHdrLen + \
-								extSizeInfo.keyexExtLen );
+						 ( UINT16_SIZE + UINT16_SIZE ) );	/* TLS 1.2 LTS */
 	if( extSizeInfo.serverNameHdrLen > 0 )
 		{
 		writeExtensionHdr( stream, TLS_EXT_SNI, extSizeInfo.serverNameExtLen );
@@ -947,6 +986,7 @@ int writeServerExtensions( INOUT_PTR STREAM *stream,
 			}
 		}
 #endif /* USE_TLS13 */
+	REQUIRES( !checkOverflowAdd( extListLen, keyexHdrLen ) );
 	if( extListLen + keyexHdrLen <= 0 )
 		{
 		/* No extensions to write, we're done */
@@ -954,6 +994,8 @@ int writeServerExtensions( INOUT_PTR STREAM *stream,
 		}
 
 	/* Write the overall extension list length */
+	REQUIRES( !checkOverflowAdd( extListLen + keyexHdrLen,
+								 keyexExtLen ) );
 	writeUint16( stream, extListLen + keyexHdrLen + keyexExtLen );
 
 	/* If the client sent an SNI extension then we have to acknowledge it

@@ -2711,8 +2711,8 @@ static int createCertRequest( const char *description,
 			break;
 
 		case CRYPT_ALGO_ED25519:
-			status = load25519Contexts( CRYPT_UNUSED, &pubKeyContext, 
-										&privKeyContext );
+			status = loadEd25519Contexts( CRYPT_UNUSED, &pubKeyContext, 
+										  &privKeyContext );
 			if( status == CRYPT_ERROR_NOTAVAIL )
 				{
 				return( exitUnsupportedAlgo( CRYPT_ALGO_ED25519, 
@@ -2752,7 +2752,7 @@ int testCertRequest( void )
 		fputs( "No PKC algorithm available for test.\n", outputStream );
 		return( FALSE );
 		}
-	sprintf( buffer, "%s certification request", algoName( cryptAlgo ) );
+	sprintf( buffer, "%s certification request", algoToName( cryptAlgo ) );
 	if( !createCertRequest( buffer, cryptAlgo, certRequestData, 
 							"certreq_default" ) )
 		return( FALSE );
@@ -2805,7 +2805,7 @@ static int crmfRequest( const CRYPT_ALGO_TYPE cryptAlgo )
 	int certificateLength, status;
 
 	fprintf( outputStream, "Testing CRMF %s certification request "
-			 "creation/export...\n", algoName( cryptAlgo ) );
+			 "creation/export...\n", algoToName( cryptAlgo ) );
 
 	/* Create the en/decryption contexts */
 	switch( cryptAlgo )

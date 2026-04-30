@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TCP/IP Interface Header					*
-*						Copyright Peter Gutmann 1998-2019					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -123,7 +123,7 @@
 
 #if !defined( USE_IPv6_DNSAPI )
   #define IPPROTO_TCP			1
-  #define IPPROTO_TCP			2
+  #define IPPROTO_UDP			2
   #define AF_UNSPEC				1
 #endif /* !USE_IPv6_DNSAPI */
 
@@ -190,7 +190,8 @@ unsigned long inet_addr( const char *cp );
 #define close					FreeRTOS_closesocket
 #define connect					FreeRTOS_connect
 #define gethostbyname			NU_Get_Host_By_Name
-#define getsockopt( sockfd, level, optname, optval, optlen )	0
+#define getsockopt( sockfd, level, optname, optval, optlen ) \
+								*( ( int * ) ( optval ) ) = 0, *( optlen ) = 0, 0
 #define listen					FreeRTOS_listen
 #define recv					FreeRTOS_recv
 #define send					FreeRTOS_send
@@ -1207,7 +1208,7 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 	 comment in the FreeRTOS section at the start) so we use a dummy value
 	 that we'll never encounter to no-op out the check */
   #define TIMEOUT_ERROR				pdFREERTOS_ERRNO_ETIMEDOUT
-  #define NONBLOCKCONNECT_ERROR		12345
+  #define NONBLOCKCONNECT_ERROR		pdFREERTOS_ERRNO_12345
 #elif defined( __MQXRTOS__ )
   #define TIMEOUT_ERROR				RTCSERR_TCP_TIMED_OUT
   #define NONBLOCKCONNECT_ERROR		RTCSERR_TCP_CONN_REFUSED
@@ -1428,7 +1429,7 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 										  getErrno( socket ) == IP_ERR_IN_PROGRESS )
   #define isTimeoutError( socket )		( getErrno( socket ) == IP_ERR_TIMEOUT )
 #elif defined( __FreeRTOS__ ) && defined( USE_FREERTOS_SOCKETS )
-  #define isRecoverableError( status )	( ( status ) == XXXX )
+  #define isRecoverableError( status )	( ( status ) == pdFREERTOS_ERRNO_CONNRESET )
   #define isRestartableError( socket )	( errno == pdFREERTOS_ERRNO_EINTR || \
 										  errno == pdFREERTOS_ERRNO_EAGAIN )
   #define isTimeoutError()				( errno == pdFREERTOS_ERRNO_ETIMEDOUT )
@@ -1729,10 +1730,10 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 #elif defined( __embOS__ )
   #define gethostbyname_vars() \
 		  char *hAddrList[ 2 ]; \
-		  struct hostent hostEnt;
+		  struct hostent hostEnt; \
+		  U32 hostAddress; 
   #define gethostbyname_threadsafe( hostName, hostEntPtr, hostErrno ) \
 		  { \
-		  U32 hostAddress; \
 		  int result; \
 		  \
 		  hostErrno = 0; \
@@ -1748,7 +1749,7 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 			memset( hostEntPtr, 0, sizeof( struct hostent ) ); \
 			hostEntPtr->h_addrtype = AF_INET; \
 			hostEntPtr->h_length = IP_ADDR_SIZE; \
-			hAddrList[ 0 ] = ( CHAR * ) hostAddress; /* Already in network order */ \
+			hAddrList[ 0 ] = ( CHAR * ) &hostAddress;	/* Already in network order */ \
 			hAddrList[ 1 ] = NULL; \
 			hostEntPtr->h_addr_list = hAddrList; \
 			} \
@@ -1756,11 +1757,10 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 #elif defined( __Telit__ )
   #define gethostbyname_vars() \
 		  char *hAddrList[ 2 ]; \
-		  M2M_SOCKET_BSD_HOSTENT hostEnt;
+		  M2M_SOCKET_BSD_HOSTENT hostEnt; \
+		  UINT32 hostAddress; 		  
   #define gethostbyname_threadsafe( hostName, hostEntPtr, hostErrno ) \
 		  { \
-		  UINT32 hostAddress; \
-		  \
 		  hostErrno = 0; \
 		  hostAddress = m2m_socket_bsd_get_host_by_name( hostName ); \
 		  if( hostAddress == 0 ) \
@@ -1774,7 +1774,8 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 			memset( hostEntPtr, 0, sizeof( M2M_SOCKET_BSD_HOSTENT ) ); \
 			hostEntPtr->h_addrtype = M2M_SOCKET_BSD_AF_INET; \
 			hostEntPtr->h_length = IP_ADDR_SIZE; \
-			hAddrList[ 0 ] = ( CHAR * ) m2m_socket_bsd_htonl( hostAddress ); \
+			hostAddress = m2m_socket_bsd_htonl( hostAddress ); \
+			hAddrList[ 0 ] = ( CHAR * ) &hostAddress; \
 			hAddrList[ 1 ] = NULL; \
 			hostEntPtr->h_addr_list = hAddrList; \
 			} \
@@ -1847,12 +1848,14 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
   #define setSocketNonblocking( socket ) \
 			{ \
 			const int flags = fcntl( socket, F_GETFL, 0 ); \
-			fcntl( socket, F_SETFL, flags | O_NONBLOCK ); \
+			if( flags != -1 ) \
+				fcntl( socket, F_SETFL, flags | O_NONBLOCK ); \
 			}
   #define setSocketBlocking( socket ) \
 			{ \
 			const int flags = fcntl( socket, F_GETFL, 0 ); \
-			fcntl( socket, F_SETFL, flags & ~O_NONBLOCK ); \
+			if( flags != -1 ) \
+				fcntl( socket, F_SETFL, flags & ~O_NONBLOCK ); \
 			}
 #elif defined( FIONBIO ) && !defined( __VxWorks__ )
   #define getSocketNonblockingStatus( socket, value ) \

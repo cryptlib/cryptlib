@@ -51,7 +51,7 @@
 /* The minimum size of an object in a keyset, used for sanity-checking when
    reading a keyset */
 
-#define MIN_OBJECT_SIZE			64
+#define MIN_P12_OBJECT_SIZE		64
 
 /* Parameters for PKCS #12's homebrew password-derivation mechanism.  The ID
    values function as diversifiers when generating the same keying material
@@ -91,7 +91,6 @@ typedef struct {
 	/* Encryption information needed to process the payload */
 	CRYPT_ALGO_TYPE cryptAlgo;		/* Encryption algorithm */
 	int keySize;					/* Encryption key size in bytes */
-	BUFFER( CRYPT_MAX_HASHSIZE, ivSize ) \
 	int prfAlgoParams;
 	BUFFER( CRYPT_MAX_HASHSIZE, saltSize ) \
 	BYTE salt[ CRYPT_MAX_HASHSIZE + 8 ];
@@ -103,6 +102,7 @@ typedef struct {
 	   This uses the following additional parameters */
 	BOOLEAN isPKCS15;				/* Whether PKCS #15-style is in use */
 	CRYPT_ALGO_TYPE prfAlgo;		/* Optional PRF algorithm */
+	BUFFER( CRYPT_MAX_HASHSIZE, ivSize ) \
 	BYTE iv[ CRYPT_MAX_HASHSIZE + 8 ];
 	int ivSize;						/* Optional encryption IV */
 	} PKCS12_OBJECT_INFO;
@@ -189,12 +189,12 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
 int pkcs12ReadKeyset( INOUT_PTR STREAM *stream, 
 					  OUT_ARRAY( maxNoPkcs12objects ) PKCS12_INFO *pkcs12info, 
 					  IN_LENGTH_SHORT const int maxNoPkcs12objects, 
-					  IN_LENGTH const long endPos,
+					  IN_LENGTH const int endPos,
 					  INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initPKCS12get( INOUT_PTR KEYSET_INFO *keysetInfoPtr );
 
-/* Prototypes for functions in pkcs12_rd.c */
+/* Prototypes for functions in pkcs12_rdobj.c */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 int pkcs12ReadObject( INOUT_PTR STREAM *stream, 

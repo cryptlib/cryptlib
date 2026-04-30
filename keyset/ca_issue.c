@@ -316,6 +316,7 @@ static int completeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 							  ENCODED_DBXKEYID_SIZE ) );
 		memcpy( specialCertID, ( addType == CERTADD_RENEWAL_COMPLETE ) ? \
 				KEYID_ESC2 : KEYID_ESC1, KEYID_ESC_SIZE );
+		REQUIRES( !checkOverflowSub( certIDlength, KEYID_ESC_SIZE ) );
 		memcpy( specialCertID + KEYID_ESC_SIZE, certID + KEYID_ESC_SIZE, 
 				certIDlength - KEYID_ESC_SIZE );
 		initBoundData( boundDataPtr );
@@ -687,6 +688,7 @@ int caIssueCertComplete( INOUT_PTR DBMS_INFO *dbmsInfo,
 		REQUIRES( rangeCheck( certIDlength, KEYID_ESC_SIZE + 1, 
 							  ENCODED_DBXKEYID_SIZE ) );
 		memcpy( incompleteCertID, KEYID_ESC1, KEYID_ESC_SIZE );
+		REQUIRES( !checkOverflowSub( certIDlength, KEYID_ESC_SIZE ) );
 		memcpy( incompleteCertID + KEYID_ESC_SIZE, certID + KEYID_ESC_SIZE, 
 				certIDlength - KEYID_ESC_SIZE );
 		initBoundData( boundDataPtr );

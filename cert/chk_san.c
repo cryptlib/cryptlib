@@ -672,7 +672,10 @@ BOOLEAN sanityCheckCert( IN_PTR const CERT_INFO *certInfoPtr )
 		}
 	if( certInfoPtr->certificate != NULL && !subjectNameSpecialCheck )
 		{
-		if( 16 + certInfoPtr->subjectDNsize + certInfoPtr->issuerDNsize + \
+		if( checkOverflowAdd3( 16 + certInfoPtr->subjectDNsize,
+							   certInfoPtr->issuerDNsize, 
+							   certInfoPtr->publicKeyInfoSize ) || \
+			16 + certInfoPtr->subjectDNsize + certInfoPtr->issuerDNsize + \
 				 certInfoPtr->publicKeyInfoSize > certInfoPtr->certificateSize )
 			{
 			DEBUG_PUTS(( "sanityCheckCert: Certificate component size" ));

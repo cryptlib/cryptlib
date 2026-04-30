@@ -342,7 +342,7 @@ static int checkDefaultAlgoAvailable( const CRYPT_ATTRIBUTE_TYPE algoType,
 	   alternative */
 	printf( "Warning: Default %s algorithm %s isn't available,\n  "
 			"temporarily switching to %s.\n", algoDescription, 
-			algoName( value ), algoName( altAlgo ) );
+			algoToName( value ), algoToName( altAlgo ) );
 	status = cryptSetAttribute( CRYPT_UNUSED, algoType, altAlgo );
 	if( cryptStatusOK( status ) )
 		return( TRUE );
@@ -350,7 +350,7 @@ static int checkDefaultAlgoAvailable( const CRYPT_ATTRIBUTE_TYPE algoType,
 	/* The alternative isn't available either, we can't continue */
 	printf( "Error: Alternative %s algorithm %s isn't available either,\n  "
 			"can't run the self-tests.\n", algoDescription, 
-			algoName( altAlgo ) );
+			algoToName( altAlgo ) );
 	return( FALSE );
 	}
 
@@ -987,7 +987,7 @@ static int fuzz( const char *cmd, const char *arg )
 //	cmd = "tls-server"; arg = "test/fuzz/tls_cli.dat";
 //	cmd = "tls13-server"; arg = "test/fuzz/tls13_cli.dat";
 //	cmd = "ssh-client"; arg = "test/fuzz/ssh_svr.dat";
-//	cmd = "ssh-server"; arg = "test/fuzz/ssh_cli.dat";
+	cmd = "ssh-server"; arg = "test/fuzz/ssh_cli.dat";
 //	cmd = "ocsp-client"; arg = "test/fuzz/ocsp_svr.dat";
 //	cmd = "ocsp-server"; arg = "test/fuzz/ocsp_cli.dat";
 //	cmd = "scvp-client"; arg = "test/fuzz/scvp_svr.dat";
@@ -1007,7 +1007,7 @@ static int fuzz( const char *cmd, const char *arg )
 //	cmd = "url"; arg = "test/fuzz/url.dat";
 //	cmd = "http-req"; arg = "test/fuzz/http_req.dat";
 //	cmd = "http-resp"; arg = "test/fuzz/http_resp.dat";
-	cmd = "eap"; arg = "test/fuzz/eap.dat";
+//	cmd = "eap"; arg = "test/fuzz/eap.dat";
 //	cmd = "websockets"; arg = "test/fuzz/websockets.dat";
 //	cmd = "config"; arg = "test/fuzz/config.dat";
 #endif /* __WINDOWS__ test */
@@ -1059,7 +1059,9 @@ static int fuzz( const char *cmd, const char *arg )
 		exit( EXIT_FAILURE );
 		}
 
-	/* Patch point for checking crashes */
+	/* Patch point for checking crashes.  Note that the sessions step quite 
+	   slowly because they load private keys each time, which is normally
+	   hidden by the preforked server */
 #if defined( __WINDOWS__ ) && 1
 	{
 	char buffer[ 128 ];

@@ -376,6 +376,7 @@ int pgpProcessIV( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 								  &msgData, CRYPT_IATTRIBUTE_RANDOM_NONCE );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( boundsCheckZ( ivDataSize, 2, ivInfoSize ) );
 		memcpy( ivInfo + ivDataSize, ivInfo + ivDataSize - 2, 2 );
 
 		/* If the caller is using an MDC then the plaintext IV data has to 
@@ -514,11 +515,11 @@ int readPgpS2K( INOUT_PTR STREAM *stream,
 	   hashed, this is because the "iterated hashing" treats the salt + 
 	   password as an infinitely-repeated sequence of values and hashes the 
 	   resulting string for PGP-iteration-count bytes worth.  The value that 
-	   we calculate here (to prevent overflow on 16-bit machines) is the 
-	   count without the base * 64 scaling, this also puts the range within 
-	   the value of the standard sanity check.  When we do the range check 
-	   we knock a further four bits off the maximum allowed length to avoid 
-	   performing calculations too close to INT_MAX in the S2K code.
+	   we calculate here (to put the range within the value of the standard 
+	   sanity check) is the count without the base * 64 scaling.  When we do 
+	   the range check we knock a further four bits off the maximum allowed 
+	   length to avoid performing calculations too close to INT_MAX in the 
+	   S2K code.
 
 	   See the long comment for MAX_KEYSETUP_HASHSPECIFIER in misc/consts.h
 	   for more on the checking performed here */

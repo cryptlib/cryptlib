@@ -442,6 +442,7 @@ static int readPkcs12header( INOUT_PTR STREAM *stream,
 			}
 		if( cryptStatusOK( status ) )
 			{
+			REQUIRES( !checkOverflowSub( endPos, objectSize ) );
 			endPos -= objectSize;
 			if( !isIntegerRangeNZ( endPos ) )
 				status = CRYPT_ERROR_BADDATA;
@@ -457,7 +458,7 @@ static int readPkcs12header( INOUT_PTR STREAM *stream,
 
 	/* Make sure that the length information is sensible */
 	currentPos = stell( stream );
-	if( currentPos < 16 || endPos < 16 + MIN_OBJECT_SIZE || \
+	if( currentPos < 16 || endPos < 16 + MIN_P12_OBJECT_SIZE || \
 		checkOverflowAdd( currentPos, endPos ) || \
 		currentPos + endPos >= MAX_INTLENGTH_SHORT )
 		{
@@ -465,7 +466,7 @@ static int readPkcs12header( INOUT_PTR STREAM *stream,
 				( CRYPT_ERROR_BADDATA, errorInfo, 
 				  "Invalid PKCS #12 keyset length information" ) );
 		}
-	*endPosPtr = currentPos + endPos;
+	*endPosPtr = currentPos + endPos;	/* Checked earlier */
 
 	return( CRYPT_OK );
 	}

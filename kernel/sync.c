@@ -46,6 +46,8 @@ int initSemaphores( void )
 	static_assert( MUTEX_LAST == 3, "Mutex value" );
 #endif /* USE_SESSIONS */
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+
 	/* Clear the semaphore table */
 	LOOP_SMALL( i = 0, i < SEMAPHORE_LAST, i++ )
 		{
@@ -83,6 +85,7 @@ void endSemaphores( void )
 	{
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES_V( ( krnlData->initLevel == INIT_LEVEL_KRNLDATA && \
 				  krnlData->shutdownLevel == SHUTDOWN_LEVEL_NONE ) || \
 				( krnlData->initLevel == INIT_LEVEL_KRNLDATA && \
@@ -157,6 +160,7 @@ void setSemaphore( IN_ENUM( SEMAPHORE ) const SEMAPHORE_TYPE semaphore,
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 	SEMAPHORE_INFO *semaphoreInfo;
 
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES_V( isEnumRange( semaphore, SEMAPHORE ) );
 
 	/* It's safe to get a pointer to this outside the lock, we just can't
@@ -185,6 +189,7 @@ void clearSemaphore( IN_ENUM( SEMAPHORE ) const SEMAPHORE_TYPE semaphore )
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 	SEMAPHORE_INFO *semaphoreInfo;
 
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES_V( isEnumRange( semaphore, SEMAPHORE ) );
 
 	/* It's safe to get a pointer to this outside the lock, we just can't
@@ -242,6 +247,7 @@ BOOLEAN krnlWaitSemaphore( IN_ENUM( SEMAPHORE ) const SEMAPHORE_TYPE semaphore )
 	BOOLEAN semaphoreSet = FALSE;
 	int status = CRYPT_OK;
 
+	REQUIRES_B( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES_B( isEnumRange( semaphore, SEMAPHORE ) );
 
 	/* If we're in a shutdown and the semaphores have been destroyed, don't
@@ -271,6 +277,7 @@ BOOLEAN krnlWaitSemaphore( IN_ENUM( SEMAPHORE ) const SEMAPHORE_TYPE semaphore )
 		semaphoreObject = semaphoreInfo->semaphoreObject;
 		threadObject = semaphoreInfo->threadObject;
 #endif /* NONSCALAR_HANDLES */
+		REQUIRES_B( !checkOverflowInc( semaphoreInfo->refCount ) );
 		semaphoreInfo->refCount++;
 		semaphoreSet = TRUE;
 		}
@@ -305,6 +312,7 @@ BOOLEAN krnlWaitSemaphore( IN_ENUM( SEMAPHORE ) const SEMAPHORE_TYPE semaphore )
 		semaphoreInfo->state == SEMAPHORE_STATE_PRECLEAR )
 		{
 		/* The semaphore is still set, update the reference count */
+		REQUIRES_B( !checkOverflowDec( semaphoreInfo->refCount ) );
 		semaphoreInfo->refCount--;
 
 		/* Inner precondition: The reference count is valid.  Note that we 
@@ -353,6 +361,7 @@ int krnlEnterMutex( IN_ENUM( MUTEX ) const MUTEX_TYPE mutex )
 	{
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( isEnumRange( mutex, MUTEX ) );
 
 	/* If we're in a shutdown and the mutexes have been destroyed, don't
@@ -397,6 +406,7 @@ void krnlExitMutex( IN_ENUM( MUTEX ) const MUTEX_TYPE mutex )
 	{
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES_V( isEnumRange( mutex, MUTEX ) );
 
 	/* If we're in a shutdown and the mutexes have been destroyed, don't
@@ -513,6 +523,7 @@ int krnlDispatchThread( THREAD_FUNCTION threadFunction,
 	/* Preconditions: The parameters appear valid, and it's a valid
 	   semaphore (SEMAPHORE_NONE is valid since it indicates that the caller
 	   doesn't want a semaphore set) */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( threadFunction != NULL );
 	REQUIRES( isEnumRangeOpt( semaphore, SEMAPHORE ) );
 

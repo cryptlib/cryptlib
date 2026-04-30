@@ -253,8 +253,8 @@ typedef struct {
 	/* Authenticated encryption algorithm parameter data.  The various index 
 	   values are to locations within the authEncParamData, not the object 
 	   pointer data */
-	BUFFER( 128, authEncParamLength ) \
-	BYTE authEncParamData[ 128 + 8 ];
+	BUFFER( AUTHENCPARAM_MAX_SIZE, authEncParamLength ) \
+	BYTE authEncParamData[ AUTHENCPARAM_MAX_SIZE + 8 ];
 	int authEncParamLength;			/* AuthEnc parameter data */
 	int kdfParamStart, kdfParamLength;	/* Position of opt.KDF params */
 	int encParamStart, encParamLength;	/* Position of enc.parameters */
@@ -562,7 +562,10 @@ typedef enum {
 #define OOB_BUFFER_SIZE			8
 #define PARTIAL_BUFFER_SIZE		16
 
-/* The structure that stores the information on an envelope */
+/* The structure that stores the information on an envelope.  The envInfo 
+   range for addInfoString() is restricted to CRYPT_ENVINFO_PASSWORD 
+   because, even though it's a general-purpose function like addInfo(), it
+   currently only accepts one envInfo type */
 
 struct EI;
 
@@ -574,7 +577,7 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 		int ( *ENV_ADDINFOSTRING_FUNCTION )( INOUT_PTR struct EI *envelopeInfoPtr,
 											 IN_RANGE( CRYPT_ENVINFO_PASSWORD, \
-													  CRYPT_ENVINFO_PASSWORD ) \
+													   CRYPT_ENVINFO_PASSWORD ) \
 												const CRYPT_ATTRIBUTE_TYPE envInfo,
 											 IN_BUFFER( valueLength ) \
 												const void *value, 
@@ -940,7 +943,7 @@ int addActionEx( OUT_OPT_PTR_COND ACTION_LIST **newActionPtrPtr,
 				 IN_ENUM( ACTIONLIST ) const ACTIONLIST_TYPE actionListType,
 				 IN_ENUM( ACTION ) const ACTION_TYPE actionType,
 				 IN_HANDLE const CRYPT_HANDLE cryptHandle );
-STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int replaceAction( INOUT_PTR ACTION_LIST *actionListItem,
 				   IN_HANDLE const CRYPT_HANDLE cryptHandle );
 CHECK_RETVAL_ENUM( ACTION ) \
@@ -969,7 +972,7 @@ ACTION_LIST *findActionIndirect( IN_PTR const ACTION_LIST *actionListStart,
 								 const int param1, const int param2 );
 STDC_NONNULL_ARG( ( 1 ) ) \
 void deleteActionLists( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr );
-STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1 ) ) \
 int deleteUnusedActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr );
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN checkActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr );

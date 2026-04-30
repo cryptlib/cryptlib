@@ -36,7 +36,7 @@
 	A.import	K_B = input
 				K = X25519(A, K_B) */
 
-#ifdef USE_25519
+#ifdef USE_X25519
 
 /* The size of the Curve25519 components */
 
@@ -530,11 +530,11 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( ( key == NULL && keyLength == 0 ) || \
 			( isReadPtrDynamic( key, keyLength ) && \
-			  keyLength == sizeof( CRYPT_PKCINFO_DLP ) ) );
+			  keyLength == sizeof( CRYPT_PKCINFO_DJB ) ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( ( key == NULL && keyLength == 0 ) || \
-			  ( key != NULL && keyLength == sizeof( CRYPT_PKCINFO_DLP ) ) );
+			  ( key != NULL && keyLength == sizeof( CRYPT_PKCINFO_DJB ) ) );
 
 #ifndef USE_FIPS140
 	/* Load the key component from the external representation into the
@@ -547,7 +547,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		if( x25519Key->isPublicKey )
 			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPUBLICKEY );
 		else
-			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPRIVATEKEY );
+			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		status = import25519ByteString( &pkcInfo->curve25519Param_pub, 
 										x25519Key->pub, CURVE25519_SIZE );
 		if( cryptStatusOK( status ) && !x25519Key->isPublicKey )
@@ -615,4 +615,4 @@ const CAPABILITY_INFO *getX25519Capability( void )
 	return( &capabilityInfo );
 	}
 
-#endif /* USE_25519 */
+#endif /* USE_X25519 */

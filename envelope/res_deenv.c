@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib De-enveloping Information Management			*
-*						Copyright Peter Gutmann 1996-2020					*
+*						Copyright Peter Gutmann 1996-2023					*
 *																			*
 ****************************************************************************/
 
@@ -347,7 +347,7 @@ BOOLEAN moreContentItemsPossible( IN_PTR_OPT \
 					contentListCount++ ), 
 			  MAX_CONTENT_ITEMS + 1 )
 		{
-		ENSURES( LOOP_INVARIANT_EXT_GENERIC( MAX_CONTENT_ITEMS + 1 ) );
+		ENSURES_B( LOOP_INVARIANT_EXT_GENERIC( MAX_CONTENT_ITEMS + 1 ) );
 		}
 	ENSURES_B( LOOP_BOUND_OK );
 
@@ -430,7 +430,7 @@ int createContentListItem( OUT_BUFFER_ALLOC_OPT( sizeof( CONTENT_LIST ) ) \
 		}
 	*newContentListItemPtrPtr = newItem;
 
-	REQUIRES( sanityCheckContentList( newItem ) );
+	ENSURES( sanityCheckContentList( newItem ) );
 
 	return( CRYPT_OK );
 	}
@@ -482,10 +482,10 @@ void deleteContentListItem( INOUT_PTR void *memPoolStatePtr,
 
 	REQUIRES_V( sanityCheckContentList( contentListItem ) );
 
-	/* Make sure that we're not deleting an item before unlinking it from 
-	   the list */
-	assert( DATAPTR_ISNULL( contentListItem->prev ) && \
-			DATAPTR_ISNULL( contentListItem->next ) );
+	/* Make sure that we're not deleting an item without having first 
+	   unlinked it from the list */
+	REQUIRES_V( DATAPTR_ISNULL( contentListItem->prev ) && \
+				DATAPTR_ISNULL( contentListItem->next ) );
 
 	/* Destroy any attached objects if necessary */
 	if( contentListItem->type == CONTENT_SIGNATURE )
@@ -693,7 +693,7 @@ static int processUnauthAttributes( INOUT_PTR CONTENT_LIST *contentListPtr,
 			{
 			/* It's too short to be a valid timestamp */
 			status = CRYPT_ERROR_UNDERFLOW;
-			continue;
+			break;
 			}
 		status = sMemGetDataBlock( &stream, &dataPtr, length );
 		if( cryptStatusOK( status ) )
@@ -1604,27 +1604,21 @@ static int addPasswordInfo( IN_PTR const CONTENT_LIST *contentListPtr,
 										  ( MESSAGE_CAST ) &encrInfo->keySetupParam,
 										  CRYPT_IATTRIBUTE_KEYING_ALGO_PARAM );
 				}
-			if( cryptStatusOK( status ) && encrInfo->keySize > 0 )
-				{
-				status = krnlSendMessage( iCryptContext, IMESSAGE_SETATTRIBUTE,
-										  ( MESSAGE_CAST ) &encrInfo->keySize,
-										  CRYPT_CTXINFO_KEYSIZE );
-				}
 			if( cryptStatusOK( status ) )
 				{
 				setMessageData( &msgData, ( MESSAGE_CAST ) encrInfo->saltOrIV,
 								encrInfo->saltOrIVsize );
 				status = krnlSendMessage( iCryptContext,
-									IMESSAGE_SETATTRIBUTE_S, &msgData,
-									CRYPT_CTXINFO_KEYING_SALT );
+										  IMESSAGE_SETATTRIBUTE_S, &msgData,
+										  CRYPT_CTXINFO_KEYING_SALT );
 				}
 			if( cryptStatusOK( status ) )
 				{
 				setMessageData( &msgData, ( MESSAGE_CAST ) password, 
 								passwordLength );
 				status = krnlSendMessage( iCryptContext,
-									IMESSAGE_SETATTRIBUTE_S, &msgData,
-									CRYPT_CTXINFO_KEYING_VALUE );
+										  IMESSAGE_SETATTRIBUTE_S, &msgData,
+										  CRYPT_CTXINFO_KEYING_VALUE );
 				}
 			}
 		}

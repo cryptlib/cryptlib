@@ -147,6 +147,7 @@ static FAPI_GETRANDOM pFapi_GetRandom = NULL;
 static FAPI_INITIALIZE pFapi_Initialize = NULL;
 static FAPI_PROVISION pFapi_Provision = NULL;
 static FAPI_UNSEAL pFapi_Unseal = NULL;
+
 #ifdef USE_TPM_EXT
 static FAPI_CREATENV pFapi_CreateNv = NULL;
 FAPI_CREATEKEY pFapi_CreateKey = NULL;
@@ -409,6 +410,7 @@ static int getTPMLabel( INOUT_PTR TPM_INFO *tpmInfo,
 		startPos = strFindStr( fapiInfoStringPtr, fapiInfoStringLength, 
 							   "tss", 3 );
 		}
+	REQUIRES( !checkOverflowSub( fapiInfoStringLength, MIN_LABEL_LEN ) );
 	if( startPos >= 0 && startPos < fapiInfoStringLength - MIN_LABEL_LEN )
 		{
 		int stringLen;
@@ -418,7 +420,8 @@ static int getTPMLabel( INOUT_PTR TPM_INFO *tpmInfo,
 		   characters, figure out how big it is.  We allow alphanumerics, 
 		   spaces, and '.' and '-', commonly found in ID strings, as valid 
 		   characters */
-		LOOP_LARGE( index = startPos + 3, index < fapiInfoStringLength, index++ )
+		LOOP_LARGE( index = startPos + 3, index < fapiInfoStringLength, 
+					index++ )
 			{
 			const int ch = byteToInt( fapiInfoStringPtr[ index ] );
 			
@@ -432,6 +435,7 @@ static int getTPMLabel( INOUT_PTR TPM_INFO *tpmInfo,
 		
 		/* If we managed to extract a string of at least MIN_LABEL_LEN 
 		   characters, use that */
+		REQUIRES( !checkOverflowSub( index, startPos ) );
 		stringLen = index - startPos;
 		if( stringLen >= MIN_LABEL_LEN )
 			{
@@ -615,7 +619,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int getRandomFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr, 
 							  OUT_BUFFER_FIXED( length ) void *data,
 							  IN_LENGTH_SHORT const int length,
-							  STDC_UNUSED INOUT_PTR_OPT \
+							  INOUT_PTR_OPT \
 								MESSAGE_FUNCTION_EXTINFO *messageExtInfo )
 	{
 	FAPI_CONTEXT *fapiContext = \
@@ -836,7 +840,7 @@ static int controlFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 							IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type,
 							IN_BUFFER_OPT( dataLength ) void *data, 
 							IN_LENGTH_SHORT_Z const int dataLength,
-							STDC_UNUSED INOUT_PTR_OPT \
+							INOUT_PTR_OPT \
 								MESSAGE_FUNCTION_EXTINFO *messageExtInfo )
 	{
 	TPM_INFO *tpmInfo = deviceInfoPtr->deviceTPM;
@@ -1091,6 +1095,8 @@ int tpmGetObjectPath( OUT_BUFFER( maxStringLength, *stringLength ) \
 		}
 	algoStringLength = strnlen_s( algoString, CRYPT_MAX_TEXTSIZE );
 	if( algoStringLength < 1 || \
+		checkOverflowAdd( algoStringLength, 
+						  TPM_STORAGEID_STRING_LENGTH + 1 ) || \
 		algoStringLength + TPM_STORAGEID_STRING_LENGTH + 1 > maxStringLength )
 		return( CRYPT_ERROR_OVERFLOW );
 
@@ -1101,6 +1107,8 @@ int tpmGetObjectPath( OUT_BUFFER( maxStringLength, *stringLength ) \
 	memcpy( string, algoString, algoStringLength );
 	memcpy( string + algoStringLength, storageIDstring, 
 			TPM_STORAGEID_STRING_LENGTH + 1 );
+	REQUIRES( !checkOverflowAdd( algoStringLength, 
+								 TPM_STORAGEID_STRING_LENGTH + 1 ) );
 	*stringLength = algoStringLength + TPM_STORAGEID_STRING_LENGTH + 1;
 
 	return( CRYPT_OK );
@@ -1238,7 +1246,10 @@ static int tpmStorageUpdateNotify( INOUT_PTR void *contextHandle,
 	   random-access changes made to ranges within the data block */
 	REQUIRES( rangeCheck( dataLength, 1, TPM_BUFFER_SIZE ) );
 	if( dataLength < TPM_BUFFER_SIZE )
+		{
+		REQUIRES( !checkOverflowSub( TPM_BUFFER_SIZE, dataLength ) );
 		memset( storage + dataLength, 0, TPM_BUFFER_SIZE - dataLength );
+		}
 	tssResult = Fapi_SetAppData( fapiContext, FAPI_APPDATA_PATH, 
 								 storage, dataLength );
 	if( tssResult != TSS2_RC_SUCCESS )

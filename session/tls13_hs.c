@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib TLS 1.3 Handshake Management					*
-*					  Copyright Peter Gutmann 2019-2022						*
+*					  Copyright Peter Gutmann 2019-2025						*
 *																			*
 ****************************************************************************/
 
@@ -82,14 +82,14 @@ static int readDummyCCS( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	if( cryptStatusError( status ) )
 		return( status );
 	sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
-	value = sgetc( &stream );
+	status = value = sgetc( &stream );
 	sMemDisconnect( &stream );
-	if( value != 1 )
+	if( cryptStatusError( status ) || value != 1 )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid change cipher spec packet payload, expected "
-				  "0x01, got 0x%02X", value ) );
+				  "0x01" ) );
 		}
 
 	return( CRYPT_OK );
@@ -471,8 +471,8 @@ static int readEncryptedHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( actualPacketType == TLS_MSG_ALERT )
 		{
 		return( processAlertTLS13( sessionInfoPtr, 
-								   sessionInfoPtr->receiveBuffer, 2, 
-								   NULL ) );
+								   sessionInfoPtr->receiveBuffer, 
+								   length, NULL ) );
 		}
 
 	/* Now that we've got the handshake message data we can hash it */
@@ -697,7 +697,14 @@ static int readCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								  ( 1 + 8 ) + UINT16_SIZE + \
 									( UINT16_SIZE * 4 ) );
 	if( cryptStatusError( status ) )
-		return( status );
+		{
+		/* Implementations of previous TLS versions could send insanely-long
+		   certificate requests, see the comment in 
+		   session/tls_rd.c:checkHSPacketHeader().  This is signalled by an
+		   OK_SPECIAL return status, we shouldn't be seeing this in TLS 1.3
+		   so we convert it to a CRYPT_ERROR_BADDATA */
+		return( ( status == OK_SPECIAL ) ? CRYPT_ERROR_BADDATA : status );
+		}
 	status = length = sgetc( stream );
 	if( !cryptStatusError( status ) )
 		{
@@ -718,6 +725,7 @@ static int readCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "information" ) );
 		}
 	handshakeInfo->tls13CertContextLen = length;
+	REQUIRES( !checkOverflowSub( packetLength, length + 1 ) );
 	packetLength -= length + 1;
 	ENSURES( isShortIntegerRangeMin( packetLength, UINT16_SIZE * 5 ) );
 
@@ -792,6 +800,8 @@ static int writeCertRequest( INOUT_PTR STREAM *stream )
 	/* Write the extension wrapper.  We don't need a full-blown 
 	   writeExtensions() here since all we need to write is a minimal
 	   SignatureAlgorithms, for which we begin by writing the wrapper */
+	REQUIRES( !checkOverflowAdd( UINT16_SIZE + UINT16_SIZE + UINT16_SIZE,
+								 extensionPayloadSize ) );
 	writeUint16( stream, UINT16_SIZE + UINT16_SIZE + \
 						 UINT16_SIZE + extensionPayloadSize );
 	writeUint16( stream, TLS_EXT_SIGNATURE_ALGORITHMS );
@@ -987,7 +997,14 @@ static int createCertAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		sMemDisconnect( stream );
 		return( status );
 		}
-	krnlSendMessage( transcriptHashContext, IMESSAGE_CTX_HASH, "", 0 );
+	status = krnlSendMessage( transcriptHashContext, IMESSAGE_CTX_HASH, 
+							  "", 0 );
+	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( transcriptHashContext, IMESSAGE_DECREFCOUNT );
+		sMemDisconnect( stream );
+		return( status );
+		}
 
 	/*	...
 		Certificate Verify
@@ -1322,6 +1339,7 @@ static int completeHandshakeServer( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( cryptStatusError( status ) )
 			return( status );
 		}
+	CFI_CHECK_UPDATE( "processHelloRetry" );
 
 	/* If we're fuzzing the input then we're about to switch to encrypted-
 	   everything which we can't do anything with using static data */
@@ -1529,11 +1547,11 @@ static int completeHandshakeServer( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 	CFI_CHECK_UPDATE( "loadTLS13AppdataKeys" );
 
-	ENSURES( CFI_CHECK_SEQUENCE_9( "loadTLS13HSKeys", "writeUint16", 
-								   "writeCertRequest", "createCertAuth", 
-								   "writeFinished", "processCertAuth",
-								   "completeSessionHash", "readFinished", 
-								   "loadTLS13AppdataKeys" ) );
+	ENSURES( CFI_CHECK_SEQUENCE_10( "processHelloRetry", "loadTLS13HSKeys", 
+									"writeUint16", "writeCertRequest", 
+									"createCertAuth", "writeFinished", 
+									"processCertAuth", "completeSessionHash", 
+									"readFinished", "loadTLS13AppdataKeys" ) );
 	return( CRYPT_OK );
 	}
 

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib TLS Handshake Completion Management				*
-*					Copyright Peter Gutmann 1998-2012						*
+*					Copyright Peter Gutmann 1998-2025						*
 *																			*
 ****************************************************************************/
 
@@ -232,6 +232,8 @@ static int readHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* If we're using GCM then the IV is partially explicit and 
 		   partially implicit, and unrelated to the cipher block size */
+		REQUIRES( !checkOverflowSub( GCM_IV_SIZE,
+							sessionInfoPtr->sessionTLS->aeadSaltSize ) );
 		sessionInfoPtr->sessionTLS->ivSize = \
 					GCM_IV_SIZE - sessionInfoPtr->sessionTLS->aeadSaltSize;
 		startOffsetChanged = TRUE;
@@ -241,6 +243,10 @@ static int readHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		const int newStartPos = sessionInfoPtr->receiveBufStartOfs + \
 								sessionInfoPtr->sessionTLS->ivSize;
+
+		REQUIRES( !checkOverflowAdd( sessionInfoPtr->receiveBufStartOfs,
+									 sessionInfoPtr->sessionTLS->ivSize ) );
+		ENSURES( isIntegerRange( newStartPos ) );
 
 		/* Since we've changed the amount of metadata that needs to be 
 		   accomodated before the payload we have to adjust the data start
@@ -416,6 +422,8 @@ static int writeHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* If we're using GCM then the IV is partially explicit and 
 		   partially implicit, and unrelated to the cipher block size */
+		REQUIRES( !checkOverflowSub( GCM_IV_SIZE,
+							sessionInfoPtr->sessionTLS->aeadSaltSize ) );
 		sessionInfoPtr->sessionTLS->ivSize = \
 					GCM_IV_SIZE - sessionInfoPtr->sessionTLS->aeadSaltSize;
 		startOffsetChanged = TRUE;
@@ -425,6 +433,10 @@ static int writeHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		const int newStartPos = sessionInfoPtr->sendBufStartOfs + \
 								sessionInfoPtr->sessionTLS->ivSize;
+
+		REQUIRES( !checkOverflowAdd( sessionInfoPtr->sendBufStartOfs,
+									 sessionInfoPtr->sessionTLS->ivSize ) );
+		ENSURES( isIntegerRange( newStartPos ) );
 
 		/* Since we've changed the amount of metadata that needs to be 
 		   accomodated before the payload we have to adjust the data start
@@ -855,6 +867,7 @@ status = addDerivedKeydata( sessionInfoPtr, handshakeInfo, masterSecret,
 							TLS_SECRET_SIZE, sessionInfoPtr->subProtocol );
 assert( cryptStatusOK( status ) );
 attributeInfoPtr = findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_TLS_EAPKEY );
+assert( attributeInfoPtr != NULL );
 DEBUG_DUMP_DATA( attributeInfoPtr->value, 64 );
 if( memcmp( attributeInfoPtr->value, eapolEAPSecret, 64 ) )
 	puts( "eapol_test data comparison failed." );

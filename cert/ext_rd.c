@@ -95,7 +95,8 @@ int readAttributeErrorReturn( OUT_ENUM_OPT( CRYPT_ATTRIBUTE ) \
 		}
 
 	/* For some attributes the field ID is in the following entry so we 
-	   skip to this if required */
+	   skip to this if required.  The increment is safe because it's been
+	   checked in certs/ext_def.c:sanityCheckExtensionTables() */
 	if( attributeInfoPtr->fieldID == FIELDID_FOLLOWS )
 		{
 		attributeInfoPtr++;
@@ -284,6 +285,7 @@ static int readCertReqWrapper( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( errorType, sizeof( CRYPT_ERRTYPE_TYPE ) ) );
 
 	REQUIRES( isShortIntegerRangeNZ( attributeLength ) );
+	REQUIRES( !checkOverflowAdd( stell( stream ), attributeLength ) );
 	REQUIRES( isIntegerRangeMin( endPos, attributeLength ) );
 
 	/* Clear return values */
@@ -433,7 +435,8 @@ int readAttributes( INOUT_PTR STREAM *stream,
 				isIntegerRange( attributeEndPos ) ) || \
 			  ( type != CRYPT_CERTTYPE_CMS_ATTRIBUTES && \
 				isIntegerRangeNZ( attributeEndPos ) ) );
-	REQUIRES( isIntegerRangeMin( attributeEndPos, attributeLength ) );
+	REQUIRES( !checkOverflowAdd( stell( stream ), attributeLength ) );
+	ENSURES( isIntegerRangeMin( attributeEndPos, attributeLength ) );
 #endif /* USE_CERTREQ */
 
 	/* Clear return values */
@@ -497,6 +500,7 @@ int readAttributes( INOUT_PTR STREAM *stream,
 		}
 	if( !isShortIntegerRangeMin( length, MIN_ATTRIBUTE_SIZE ) )
 		return( CRYPT_ERROR_BADDATA );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length + 1 ) );
 
@@ -643,7 +647,7 @@ int readAttributes( INOUT_PTR STREAM *stream,
 				   information for it and flag it as a bad data error.  We
 				   can't set an error locus since it's an unknown blob */
 				*errorLocus = ( attributeInfoPtr != NULL ) ? \
-								attributeInfoPtr->fieldType : \
+								attributeInfoPtr->fieldID : \
 								CRYPT_ATTRIBUTE_NONE;
 				*errorType = CRYPT_ERRTYPE_ATTR_PRESENT;
 				status = CRYPT_ERROR_BADDATA;
@@ -657,7 +661,9 @@ int readAttributes( INOUT_PTR STREAM *stream,
 			}
 
 		/* Skip the attribute data */
-		sSkip( stream, attributeDataLength, MAX_INTLENGTH_SHORT );
+		status = sSkip( stream, attributeDataLength, MAX_INTLENGTH_SHORT );
+		if( cryptStatusError( status ) )
+			return( status );	/* Should-never-occur condition */
 		}
 	ENSURES( LOOP_BOUND_OK );
 	TRACE_DEBUG(( "Finished reading attributes for certificate object ending at "
@@ -674,6 +680,7 @@ int readAttributes( INOUT_PTR STREAM *stream,
 	if( type == CRYPT_CERTTYPE_CERTREQUEST && \
 		stell( stream ) < attributeEndPos )
 		{
+		REQUIRES( !checkOverflowSub( attributeEndPos, stell( stream ) ) );
 		status = readCertReqWrapper( stream, attributePtrPtr, &length, 
 									 attributeEndPos - stell( stream ), 
 									 errorInfo, errorLocus, errorType );

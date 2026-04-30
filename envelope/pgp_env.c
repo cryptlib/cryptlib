@@ -378,6 +378,8 @@ static int writeHeaderPacket( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		case ACTION_NONE:
 			/* Write the header followed by an indicator that we're using 
 			   opaque content, a zero-length filename, and no date */
+			REQUIRES( !checkOverflowAdd( envelopeInfoPtr->payloadSize,
+										 PGP_DATA_HEADER_SIZE ) );
 			pgpWritePacketHeader( &stream, PGP_PACKET_DATA, 
 								  envelopeInfoPtr->payloadSize + \
 									PGP_DATA_HEADER_SIZE );
@@ -464,12 +466,15 @@ static int writeKeyex( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		int keyexSize = 0;
 
 		REQUIRES( sanityCheckActionList( lastActionPtr ) );
-		REQUIRES( isShortIntegerRangeNZ( dataLeft ) );
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize,
+									 envelopeInfoPtr->bufPos ) );
+		ENSURES( isShortIntegerRangeNZ( dataLeft ) );
 
 		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
 
 		/* Make sure that there's enough room to emit this key exchange 
 		   action */
+		REQUIRES( !checkOverflowAdd( lastActionPtr->encodedSize, 128 ) );
 		if( lastActionPtr->encodedSize + 128 > dataLeft )
 			{
 			status = CRYPT_ERROR_OVERFLOW;
@@ -505,6 +510,7 @@ static int writeKeyex( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			}
 		if( cryptStatusError( status ) )
 			break;
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, keyexSize ) );
 		envelopeInfoPtr->bufPos += keyexSize;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -548,7 +554,9 @@ static int writeEncryptedContentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 
-	ENSURES( isIntegerRange( payloadDataSize ) );
+	REQUIRES( isIntegerRange( payloadDataSize ) );
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize,
+								 envelopeInfoPtr->bufPos ) );
 	ENSURES( isShortIntegerRange( dataLeft ) );
 
 	/* If we're processing raw data, the total length gets extended by the 
@@ -558,6 +566,8 @@ static int writeEncryptedContentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr
 		{
 		int literalHeaderLen DUMMY_INIT;
 
+		REQUIRES( !checkOverflowAdd( PGP_DATA_HEADER_SIZE,
+									 envelopeInfoPtr->payloadSize ) );
 		sMemNullOpen( &stream );
 		status = pgpWritePacketHeader( &stream, PGP_PACKET_DATA, 
 						PGP_DATA_HEADER_SIZE + envelopeInfoPtr->payloadSize );
@@ -568,6 +578,7 @@ static int writeEncryptedContentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr
 		sMemClose( &stream );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( payloadDataSize, literalHeaderLen ) );
 		payloadDataSize += literalHeaderLen;
 		}
 
@@ -602,6 +613,8 @@ static int writeEncryptedContentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr
 		return( status );
 
 	/* Write the encrypted content header */
+	REQUIRES( !checkOverflowAdd( payloadDataSize,
+								 1 + ( ivSize + 2 ) + PGP_MDC_PACKET_SIZE ) );
 	sMemOpen( &stream, envelopeInfoPtr->buffer + envelopeInfoPtr->bufPos, 
 			  dataLeft );
 	if( hasMDC )
@@ -622,7 +635,11 @@ static int writeEncryptedContentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr
 		}
 	status = swrite( &stream, ivInfoBuffer, ivSize + 2 );
 	if( cryptStatusOK( status ) )
+		{
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, 
+									 stell( &stream ) ) );
 		envelopeInfoPtr->bufPos += stell( &stream );
+		}
 	sMemDisconnect( &stream );
 
 	return( status );
@@ -896,6 +913,8 @@ static int preEnvelopeInit( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		/* Since the MDC packet is tacked onto the end of the payload, we 
 		   need to increase the effect data size by the size of the MDC
 		   packet data */
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->segmentSize, 
+									 PGP_MDC_PACKET_SIZE ) );
 		envelopeInfoPtr->segmentSize += PGP_MDC_PACKET_SIZE;
 		}
 
@@ -935,6 +954,8 @@ static int emitMDC( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	REQUIRES( copyToEnvelopeFunction != NULL );
 
 	/* Make sure that there's enough room left to emit the MDC packet */
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize,
+								 envelopeInfoPtr->bufPos ) );
 	if( envelopeInfoPtr->bufSize - \
 			envelopeInfoPtr->bufPos < PGP_MDC_PACKET_SIZE )
 		return( CRYPT_ERROR_OVERFLOW );
@@ -1084,12 +1105,17 @@ static int emitPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 
 		/* Make sure that there's enough room to emit the data header (+8 
 		   for slop space) */
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos,
+									 PGP_MAX_HEADER_SIZE + \
+										PGP_DATA_HEADER_SIZE + 8 ) );
 		if( envelopeInfoPtr->bufPos + PGP_MAX_HEADER_SIZE + \
 				PGP_DATA_HEADER_SIZE + 8 >= envelopeInfoPtr->bufSize )
 			return( CRYPT_ERROR_OVERFLOW );
 
 		/* Write the payload header.  Since this may be encrypted we have to
 		   do it indirectly via copyToEnvelope() */
+		REQUIRES( !checkOverflowAdd( PGP_DATA_HEADER_SIZE,
+									 envelopeInfoPtr->payloadSize ) );
 		sMemOpen( &stream, headerBuffer, 64 );
 		status = pgpWritePacketHeader( &stream, PGP_PACKET_DATA, 
 						PGP_DATA_HEADER_SIZE + envelopeInfoPtr->payloadSize );
@@ -1100,6 +1126,8 @@ static int emitPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			/* Adjust the running total count by the size of the additional 
 			   header that's been prepended and copy the header to the
 			   envelope */
+			REQUIRES( !checkOverflowAdd( envelopeInfoPtr->segmentSize,
+										 stell( &stream ) ) );
 			envelopeInfoPtr->segmentSize += stell( &stream );
 			status = copyToEnvelopeFunction( envelopeInfoPtr, headerBuffer, 
 											 stell( &stream ) );
@@ -1213,6 +1241,8 @@ static int emitPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	   signature directly into it.  Since signatures are fairly small (a few 
 	   hundred bytes) we always require enough room in the buffer and don't 
 	   bother with any overflow handling via the auxBuffer */
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize,
+								 envelopeInfoPtr->bufPos ) );
 	sigBufSize = min( envelopeInfoPtr->bufSize - envelopeInfoPtr->bufPos, 
 					  MAX_INTLENGTH_SHORT - 1 );
 	REQUIRES( isShortIntegerRange( sigBufSize ) );
@@ -1235,6 +1265,7 @@ static int emitPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				   ( status, ENVELOPE_ERRINFO, &localErrorInfo,
 					 "Couldn't emit signature to envelope trailer" ) );
 		}
+	REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, sigSize ) );
 	envelopeInfoPtr->bufPos += sigSize;
 
 	/* Now that we've written the final data, set the end-of-segment-data 

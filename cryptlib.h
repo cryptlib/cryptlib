@@ -9,7 +9,7 @@
 
 #define _CRYPTLIB_DEFINED
 
-/* The current cryptlib version: 3.4.9 */
+/* The current cryptlib version: 3.4.9.1 */
 
 #define CRYPTLIB_VERSION	349
 
@@ -229,6 +229,7 @@ typedef enum {						/* Algorithms */
 	CRYPT_ALGO_ECDH,				/* ECDH */
 	CRYPT_ALGO_25519,				/* X25519 */
 	CRYPT_ALGO_ED25519,				/* Ed25519 */
+	CRYPT_ALGO_MLKEM,				/* ML-KEM */
 
 	/* Hash algorithms */
 	CRYPT_ALGO_RESERVED4 = 200,		/* Formerly MD2 */
@@ -1419,7 +1420,7 @@ typedef enum {
 	CRYPT_IATTRIBUTE_ENC_TIMESTAMP,	/* Encoded TSA timestamp */
 
 	/* User internal attributes */
-	CRYPT_IATTRUBUTE_CERTKEYSET,	/* Keyset to send trusted certs to */
+	CRYPT_IATTRIBUTE_CERTKEYSET,	/* Keyset to send trusted certs to */
 	CRYPT_IATTRIBUTE_CTL,			/* Cert.trust list */
 	CRYPT_IATTRIBUTE_LAST,
 
@@ -1761,10 +1762,12 @@ typedef enum {
 #define CRYPT_TLSOPTION_DISABLE_CERTVERIFY	0x020	/* Disable certificate check */
 #define CRYPT_TLSOPTION_SERVER_SNI			0x040	/* Enable SNI-based key selection */
 #define CRYPT_TLSOPTION_RESUMED				0x080	/* TLS session is resumed */
-#define CRYPT_TLSOPTION_SUITEB_128			0x100	/* SuiteB security levels (will */
-#define CRYPT_TLSOPTION_SUITEB_256			0x200	/*  vanish in future releases) */
+#ifdef CONFIG_SUITEB
+  #define CRYPT_TLSOPTION_SUITEB_128		0x100	/* SuiteB security levels (will */
+  #define CRYPT_TLSOPTION_SUITEB_256		0x200	/*  vanish in future releases) */
+#endif /* CONFIG_SUITEB */
 #ifdef _CRYPT_DEFINED
-#define CRYPT_TLSOPTION_MAX					0x07F	/* Defines for range checking */
+#define CRYPT_TLSOPTION_MAX					0x0FF	/* Defines for range checking */
 #endif /* _CRYPT_DEFINED */
 
 /****************************************************************************
@@ -1792,6 +1795,7 @@ typedef enum {
   #define CRYPT_MAX_PKCSIZE		512
 #endif /* CRYPT_MAX_PKCSIZE */
 #define CRYPT_MAX_PKCSIZE_ECC	72
+#define CRYPT_MAX_PKCSIZE_PQC	2560
 
 /* The maximum hash size - 512 bits.  Before 3.4 this was 256 bits, in the 
    3.4 release it was increased to 512 bits to accommodate SHA-3 */
@@ -2019,8 +2023,24 @@ typedef struct {
 	int privLen;				/* Length of private value in bits */
 	} CRYPT_PKCINFO_DJB;
 
+typedef struct {
+	/* Status information */
+	int isPublicKey;			/* Whether this is a public or private key */
+
+	/* Public components */
+	unsigned char pub[ CRYPT_MAX_PKCSIZE_PQC ];	/* Public value */
+	int pubLen;					/* Length of public value in bits */
+
+	/* Private components */
+	unsigned char priv[ CRYPT_MAX_PKCSIZE_PQC ];/* Private value */
+	int privLen;				/* Length of private value in bits */
+	} CRYPT_PKCINFO_PQC;
+
 /* Macros to initialise and destroy the structure that stores the components
-   of a public key */
+   of a public key.  Note that the latter may be optimised away because it's
+   an an external API without access to cryptlib-internal safety mechanisms, 
+   however these operations, which work with raw keys as memory blobs, are 
+   unlikely to ever be used  */
 
 #define cryptInitComponents( componentInfo, componentKeyType ) \
 	{ memset( ( componentInfo ), 0, sizeof( *componentInfo ) ); \
@@ -2029,7 +2049,11 @@ typedef struct {
 #define cryptDestroyComponents( componentInfo ) \
 	memset( ( componentInfo ), 0, sizeof( *componentInfo ) )
 
-/* Macros to set a component of a public key */
+/* Macros to set a component of a public key.  Note that there's no bounds 
+   check on this since it's an external API without access to cryptlib-
+   internal safety mechanisms, so it's up to the caller to make sure that
+   they get the length right.  However these operations, which work with
+   raw keys as memory blobs, are unlikely to ever be used */
 
 #define cryptSetComponent( destination, source, length ) \
 	{ memcpy( ( destination ), ( source ), ( ( length ) + 7 ) >> 3 ); \
@@ -2151,7 +2175,7 @@ C_RET cryptGenerateKey( C_IN CRYPT_CONTEXT cryptContext );
 C_NONNULL_ARG( ( 2 ) ) \
 C_RET cryptEncrypt( C_IN CRYPT_CONTEXT cryptContext, C_INOUT void C_PTR buffer,
 					C_IN int length );
-C_NONNULL_ARG( ( 2 ) ) \
+C_CHECK_RETVAL C_NONNULL_ARG( ( 2 ) ) \
 C_RET cryptDecrypt( C_IN CRYPT_CONTEXT cryptContext, C_INOUT void C_PTR buffer,
 					C_IN int length );
 
@@ -2180,6 +2204,7 @@ C_RET cryptDeleteAttribute( C_IN CRYPT_HANDLE cryptHandle,
    or key data.  These are due to be replaced once a suitable alternative can
    be found */
 
+C_CHECK_RETVAL \
 C_RET cryptAddRandom( C_IN void C_PTR randomData, C_IN int randomDataLength );
 C_CHECK_RETVAL C_NONNULL_ARG( ( 1, 3 ) ) \
 C_RET cryptQueryObject( C_IN void C_PTR objectData,
@@ -2192,28 +2217,109 @@ C_RET cryptQueryObject( C_IN void C_PTR objectData,
 *																			*
 ****************************************************************************/
 
+/* Warnings for deprecated export/import functions which are renamed to 
+   wrap/unwrap functions after 3.4.9.  The clang one is fairly noisy, with 
+   the recommended:
+
+	__attribute__(( deprecated( "cryptExportKey", "cryptWrapKey" ) ))
+
+   it prints a somewhat confusing:
+
+	file.c:123:45: warning: 'cryptExportKey' is deprecated: cryptExportKey [-Wdeprecated-declarations]
+					status = cryptExportKey( encryptedKeyBlob, 1024, &length, cryptContext,
+							 ^~~~~~~~~~~~~~
+							 cryptWrapKey
+	./cryptlib.h:2220:47: note: 'cryptExportKey' has been explicitly marked deprecated here
+						  C_IN CRYPT_CONTEXT sessionKeyContext ) ATTRIBUTE_DEPRECATED;
+	./cryptlib.h:2199:23: note: expanded from macro 'ATTRIBUTE_DEPRECATED'
+						  __attribute__(( deprecated( "cryptExportKey", "cryptWrapKey" ) ))
+
+   Using a single string as per the gcc form produces:
+
+	file.c:123:45: warning: 'cryptExportKey' is deprecated: Use cryptWrapKey instead [-Wdeprecated-declarations]
+				   status = cryptExportKey( encryptedKeyBlob, 1024, &length, cryptContext,
+							^
+	[...]
+
+   gcc prints:
+
+	file.c: In function 'conventionalExportImport':
+	file.c:123:45: warning: 'cryptExportKey' is deprecated: Use cryptWrapKey instead [-Wdeprecated-declarations]
+				   status = cryptExportKey( NULL, 0, &length, cryptContext,
+							^~~~~~
+
+   MSVC doesn't print anything no matter how the __declspec is placed and the
+   decorations are rearranged for any version from VS 2008 to VS 2026, so we
+   use the clunkier pragma form instead */
+
+#if defined( __clang__ ) && ( __clang_major__ >= 8 )
+  #define C_ATTRIBUTE_DEPRECATED \
+  		  __attribute__(( deprecated( "Use cryptWrapKey instead" ) ))
+#elif defined( __GNUC__ ) && ( __GNUC__ >= 4 )
+  #define C_ATTRIBUTE_DEPRECATED \
+  		  __attribute__(( deprecated( "Use cryptWrapKey instead" ) ))
+#elif defined( _MSC_VER ) && ( _MSC_VER >= 1300 )
+  #define C_DECLSPEC_DEPRECATED \
+		  __declspec( deprecated( "cryptExportKey is deprecated, use cryptWrapKey instead" ) )
+#endif /* Compiler-specific deprecated defines */
+#ifndef C_DECLSPEC_DEPRECATED
+  #define C_DECLSPEC_DEPRECATED
+#endif /* !C_DECLSPEC_DEPRECATED */
+#ifndef C_ATTRIBUTE_DEPRECATED
+  #define C_ATTRIBUTE_DEPRECATED
+#endif /* C_ATTRIBUTE_DEPRECATED */
+
 /* Export and import an encrypted session key */
 
-C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
+C_DECLSPEC_DEPRECATED C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
 C_RET cryptExportKey( C_OUT_OPT void C_PTR encryptedKey,
 					  C_IN int encryptedKeyMaxLength,
 					  C_OUT int C_PTR encryptedKeyLength,
 					  C_IN CRYPT_HANDLE exportKey,
-					  C_IN CRYPT_CONTEXT sessionKeyContext );
-C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
+					  C_IN CRYPT_CONTEXT sessionKeyContext ) C_ATTRIBUTE_DEPRECATED;
+C_DECLSPEC_DEPRECATED C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
 C_RET cryptExportKeyEx( C_OUT_OPT void C_PTR encryptedKey,
 						C_IN int encryptedKeyMaxLength,
 						C_OUT int C_PTR encryptedKeyLength,
 						C_IN CRYPT_FORMAT_TYPE formatType,
 						C_IN CRYPT_HANDLE exportKey,
-						C_IN CRYPT_CONTEXT sessionKeyContext );
-C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
+						C_IN CRYPT_CONTEXT sessionKeyContext ) C_ATTRIBUTE_DEPRECATED;
+C_DECLSPEC_DEPRECATED C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
 C_RET cryptImportKey( C_IN void C_PTR encryptedKey,
+					  C_IN int encryptedKeyLength,
+					  C_IN CRYPT_CONTEXT importKey,
+					  C_IN CRYPT_CONTEXT sessionKeyContext ) C_ATTRIBUTE_DEPRECATED;
+C_DECLSPEC_DEPRECATED C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
+C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
+						C_IN int encryptedKeyLength,
+						C_IN CRYPT_CONTEXT importKey,
+						C_IN CRYPT_CONTEXT sessionKeyContext,
+						C_OUT_OPT CRYPT_CONTEXT C_PTR returnedContext ) C_ATTRIBUTE_DEPRECATED;
+
+#if defined( _MSC_VER ) && ( _MSC_VER >= 1300 )
+  #pragma deprecated( cryptExportKey, cryptExportKeyEx, cryptImportKey, cryptImportKeyEx )
+#endif /* VC++ */
+
+C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
+C_RET cryptWrapKey( C_OUT_OPT void C_PTR encryptedKey,
+					C_IN int encryptedKeyMaxLength,
+					C_OUT int C_PTR encryptedKeyLength,
+					C_IN CRYPT_HANDLE exportKey,
+					C_IN CRYPT_CONTEXT sessionKeyContext );
+C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) \
+C_RET cryptWrapKeyEx( C_OUT_OPT void C_PTR encryptedKey,
+					  C_IN int encryptedKeyMaxLength,
+					  C_OUT int C_PTR encryptedKeyLength,
+					  C_IN CRYPT_FORMAT_TYPE formatType,
+					  C_IN CRYPT_HANDLE exportKey,
+					  C_IN CRYPT_CONTEXT sessionKeyContext );
+C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
+C_RET cryptUnwrapKey( C_IN void C_PTR encryptedKey,
 					  C_IN int encryptedKeyLength,
 					  C_IN CRYPT_CONTEXT importKey,
 					  C_IN CRYPT_CONTEXT sessionKeyContext );
 C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) \
-C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
+C_RET cryptUnwrapKeyEx( C_IN void C_PTR encryptedKey,
 						C_IN int encryptedKeyLength,
 						C_IN CRYPT_CONTEXT importKey,
 						C_IN CRYPT_CONTEXT sessionKeyContext,

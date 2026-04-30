@@ -452,7 +452,7 @@ static int processEnvelopeResource( const CRYPT_ENVELOPE envelope,
 		return( status );
 		}
 	fprintf( outputStream, "Data is protected using algorithm %s with %d "
-			 "bit key.\n", algoName( cryptAlgo ), keySize * 8 );
+			 "bit key.\n", algoToName( cryptAlgo ), keySize * 8 );
 	
 	return( CRYPT_OK );
 	}
@@ -1626,7 +1626,8 @@ static int envelopePasswordCrypt( const char *dumpFileName,
 			   themselves in the RecipientInfo */
 			status = cryptCreateContext( &sessionKeyContext, CRYPT_UNUSED,
 										 CRYPT_ALGO_RC4 );
-			if( status == CRYPT_ERROR_NOTAVAIL )
+			if( status == CRYPT_ERROR_PARAM3 || \
+				status == CRYPT_ERROR_NOTAVAIL )
 				{
 				fputs( "Warning: Couldn't set non-default envelope cipher "
 					   "RC4, this may be disabled\n         in this build of "
@@ -2240,7 +2241,7 @@ int testEnvelopePKCCrypt( void )
 	fputs( "Skipping raw public-key and PGP enveloping, which requires PGP "
 		   "2.x support to\n  be enabled.\n\n", outputStream );
 #else
-	if( cryptQueryCapability( CRYPT_ALGO_IDEA, NULL ) == CRYPT_ERROR_NOTAVAIL )
+	if( cryptStatusError( cryptQueryCapability( CRYPT_ALGO_IDEA, NULL ) ) )
 		{
 		fputs( "Skipping raw public-key and PGP enveloping, which requires "
 			   "the IDEA cipher to\nbe enabled.\n\n", outputStream );
@@ -2579,7 +2580,7 @@ static int envelopePKCCryptMulti( const char *dumpFileName,
 
 int testEnvelopePKCCryptMulti( void )
 	{
-	if( cryptQueryCapability( CRYPT_ALGO_IDEA, NULL ) == CRYPT_ERROR_NOTAVAIL )
+	if( cryptStatusError( cryptQueryCapability( CRYPT_ALGO_IDEA, NULL ) ) )
 		{
 		fputs( "Skipping raw public-key and PGP enveloping, which requires "
 			   "the IDEA cipher to\nbe enabled.\n\n", outputStream );
@@ -3018,7 +3019,7 @@ int testEnvelopeSign( void )
 	fputs( "Skipping raw public-key and PGP signing, which requires PGP 2.x "
 		   "support to\n  be enabled.\n\n", outputStream );
 #else
-	if( cryptQueryCapability( CRYPT_ALGO_IDEA, NULL ) == CRYPT_ERROR_NOTAVAIL )
+	if( cryptStatusError( cryptQueryCapability( CRYPT_ALGO_IDEA, NULL ) ) )
 		{
 		fputs( "Skipping raw public-key based signing, which requires the "
 			   "IDEA cipher to\n  be enabled.\n\n", outputStream );
@@ -5572,36 +5573,41 @@ int testPGPEnvelopePKCCryptImport( void )
 	int count;
 #endif /* USE_PGP2 || USE_3DES || USE_BLOWFISH */
 
-	/* Process the PGP 2.x encrypted data */
+	/* Process the PGP 2.x encrypted data.  The decryption keys are 
+	   protected with IDEA so we have to check for availability outside of
+	   the algorithms used for the data */
 #ifdef USE_PGP2
-	count = readFileFromTemplate( PGP_PKE_FILE_TEMPLATE, 1, 
-								  "PGP-encrypted data", globalBuffer,
-								  BUFFER_SIZE );
-	if( count <= 0 )
-		return( FALSE );
-	count = envelopePKCDecrypt( globalBuffer, count, KEYFILE_PGP, 
-								CRYPT_UNUSED );
-	if( count <= 0 )
-		return( FALSE );
-	if( !compareData( ENVELOPE_PGP_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
-					  globalBuffer, count ) )
-		return( FALSE );
-	count = readFileFromTemplate( PGP_PKE_FILE_TEMPLATE, 2, 
-								  "PGP (NAI)-encrypted data", globalBuffer,
-								  BUFFER_SIZE );
-	if( count <= 0 )
-		return( FALSE );
-	count = envelopePKCDecrypt( globalBuffer, count, KEYFILE_NAIPGP, 
-								CRYPT_UNUSED );
-	if( count <= 0 )
-		return( FALSE );
-	if( globalBuffer[ 0 ] != 0xA3 || globalBuffer[ 1 ] != 0x01 || \
-		globalBuffer[ 2 ] != 0x5B || globalBuffer[ 3 ] != 0x53 )
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_IDEA, NULL ) ) ) 
 		{
-		fputs( "De-enveloped data != original data.\n\n", outputStream );
-		return( FALSE );
+		count = readFileFromTemplate( PGP_PKE_FILE_TEMPLATE, 1, 
+									  "PGP-encrypted data", globalBuffer,
+									  BUFFER_SIZE );
+		if( count <= 0 )
+			return( FALSE );
+		count = envelopePKCDecrypt( globalBuffer, count, KEYFILE_PGP, 
+									CRYPT_UNUSED );
+		if( count <= 0 )
+			return( FALSE );
+		if( !compareData( ENVELOPE_PGP_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
+						  globalBuffer, count ) )
+			return( FALSE );
+		count = readFileFromTemplate( PGP_PKE_FILE_TEMPLATE, 2, 
+									  "PGP (NAI)-encrypted data", globalBuffer,
+									  BUFFER_SIZE );
+		if( count <= 0 )
+			return( FALSE );
+		count = envelopePKCDecrypt( globalBuffer, count, KEYFILE_NAIPGP, 
+									CRYPT_UNUSED );
+		if( count <= 0 )
+			return( FALSE );
+		if( globalBuffer[ 0 ] != 0xA3 || globalBuffer[ 1 ] != 0x01 || \
+			globalBuffer[ 2 ] != 0x5B || globalBuffer[ 3 ] != 0x53 )
+			{
+			fputs( "De-enveloped data != original data.\n\n", outputStream );
+			return( FALSE );
+			}
+		fputs( "Import of PGP-encrypted data succeeded.\n\n", outputStream );
 		}
-	fputs( "Import of PGP-encrypted data succeeded.\n\n", outputStream );
 #endif /* USE_PGP2 */
 
 	/* Process the OpenPGP encrypted data.  The files are:
@@ -5648,19 +5654,23 @@ int testPGPEnvelopePKCCryptImport( void )
 			cp pub_hash.gpg pubring.gpg
 			gpg -s -e -z 0 --homedir . -r test1 -o gpg_enc6.gpg test.txt
 			rm secring.gpg pubring.gpg */
-#if defined( USE_PGP2 ) && defined( USE_3DES )	/* Uses PGP 2.x private keyring */
-	count = readFileFromTemplate( OPENPGP_PKE_FILE_TEMPLATE, 1, 
-								  "OpenPGP (GPG)-encrypted data",
-								  globalBuffer, BUFFER_SIZE );
-	if( count <= 0 )
-		return( FALSE );
-	count = envelopePKCDecrypt( globalBuffer, count, KEYFILE_PGP, 
-								CRYPT_UNUSED );
-	if( count <= 0 )
-		return( FALSE );
-	if( !compareData( ENVELOPE_PGP_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
-					  globalBuffer, count ) )
-		return( FALSE );
+#if defined( USE_PGP2 ) && defined( USE_3DES )	
+	/* Uses PGP 2.x private keyring which requires IDEA */
+	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_IDEA, NULL ) ) ) 
+		{
+		count = readFileFromTemplate( OPENPGP_PKE_FILE_TEMPLATE, 1, 
+									  "OpenPGP (GPG)-encrypted data",
+									  globalBuffer, BUFFER_SIZE );
+		if( count <= 0 )
+			return( FALSE );
+		count = envelopePKCDecrypt( globalBuffer, count, KEYFILE_PGP, 
+									CRYPT_UNUSED );
+		if( count <= 0 )
+			return( FALSE );
+		if( !compareData( ENVELOPE_PGP_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
+						  globalBuffer, count ) )
+			return( FALSE );
+		}
 #endif /* USE_PGP2 && USE_3DES */
 #ifdef USE_3DES		/* Uses 3DES-encrypted keyring */
 	count = readFileFromTemplate( OPENPGP_PKE_FILE_TEMPLATE, 2, 

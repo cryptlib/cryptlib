@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							cryptlib TLS Server								*
-*					   Copyright Peter Gutmann 1998-2021					*
+*					   Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -383,6 +383,7 @@ static void checkSNI( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									1 + ( UINT16_SIZE * 2 ) + 1 + 1 );
 	if( cryptStatusError( status ) )
 		return;
+	REQUIRES_V( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES_V( isIntegerRangeMin( endPos, length ) );
 	status = processVersionInfo( sessionInfoPtr, stream, NULL, TRUE );
@@ -401,7 +402,9 @@ static void checkSNI( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return;
 
 	/* If there are no extensions present then we're done */
-	if( endPos - stell( stream ) <= ( UINT16_SIZE * 3 ) )
+	ENSURES_V( !checkOverflowSub( endPos, 
+								  UINT16_SIZE + 1 + UINT16_SIZE ) );
+	if( stell( stream ) > endPos - ( UINT16_SIZE + 1 + UINT16_SIZE ) )
 		return;
 
 	/* We've got extensions, read each one looking for an SNI:
@@ -461,7 +464,6 @@ static void checkSNI( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = sread( stream, nameBuffer, nameLength );
 		if( cryptStatusError( status ) )
 			return;
-		nameBuffer[ min( nameLength, MAX_DNS_SIZE - 1 ) ] = '\0';
 		break;
 		}
 	ENSURES_V( LOOP_BOUND_OK );
@@ -469,6 +471,7 @@ static void checkSNI( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* If there was no SNI present, we're done */
 	if( nameLength <= 0 )
 		return;		/* Success return */
+	DEBUG_OP( nameBuffer[ nameLength ] = '\0' );
 	DEBUG_PRINT(( "Client indicated SNI = '%s'.\n", nameBuffer ));
 
 	/* Check whether the SNI matches the primary server key */
@@ -569,7 +572,7 @@ static int processDHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			isReadPtr( passwordInfoPtr, sizeof( ATTRIBUTE_LIST ) ) );
 
 	/* Complete the DH keyex */
-	status = completeTLSKeyex( handshakeInfo, stream, 
+	status = completeTLSKeyex( handshakeInfo, stream, TRUE,
 							   TEST_FLAG( sessionInfoPtr->protocolFlags, \
 										  TLS_PFLAG_TLS12LTS ) ?  TRUE : FALSE, 
 							   FALSE, SESSION_ERRINFO );
@@ -590,15 +593,15 @@ static int processDHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			handshakeInfo->premasterSecretSize );
 	keyexValueLen = handshakeInfo->premasterSecretSize;
 	status = createSharedPremasterSecret( \
-							handshakeInfo->premasterSecret,
-							CRYPT_MAX_PKCSIZE + CRYPT_MAX_TEXTSIZE,
-							&handshakeInfo->premasterSecretSize,
-							passwordInfoPtr->value,
-							passwordInfoPtr->valueLength, 
-							keyexValue, keyexValueLen,
-							TEST_FLAG( passwordInfoPtr->flags,
-									   ATTR_FLAG_ENCODEDVALUE ) ? \
-								TRUE : FALSE );
+								handshakeInfo->premasterSecret,
+								KEYEX_SECRET_STORAGE_SIZE,
+								&handshakeInfo->premasterSecretSize,
+								passwordInfoPtr->value,
+								passwordInfoPtr->valueLength, 
+								keyexValue, keyexValueLen,
+								TEST_FLAG( passwordInfoPtr->flags,
+										   ATTR_FLAG_ENCODEDVALUE ) ? \
+									TRUE : FALSE );
 	zeroise( keyexValue, CRYPT_MAX_PKCSIZE );
 	if( cryptStatusError( status ) )
 		{
@@ -655,11 +658,10 @@ static int processPSKKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										  userID, length );
 	if( attributeListPtr == NULL )
 		{
-		retExt( CRYPT_ERROR_WRONGKEY,
-				( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
-				  "Unknown user name '%s'", 
-				  sanitiseString( userID, CRYPT_MAX_TEXTSIZE, 
-								  length ) ) );
+		retExtSan( CRYPT_ERROR_WRONGKEY,
+				   ( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
+					 "Unknown user name '%s'", 
+					 userID, length, NULL, 0, NULL, 0 ) );
 		}
 
 	/* Move on to the associated password */
@@ -674,7 +676,12 @@ static int processPSKKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		username - password - ... - username - password - ... 
 	
 	   so to delete them we repeatedly look for a username attribute and 
-	   then delete that and the following attribute */
+	   then delete that and the following attribute.
+	   
+	   What the following loop does is walk the attribute list checking each
+	   { username, password } pair and, if the password attribute doesn't
+	   correspond to attributeListPtr, delete the pair, leaving only the 
+	   matching { username, password } pair at the end */
 	LOOP_LARGE_INITCHECK( attributeListCursor = \
 							findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME ), 
 						  attributeListCursor != NULL )
@@ -717,14 +724,14 @@ static int processPSKKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* We're using straight PSK, the premaster secret is derived from the 
 	   user password */
 	status = createSharedPremasterSecret( \
-						handshakeInfo->premasterSecret,
-						CRYPT_MAX_PKCSIZE + CRYPT_MAX_TEXTSIZE,
-						&handshakeInfo->premasterSecretSize, 
-						attributeListPtr->value,
-						attributeListPtr->valueLength, NULL, 0,
-						TEST_FLAG( attributeListPtr->flags, 
-								   ATTR_FLAG_ENCODEDVALUE ) ? \
-							TRUE : FALSE );
+							handshakeInfo->premasterSecret,
+							KEYEX_SECRET_STORAGE_SIZE,
+							&handshakeInfo->premasterSecretSize, 
+							attributeListPtr->value,
+							attributeListPtr->valueLength, NULL, 0,
+							TEST_FLAG( attributeListPtr->flags, 
+									   ATTR_FLAG_ENCODEDVALUE ) ? \
+								TRUE : FALSE );
 	if( cryptStatusError( status ) )
 		{
 		retExt( status, 
@@ -813,7 +820,7 @@ static int processKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									stream, NULL ) );
 
 		case CRYPT_ALGO_ECDH:
-			return( completeTLSKeyex( handshakeInfo, stream, 
+			return( completeTLSKeyex( handshakeInfo, stream, TRUE,
 								TEST_FLAG( sessionInfoPtr->protocolFlags, \
 										   TLS_PFLAG_TLS12LTS ) ? \
 									TRUE : FALSE, FALSE, SESSION_ERRINFO ) );
@@ -981,7 +988,7 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	MESSAGE_DATA msgData;
 	TLSHELLO_ACTION_TYPE actionType;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
-	const int serverVersion = sessionInfoPtr->version;
+	const int originalServerVersion = sessionInfoPtr->version;
 	int packetOffset, clientHelloLength, serverHelloLength DUMMY_INIT;
 	int resumedSessionID = CRYPT_ERROR, status;
 
@@ -1148,7 +1155,8 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								  IMESSAGE_GETATTRIBUTE_S, &msgData, 
 								  CRYPT_IATTRIBUTE_RANDOM_NONCE );
 		}
-	if( cryptStatusOK( status ) && serverVersion >= TLS_MINOR_VERSION_TLS12 )
+	if( cryptStatusOK( status ) && \
+		originalServerVersion >= TLS_MINOR_VERSION_TLS12 )
 		{
 		/* Set the downgrade-protection value based on the (apparent) 
 		   requested protocol version.  The client can use this to detect 
@@ -1201,11 +1209,11 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		byte[2]		version = { 0x03, 0x0n }
 		byte[32]	nonce
 		byte		sessIDlen
-			byte[]	sessID
+	  [		byte[]	sessID		-- If sessIDlen > 0 ]
 		uint16		suite
 		byte		copr = 0
 	  [	uint16	extListLen		-- RFC 3546/RFC 4366/RFC 6066
-			byte	extType
+			uint16	extType
 			uint16	extLen
 			byte[]	extData ] 
 		...

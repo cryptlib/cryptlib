@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Bignum Maths Routines						*
-*						Copyright Peter Gutmann 1995-2017					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -46,6 +46,7 @@ BOOLEAN BN_uadd( INOUT_PTR BIGNUM *r,
 	if( carry )
 		r->d[ length++ ] = 1;
 	r->top = length;
+	ENSURES_B( r->top <= getBNMaxSize( r ) );
 	BN_set_negative( r, FALSE );
 	BN_clear_top( r, oldTop );
 
@@ -77,6 +78,7 @@ BOOLEAN BN_usub( INOUT_PTR BIGNUM *r,
 	carry = bn_sub_words( r->d, a->d, b->d, length );
 	ENSURES_B( !carry );
 	r->top = length;
+	ENSURES_B( r->top <= getBNMaxSize( r ) );
 	BN_set_negative( r, FALSE );
 	BN_clear_top( r, oldTop );
 
@@ -205,6 +207,7 @@ BOOLEAN BN_lshift( INOUT_PTR BIGNUM *r,
 
 		/* Set the new top based on what we've shifted up */
 		r->top = a->top + wordShiftAmount;
+		ENSURES_B( r->top <= getBNMaxSize( r ) );
 		}
 	else
 		{
@@ -231,7 +234,7 @@ BOOLEAN BN_lshift( INOUT_PTR BIGNUM *r,
 			/* We shifted bits off the end of the last word, extend the 
 			   length by one word */
 			r->top++;
-			ENSURES( r->top <= getBNMaxSize( r ) );
+			ENSURES_B( r->top <= getBNMaxSize( r ) );
 			}
 		}
 	BN_clear_top( r, oldTop );
@@ -310,6 +313,7 @@ BOOLEAN BN_rshift( INOUT_PTR BIGNUM *r,
 
 		/* Set the new top based on what we've shifted down */
 		r->top = wordsToShift;
+		ENSURES_B( r->top <= getBNMaxSize( r ) );
 		} 
 	else
 		{
@@ -338,6 +342,7 @@ BOOLEAN BN_rshift( INOUT_PTR BIGNUM *r,
 		left >>= bitShiftAmount;
 		if( left > 0 )
 			rData[ r->top++ ] = left;
+		ENSURES_B( r->top <= getBNMaxSize( r ) );
 		}
 	BN_clear_top( r, oldTop );
 
@@ -377,7 +382,8 @@ BOOLEAN BN_add_word( INOUT_PTR BIGNUM *a, const BN_ULONG w )
 		aData[ i ] += word;
 
 		/* If there wasn't an overflow then we're done, otherwise continue 
-		   with carry */
+		   with carry.  Unsigned overflow isn't UB so compilers aren't
+		   allowed to break it and the following test is valid */
 		if( word <= aData[ i ] )
 			break;
 		word = 1;
@@ -391,7 +397,10 @@ BOOLEAN BN_add_word( INOUT_PTR BIGNUM *a, const BN_ULONG w )
 	   least once through the loop, setting word = 1), so we know that the 
 	   top word has the value 1 */
 	if( i >= a->top )
+		{
 		aData[ a->top++ ] = 1;
+		ENSURES_B( a->top <= getBNMaxSize( a ) );
+		}
 
 	ENSURES_B( sanityCheckBignum( a ) );
 
@@ -440,8 +449,11 @@ BOOLEAN BN_sub_word( INOUT_PTR BIGNUM *a, const BN_ULONG w )
 	ENSURES_B( LOOP_BOUND_OK );
 
 	/* If we've cleared the top word, decrease the overall bignum length */
-	if( aData[ a->top - 1 ] == 0 )
+	if( a->top >= 1 && aData[ a->top - 1 ] == 0 )
+		{
+		REQUIRES_B( !checkOverflowDec( a->top ) );
 		a->top--;
+		}
 
 	ENSURES_B( sanityCheckBignum( a ) );
 
@@ -466,7 +478,10 @@ BOOLEAN BN_mul_word( INOUT_PTR BIGNUM *a, const BN_ULONG w )
 	   we just call down to that */
 	word = bn_mul_words( aData, aData, a->top, w );
 	if( word > 0 )
+		{
 		aData[ a->top++ ] = word;
+		ENSURES_B( a->top <= getBNMaxSize( a ) );
+		}
 
 	ENSURES_B( sanityCheckBignum( a ) );
 
@@ -627,7 +642,10 @@ BOOLEAN BN_sqr( INOUT_PTR BIGNUM *r,
 	   word shorter */
 	rTmp->top = 2 * length;
 	if( ( a->d[ length - 1 ] & BN_MASK2h ) == 0 )
+		{
+		ENSURES_B( !checkOverflowDec( rTmp->top ) );
 		rTmp->top--;
+		}
 	BN_clear_top( rTmp, oldTop );
 	if( rTmp != r )
 		{
@@ -649,7 +667,7 @@ BOOLEAN BN_sqr( INOUT_PTR BIGNUM *r,
 	return( TRUE );
 	}
 
-/* Integer square root of a bignum: r = isqrt( a ), using a modification of 
+/* Integer square root of a bignum: r = isqrt( a ) using a modification of 
    the abacus method because if it's good enough for quantum cryptanalysis 
    then it's good enough for us.  Original algorithm from 
    http://medialab.freaknet.org/martin/src/sqrt/sqrt.c.  Takes more 
@@ -758,13 +776,14 @@ BOOLEAN BN_isqrt( INOUT_PTR BIGNUM *r,
    multiplier s.t. | numerator - divisor * multiplier | < divisor.  This 
    performs a variety of system-specific operations chosen based on what the 
    hardware is capable of and what's most efficient, to make things easier 
-   we borrow some of the core macros from OpenSSL, since they've already 
+   we borrow some of the core macros from OpenSSL since they've already 
    sorted out which option needs to be used where.
    
    numeratorData points at the MSW of the numerator, since the bignum data 
    is in little-endian format subsequent words are at negative offsets to
    this.  We know that there are always at least 3 words present due to the
-   normalisation and padding process in BN_div() */
+   normalisation and padding process in BN_div() so it's safe to use array
+   indices 0 ... -2 */
 
 #ifdef BN_LLONG						/* BN_ULONG 32-bit, BN_ULLONG 64-bit */
 
@@ -807,10 +826,10 @@ static BOOLEAN calculateMultiplier( OUT_PTR BN_ULONG *multiplier,
 	multRemainder = ( numeratorMSWnext - divisorMSW * mult ) & BN_MASK2;
 	tempWord = ( BN_ULLONG ) divisorMSWnext * mult;
 
-	/* Refine the estimate.  This operation isn't branch-free, but since 
-	   it's just a few low-complexity instructions it shouldn't be subject 
-	   to any timing issues, particularly compared to the variable-time
-	   divide that we've just performed.
+	/* Refine the estimate.  This operation isn't branch-free but since it's
+	   just a few low-complexity instructions it shouldn't be subject to any 
+	   timing issues, particularly compared to the variable-time divide that 
+	   we've just performed.
 
 	   For the remainder add-overflow-check, we could use 
 	   __builtin_uaddl_overflow() (gcc/clang) or ULongAdd() (Windows), 
@@ -1040,7 +1059,11 @@ BOOLEAN BN_div( INOUT_PTR_OPT BIGNUM *quotient,
 	   Note that this denormalises the result, so we have to BN_normalise() 
 	   the value at the end of this function */
 	if( normalisedNumerator->top < 3 ) 
+		{
 		normalisedNumerator->d[ normalisedNumerator->top++ ] = 0;
+		ENSURES_B( normalisedNumerator->top <= \
+							getBNMaxSize( normalisedNumerator ) );
+		}
 
 	/* Now that we've finished fiddling the numerator and divisor, remember 
 	   various values related to them.  We know that numeratorWordCount is 
@@ -1049,9 +1072,12 @@ BOOLEAN BN_div( INOUT_PTR_OPT BIGNUM *quotient,
 	   required in the operations below */
 	divisorWordCount = normalisedDivisor->top;
 	numeratorWordCount = normalisedNumerator->top;
+	REQUIRES_B( !checkOverflowSub( numeratorWordCount, divisorWordCount ) );
 	wordsToProcess = numeratorWordCount - divisorWordCount;
+	REQUIRES_B( numeratorWordCount >= 1 );
 	numeratorData = &normalisedNumerator->d[ numeratorWordCount - 1 ];
 	numeratorDataCurrent = &normalisedNumerator->d[ wordsToProcess ];
+	REQUIRES_B( divisorWordCount >= 1 );
 	divisorMSW = normalisedDivisor->d[ divisorWordCount - 1 ];
 	if( divisorWordCount > 1 )
 		divisorMSWnext = normalisedDivisor->d[ divisorWordCount - 2 ];
@@ -1064,23 +1090,36 @@ BOOLEAN BN_div( INOUT_PTR_OPT BIGNUM *quotient,
 
 	/* Similarly, remember values relating to the result */
 	result->top = wordsToProcess;
+	ENSURES_B( result->top <= getBNMaxSize( result ) );
+	REQUIRES_B( wordsToProcess >= 1 );
 	resultData = &result->d[ wordsToProcess - 1 ];
 
 	/* Evaluate the MSW.  Note that what's being modified here is the 
 	   local copy of the normalised numerator, not the actual numerator 
-	   passed in by the caller */
+	   passed in by the caller.
+	   
+	   We have to be careful here because if wordsToProcess == 1 then the
+	   resultData pointer will move out of range, which doesn't cause a 
+	   problem because it's never used beyond this point but is a 
+	   certificational weakness so we don't update the pointer for that
+	   case */
 	if( BN_ucmp_words( numeratorDataCurrent, divisorWordCount, 
 					   normalisedDivisor ) >= 0 )
 		{	
 		bn_sub_words( numeratorDataCurrent, numeratorDataCurrent, 
 					  normalisedDivisor->d, divisorWordCount );
-		*resultData-- = 1;
+		*resultData = 1;
+		if( wordsToProcess > 1 )
+			resultData--;
 		} 
 	else
 		{
+		REQUIRES_B( !checkOverflowDec( result->top ) );
 		result->top--;
+		ENSURES_B( wordsToProcess >= 1 );
 		resultData--;
 		}
+	ENSURES_B( resultData >= &result->d[ 0 ] );
 
 	/* Iterate through evey word of numerator/divisor performing a divide 
 	   step on each one */
@@ -1091,6 +1130,8 @@ BOOLEAN BN_div( INOUT_PTR_OPT BIGNUM *quotient,
 
 		ENSURES_B( LOOP_INVARIANT_EXT( i, 0, wordsToProcess - 2,
 									   iterationBound ) );
+
+		ENSURES_B( numeratorData >= &normalisedNumerator->d[ 0 ] );
 
 		/* Calculate the multiplier (see the comment for 
 		   calculateMultiplier()), multiply it by the divisor and fix up the 
@@ -1108,6 +1149,7 @@ BOOLEAN BN_div( INOUT_PTR_OPT BIGNUM *quotient,
 							 divisorWordCount, multiplier );
 		temp->d[ divisorWordCount ] = word;
 		numeratorDataCurrent--;
+		ENSURES_B( numeratorDataCurrent >= &normalisedNumerator->d[ 0 ] );
 		if( bn_sub_words( numeratorDataCurrent, numeratorDataCurrent, 
 						  temp->d, divisorWordCount + 1 ) ) 
 			{
@@ -1119,8 +1161,17 @@ BOOLEAN BN_div( INOUT_PTR_OPT BIGNUM *quotient,
 				}
 			}
 
-		/* Store the current result and move on to the next word */
-		*resultData-- = multiplier;
+		/* Store the current result and move on to the next word.  We have 
+		   to be careful here because at the last loop iteration the
+		   resultData pointer will move out of range, which doesn't cause a
+		   problem because it's never used beyond this point but is a 
+		   certificational weakness so we don't update the pointer for that
+		   case */
+		if( i >= wordsToProcess - 2 )
+			*resultData = multiplier;
+		else
+			*resultData-- = multiplier;
+		ENSURES_B( resultData >= &result->d[ 0 ] );
 		}
 	ENSURES_B( LOOP_BOUND_OK );
 
@@ -1231,12 +1282,12 @@ BOOLEAN BN_mod_add_quick( INOUT_PTR BIGNUM *r,
 	CK( BN_uadd( r, a, b ) );
 	LOOP_SMALL_WHILE( bnStatusOK( bnStatus ) && BN_ucmp( r, m ) >= 0 )
 		{
-		ENSURES( LOOP_INVARIANT_SMALL_GENERIC() );
+		ENSURES_B( LOOP_INVARIANT_SMALL_GENERIC() );
 
 		/* r is bigger than m, get it back within range */
 		CK( BN_usub( r, r, m ) );
 		}
-	ENSURES( LOOP_BOUND_OK );
+	ENSURES_B( LOOP_BOUND_OK );
 	if( bnStatusError( bnStatus ) )
 		return( bnStatus );
 
@@ -1272,13 +1323,13 @@ BOOLEAN BN_mod_sub_quick( INOUT_PTR BIGNUM *r,
 	CK( BN_sub( r, a, b ) );
 	LOOP_SMALL_WHILE( bnStatusOK( bnStatus ) && BN_is_negative( r ) )
 		{
-		ENSURES( LOOP_INVARIANT_SMALL_GENERIC() );
+		ENSURES_B( LOOP_INVARIANT_SMALL_GENERIC() );
 
 		/* r is negative, get it back within range.  Note that we have to use 
 		   BN_add() rather than BN_uadd() since r is negative */
 		CK( BN_add( r, r, m ) );
 		}
-	ENSURES( LOOP_BOUND_OK );
+	ENSURES_B( LOOP_BOUND_OK );
 	if( bnStatusError( bnStatus ) )
 		return( bnStatus );
 
@@ -1355,6 +1406,7 @@ BOOLEAN BN_mod_lshift_quick( BIGNUM *r, const BIGNUM *a,
 			CK( BN_sub( r, r, m ) );
 		if( bnStatusError( bnStatus ) )
 			return( bnStatus );
+		REQUIRES_B( !checkOverflowSub( shiftCount, shift ) );
 		shiftCount -= shift;
 		}
 	ENSURES_B( LOOP_BOUND_OK );

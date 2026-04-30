@@ -68,11 +68,6 @@ BOOLEAN sanityCheckNetStream( const NET_STREAM_INFO *netStream )
 		DEBUG_PUTS(( "sanityCheckNetStream: Saved timeout" ));
 		return( FALSE );
 		}
-	if( !isEnumRangeOpt( netStream->systemType, STREAM_PEER ) )
-		{
-		DEBUG_PUTS(( "sanityCheckNetStream: System type" ));
-		return( FALSE );
-		}
 	if( !checkVarStruct( netStream ) )
 		{
 		DEBUG_PUTS(( "sanityCheckNetStream: VarStruct" ));
@@ -124,7 +119,7 @@ BOOLEAN sanityCheckNetStream( const NET_STREAM_INFO *netStream )
 			}
 		}
 	if( netStream->clientAddressLen < 0 || \
-		netStream->clientAddressLen > CRYPT_MAX_TEXTSIZE / 2 || \
+		netStream->clientAddressLen > MAX_TEXT_NETWORKADDRESS || \
 		netStream->clientPort < 0 || \
 		netStream->clientPort > MAX_SRC_PORT_NUMBER )
 		{
@@ -150,7 +145,7 @@ BOOLEAN sanityCheckNetStream( const NET_STREAM_INFO *netStream )
 #endif /* USE_EAP */
 	if( !isEnumRangeOpt( netStream->systemType, STREAM_PEER ) )
 		{
-		DEBUG_PUTS(( "sanityCheckNetStream: Miscellaneous" ));
+		DEBUG_PUTS(( "sanityCheckNetStream: System type" ));
 		return( FALSE );
 		}
 
@@ -214,7 +209,8 @@ BOOLEAN sanityCheckNetStream( const NET_STREAM_INFO *netStream )
 			!FNPTR_ISNULL( netStream->virtualPutDataFunction ) || \
 			!FNPTR_ISNULL( netStream->virtualGetErrorInfoFunction ) )
 			{
-			DEBUG_PUTS(( "sanityCheckNetStream: Spurious virtual functions" ));
+			DEBUG_PUTS(( "sanityCheckNetStream: Spurious virtual "
+						 "functions" ));
 			return( FALSE );
 			}
 		}
@@ -230,13 +226,145 @@ BOOLEAN sanityCheckNetStream( const NET_STREAM_INFO *netStream )
 			}
 		}
 
-	/* Check the network stream storage */
-	if( !checkVarStruct( netStream ) )
+	return( TRUE );
+	}
+
+/* Sanity-check network stream connect options */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN sanityCheckConnectOptions( const NET_CONNECT_INFO *connectInfo,
+								   const BOOLEAN isServer )
+	{
+	assert( isReadPtr( connectInfo, sizeof( NET_CONNECT_INFO ) ) );
+
+	REQUIRES_B( isBooleanValue( isServer ) );
+
+	/* Check that the overall connect options are in order */
+	if( !isEnumRange( connectInfo->options, NET_OPTION ) )
 		{
-		DEBUG_PUTS(( "sanityCheckNetStream: Data storage" ));
+		DEBUG_PUTS(( "sanityCheckConnectOptions: Option type" ));
 		return( FALSE );
 		}
-
+	if( isServer )
+		{
+		if( connectInfo->options != NET_OPTION_HOSTNAME && \
+			connectInfo->options != NET_OPTION_NETWORKSOCKET && \
+			connectInfo->options != NET_OPTION_VIRTUAL )
+			{
+			DEBUG_PUTS(( "sanityCheckConnectOptions: Server option type" ));
+			return( FALSE );
+			}
+		if( connectInfo->name != NULL || connectInfo->nameLength != 0 )
+			{
+			DEBUG_PUTS(( "sanityCheckConnectOptions: Spurious hostname" ));
+			return( FALSE );
+			}
+		}
+	switch( connectInfo->options )
+		{
+		case NET_OPTION_HOSTNAME:
+			if( isServer )
+				{
+				if( ( !( connectInfo->interface == NULL && \
+						 connectInfo->interfaceLength == 0 ) && \
+					  !( connectInfo->interface != NULL && \
+						 isShortIntegerRangeNZ( \
+									connectInfo->interfaceLength ) ) ) || \
+					connectInfo->networkSocket != CRYPT_ERROR )
+					{
+					DEBUG_PUTS(( "sanityCheckConnectOptions: Server hostname "
+								 "options" ));
+					return( FALSE );
+					}
+				}			
+			else
+				{
+				if( connectInfo->name == NULL || \
+					!isShortIntegerRangeNZ( connectInfo->nameLength ) || \
+					connectInfo->networkSocket != CRYPT_ERROR )
+					{
+					DEBUG_PUTS(( "sanityCheckConnectOptions: Client "
+								 "hostname options" ));
+					return( FALSE );
+					}
+				}
+			break;
+			
+		case NET_OPTION_NETWORKSOCKET:
+		case NET_OPTION_NETWORKSOCKET_DUMMY:
+			if( connectInfo->name != NULL || \
+				connectInfo->nameLength != 0 || \
+				connectInfo->interface != NULL || \
+				connectInfo->interfaceLength != 0 || \
+				connectInfo->networkSocket == CRYPT_ERROR )
+				{
+				DEBUG_PUTS(( "sanityCheckConnectOptions: Network socket "
+							 "options" ));
+				return( FALSE );
+				}
+			break;
+			
+		case NET_OPTION_VIRTUAL:
+			if( isServer )
+				{
+				if( connectInfo->name != NULL || \
+					connectInfo->nameLength != 0 )
+					{
+					DEBUG_PUTS(( "sanityCheckConnectOptions: Virtual "
+								 "connect options" ));
+					return( FALSE );
+					}
+				}
+			else
+				{
+				if( connectInfo->name == NULL || \
+					!isShortIntegerRangeNZ( connectInfo->nameLength ) )
+					{
+					DEBUG_PUTS(( "sanityCheckConnectOptions: Virtual "
+								 "connect options" ));
+					return( FALSE );
+					}
+				}
+			if( connectInfo->networkSocket != CRYPT_ERROR || \
+				!FNPTR_ISSET( connectInfo->virtualGetDataFunction ) || \
+				!FNPTR_ISSET( connectInfo->virtualPutDataFunction ) || \
+				!FNPTR_ISSET( connectInfo->virtualGetErrorInfoFunction ) || \
+				!DATAPTR_ISSET( connectInfo->virtualStateInfo ) )
+				{
+				DEBUG_PUTS(( "sanityCheckConnectOptions: Virtual connect "
+							 "options" ));
+				return( FALSE );
+				}
+			break;
+		}
+	if( connectInfo->iUserObject != DEFAULTUSER_OBJECT_HANDLE && \
+		!isHandleRangeValid( connectInfo->iUserObject ) )
+		{
+		DEBUG_PUTS(( "sanityCheckConnectOptions: User object" ));
+		return( FALSE );
+		}
+	if( connectInfo->authName == NULL )
+		{
+		if( connectInfo->authNameLength != 0 || \
+			connectInfo->authKey != NULL || \
+			connectInfo->authKeyLength != 0 ) 
+			{
+			DEBUG_PUTS(( "sanityCheckConnectOptions: Spurious auth "
+						 "options" ));
+			return( FALSE );
+			}
+		}
+	else
+		{		
+		if( !isShortIntegerRangeNZ( connectInfo->authNameLength ) || \
+			connectInfo->authKey == NULL || \
+			!isShortIntegerRangeNZ( connectInfo->authKeyLength ) )
+			{
+			DEBUG_PUTS(( "sanityCheckConnectOptions: Absent auth options" ));
+			return( FALSE );
+			}
+		}
+	
 	return( TRUE );
 	}
 #endif /* !CONFIG_CONSERVE_MEMORY_EXTRA */
@@ -272,15 +400,22 @@ static int checkForProxy( INOUT_PTR NET_STREAM_INFO *netStream,
 	memset( proxyUrlBuffer, 0, min( 16, proxyUrlMaxLen ) );
 	*proxyUrlLen = 0;
 
-	/* Check for a local connection, which always bypasses the proxy.  We
-	   only use the case-insensitive string compares for the text-format
+	/* Check for the most common local connections, which always bypass the 
+	   proxy.  This short-circuit check checks for sensible options but not 
+	   pathological ones like "0:0:0:0:0:0:0:1" or IPv4-mapped 
+	   "::ffff:127.0.0.1" and similar tricks because it's an optimisation 
+	   for common cases, not a hard security check.
+	   
+	   We only use the case-insensitive string compares for the text-format
 	   host names since the numeric forms don't need this.  In addition
 	   since the IPv4 localhost is a /8, we check for anything with a
 	   "127." prefix */
 	if( ( hostLen > 4 && !memcmp( host, "127.", 4 ) ) || \
 		( hostLen == 3 && !memcmp( host, "::1", 3 ) ) || \
 		( hostLen == 9 && !strCompare( host, "localhost", 9 ) ) || \
-		( hostLen == 10 && !strCompare( host, "localhost.", 10 ) ) )
+		( hostLen == 10 && !strCompare( host, "localhost.", 10 ) ) || \
+		( hostLen == 7 && !strCompare( host, "0.0.0.0", 7 ) ) || \
+		( hostLen == 4 && !strCompare( host, "[::]", 4 ) ) )
 		/* Are you local? */
 		{
 		/* This is a local socket!  We'll have no proxies here! */
@@ -588,6 +723,8 @@ static int initStreamStorage( INOUT_PTR STREAM *stream,
 					   VARSTRUCT array */
 		netStream->writeBufSize = NETSTREAM_BUFFER_SIZE;
 		safeBufferInit( netStream->writeBuffer, netStream->writeBufSize );
+		REQUIRES( !checkOverflowAdd( SAFEBUFFER_SIZE( NETSTREAM_BUFFER_SIZE ),
+									 SAFEBUFFER_SIZE( NETSTREAM_BUFFER_SIZE ) ) );
 		bufferStorageSize = SAFEBUFFER_SIZE( NETSTREAM_BUFFER_SIZE ) + \
 							SAFEBUFFER_SIZE( NETSTREAM_BUFFER_SIZE );
 		}
@@ -598,6 +735,8 @@ static int initStreamStorage( INOUT_PTR STREAM *stream,
 								netStream->storageSize ) );
 		memcpy( netStream->host, urlInfo->host, urlInfo->hostLen );
 		netStream->hostLen = urlInfo->hostLen;
+		REQUIRES( !checkOverflowAdd( bufferStorageSize, 
+									 urlInfo->hostLen ) );
 		bufferStorageSize += urlInfo->hostLen;
 		if( urlInfo->location != NULL )
 			{
@@ -608,6 +747,8 @@ static int initStreamStorage( INOUT_PTR STREAM *stream,
 			memcpy( netStream->path, urlInfo->location, 
 					urlInfo->locationLen );
 			netStream->pathLen = urlInfo->locationLen;
+			REQUIRES( !checkOverflowAdd( bufferStorageSize, 
+										 urlInfo->locationLen ) );
 			bufferStorageSize += urlInfo->locationLen;
 			}
 		netStream->port = urlInfo->port;
@@ -617,6 +758,8 @@ static int initStreamStorage( INOUT_PTR STREAM *stream,
 		{
 		netStream->subTypeInfo = \
 				( char * ) netStream->storage + bufferStorageSize;
+		REQUIRES( !checkOverflowAdd( bufferStorageSize, 
+									 sizeof( EAP_INFO ) ) );
 		bufferStorageSize += sizeof( EAP_INFO );
 		netStream->transportInfo = \
 				( char * ) netStream->storage + bufferStorageSize;
@@ -659,6 +802,8 @@ static void cleanupStream( INOUT_PTR STREAM *stream,
 
 	/* Clean up stream-related buffers if necessary */
 	REQUIRES_V( isIntegerRange( netStream->storageSize ) ); 
+	REQUIRES_V( !checkOverflowAdd( sizeof( NET_STREAM_INFO ), 
+								   netStream->storageSize ) );
 	zeroise( netStream, sizeof( NET_STREAM_INFO ) + netStream->storageSize );
 	clFree( "cleanupStream", netStream );
 
@@ -910,19 +1055,35 @@ static int completeConnect( INOUT_PTR STREAM *stream,
 	   data */
 	if( useTransportBuffering )
 		{
+		REQUIRES_S( !checkOverflowAdd( netStreamAllocSize,
+							SAFEBUFFER_SIZE( NETSTREAM_BUFFER_SIZE ) + \
+							SAFEBUFFER_SIZE( NETSTREAM_BUFFER_SIZE ) ) );
 		netStreamAllocSize += SAFEBUFFER_SIZE( NETSTREAM_BUFFER_SIZE ) + \
 							  SAFEBUFFER_SIZE( NETSTREAM_BUFFER_SIZE );
 		}
 	if( urlInfo != NULL )
+		{
+		REQUIRES_S( !checkOverflowAdd3( netStreamAllocSize, 
+										urlInfo->hostLen,
+										urlInfo->locationLen ) );
 		netStreamAllocSize += urlInfo->hostLen + urlInfo->locationLen;
+		}
 #ifdef USE_EAP
 	if( protocol == STREAM_PROTOCOL_EAP )
-		netStreamAllocSize += sizeof( EAP_INFO ) + sizeof( SOCKADDR_STORAGE );
+		{
+		REQUIRES_S( !checkOverflowAdd( netStreamAllocSize, 
+									   sizeof( EAP_INFO ) + \
+										sizeof( SOCKADDR_STORAGE ) ) );
+		netStreamAllocSize += sizeof( EAP_INFO ) + \
+							  sizeof( SOCKADDR_STORAGE );
+		}
 #endif /* USE_EAP */
 	REQUIRES_S( netStreamAllocSize == 0 || \
 				rangeCheck( netStreamAllocSize, 1, MAX_BUFFER_SIZE ) );
 	REQUIRES_S( isIntegerRangeNZ( sizeof( NET_STREAM_INFO ) + \
 								  netStreamAllocSize ) );
+	REQUIRES_S( !checkOverflowAdd( sizeof( NET_STREAM_INFO ), 
+								   netStreamAllocSize ) );
 	netStreamInfo = clAlloc( "completeConnect", sizeof( NET_STREAM_INFO ) + \
 												netStreamAllocSize );
 	if( netStreamInfo == NULL )
@@ -979,11 +1140,23 @@ static int completeConnect( INOUT_PTR STREAM *stream,
 		status = connectFunction( stream, connectInfo );
 		if( cryptStatusError( status ) )
 			{
+			/* If we're being carried over a lower-layer protocol then that
+			   may have signalled completion of the exchange without it being
+			   an error, in which case we just clean up and exit */
+			if( TEST_FLAG( netStream->nFlags, STREAM_NFLAG_ENCAPS ) && \
+				status == OK_SPECIAL )
+				{
+				cleanupStream( stream, TRUE );
+				return( status );
+				}
+
 			/* Copy back the error information to the caller */
 			copyErrorInfo( errorInfo, NETSTREAM_ERRINFO );
 
-			/* Clean up */
-			cleanupStream( stream, FALSE );
+			/* Clean up.  Since we've already got a lower-level transport 
+			   connection open at this point we set the cleanupTransport 
+			   flag to close this down again */
+			cleanupStream( stream, TRUE );
 			return( status );
 			}
 		}
@@ -1000,18 +1173,19 @@ static int completeConnect( INOUT_PTR STREAM *stream,
 		/* Copy back the error information to the caller */
 		copyErrorInfo( errorInfo, NETSTREAM_ERRINFO );
 
-		/* Clean up */
-		cleanupStream( stream, FALSE );
+		/* Clean up.  As before we need to shut down the underlying 
+		   transport connection on the way out */
+		cleanupStream( stream, TRUE );
 		return( status );
 		}
+
+	return( CRYPT_OK );
 #else
-	cleanupStream( stream, FALSE );
+	cleanupStream( stream, TRUE );
 	retExt( CRYPT_ERROR_NOTAVAIL,
 			( CRYPT_ERROR_NOTAVAIL, errorInfo, 
 			  "HTTP proxy support not available" ) );
 #endif /* USE_HTTP */
-
-	return( CRYPT_OK );
 	}
 
 /* Open and close a network connection.  This parses a location string
@@ -1026,7 +1200,7 @@ int sNetConnect( OUT_PTR STREAM *stream,
 				 IN_PTR const NET_CONNECT_INFO *connectInfo, 
 				 OUT_PTR ERROR_INFO *errorInfo )
 	{
-	NET_STREAM_INFO netStream;
+	NET_STREAM_INFO netStreamTemplate, *netStream;
 	URL_INFO urlInfo, *urlInfoPtr = NULL;
 	char proxyUrlBuffer[ MAX_DNS_SIZE + 8 ], *proxyURL = NULL;
 	int proxyUrlLen = 0, status;
@@ -1051,50 +1225,20 @@ int sNetConnect( OUT_PTR STREAM *stream,
 	REQUIRES( protocol == STREAM_PROTOCOL_TCP || \
 			  protocol == STREAM_PROTOCOL_UDP );
 #endif /* USE_EAP / USE_HTTP */
-	REQUIRES( isEnumRange( connectInfo->options, NET_OPTION ) );
-	REQUIRES( connectInfo->options != NET_OPTION_HOSTNAME || \
-			  ( connectInfo->options == NET_OPTION_HOSTNAME && \
-			    connectInfo->name != NULL && \
-				isShortIntegerRangeNZ( connectInfo->nameLength ) && \
-				connectInfo->networkSocket == CRYPT_ERROR ) );
-	REQUIRES( ( connectInfo->options != NET_OPTION_NETWORKSOCKET && \
-				connectInfo->options != NET_OPTION_NETWORKSOCKET_DUMMY ) || 
-			  ( ( connectInfo->options == NET_OPTION_NETWORKSOCKET || \
-				  connectInfo->options == NET_OPTION_NETWORKSOCKET_DUMMY ) && \
-				connectInfo->name == NULL && connectInfo->nameLength == 0 && \
-				connectInfo->interface == NULL && connectInfo->interfaceLength == 0 && \
-				connectInfo->networkSocket != CRYPT_ERROR ) );
-	REQUIRES( connectInfo->options != NET_OPTION_VIRTUAL ||	\
-			  ( connectInfo->options == NET_OPTION_VIRTUAL && \
-			    connectInfo->name != NULL && \
-				isShortIntegerRangeNZ( connectInfo->nameLength ) && \
-				connectInfo->networkSocket == CRYPT_ERROR && \
-				FNPTR_ISSET( connectInfo->virtualGetDataFunction ) && \
-				FNPTR_ISSET( connectInfo->virtualPutDataFunction ) && 
-				FNPTR_ISSET( connectInfo->virtualGetErrorInfoFunction ) && \
-				DATAPTR_ISSET( connectInfo->virtualStateInfo ) ) );
-	REQUIRES( connectInfo->iUserObject == DEFAULTUSER_OBJECT_HANDLE || \
-			  isHandleRangeValid( connectInfo->iUserObject ) );
-	REQUIRES( ( connectInfo->authName == NULL && \
-				connectInfo->authNameLength == 0 && \
-				connectInfo->authKey == NULL && \
-				connectInfo->authKeyLength == 0 ) || \
-			  ( connectInfo->authName != NULL && \
-				isShortIntegerRangeNZ( connectInfo->authNameLength ) && \
-				connectInfo->authKey != NULL && \
-				isShortIntegerRangeNZ( connectInfo->authKeyLength ) ) );
+	REQUIRES( sanityCheckConnectOptions( connectInfo, FALSE ) );
 
 	/* Clear return values */
 	clearErrorInfo( errorInfo );
 
 	/* Initialise the network stream info */
-	status = initStream( stream, &netStream, protocol, connectInfo, FALSE );
+	status = initStream( stream, &netStreamTemplate, protocol, connectInfo, 
+						 FALSE );
 	if( cryptStatusError( status ) )
 		return( status );
 	if( connectInfo->options == NET_OPTION_HOSTNAME || \
 		connectInfo->options == NET_OPTION_VIRTUAL )
 		urlInfoPtr = &urlInfo;
-	status = processConnectOptions( stream, &netStream, urlInfoPtr, 
+	status = processConnectOptions( stream, &netStreamTemplate, urlInfoPtr, 
 									connectInfo, errorInfo );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1106,7 +1250,7 @@ int sNetConnect( OUT_PTR STREAM *stream,
 
 		/* Check for the use of a proxy to establish the connection.  This 
 		   function will return OK_SPECIAL if there's a proxy present */
-		status = checkForProxy( &netStream, protocol, connectInfo, 
+		status = checkForProxy( &netStreamTemplate, protocol, connectInfo, 
 								urlInfoPtr->host, urlInfoPtr->hostLen,
 								proxyUrlBuffer, MAX_DNS_SIZE, 
 								&proxyUrlLength );
@@ -1123,12 +1267,16 @@ int sNetConnect( OUT_PTR STREAM *stream,
 		}
 
 	/* Set up access mechanisms and complete the connection */
-	status = completeConnect( stream, &netStream, connectInfo, urlInfoPtr, 
-							  protocol, proxyURL, proxyUrlLen, errorInfo );
+	status = completeConnect( stream, &netStreamTemplate, connectInfo, 
+							  urlInfoPtr, protocol, proxyURL, proxyUrlLen, 
+							  errorInfo );
 	if( cryptStatusError( status ) )
 		return( status );
 
-	ENSURES( sanityCheckNetStream( &netStream ) );
+	/* The net stream has now been attached to the stream, make sure that 
+	   it's correct */
+	netStream = DATAPTR_GET( stream->netStream );
+	ENSURES( netStream != NULL && sanityCheckNetStream( netStream ) );
 
 	return( CRYPT_OK );
 	}
@@ -1140,7 +1288,7 @@ int sNetListen( OUT_PTR STREAM *stream,
 				IN_PTR const NET_CONNECT_INFO *connectInfo, 
 				OUT_PTR ERROR_INFO *errorInfo )
 	{
-	NET_STREAM_INFO netStream;
+	NET_STREAM_INFO netStreamTemplate, *netStream;
 	URL_INFO urlInfo, *urlInfoPtr = NULL;
 	int status;
 
@@ -1161,56 +1309,34 @@ int sNetListen( OUT_PTR STREAM *stream,
 	REQUIRES( protocol == STREAM_PROTOCOL_TCP || \
 			  protocol == STREAM_PROTOCOL_UDP );
 #endif /* Protocol types */
-	REQUIRES( connectInfo->options == NET_OPTION_HOSTNAME || \
-			  connectInfo->options == NET_OPTION_NETWORKSOCKET || \
-			  connectInfo->options == NET_OPTION_VIRTUAL );
-	REQUIRES( connectInfo->options != NET_OPTION_HOSTNAME || \
-			  ( connectInfo->options == NET_OPTION_HOSTNAME && \
-				( ( connectInfo->interface == NULL && \
-					connectInfo->interfaceLength == 0 ) || \
-				  ( connectInfo->interface != NULL && \
-					isShortIntegerRangeNZ( connectInfo->interfaceLength ) ) ) && \
-				connectInfo->networkSocket == CRYPT_ERROR ) );
-	REQUIRES( ( connectInfo->options != NET_OPTION_NETWORKSOCKET && \
-				connectInfo->options != NET_OPTION_NETWORKSOCKET_DUMMY ) || 
-			  ( ( connectInfo->options == NET_OPTION_NETWORKSOCKET || \
-				  connectInfo->options == NET_OPTION_NETWORKSOCKET_DUMMY ) && \
-				connectInfo->interface == NULL && connectInfo->interfaceLength == 0 && \
-				connectInfo->networkSocket != CRYPT_ERROR ) );
-	REQUIRES( connectInfo->options != NET_OPTION_VIRTUAL ||	\
-			  ( connectInfo->options == NET_OPTION_VIRTUAL && \
-			    connectInfo->name == NULL && connectInfo->nameLength == 0 && \
-				connectInfo->networkSocket == CRYPT_ERROR && \
-				FNPTR_ISSET( connectInfo->virtualGetDataFunction ) && \
-				FNPTR_ISSET( connectInfo->virtualPutDataFunction ) && 
-				FNPTR_ISSET( connectInfo->virtualGetErrorInfoFunction ) && \
-				DATAPTR_ISSET( connectInfo->virtualStateInfo ) ) );
-	REQUIRES( connectInfo->iUserObject == DEFAULTUSER_OBJECT_HANDLE || \
-			  isHandleRangeValid( connectInfo->iUserObject ) );
-	REQUIRES( connectInfo->name == NULL && connectInfo->nameLength == 0 );
+	REQUIRES( sanityCheckConnectOptions( connectInfo, TRUE ) );
 
 	/* Clear the return values */
 	clearErrorInfo( errorInfo );
 
 	/* Initialise the network stream info */
-	status = initStream( stream, &netStream, protocol, connectInfo, TRUE );
+	status = initStream( stream, &netStreamTemplate, protocol, connectInfo, 
+						 TRUE );
 	if( cryptStatusError( status ) )
 		return( status );
 	if( connectInfo->options == NET_OPTION_HOSTNAME && \
 		connectInfo->interface != NULL )
 		urlInfoPtr = &urlInfo;
-	status = processConnectOptions( stream, &netStream, urlInfoPtr, 
+	status = processConnectOptions( stream, &netStreamTemplate, urlInfoPtr, 
 									connectInfo, errorInfo );
 	if( cryptStatusError( status ) )
 		return( status );
 
 	/* Set up access mechanisms and complete the connection */
-	status = completeConnect( stream, &netStream, connectInfo, urlInfoPtr, 
-							  protocol, NULL, 0, errorInfo );
+	status = completeConnect( stream, &netStreamTemplate, connectInfo, 
+							  urlInfoPtr, protocol, NULL, 0, errorInfo );
 	if( cryptStatusError( status ) )
 		return( status );
 
-	ENSURES( sanityCheckNetStream( &netStream ) );
+	/* The net stream has now been attached to the stream, make sure that 
+	   it's correct */
+	netStream = DATAPTR_GET( stream->netStream );
+	ENSURES( netStream != NULL && sanityCheckNetStream( netStream ) );
 
 	return( CRYPT_OK );
 	}

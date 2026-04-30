@@ -377,7 +377,7 @@ static int selfTest( void )
 #else
 	/* Emulation of what the above code would do */
 	pkcInfo->rsaParam_n.d[ 8 ] ^= 0x0100;
-	status = checksumContextData( pkcInfo, CRYPT_ALGO_RSA, TRUE );
+	status = checksumContextData( pkcInfo, TRUE );
 	if( !cryptStatusError( status ) )
 		{
 		staticDestroyContext( &contextInfo );
@@ -438,6 +438,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 						 &pkcInfo->rsaParam_mont_n ) );
 	if( bnStatusError( bnStatus ) )
 		return( getBnStatus( bnStatus ) );
+	REQUIRES( !checkOverflowSub( length, BN_num_bytes( data ) ) );
 	offset = length - BN_num_bytes( data );
 	ENSURES( offset >= 0 && offset <= length );
 	if( offset > 0 )
@@ -449,6 +450,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		REQUIRES( rangeCheck( offset, 1, 16 ) );
 		memset( buffer, 0, offset );
 		}
+	REQUIRES( !checkOverflowSub( noBytes, offset ) );
 	status = exportBignum( buffer + offset, noBytes - offset, &dummy, data );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -676,6 +678,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   result but the bignum code performs leading-zero truncation, we have 
 	   to adjust where we copy the result to in the buffer to take into 
 	   account extra zero bytes that aren't extracted from the bignum */
+	REQUIRES( !checkOverflowSub( length, BN_num_bytes( data ) ) );
 	offset = length - BN_num_bytes( data );
 	ENSURES( offset >= 0 && offset <= length );
 	if( offset > 0 )
@@ -687,6 +690,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		REQUIRES( rangeCheck( offset, 1, 16 ) );
 		memset( buffer, 0, offset );
 		}
+	REQUIRES( !checkOverflowSub( noBytes, offset ) );
 	status = exportBignum( buffer + offset, noBytes - offset, &dummy, data );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -730,7 +734,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		if( rsaKey->isPublicKey )
 			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPUBLICKEY );
 		else
-			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPRIVATEKEY );
+			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		status = importBignum( &pkcInfo->rsaParam_n, rsaKey->n, 
 							   bitsToBytes( rsaKey->nLen ), 
 							   RSAPARAM_MIN_N, RSAPARAM_MAX_N, NULL, 

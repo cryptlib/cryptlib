@@ -22,7 +22,7 @@
 /* DN string functions */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4, 5 ) ) \
-int getAsn1StringInfo( IN_BUFFER( stringLen ) const void *string, 
+int getASN1StringInfo( IN_BUFFER( stringLen ) const void *string, 
 					   IN_LENGTH_SHORT const int stringLen,
 					   OUT_RANGE( 0, 20 ) int *stringType, 
 					   OUT_TAG_ENCODED_Z int *asn1StringType,
@@ -895,7 +895,7 @@ int textToOID( IN_BUFFER( textOidLength ) const char *textOID,
    the string type based on the characters being used */
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
-BOOLEAN isValidASN1TextString( IN_BUFFER( stringLen ) const char *string, 
+BOOLEAN isASN1ValidTextString( IN_BUFFER( stringLen ) const char *string, 
 							   IN_LENGTH_SHORT const int stringLen,
 							   IN_BOOL const BOOLEAN isPrintableString );
 

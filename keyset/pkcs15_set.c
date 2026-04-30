@@ -433,11 +433,10 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 						   label, labelLength, KEYMGMT_FLAG_NONE, 
 						   FALSE ) != NULL )
 				{
-				retExt( CRYPT_ERROR_DUPLICATE, 
-						( CRYPT_ERROR_DUPLICATE, KEYSET_ERRINFO, 
-						  "Item with label '%s' is already present",
-						  sanitiseString( label, CRYPT_MAX_TEXTSIZE, 
-										  labelLength ) ) );
+				retExtSan( CRYPT_ERROR_DUPLICATE, 
+						   ( CRYPT_ERROR_DUPLICATE, KEYSET_ERRINFO, 
+							 "Item with label '%s' is already present",
+							 label, labelLength, NULL, 0, NULL, 0 ) );
 				}
 			}
 		else

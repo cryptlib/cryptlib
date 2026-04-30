@@ -293,7 +293,8 @@ static int importCertificate( const PKCS12_OBJECT_INFO *certObjectInfo,
 			  isHandleRangeValid( cryptOwner ) );
 	REQUIRES( passwordLen >= MIN_NAME_LENGTH && \
 			  passwordLen <= CRYPT_MAX_TEXTSIZE );
-	REQUIRES( isShortIntegerRangeMin( certObjectDataLen, MIN_OBJECT_SIZE ) );
+	REQUIRES( isShortIntegerRangeMin( certObjectDataLen, 
+									  MIN_P12_OBJECT_SIZE ) );
 
 	/* Clear return value */
 	*iDataCert = CRYPT_ERROR;
@@ -331,6 +332,7 @@ static int importCertificate( const PKCS12_OBJECT_INFO *certObjectInfo,
 											certObjectDataLen, 
 											&certDataSize );
 	if( cryptStatusError( status ) || \
+		checkOverflowSub( certObjectDataLen, CRYPT_MAX_IVSIZE ) || \
 		certDataSize < certObjectDataLen - CRYPT_MAX_IVSIZE )
 		{
 		int sequenceLength;
@@ -338,13 +340,13 @@ static int importCertificate( const PKCS12_OBJECT_INFO *certObjectInfo,
 		sMemConnect( &stream, certObjectData, certObjectDataLen );
 		status = readSequence( &stream, &sequenceLength );
 		if( cryptStatusOK( status ) && \
-			( sequenceLength < MIN_OBJECT_SIZE || \
+			( sequenceLength < MIN_P12_OBJECT_SIZE || \
 			  sequenceLength > certObjectDataLen ) )
 			status = CRYPT_ERROR_BADDATA;
 		if( cryptStatusOK( status ) )
 			status = readSequence( &stream, &sequenceLength );
 		if( cryptStatusOK( status ) && \
-			( sequenceLength < MIN_OBJECT_SIZE || \
+			( sequenceLength < MIN_P12_OBJECT_SIZE || \
 			  sequenceLength > certObjectDataLen ) )
 			status = CRYPT_ERROR_BADDATA;
 		sMemDisconnect( &stream );
@@ -387,7 +389,7 @@ static int importCertificate( const PKCS12_OBJECT_INFO *certObjectInfo,
 											   READCMS_FLAG_DEFINITELENGTH );
 		}
 	if( cryptStatusOK( status ) && \
-		( length < MIN_OBJECT_SIZE || length > certObjectDataLen ) )
+		( length < MIN_P12_OBJECT_SIZE || length > certObjectDataLen ) )
 		status = CRYPT_ERROR_BADDATA;
 	if( cryptStatusError( status ) )
 		{
@@ -436,7 +438,8 @@ static int importPrivateKey( const PKCS12_OBJECT_INFO *keyObjectInfo,
 	REQUIRES( isHandleRangeValid( iPrivKeyContext ) );
 	REQUIRES( passwordLen >= MIN_NAME_LENGTH && \
 			  passwordLen <= CRYPT_MAX_TEXTSIZE );
-	REQUIRES( isShortIntegerRangeMin( keyObjectDataLen, MIN_OBJECT_SIZE ) );
+	REQUIRES( isShortIntegerRangeMin( keyObjectDataLen, 
+									  MIN_P12_OBJECT_SIZE ) );
 	REQUIRES( ( label == NULL && labelLength == 0 ) || \
 			  ( label != NULL && \
 				isShortIntegerRangeNZ( labelLength ) ) );
@@ -662,7 +665,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
 int pkcs12ReadKeyset( INOUT_PTR STREAM *stream, 
 					  OUT_ARRAY( maxNoPkcs12objects ) PKCS12_INFO *pkcs12info, 
 					  IN_LENGTH_SHORT const int maxNoPkcs12objects, 
-					  IN_LENGTH const long endPos,
+					  IN_LENGTH const int endPos,
 					  INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	int status, LOOP_ITERATOR;
@@ -685,7 +688,7 @@ int pkcs12ReadKeyset( INOUT_PTR STREAM *stream,
 	   at which we can find more than one of an object */
 	LOOP_MED_INITCHECK( status = CRYPT_OK, 
 						cryptStatusOK( status ) && \
-							stell( stream ) < endPos - MIN_OBJECT_SIZE )
+							stell( stream ) < endPos - MIN_P12_OBJECT_SIZE )
 		{
 		long payloadLength;
 		int tag, length, innerEndPos = CRYPT_ERROR, isEncrypted, noEOCs = 0;
@@ -756,6 +759,7 @@ int pkcs12ReadKeyset( INOUT_PTR STREAM *stream,
 		   may or may not be of the same type */
 		if( length != CRYPT_UNUSED )
 			{
+			REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 			innerEndPos = stell( stream ) + length;
 			ENSURES( isIntegerRangeMin( innerEndPos, length ) );
 			}
@@ -772,6 +776,8 @@ int pkcs12ReadKeyset( INOUT_PTR STREAM *stream,
 				}
 			if( length == CRYPT_UNUSED && innerLength != CRYPT_UNUSED )
 				{
+				REQUIRES( !checkOverflowAdd( stell( stream ), 
+											 innerLength ) );
 				innerEndPos = stell( stream ) + innerLength;
 				ENSURES( isIntegerRangeMin( innerEndPos, innerLength ) );
 				}
@@ -792,6 +798,7 @@ int pkcs12ReadKeyset( INOUT_PTR STREAM *stream,
 				pkcs12Free( pkcs12info, maxNoPkcs12objects );
 				return( status );
 				}
+			REQUIRES( !checkOverflowAdd( stell( stream ), innerLength ) );
 			innerEndPos = stell( stream ) + innerLength;
 			REQUIRES( isIntegerRangeMin( innerEndPos, innerLength ) );
 

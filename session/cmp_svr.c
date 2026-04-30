@@ -103,38 +103,39 @@ int initServerAuthentMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		const ATTRIBUTE_LIST *userNamePtr = \
 					findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME );
-		char userID[ CRYPT_MAX_TEXTSIZE + 8 ];
-		int userIDlen;
+
+		protocolInfo->pkiFailInfo = CMPFAILINFO_SIGNERNOTTRUSTED;
 
 		REQUIRES( userNamePtr != NULL );
 		if( TEST_FLAG( userNamePtr->flags, ATTR_FLAG_ENCODEDVALUE ) )
 			{
-			userIDlen = min( userNamePtr->valueLength, CRYPT_MAX_TEXTSIZE );
+			char userID[ CRYPT_MAX_TEXTSIZE + 8 ];
+			const int userIDlen = min( userNamePtr->valueLength, \
+									   CRYPT_MAX_TEXTSIZE );
+
 			REQUIRES( rangeCheck( userIDlen, 1, CRYPT_MAX_TEXTSIZE ) );
 			memcpy( userID, userNamePtr->value, userIDlen );
+			retExtObj( status, 
+					   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
+						 "Couldn't find PKI user information for %s",
+						 sanitiseString( userID, CRYPT_MAX_TEXTSIZE, 
+										 userNamePtr->valueLength ) ) );
 			}
-		else
-			{
-			/* The ID isn't a cryptlib user ID but a certificate ID used for 
-			   a cr rather than the user ID for an ir or rr (see the comment 
-			   at the start of initServerAuthentSign() for details), we have 
-			   to use a placeholder string since it's meaningless binary 
-			   data.  We can't try and map this to a user ID since we've just 
-			   failed to find the PKI user object that would contain it.
+
+		/* The ID isn't a cryptlib user ID but a certificate ID used for a 
+		   cr rather than the user ID for an ir or rr (see the comment at 
+		   the start of initServerAuthentSign() for details), we have to use 
+		   a placeholder string since it's meaningless binary data.  We 
+		   can't try and map this to a user ID since we've just failed to 
+		   find the PKI user object that would contain it.
 			   
-			   Alternatively, in less likely cases it could also be an 
-			   incorrect user ID that we couldn't recognise and record as a 
-			   cryptlib user ID, which we can't do much with either */
-			userIDlen = 18;
-			REQUIRES( rangeCheck( userIDlen, 1, CRYPT_MAX_TEXTSIZE ) );
-			memcpy( userID, "the requested user", userIDlen );
-			}
-		protocolInfo->pkiFailInfo = CMPFAILINFO_SIGNERNOTTRUSTED;
+		   Alternatively, in less likely cases it could also be an incorrect 
+		   user ID that we couldn't recognise and record as a cryptlib user 
+		   ID, which we can't do much with either */
 		retExtObj( status, 
 				   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
-					 "Couldn't find PKI user information for %s",
-					 sanitiseString( userID, CRYPT_MAX_TEXTSIZE, 
-									 userIDlen ) ) );
+					 "Couldn't find PKI user information for the requested "
+					 "user" ) );
 		}
 	cmpInfo->userInfo = getkeyInfo.cryptHandle;
 	protocolInfo->userIDchanged = FALSE;

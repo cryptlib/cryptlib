@@ -435,6 +435,7 @@ static int readGeneralInfoAttribute( INOUT_PTR STREAM *stream,
 		status = readSequence( stream, &length );	/* ESSCertID */
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 		endPos = stell( stream ) + length;
 		ENSURES( isIntegerRangeMin( endPos, length ) );
 		status = readOctetString( stream, certID, &certIDsize, 
@@ -476,6 +477,7 @@ static int readGeneralInfoAttribute( INOUT_PTR STREAM *stream,
 		status = readSequence( stream, &length );	/* ESSCertIDv2 */
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 		endPos = stell( stream ) + length;
 		ENSURES( isIntegerRangeMin( endPos, length ) );
 		status = readOctetString( stream, certIDv2, &certIDv2size, 32, 32 );
@@ -525,6 +527,7 @@ static int readGeneralInfo( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 	LOOP_MED_WHILE( stell( stream ) < endPos )
@@ -644,6 +647,7 @@ static int readMessageTime( INOUT_PTR STREAM *stream,
 		   hours, treat it as an error.  At this point we don't know the
 		   message type yet so we can't report any information about the
 		   message type in the error text */
+		REQUIRES( !checkOverflowDiv( delta, 60 * 60 ) );
 		delta /= 60 * 60;	/* Difference in hours */
 		if( delta > 24 * 3 )
 			{
@@ -865,6 +869,7 @@ static int readPkiHeader( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 	readShortInteger( stream, NULL );		/* Version */
@@ -1148,6 +1153,7 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		protPartStart = stell( &stream );
 		REQUIRES( isIntegerRangeNZ( protPartStart ) );
+		REQUIRES( !checkOverflowAdd( protPartStart, length ) );
 		endPos = protPartStart + length;
 		REQUIRES( isIntegerRangeMin( endPos, length ) );
 		status = readPkiHeader( &stream, protocolInfo, SESSION_ERRINFO,

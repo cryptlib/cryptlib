@@ -331,7 +331,7 @@ static int generateDLPPublicValues( INOUT_PTR PKC_INFO *pkcInfo,
 #if CRYPT_MAX_PKCSIZE >= bytesToBits( 3072 )
 	ENSURES( getDLPexpSize( 3072 ) == 270 );
 #endif /* CRYPT_MAX_PKCSIZE bits >= 3072 */
-#if CRYPT_MAX_PKCSIZE >= bytesToBits( 512 )
+#if CRYPT_MAX_PKCSIZE >= bytesToBits( 4096 )
 	ENSURES( getDLPexpSize( 4096 ) == 305 );
 #endif /* CRYPT_MAX_PKCSIZE bits >= 4096 */
 
@@ -339,10 +339,12 @@ static int generateDLPPublicValues( INOUT_PTR PKC_INFO *pkcInfo,
 	   factors.  For the range checks below, the minimum value for
 	   factorBits is 860, the minimum value for nFactors is 5 when
 	   MIN_PKCSIZE is 1024 */
+	REQUIRES( !checkOverflowSub( pBits, safeExpSizeBits ) );
 	factorBits = ( pBits - safeExpSizeBits ) - 1;
 	ENSURES( factorBits >= bytesToBits( MIN_PKCSIZE ) - \
 							( MIN_EXPONENT_SIZE_BITS + 1 ) && \
 			 factorBits <= bytesToBits( CRYPT_MAX_PKCSIZE ) );
+	REQUIRES( !checkOverflowDiv( factorBits, safeExpSizeBits ) );
 	nFactors = nPrimes = ( factorBits / safeExpSizeBits ) + 1;
 	ENSURES( nFactors >= ( bytesToBits( MIN_PKCSIZE ) - MIN_EXPONENT_SIZE_BITS ) / \
 							MIN_EXPONENT_SIZE_BITS && \
@@ -350,6 +352,7 @@ static int generateDLPPublicValues( INOUT_PTR PKC_INFO *pkcInfo,
 	ENSURES( nPrimes > ( bytesToBits( MIN_PKCSIZE ) - MIN_EXPONENT_SIZE_BITS ) / \
 							MIN_EXPONENT_SIZE_BITS && \
 			 nPrimes <= MAX_NO_PRIMES );
+	REQUIRES( !checkOverflowDiv( factorBits, nFactors ) );
 	factorBits /= nFactors;
 
 	/* Generate a random prime q and multiply it by 2 to form the base for 
@@ -399,6 +402,7 @@ static int generateDLPPublicValues( INOUT_PTR PKC_INFO *pkcInfo,
 		   end.  Since initially nFactors == nPrimes, this is just the
 		   identity mapping { 0, 1, 2, 3, 4, ... } until we start adding
 		   more primes if we run out of permutations to test */
+		REQUIRES( !checkOverflowSub( nPrimes, 1 ) );
 		indices[ nFactors - 1 ] = nPrimes - 1;
 		LOOP_LARGE_REV_ALT( i = nFactors - 2, i >= 0, i-- )
 			{
@@ -414,6 +418,7 @@ static int generateDLPPublicValues( INOUT_PTR PKC_INFO *pkcInfo,
 			status = getBnStatus( bnStatus );
 			goto cleanup;
 			}
+		REQUIRES( !checkOverflowSub( nFactors, 2 ) );
 		indexMoved = nFactors - 2;
 
 		/* Test all possible new prime permutations until a prime is found or 
@@ -608,6 +613,7 @@ static int generateDLPPrivateValue( INOUT_PTR PKC_INFO *pkcInfo )
 		   closest possible fit within the range) */
 		xLen = BN_num_bits( x );
 		REQUIRES( xLen > 0 && xLen <= qBits );
+		REQUIRES( !checkOverflowSub( qBits, 5 ) );
 		if( xLen < qBits - 5 )
 			status = generateBignum( x, qBits - 1, 0xC0, 0 );
 		}
@@ -1054,8 +1060,7 @@ int generateDLPkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	/* Checksum the bignums to try and detect fault attacks.  Since we're
 	   setting the checksum at this point there's no need to check the 
 	   return value */
-	( void ) checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo, 
-								  TRUE );
+	( void ) checksumContextData( pkcInfo, TRUE );
 
 	/* Make sure that the generated values are valid */
 	status = checkDLPDomainParameters( pkcInfo, FALSE, TRUE );
@@ -1068,8 +1073,7 @@ int generateDLPkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Make sure that what we generated is still valid */
 	if( cryptStatusError( \
-			checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo, 
-								 TRUE ) ) )
+			checksumContextData( pkcInfo, TRUE ) ) )
 		{
 		DEBUG_DIAG(( "Generated DLP key memory corruption detected" ));
 		return( CRYPT_ERROR_FAILED );
@@ -1292,7 +1296,7 @@ int initCheckDLPkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   to be because the bignum values are read by the calling code from 
 	   their stored form a second time and compared to the values that we're 
 	   checksumming here */
-	( void ) checksumContextData( pkcInfo, capabilityInfoPtr->cryptAlgo, 
+	( void ) checksumContextData( pkcInfo, 
 								  ( isPrivateKey || generatedX ) ? \
 									TRUE : FALSE );
 

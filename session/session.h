@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Secure Session Routines Header File					*
-*						 Copyright Peter Gutmann 1998-2020					*
+*						 Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -66,6 +66,10 @@
 	FLAG_ISSECURE_WRITE: for secure data transport sessions.  In other
 			words the session has passed the initial handshake stage and all 
 			data is now being encrypted/MACd/whatever.
+
+	FLAG_MULTIPLEKEYS: Multiple keys are allowed for the server.  This is 
+			used with TLS SNI where the client can select different virtual
+			servers based on its SNI.
 
 	FLAG_NETSESSIONOPEN: The network-level connection has been established,
 			even if the overall session itself hasn't been.  This is used
@@ -155,9 +159,9 @@
 #define SESSION_NEEDS_USERID		0x0001	/* Must have userID */
 #define SESSION_NEEDS_PASSWORD		0x0002	/* Must have password */
 #define SESSION_NEEDS_PRIVATEKEY	0x0004	/* Must have private key */
-#define SESSION_NEEDS_PRIVKEYCRYPT	0x0008	/* Priv.key must have certificate */
+#define SESSION_NEEDS_PRIVKEYCRYPT	0x0008	/* Priv.key must have crypt capabil.*/
 #define SESSION_NEEDS_PRIVKEYSIGN	0x0010	/* Priv.key must have sig.capabil.*/
-#define SESSION_NEEDS_PRIVKEYCERT	0x0020	/* Priv.key must have crypt capabil.*/
+#define SESSION_NEEDS_PRIVKEYCERT	0x0020	/* Priv.key must have certificate */
 #define SESSION_NEEDS_PRIVKEYCACERT	0x0040	/* Priv key must have CA certificate */
 #define SESSION_NEEDS_KEYORPASSWORD	( 0x0080 | SESSION_NEEDS_PASSWORD | \
 									  SESSION_NEEDS_PRIVATEKEY )
@@ -313,6 +317,7 @@ typedef struct {
    channel is clear */
 
 #define SSH_MAX_RESPONSESIZE	16		/* 2 * channelNo + 2 * param */
+#define SSH_PACKET_TRACE_LENGTH	( 4 + 4 )	/* Session ssh.h */
 
 typedef struct {
 	int type;							/* Response type */
@@ -372,6 +377,20 @@ typedef struct {
 	BYTE readCTR[ CRYPT_MAX_IVSIZE + 8 ], writeCTR[ CRYPT_MAX_IVSIZE + 8 ];
 #endif /* USE_CTR */
 
+	/* A trace of the handshake packets that we've seen, used to detect 
+	   anomalies in the handshake process.  This is necessitated by the fact 
+	   that SSH doesn't use a transcript hash which means that, in 
+	   combination with insecure encryption modes like some of the homebrew 
+	   OpenSSH ones, an attacker can undetectably inject and remove 
+	   packets.
+	   
+	   This information should be in the ephemeral SSH_HANDSHAKE_INFO but
+	   that's not available to the packet-read code which doesn't know
+	   about the higher-level protocol details */
+	BUFFER( SSH_PACKET_TRACE_LENGTH, packetTraceLength ) \
+	BYTE packetTrace[ SSH_PACKET_TRACE_LENGTH + 8 ];
+	int packetTraceLength;
+
 	/* The SSH spec allows authentication to be performed in lots of little 
 	   bits and pieces, which give an attacker lots of leeway to fiddle with
 	   the credentials being submitted on different passes of the 
@@ -380,9 +399,14 @@ typedef struct {
 	   authentication is being used remains constant over different 
 	   iterations of authentication, as well as tracking transitions from
 	   the previous authentication type to the current authentication type
-	   (e.g. query -> password auth) to make sure they're valid.  This
-	   unfortunately means potentially recording a pile of server-side 
-	   authentication state for each session */
+	   (e.g. query -> password auth) to make sure they're valid.
+	   
+	   This unfortunately means that we have to keep the information in the 
+	   overall session state rather than with the ephemeral handshake 
+	   information even though it's only used during the handshake, because 
+	   we can end up falling back to the caller to let them decide whether 
+	   to continue which doesn't preserve the ephemeral information between
+	   calls */
 	BUFFER_FIXED( KEYID_SIZE ) \
 	BYTE prevAuthUserNameHash[ KEYID_SIZE + 8 ];	/* Hashed userID */
 	/* SSH_AUTHTYPE_TYPE */ int prevAuthType;/* Authentication method */
@@ -397,7 +421,7 @@ typedef struct {
 	/* The message imprint (hash) algorithm and hash value */
 	CRYPT_ALGO_TYPE imprintAlgo;
 	BUFFER( CRYPT_MAX_HASHSIZE, imprintSize ) \
-	BYTE imprint[ CRYPT_MAX_HASHSIZE ];
+	BYTE imprint[ CRYPT_MAX_HASHSIZE + 8 ];
 	int imprintSize;
 	} TSP_INFO;
 #endif /* USE_TSP */
@@ -958,7 +982,7 @@ int processInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								IN_DATALENGTH const int bufSize,
 								OUT_DATALENGTH_Z int *bufEnd );
 #else
-#define setSubprotocolWebsockets( sessionInfoPtr )	CRYPT_ERROR_NOTAVAIL
+#define setSubprotocolWebSockets( sessionInfoPtr )	CRYPT_ERROR_NOTAVAIL
 #endif /* USE_WEBSOCKETS */
 #ifdef USE_EAP
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -977,9 +1001,9 @@ int setSubprotocolEAP( INOUT_PTR SESSION_INFO *sessionInfoPtr );
   CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
   BOOLEAN sanityCheckSessionWrite( const SESSION_INFO *sessionInfoPtr );
 #else
-  #define sanityCheckSession( x )
-  #define sanityCheckSessionRead( x )
-  #define sanityCheckSessionWrite( x )
+  #define sanityCheckSession( x )			TRUE
+  #define sanityCheckSessionRead( x )		TRUE
+  #define sanityCheckSessionWrite( x )		TRUE
 #endif /* CONFIG_CONSERVE_MEMORY_EXTRA */
 
 /* Prototypes for session mapping functions */

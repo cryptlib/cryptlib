@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Public Key Read Routines						*
-*						Copyright Peter Gutmann 1992-2024					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -348,7 +348,7 @@ static int readEccSubjectPublicKey( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 static int read25519SubjectPublicKey( INOUT_PTR STREAM *stream, 
@@ -430,7 +430,7 @@ static int read25519SubjectPublicKey( INOUT_PTR STREAM *stream,
 
 	return( CRYPT_OK );
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 #endif /* USE_INT_ASN1 */
 
 /****************************************************************************
@@ -455,8 +455,8 @@ static int read25519SubjectPublicKey( INOUT_PTR STREAM *stream,
    ECDSA:
 
 	string		[ server key/certificate ]
-		string	"ecdsa-sha2-*"
-		string	"*"				-- The "*" portion from the above field
+		string	"ecdsa-sha2-nistpXXX"	-- Algorithm
+		string	"nistpXXX"				-- Curve
 		string	Q 
 
    Ed25519:		
@@ -566,7 +566,12 @@ static int readSshDlpPublicKey( INOUT_PTR STREAM *stream,
 										  &dsaKey->dlpParam_p,
 										  BIGNUM_CHECK_VALUE );
 			}
-		return( status );
+		if( cryptStatusError( status ) )
+			return( status );
+
+		ENSURES( sanityCheckPKCInfo( dsaKey ) );
+
+		return( CRYPT_OK );
 		}
 
 	/* It's a standard DLP key, read the wrapper and make sure that it's 
@@ -648,16 +653,16 @@ static int readSshEccPublicKey( INOUT_PTR STREAM *stream,
 
 	/* Read the wrapper and make sure that it's OK.  The key parameter
 	   information is repeated twice, so for the overall wrapper we only
-	   check for the ECDH/ECDSA algorithm indication and get the parameter
-	   information from the second version, which contains only the
+	   check for the ECDSA algorithm indication and get the parameter
+	   information from the second version, which contains only the 
 	   parameter string */
 	readUint32( stream );
 	status = readString32( stream, buffer, CRYPT_MAX_TEXTSIZE, &length );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( length < 18 )		/* "ecdh-sha2-nistXXXX" */
+	if( length < 19 )		/* "ecdsa-sha2-nistXXXX" */
 		return( CRYPT_ERROR_BADDATA );
-	if( memcmp( buffer, "ecdsa-sha2-", 11 ) )
+	if( memcmp( buffer, "ecdsa-sha2-nist", 15 ) )
 		return( CRYPT_ERROR_BADDATA );
 
 	/* Read and process the parameter information.  At this point we know 
@@ -711,7 +716,7 @@ static int readSshEccPublicKey( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 static int readSsh25519PublicKey( INOUT_PTR STREAM *stream, 
@@ -759,7 +764,7 @@ static int readSsh25519PublicKey( INOUT_PTR STREAM *stream,
 
 	return( CRYPT_OK );
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 #endif /* USE_SSH */
 
 /****************************************************************************
@@ -787,6 +792,9 @@ static int readSsh25519PublicKey( INOUT_PTR STREAM *stream,
 		uint16		namedCurve
 	  [	uint8		ecPointLen	-- NB uint8 not uint16 ]
 	  [	byte[]		ecPoint ]
+
+	ML-KEM:
+		byte[]		pubKey
 
    The DH y value is nominally attached to the DH p and g values but isn't 
    processed at this level since this is a pure PKCS #3 DH key and not a 
@@ -928,6 +936,43 @@ static int readTlsEccPublicKey( INOUT_PTR STREAM *stream,
 	return( CRYPT_OK );
 	}
 #endif /* USE_ECDH */
+
+#ifdef USE_MLKEM
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
+static int readTlsPQCPublicKey( INOUT_PTR STREAM *stream, 
+								INOUT_PTR CONTEXT_INFO *contextInfoPtr,
+								IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
+								OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
+	{
+	PKC_INFO *pqcKey = contextInfoPtr->ctxPKC;
+	MLKEM_KEY_INFO *mlkemKey = pqcKey->mlkemKey;
+	int status;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+	assert( isWritePtr( actionFlags, sizeof( int ) ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_MLKEM );
+
+	/* Set the maximum permitted actions.  TLS keys are only used 
+	   internally so we restrict the usage to internal-only */
+	*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_ENCRYPT, \
+								   ACTION_PERM_NONE_EXTERNAL );
+
+	/* The TLS ML-KEM public key is concatenated together with a 25519 keyex
+	   value without any encapsulation so we just read the raw key data */
+	status = sread( stream, mlkemKey->pubKey, MLKEM768_PUBLICKEYBYTES );
+	if( cryptStatusError( status ) )
+		return( status );
+	mlkemKey->pubKeySize = MLKEM768_PUBLICKEYBYTES;
+
+	ENSURES( sanityCheckPKCInfo( pqcKey ) );
+
+	return( CRYPT_OK );
+	}
+#endif /* USE_MLKEM */
 #endif /* USE_TLS */
 
 /****************************************************************************
@@ -1071,10 +1116,10 @@ static int readPgpRsaPublicKey( INOUT_PTR STREAM *stream,
 			break;
 
 		case PGP_ALGO_RSA_SIGN:
-			*actionFlags |= MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, \
-											ACTION_PERM_NONE_EXTERNAL ) | \
-							MK_ACTION_PERM( MESSAGE_CTX_SIGN, \
-											ACTION_PERM_NONE_EXTERNAL );
+			*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, \
+										   ACTION_PERM_NONE_EXTERNAL ) | \
+						   MK_ACTION_PERM( MESSAGE_CTX_SIGN, \
+										   ACTION_PERM_NONE_EXTERNAL );
 			break;
 
 		default:
@@ -1358,18 +1403,29 @@ static int completePubkeyRead( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 #endif /* USE_ECDSA || USE_ECDH */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 			case CRYPT_ALGO_25519:
 			case CRYPT_ALGO_ED25519:
 				pkcInfo->keySizeBits = bytesToBits( 32 );
 				break;
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 
-				default:
-					retIntError();
+#if defined( USE_MLKEM )
+			case CRYPT_ALGO_MLKEM:
+				pkcInfo->keySizeBits = bytesToBits( MLKEM768_PUBLICKEYBYTES );
+				break;
+#endif /* USE_MLKEM */
+
+			default:
+				retIntError();
 			}
+#ifdef USE_MLKEM 
+		ENSURES( pkcInfo->keySizeBits >= bytesToBits( MIN_PKCSIZE_ECC ) && \
+				 pkcInfo->keySizeBits <= bytesToBits( MAX_PKCSIZE_PQC ) );
+#else
 		ENSURES( pkcInfo->keySizeBits >= bytesToBits( MIN_PKCSIZE_ECC ) && \
 				 pkcInfo->keySizeBits <= bytesToBits( CRYPT_MAX_PKCSIZE ) );
+#endif /* USE_MLKEM  */
 		}
 
 	/* If it's statically-initialised context data used in the self-test 
@@ -1563,7 +1619,7 @@ int readPublicKeyEccFunction( INOUT_PTR STREAM *stream,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readPublicKey25519Function( INOUT_PTR STREAM *stream, 
@@ -1608,7 +1664,46 @@ int readPublicKey25519Function( INOUT_PTR STREAM *stream,
 	return( completePubkeyRead( contextInfoPtr, cryptAlgo, 
 								actionFlags ) );
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
+
+#ifdef USE_MLKEM
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int readPublicKeyPQCFunction( INOUT_PTR STREAM *stream, 
+							  INOUT_PTR CONTEXT_INFO *contextInfoPtr,
+							  IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
+							  IN_ENUM( KEYFORMAT )  \
+									const KEYFORMAT_TYPE formatType,
+							  STDC_UNUSED const BOOLEAN checkRead )
+	{
+	int actionFlags, status;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
+
+	REQUIRES( sanityCheckContext( contextInfoPtr ) );
+	REQUIRES( cryptAlgo == CRYPT_ALGO_MLKEM );
+	REQUIRES( formatType == KEYFORMAT_TLS );
+	REQUIRES( checkRead == FALSE );
+
+	switch( formatType )
+		{
+#ifdef USE_TLS
+		case KEYFORMAT_TLS:
+			status = readTlsPQCPublicKey( stream, contextInfoPtr, 
+										  cryptAlgo, &actionFlags );
+			break;
+#endif /* USE_TLS */
+
+		default:
+			retIntError();
+		}
+	if( cryptStatusError( status ) )
+		return( status );
+	return( completePubkeyRead( contextInfoPtr, cryptAlgo, 
+								actionFlags ) );
+	}
+#endif /* USE_MLKEM */
 
 /****************************************************************************
 *																			*

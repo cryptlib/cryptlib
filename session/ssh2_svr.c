@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								cryptlib SSHv2 Server						*
-*						Copyright Peter Gutmann 1998-2019					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -114,26 +114,26 @@ static int initPubkeyAlgo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											ALGO_STRING_INFO );
 				break;
 
-			case bitsToBytes( 384 ):
-				handshakeInfo->algoStringPubkeyTbl = \
-										algoStringPubkeyECDSA384Tbl;
-				handshakeInfo->algoStringPubkeyTblNoEntries = \
-					FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSA384Tbl, \
-										ALGO_STRING_INFO );
-				break;
+				case bitsToBytes( 384 ):
+					handshakeInfo->algoStringPubkeyTbl = \
+											algoStringPubkeyECDSA384Tbl;
+					handshakeInfo->algoStringPubkeyTblNoEntries = \
+						FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSA384Tbl, \
+											ALGO_STRING_INFO );
+					break;
 
-			case bitsToBytes( 521 ):
-				handshakeInfo->algoStringPubkeyTbl = \
-										algoStringPubkeyECDSA521Tbl;
-				handshakeInfo->algoStringPubkeyTblNoEntries = \
-					FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSA521Tbl, \
-										ALGO_STRING_INFO );
-				break;
+				case bitsToBytes( 521 ):
+					handshakeInfo->algoStringPubkeyTbl = \
+											algoStringPubkeyECDSA521Tbl;
+					handshakeInfo->algoStringPubkeyTblNoEntries = \
+						FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSA521Tbl, \
+											ALGO_STRING_INFO );
+					break;
 
-			default:
-				retIntError();
-			}
-		return( CRYPT_OK );
+				default:
+					retIntError();
+				}
+			return( CRYPT_OK );
 #endif /* USE_ECDSA */
 
 #ifdef USE_ED25519
@@ -194,7 +194,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 	sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
-	streamBookmarkSet( &stream, keyexInfoLength );
+	streamBookmarkStreamStart( keyexInfoLength );
 	if( sessionInfoPtr->sessionSSH->packetType == SSH_MSG_KEX_DH_GEX_REQUEST )
 		{
 		int minKeySize, maxKeySize;
@@ -314,7 +314,9 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	   header from the start of the datab and then writing what's left to the 
 	   packet.  First we export the key data and figure out the location of
-	   the payload that we need to send */
+	   the payload that we need to send.  Note that this is our own data 
+	   that we're reading which means we use ENSURES() rather than the 
+	   standard error checks */
 	setMessageData( &msgData, keyData, ( CRYPT_MAX_PKCSIZE * 2 ) + 16 );
 	status = krnlSendMessage( handshakeInfo->iServerCryptContext, 
 							  IMESSAGE_GETATTRIBUTE_S, &msgData,
@@ -458,6 +460,7 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 	streamBookmarkSetFullPacket( &stream, serverHelloLength );
+	ENSURES( streamBookmarkOK( serverHelloLength ) );
 	status = exportVarsizeAttributeToStream( &stream, SYSTEM_OBJECT_HANDLE,
 											 CRYPT_IATTRIBUTE_RANDOM_NONCE,
 											 SSH2_COOKIE_SIZE );
@@ -535,11 +538,12 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   need to hash the data sitting in the receive buffer) */
 		skipGuessedKeyex = TRUE;
 		}
-	REQUIRES( rangeCheck( clientHelloLength, 1,
-						  sessionInfoPtr->receiveBufSize ) );
+	REQUIRES( boundsCheck( clientHelloLength, 1,
+						   sessionInfoPtr->receiveBufSize ) );
 	memmove( sessionInfoPtr->receiveBuffer + 1, 
 			 sessionInfoPtr->receiveBuffer, clientHelloLength );
 	sessionInfoPtr->receiveBuffer[ 0 ] = SSH_MSG_KEXINIT;
+	REQUIRES( !checkOverflowAdd( clientHelloLength, 1 ) );
 	status = hashAsString( handshakeInfo->iExchangeHashContext,
 						   sessionInfoPtr->receiveBuffer,
 						   clientHelloLength + 1 );
@@ -768,6 +772,7 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 	streamBookmarkSet( &stream, keyLength );
+	ENSURES( streamBookmarkOK( keyLength ) );
 	INJECT_FAULT( SESSION_WRONGCERT, SESSION_WRONGCERT_SSH_1 );
 	status = exportAttributeToStream( &stream, sessionInfoPtr->privateKey,
 									  CRYPT_IATTRIBUTE_KEY_SSH );
@@ -797,7 +802,7 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 		}
 	INJECT_FAULT( SESSION_CORRUPT_KEYEX_SERVER, 
-				  SESSION_CORRUPT_KEYEX_SERVER_SSH_1 );
+				  SESSION_CORRUPT_KEYEX_SERVER_SSH_2 );
 	CFI_CHECK_UPDATE( "SSH_MSG_KEXDH_REPLY" );
 
 	/* Complete phase 2 of the DH key agreement process to obtain the shared
@@ -864,7 +869,7 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											 "SSH_MSG_KEXDH_REPLY" ) );
 		}
 	INJECT_FAULT( BADSIG_SIG, SESSION_BADSIG_SIG_SSH_1 );
-	status = sSkip( &stream, sigLength, MAX_INTLENGTH_SHORT );
+	status = sExtend( &stream, sigLength, MAX_INTLENGTH_SHORT );
 	if( cryptStatusOK( status ) )
 		status = wrapPlaintextPacketSSH2( sessionInfoPtr, &stream, 0 );
 	if( cryptStatusError( status ) )
@@ -888,12 +893,12 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	CFI_CHECK_UPDATE( "initSecurityInfo" );
 
-	/* Build our change cipherspec message and send the whole mess through
-	   to the client:
+	/* Build our change cipherspec message and send the whole mess through 
+	   to the client unless it's being followed by extension information:
 		...
 		byte	type = SSH_MSG_NEWKEYS
 
-	   After this point the write channel is in the secure state, so we 
+	   After this point the write channel is in the secure state so we 
 	   switch from wrapPlaintextPacketSSH2() to wrapPacketSSH2() */
 	status = continuePacketStreamSSH( &stream, SSH_MSG_NEWKEYS, 
 									  &packetOffset );
@@ -902,8 +907,25 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = wrapPlaintextPacketSSH2( sessionInfoPtr, &stream, 
 										  packetOffset );
 		}
+	if( cryptStatusOK( status ) && !handshakeInfo->sendExtInfo )
+		status = sendPacketSSH2( sessionInfoPtr, &stream );
+	if( cryptStatusError( status ) )
+		{
+		sMemDisconnect( &stream );
+		return( status );
+		}
+	SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE );
+	if( TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_STRICT_KEX ) )
+		{
+		/* We're using strict KEX, we need to reset the write sequence 
+		   number as well */
+		sessionInfoPtr->sessionSSH->writeSeqNo = 0;
+		}
+
+	/* If we're sending extension information, append it to the handshake 
+	   packets and send everything to the client */
 #ifdef USE_SSH_EXTENDED
-	if( cryptStatusOK( status ) && handshakeInfo->sendExtInfo )
+	if( handshakeInfo->sendExtInfo )
 		{
 		/* If the client has indicated that it supports extension 
 		   information, send our extensions */
@@ -916,14 +938,16 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			status = wrapPacketSSH2( sessionInfoPtr, &stream, 
 									 packetOffset, FALSE );
 			}
+		if( cryptStatusOK( status ) )
+			status = sendPacketSSH2( sessionInfoPtr, &stream );
+		if( cryptStatusError( status ) )
+			{
+			sMemDisconnect( &stream );
+			return( status );
+			}
 		}
 #endif /* USE_SSH_EXTENDED */
-	if( cryptStatusOK( status ) )
-		status = sendPacketSSH2( sessionInfoPtr, &stream );
 	sMemDisconnect( &stream );
-	if( cryptStatusError( status ) )
-		return( status );
-	SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE );
 	CFI_CHECK_UPDATE( "SSH_MSG_NEWKEYS" );
 
 	ENSURES( CFI_CHECK_SEQUENCE_6( "IMESSAGE_CTX_ENCRYPT", "SSH_MSG_KEXDH_REPLY", 
@@ -970,6 +994,25 @@ static int completeServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( cryptStatusError( status ) )
 			return( status );
 		SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_READ );
+		if( TEST_FLAG( sessionInfoPtr->protocolFlags, 
+					   SSH_PFLAG_STRICT_KEX ) )
+			{
+			SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+
+			/* Make sure that we're compliant with the strict KEX 
+			   requirements */			
+			if( !checkStrictKEX( sshInfo->packetTrace,
+								 sshInfo->packetTraceLength, TRUE ) )
+				{
+				retExt( CRYPT_ERROR_INVALID,
+						( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
+						  "Strict KEX violation detected" ) );
+				}
+
+			/* We're using strict KEX, we need to reset the read sequence 
+			   number as well */
+			sessionInfoPtr->sessionSSH->readSeqNo = 0;
+			}
 
 		/* Wait for the client's pre-authentication packets, which aren't 
 		   used for any authentication but which are required anyway by the
@@ -986,8 +1029,8 @@ static int completeServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			byte	type = SSH_MSG_SERVICE_ACCEPT
 			string	service_name = "ssh-userauth" */
 		status = length = \
-			readHSPacketSSH2( sessionInfoPtr, SSH_MSG_SERVICE_REQUEST,
-							  ID_SIZE + sizeofString32( 8 ) );
+			readPostHSPacketSSH2( sessionInfoPtr, SSH_MSG_SERVICE_REQUEST,
+								  ID_SIZE + sizeofString32( 8 ) );
 		if( cryptStatusError( status ) )
 			return( status );
 		sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
@@ -1003,11 +1046,10 @@ static int completeServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( stringLength != 12 || \
 			memcmp( stringBuffer, "ssh-userauth", 12 ) )
 			{
-			retExt( CRYPT_ERROR_BADDATA,
-					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-					  "Invalid service request packet '%s'",
-					  sanitiseString( stringBuffer, CRYPT_MAX_TEXTSIZE, 
-									  stringLength ) ) );
+			retExtSan( CRYPT_ERROR_BADDATA,
+					   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+						 "Invalid service request packet '%s'",
+						 stringBuffer, stringLength, NULL, 0, NULL, 0 ) );
 			}
 		status = openPacketStreamSSH( &stream, sessionInfoPtr, 
 									  SSH_MSG_SERVICE_ACCEPT );
@@ -1031,9 +1073,9 @@ static int completeServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Handle the channel open */
 	status = length = \
-		readHSPacketSSH2( sessionInfoPtr, SSH_MSG_CHANNEL_OPEN,
-						  ID_SIZE + sizeofString32( 4 ) + \
-							UINT32_SIZE + UINT32_SIZE + UINT32_SIZE );
+		readPostHSPacketSSH2( sessionInfoPtr, SSH_MSG_CHANNEL_OPEN,
+							  ID_SIZE + sizeofString32( 4 ) + \
+								UINT32_SIZE + UINT32_SIZE + UINT32_SIZE );
 	if( cryptStatusError( status ) )
 		return( status );
 	sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );

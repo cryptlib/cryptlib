@@ -367,7 +367,7 @@ int setUserAttribute( INOUT_PTR USER_INFO *userInfoPtr,
 
 	assert( isWritePtr( userInfoPtr, sizeof( USER_INFO ) ) );
 
-	REQUIRES( ( attribute == CRYPT_IATTRUBUTE_CERTKEYSET && \
+	REQUIRES( ( attribute == CRYPT_IATTRIBUTE_CERTKEYSET && \
 				value == CRYPT_UNUSED ) || \
 			  isIntegerRange( value ) );
 	REQUIRES( isAttribute( attribute ) || \
@@ -468,7 +468,7 @@ int setUserAttribute( INOUT_PTR USER_INFO *userInfoPtr,
 			return( CRYPT_OK );
 
 #ifdef USE_CERTIFICATES
-		case CRYPT_IATTRUBUTE_CERTKEYSET:
+		case CRYPT_IATTRIBUTE_CERTKEYSET:
 			/* If it's a presence check, handle it specially */
 			if( value == CRYPT_UNUSED )
 				{

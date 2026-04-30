@@ -48,11 +48,12 @@
 static const BYTE canarySeed[ SAFEBUFFER_COOKIE_SIZE ] = { FIXED_SEED };
 #else
 static const BYTE canarySeed[ SAFEBUFFER_COOKIE_SIZE ] = \
-					{ 0xAA, 0x55, 0xAA, 0xFF, 0xAA, 0xFF, 0xAA, 0xFF };
+											{ SAFEBUFFER_COOKIE_DATA };
 #endif /* FIXED_SEED */
 
 STDC_NONNULL_ARG( ( 1 ) ) \
-static void makeCanary( OUT_BUFFER_FIXED( COOKIE_SIZE ) BYTE *canary,
+static void makeCanary( OUT_BUFFER_FIXED( SAFEBUFFER_COOKIE_SIZE ) \
+							BYTE *canary,
 						const void *address )
 	{
 	uintptr_t addressValue = ( uintptr_t ) address;
@@ -122,6 +123,7 @@ void *safeBufferAlloc( IN_DATALENGTH const int bufSize )
 	   the overflow amount, which means that when we perform the cookie 
 	   check on { buffer, bufSize } there's additional overflow space 
 	   between the purported end of the buffer and the cookie */
+	REQUIRES_N( !checkOverflowAdd( SAFEBUFFER_SIZE( bufSize ), 8 ) );
 	bufPtr = clAlloc( "safeBufferAlloc", SAFEBUFFER_SIZE( bufSize ) + 8 );
 	if( bufPtr == NULL )
 		return( NULL );
@@ -135,12 +137,15 @@ void safeBufferFree( const void *buffer )
 	void *startCookiePtr = ( ( BYTE * ) buffer ) - SAFEBUFFER_COOKIE_SIZE;
 	BYTE cookie[ SAFEBUFFER_COOKIE_SIZE + 16 ];
 
+	assert( isWritePtr( buffer, SAFEBUFFER_COOKIE_SIZE ) );
+
 	/* We can't check the overall buffer state since we don't know its size
 	   in order to locate the end cookie, but we can check at least the 
 	   start cookie for validity */
 	makeCanary( cookie, startCookiePtr );
 	if( memcmp( cookie, startCookiePtr, SAFEBUFFER_COOKIE_SIZE ) )
 		{
+		/* BUffer corrupted, don't try and free it */
 		assert( DEBUG_WARN );
 		return;
 		}
@@ -160,7 +165,7 @@ BOOLEAN safeBufferCheck( IN_BUFFER( bufSize ) const void *buffer,
 
 	/* Check that the cookies haven't been disturbed.  We don't DEBUG_WARN on
 	   these because they're used in the self-test, relying on actual checks 
-	   being wrapped in REQUIRES()/ENSURES() */
+	   being wrapped in REQUIRES_B()/ENSURES_B() */
 	makeCanary( cookie, startCookiePtr );
 	if( memcmp( cookie, startCookiePtr, SAFEBUFFER_COOKIE_SIZE ) )
 		return( FALSE );
@@ -378,11 +383,13 @@ void *getMemPool( INOUT_PTR void *statePtr, IN_LENGTH_SHORT const int size )
 	assert( isWritePtrDynamic( state->storage, state->storageSize ) );
 
 	REQUIRES_N( isShortIntegerRangeNZ( size ) );
+	REQUIRES_N( !checkOverflowRoundup( size, sizeof( int ) ) );
 	REQUIRES_N( isShortIntegerRangeMin( allocSize, sizeof( int ) ) );
 	REQUIRES_N( sanityCheckMempool( state ) );
 
 	/* If we can't satisfy the request from the memory pool we have to
 	   allocate the memory block dynamically */
+	REQUIRES_N( !checkOverflowAdd( state->storagePos, allocSize ) );
 	if( state->storagePos + allocSize > state->storageSize )
 		{
 		REQUIRES_N( isShortIntegerRangeNZ( size ) );
@@ -401,6 +408,7 @@ void *getMemPool( INOUT_PTR void *statePtr, IN_LENGTH_SHORT const int size )
 				|			|
 			storagePos	storagePos' */
 	allocPtr = ( BYTE * ) state->storage + state->storagePos;
+	REQUIRES_N( !checkOverflowAdd( state->storagePos, allocSize ) );
 	state->storagePos += allocSize;
 	ENSURES_N( sanityCheckMempool( state ) );
 
@@ -461,7 +469,7 @@ static int wcPrintf( FORMAT_STRING const char *format, ... )
 	va_start( argPtr, format );
 	length = vsprintf_s( buffer, 1024, format, argPtr );
 	va_end( argPtr );
-	if( !rangeCheck( length, 1, 1024 ) )
+	if( !rangeCheck( length, 1, 1023 ) )
 		return( length );
 	mbstowcs( wcBuffer, buffer, length + 1 );
 	NKDbgPrintfW( wcBuffer );

@@ -728,6 +728,7 @@ void BN_CTX_start( INOUT_PTR BN_CTX *bnCTX )
 	REQUIRES_V( sanityCheckBNCTX( bnCTX ) );
 
 	/* Advance one stack frame */
+	REQUIRES_V( !checkOverflowInc( bnCTX->stackPos ) );
 	bnCTX->stackPos++;
 	bnCTX->stack[ bnCTX->stackPos ] = bnCTX->stack[ bnCTX->stackPos - 1 ];
 
@@ -776,6 +777,7 @@ void BN_CTX_end( INOUT_PTR BN_CTX *bnCTX )
 
 	/* Unwind the stack by one frame */
 	bnCTX->stack[ bnCTX->stackPos ] = 0;
+	REQUIRES_V( !checkOverflowDec( bnCTX->stackPos ) );
 	bnCTX->stackPos--;
 
 	ENSURES_V( sanityCheckBNCTX( bnCTX ) );
@@ -1174,13 +1176,13 @@ BOOLEAN BN_from_montgomery( INOUT_PTR BIGNUM *ret,
 	if( bn_sub_words( ret->d, aData + nLen, N->d, nLen ) - carry != 0 )
 		{
 		/* There was a borrow, perform the actual copy */
-		REQUIRES( isShortIntegerRangeNZ( bnWordsToBytes( nLen ) ) );
+		REQUIRES_B( isShortIntegerRangeNZ( bnWordsToBytes( nLen ) ) );
 		memcpy( ret->d, aData + nLen, bnWordsToBytes( nLen ) );
 		}
 	else
 		{
 		/* Perform a dummy copy that takes the same time as the real one */
-		REQUIRES( isShortIntegerRangeNZ( bnWordsToBytes( nLen ) ) );
+		REQUIRES_B( isShortIntegerRangeNZ( bnWordsToBytes( nLen ) ) );
 		memcpy( aData, aData + nLen, bnWordsToBytes( nLen ) );
 		}
 	CK( BN_clear_top( ret, oldTop ) );

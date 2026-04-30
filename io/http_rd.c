@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  cryptlib HTTP Read Routines						*
-*						Copyright Peter Gutmann 1998-2017					*
+*						Copyright Peter Gutmann 1998-2024					*
 *																			*
 ****************************************************************************/
 
@@ -18,6 +18,25 @@
 #endif /* Compiler-specific includes */
 
 #ifdef USE_HTTP
+
+/* Define the following to allow retries on soft-fails, which try to clear 
+   the input stream after a problem reading the HTTP header in order to 
+   continue.  In theory this allows us to skip minor problems like a 
+   misconfigured or broken peer sending us a problematic header line, 
+   without immediately closing the connection, but like a comiler trying
+   to recover from an error it can end up producing more errors, and also
+   leave us in a problematic state, so we disable it by default */
+
+/* #define USE_SOFTERROR_RECOVERY */
+
+/* The maximum amount of HTTP-transported data that we'll read.  
+   Unfortunately since CRLs can reach > 100MB in size it's not really 
+   possible to provide any sensible limit on the length for dynamic-buffer 
+   reads, however to avoid DoS issues we limit it to 2MB until someone 
+   complains that they can't read the 150MB CRLs that their CA is issuing 
+   (yes, there are CAs that are issuing 150MB CRLs) */
+
+#define MAX_HTTP_DATASIZE	( 2 * 1024 * 1024 )
 
 /* HTTP request line parsing information */
 
@@ -63,6 +82,8 @@ static int readCharFunction( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr
 	return( cryptStatusError( status ) ? status : ch );
 	}
 
+#ifdef USE_SOFTERROR_RECOVERY
+
 /* Clear the HTTP input stream after a soft error has occurred so that 
    further HTTP transactions can be read */
 
@@ -95,6 +116,7 @@ static int clearInputStream( INOUT_PTR STREAM *stream,
 	
 	return( CRYPT_OK );
 	}
+#endif /* USE_SOFTERROR_RECOVERY */
 
 /****************************************************************************
 *																			*
@@ -143,7 +165,7 @@ static int readRequestHeader( INOUT_PTR STREAM *stream,
 
 	/* Read the header and check for "POST/GET x HTTP/1.x".  In theory this
 	   could be a bit risky because the original CERN server required an
-	   extra (spurious) CRLF after a POST, so that various early clients sent
+	   extra (spurious) CRLF after a POST so that various early clients sent
 	   an extra CRLF that isn't included in the Content-Length header and
 	   ends up preceding the start of the next load of data.  We don't check
 	   for this because it only applies to very old pure-HTTP (rather than
@@ -158,9 +180,8 @@ static int readRequestHeader( INOUT_PTR STREAM *stream,
 		   HTTP-level error response */
 		if( status != CRYPT_ERROR_COMPLETE )
 			{
-			sendHTTPError( stream, lineBuffer, lineBufSize,
-						   ( status == CRYPT_ERROR_OVERFLOW ) ? \
-						   414 : 400 );
+			sendHTTPError( stream, 
+						   ( status == CRYPT_ERROR_OVERFLOW ) ? 414 : 400 );
 			}
 
 		return( retTextLineError( stream, status, isTextDataError, 
@@ -193,37 +214,36 @@ static int readRequestHeader( INOUT_PTR STREAM *stream,
 	ENSURES( i < FAILSAFE_ARRAYSIZE( httpReqInfo, HTTP_REQUEST_INFO ) );
 	if( reqType == STREAM_HTTPREQTYPE_NONE )
 		{
-		char reqNameBuffer[ 16 + 8 ];
+		sendHTTPError( stream, 501 );
 
 		/* Return the extended error information */
 		if( length <= 0 )
 			{
-			sendHTTPError( stream, lineBuffer, lineBufSize, 501 );
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
 					  "Invalid empty HTTP request" ) );
 			}
 		if( ( offset = strSkipNonWhitespace( lineBuffer, length ) ) > 0 )
 			length = offset;
-		memcpy( reqNameBuffer, lineBuffer, min( 16, length ) );
-		sendHTTPError( stream, lineBuffer, lineBufSize, 501 );
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
-				  "Invalid HTTP request '%s'",
-				  sanitiseString( reqNameBuffer, 16, length ) ) );
+		retExtSan( CRYPT_ERROR_BADDATA,
+				   ( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
+					 "Invalid HTTP request '%s'",
+					 lineBuffer, length, NULL, 0, NULL, 0 ) );
 		}
 	bufPtr = lineBuffer + reqNameLen;
+	REQUIRES( !checkOverflowSub( length, reqNameLen ) );
 	length -= reqNameLen;
 
 	/* Process the ' '* * ' '* and check for the HTTP ID */
 	if( length <= 0 || ( offset = strSkipWhitespace( bufPtr, length ) ) <= 0 )
 		{
-		sendHTTPError( stream, lineBuffer, lineBufSize, 400 );
+		sendHTTPError( stream, 400 );
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
 				  "Missing HTTP request URI" ) );
 		}
 	bufPtr += offset;
+	REQUIRES( !checkOverflowSub( length, offset ) );
 	length -= offset;
 	if( reqType == STREAM_HTTPREQTYPE_GET && \
 		!TEST_FLAG( netStream->nhFlags, STREAM_NHFLAG_WS_UPGRADE ) )
@@ -249,26 +269,28 @@ static int readRequestHeader( INOUT_PTR STREAM *stream,
 		}
 	if( cryptStatusError( status ) )
 		{
-		sendHTTPError( stream, lineBuffer, lineBufSize, 400 );
+		sendHTTPError( stream, 400 );
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
 				  "Invalid HTTP GET request URI" ) );
 		}
 	bufPtr += offset;
+	REQUIRES( !checkOverflowSub( length, offset ) );
 	length -= offset;
 	if( length <= 0 || ( offset = strSkipWhitespace( bufPtr, length ) ) < 0 )
 		{
-		sendHTTPError( stream, lineBuffer, lineBufSize, 400 );
+		sendHTTPError( stream, 400 );
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
 				  "Missing HTTP request ID/version" ) );
 		}
 	bufPtr += offset;
+	REQUIRES( !checkOverflowSub( length, offset ) );
 	length -= offset;
 	if( length <= 0 || \
 		cryptStatusError( checkHTTPID( bufPtr, length, stream ) ) )
 		{
-		sendHTTPError( stream, lineBuffer, lineBufSize, 505 );
+		sendHTTPError( stream, 505 );
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
 				  "Invalid HTTP request ID/version" ) );
@@ -287,6 +309,7 @@ static int readRequestHeader( INOUT_PTR STREAM *stream,
 							  &headerInfo, &isSoftError );
 	if( cryptStatusError( status ) )
 		{
+#ifdef USE_SOFTERROR_RECOVERY
 		/* If it's a soft error, clear the input stream of any remaining 
 		   header lines */
 		if( isSoftError )
@@ -298,16 +321,18 @@ static int readRequestHeader( INOUT_PTR STREAM *stream,
 			if( cryptStatusError( localStatus ) )
 				return( localStatus );
 			}
+#endif /* USE_SOFTERROR_RECOVERY */
 
 		/* We always (try and) send an HTTP error response once we get to
 		   this stage since chances are that it'll be a problem with an
 		   HTTP header rather than a low-level network read problem */
-		sendHTTPError( stream, lineBuffer, lineBufSize,
-					   headerInfo.httpStatus );
+		sendHTTPError( stream, headerInfo.httpStatus );
 		return( status );
 		}
 
-	/* Copy any status info back to the caller */
+	/* Copy any status info back to the caller.  initHeaderInfo() copied the
+	   flags into the HTTP_HEADER_INFO, this copies the updated flags back
+	   out again */
 	httpDataInfo->reqType = reqType;
 	if( reqType != STREAM_HTTPREQTYPE_GET )
 		httpDataInfo->bytesAvail = headerInfo.contentLength;
@@ -370,18 +395,20 @@ static int readResponseHeader( INOUT_PTR STREAM *stream,
 	*flags = HTTP_FLAG_NONE;
 
 	/* Read the returned response header from the server, taking various
-	   special-case conditions into account.  In theory we could also handle
+	   special-case conditions into account.  We retry up to 3 times to
+	   deal with things like 100 Continue which are no-op reads, and for
+	   WebSockets 101 Switching Protocols.  In theory we could also handle
 	   the 503 "Retry-After" status, but there's no sensible reason why
 	   anyone should send us this, and even if they do it'll screw up a lot
 	   of the PKI protocols, which have timeliness constraints built in */
-	LOOP_SMALL( repeatCount = 0, repeatCount < 5, repeatCount++ )
+	LOOP_SMALL( repeatCount = 0, repeatCount < 3, repeatCount++ )
 		{
 		HTTP_HEADER_INFO headerInfo;
 		BOOLEAN needsSpecialHandling = FALSE;
 		BOOLEAN isSoftError, isResponseSoftError;
 		int httpStatus;
 
-		ENSURES( LOOP_INVARIANT_SMALL( repeatCount, 0, 4 ) );
+		ENSURES( LOOP_INVARIANT_SMALL( repeatCount, 0, 3 - 1 ) );
 
 		/* Read the response header */
 		status = readFirstHeaderLine( stream, lineBuffer, lineBufSize,
@@ -429,23 +456,18 @@ static int readResponseHeader( INOUT_PTR STREAM *stream,
 		   error.  If we get a soft error at this point we clear the
 		   remaining input in order to allow further input to be processed.
 
-		   If the read buffer is dynamically allocated then we allow an
-		   effectively arbitrary content length, otherwise it has to fit 
-		   into the fixed-size read buffer.  Unfortunately since CRLs can 
-		   reach > 100MB in size it's not really possible to provide any 
-		   sensible limit on the length for dynamic-buffer reads, however
-		   to avoid DoS issues we limit it to 8MB until someone complains 
-		   that they can't read the 150MB CRLs that their CA is issuing 
-		   (yes, there are CAs that are issuing 150MB CRLs) */
+		   If the read buffer is dynamically allocated then we allow it
+		   to grow to handler larger content lengths, otherwise it has to 
+		   fit into the fixed-size read buffer ) */
 		initHeaderInfo( &headerInfo, 5,
 						httpDataInfo->bufferResize ? \
-							min( MAX_BUFFER_SIZE, 8388608L ) : \
-							httpDataInfo->bufSize,
+							MAX_HTTP_DATASIZE : httpDataInfo->bufSize,
 						*flags );
 		status = readHeaderLines( stream, lineBuffer, lineBufSize,
 								  &headerInfo, &isSoftError );
 		if( cryptStatusError( status ) )
 			{
+#ifdef USE_SOFTERROR_RECOVERY
 			if( isSoftError )
 				{
 				int localStatus;
@@ -455,12 +477,16 @@ static int readResponseHeader( INOUT_PTR STREAM *stream,
 				if( cryptStatusError( localStatus ) )
 					return( localStatus );
 				}
+#endif /* USE_SOFTERROR_RECOVERY */
 			return( status );
 			}
 
-		/* Copy any status info back to the caller */
-		*flags = GET_FLAGS( headerInfo.flags, 
-							HTTP_FLAG_MAX ) & ~HTTP_FLAG_NOOP;
+		/* Copy any status info back to the caller, masking out any 
+		   ephemeral flags that we set earlier.  initHeaderInfo() copied the 
+		   flags into the HTTP_HEADER_INFO, this copies the updated flags 
+		   back out again after the header-lines read */
+		*flags = GET_FLAGS( headerInfo.flags, HTTP_FLAG_MAX ) & \
+							~( HTTP_FLAG_NOOP | HTTP_FLAG_UPGRADE );
 		httpDataInfo->bytesAvail = headerInfo.contentLength;
 
 		/* If it's not something like a redirect that needs special-case
@@ -481,6 +507,8 @@ static int readResponseHeader( INOUT_PTR STREAM *stream,
 			return( CRYPT_OK );
 			}
 
+		/* We should only get here with one of the following HTTP status 
+		   values, see the httpStatusInfo table in io/http.c */
 #ifdef USE_WEBSOCKETS
 		REQUIRES( httpStatus == 100 || httpStatus == 101 || \
 				  httpStatus == 301 || httpStatus == 302 || \
@@ -717,8 +745,8 @@ static int readFunction( INOUT_PTR STREAM *stream,
 		/* We timed out before reading all of the data.  Usually this will 
 		   be reported as a CRYPT_ERROR_TIMEOUT by the lower-level read
 		   routines, however due to the multiple layers of I/O layering that 
-		   are possible we perform an explicit check here to make sure that 
-		   we got everything */
+		   are possible and various bugs in networking stacks we perform an 
+		   explicit check here to make sure that we got everything */
 		retExt( CRYPT_ERROR_TIMEOUT,
 				( CRYPT_ERROR_TIMEOUT, NETSTREAM_ERRINFO, 
 				  "HTTP read timed out before all data could be read, only "
@@ -738,19 +766,19 @@ static int readFunction( INOUT_PTR STREAM *stream,
 		   data erroneously marked as text by requiring that the request is 
 		   over a minimum size (most error messages are quite short) and 
 		   that the first bytes match what would be seen in a PKI object 
-		   such as a cert or CRL */
+		   such as a cert or CRL.  This is just an attempt to display a
+		   more useful error message, not any kind of security check */
 		if( httpDataInfo->bytesAvail < 256 || ( byteBufPtr[ 0 ] != 0x30 ) || \
 			!( byteBufPtr[ 1 ] & 0x80 ) || \
 			( isAlpha( byteBufPtr[ 2 ] ) && isAlpha( byteBufPtr[ 3 ] ) && \
 			  isAlpha( byteBufPtr[ 4 ] ) ) )
 			{
-			retExt( CRYPT_ERROR_READ,
-					( CRYPT_ERROR_READ, NETSTREAM_ERRINFO, 
-					  "HTTP server reported: '%s'",
-					  sanitiseString( byteBufPtr, \
-									  httpDataInfo->bufSize,
-									  min( httpDataInfo->bytesTransferred, \
-										   MAX_ERRMSG_SIZE - 32 ) ) ) );
+			retExtSan( CRYPT_ERROR_READ,
+					   ( CRYPT_ERROR_READ, NETSTREAM_ERRINFO, 
+						 "HTTP server reported: '%s'",
+						 byteBufPtr, min( httpDataInfo->bytesTransferred, \
+										  MAX_ERRMSG_SIZE ),
+						 NULL, 0, NULL, 0 ) );
 			}
 		}
 

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Session Read Support Routines					*
-*					  Copyright Peter Gutmann 1998-2017						*
+*					  Copyright Peter Gutmann 1998-2024						*
 *																			*
 ****************************************************************************/
 
@@ -136,7 +136,12 @@ BOOLEAN sanityCheckSessionRead( const SESSION_INFO *sessionInfoPtr )
 		DEBUG_PUTS(( "sanityCheckSessionRead: Pending packet info" ));
 		return( FALSE );
 		}
-	if( ( sessionInfoPtr->receiveBufEnd - \
+	if( checkOverflowSub( sessionInfoPtr->receiveBufEnd, \
+						  sessionInfoPtr->receiveBufPos ) || \
+		checkOverflowAdd( sessionInfoPtr->receiveBufEnd - \
+							sessionInfoPtr->receiveBufPos, \
+						  pendingPacketRemaining ) || \
+		( sessionInfoPtr->receiveBufEnd - \
 		  sessionInfoPtr->receiveBufPos ) + pendingPacketRemaining != \
 		pendingPacketLength )
 		{
@@ -233,15 +238,18 @@ static int processInnerProtocolData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										&bufEnd );
 		if( cryptStatusError( status ) )
 			{
-			/* If the packet processing returns OK_SPECIAL then all the data
-			   in the buffer has been consumed */
+			/* If the packet processing returns OK_SPECIAL then all of the 
+			   data in the buffer has been consumed, so we can exit at this
+			   point */
 			if( status == OK_SPECIAL )
 				break;
 
 			return( status );
 			}
+		REQUIRES( !checkOverflowAdd( totalBytesProcessed, bytesProcessed ) );
 		totalBytesProcessed += bytesProcessed;
 		bufPtr += bytesProcessed;
+		REQUIRES( !checkOverflowSub( bufEnd, bytesProcessed ) );
 		bufEnd -= bytesProcessed;
 		ENSURES( bufEnd >= 0 && bufEnd < bufSize );
 		}
@@ -342,7 +350,7 @@ int readFixedHeaderAtomic( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* See the comment above for the early-exit condition */
 		if( TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_NOREPORTERROR ) )
-			return( status );
+			return( CRYPT_ERROR_TIMEOUT );
 
 		retExt( CRYPT_ERROR_TIMEOUT,
 				( CRYPT_ERROR_TIMEOUT, SESSION_ERRINFO, 
@@ -364,7 +372,7 @@ int readFixedHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	int bytesToRead, length, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
-	assert( isWritePtr( headerBuffer, sizeof( headerLength ) ) );
+	assert( isWritePtr( headerBuffer, headerLength ) );
 
 	REQUIRES( sanityCheckSessionRead( sessionInfoPtr ) );
 	REQUIRES( headerLength >= FIXED_HEADER_MIN && \
@@ -391,6 +399,8 @@ int readFixedHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   because we follow up every full packet read with an opportunistic 
 		   zero-timeout second read to check if further packets are 
 		   pending */
+		REQUIRES( !checkOverflowSub( headerLength,
+									 sessionInfoPtr->partialHeaderRemaining ) );
 		REQUIRES( rangeCheck( sessionInfoPtr->partialHeaderRemaining, 
 							  1, headerLength ) );
 		bufPtr += headerLength - sessionInfoPtr->partialHeaderRemaining;
@@ -405,7 +415,8 @@ int readFixedHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	memset( bufPtr, 0, min( 16, bytesToRead ) );
 
 	/* Try and read the remaining header bytes */
-	REQUIRES( boundsCheckZ( headerLength - sessionInfoPtr->partialHeaderRemaining,
+	REQUIRES( boundsCheckZ( headerLength - \
+									sessionInfoPtr->partialHeaderRemaining,
 							bytesToRead, headerLength ) );
 	status = length = \
 		sread( &sessionInfoPtr->stream, bufPtr, bytesToRead );
@@ -423,6 +434,8 @@ int readFixedHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  &sessionInfoPtr->errorInfo );
 		return( status );
 		}
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->partialHeaderRemaining, 
+								 length ) );
 	sessionInfoPtr->partialHeaderRemaining -= length;
 
 	/* If we didn't get the whole header, treat it as a soft timeout error */
@@ -595,7 +608,11 @@ static int tryRead( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			   alongside the header it returns READINFO_HEADERPAYLOAD to
 			   indicate that the packet information needs to be adjusted for 
 			   the packet header data that was just read */
+			REQUIRES( !checkOverflowAdd( sessionInfoPtr->receiveBufEnd, 
+										 length ) );
 			sessionInfoPtr->receiveBufEnd += length;
+			REQUIRES( !checkOverflowSub( sessionInfoPtr->pendingPacketRemaining,
+										 length ) );
 			sessionInfoPtr->pendingPacketRemaining -= length;
 			}
 		}
@@ -604,7 +621,10 @@ static int tryRead( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Figure out how much we can read.  If there's not enough room in the 
 	   receive buffer to read at least 1K of packet data, don't try anything 
 	   until the user has emptied more data from the buffer */
-	bytesLeft = sessionInfoPtr->receiveBufSize - sessionInfoPtr->receiveBufEnd;
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufSize,
+								 sessionInfoPtr->receiveBufEnd ) );
+	bytesLeft = sessionInfoPtr->receiveBufSize - \
+				sessionInfoPtr->receiveBufEnd;
 	if( bytesLeft < 1024 )
 		{
 		ENSURES( sanityCheckSessionRead( sessionInfoPtr ) );
@@ -640,7 +660,10 @@ static int tryRead( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		return( 0 );
 		}
+	REQUIRES( !checkOverflowAdd( sessionInfoPtr->receiveBufEnd, length ) );
 	sessionInfoPtr->receiveBufEnd += length;
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->pendingPacketRemaining, 
+								 length ) );
 	sessionInfoPtr->pendingPacketRemaining -= length;
 	if( sessionInfoPtr->pendingPacketRemaining > 0 )
 		{
@@ -676,6 +699,7 @@ static int tryRead( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #endif /* USE_WEBSOCKETS */
 
 	/* Adjust the data size indicators to account for the processed packet */
+	REQUIRES( !checkOverflowAdd( sessionInfoPtr->receiveBufPos, length ) );
 	sessionInfoPtr->receiveBufEnd = sessionInfoPtr->receiveBufPos + length;
 	sessionInfoPtr->receiveBufPos = sessionInfoPtr->receiveBufEnd;
 	sessionInfoPtr->pendingPacketLength = 0;
@@ -720,6 +744,8 @@ static int getData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		const int remainder = sessionInfoPtr->receiveBufEnd - bytesToCopy;
 
+		REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufEnd, 
+									 bytesToCopy ) );
 		ENSURES( isBufsizeRange( remainder ) );
 
 		REQUIRES( rangeCheck( bytesToCopy, 1, length ) );
@@ -732,6 +758,8 @@ static int getData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   sessionInfoPtr->receiveBufEnd ) );
 			memmove( sessionInfoPtr->receiveBuffer,
 					 sessionInfoPtr->receiveBuffer + bytesToCopy, remainder );
+			REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufPos, 
+										 bytesToCopy ) );
 			sessionInfoPtr->receiveBufPos -= bytesToCopy;
 			sessionInfoPtr->receiveBufEnd = remainder;
 			}
@@ -823,6 +851,8 @@ static int getData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		REQUIRES( readInfo == READINFO_PARTIAL || \
 				  readInfo == READINFO_NOOP );
+		REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufSize,
+									 sessionInfoPtr->receiveBufEnd ) );
 		if( readInfo == READINFO_PARTIAL && \
 			sessionInfoPtr->pendingPacketRemaining <= \
 				sessionInfoPtr->receiveBufSize - sessionInfoPtr->receiveBufEnd )
@@ -931,8 +961,10 @@ int getSessionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* We got at least some data, update the buffer indicators */
 		if( byteCount > 0 )
 			{
+			REQUIRES( !checkOverflowAdd( *bytesCopied, byteCount ) );
 			*bytesCopied += byteCount;
 			dataPtr += byteCount;
+			REQUIRES( !checkOverflowSub( dataLength, byteCount ) );
 			dataLength -= byteCount;
 			}
 		if( status == OK_SPECIAL )
@@ -969,7 +1001,7 @@ int readPkiDatagram( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 IN_STRING const char *errorMessage )
 	{
 	HTTP_DATA_INFO httpDataInfo;
-	int length DUMMY_INIT, complianceLevel, status;
+	int length, complianceLevel, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( errorMessage, 1 ) );

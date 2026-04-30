@@ -717,8 +717,8 @@ extern const int messageValueCursorPrevious, messageValueCursorLast;
   #endif /* CONFIG_NUM_OBJECTS settings */
   #define MAX_NO_OBJECTS			CONFIG_NUM_OBJECTS
 #else
-  #define MAX_NO_OBJECTS			512
-#endif /* Memory-starved environments */
+  #define MAX_NO_OBJECTS			256
+#endif /* Low-memory environments */
 
 /****************************************************************************
 *																			*
@@ -897,7 +897,7 @@ typedef enum {
 				wrapContext = wrap/unwrap PKC context
 				auxContext = CRYPT_UNUSED
 				auxInfo = MGF1 hash algorithm
-				( auxInfoExt = MGF1 hash parameter )
+				[ auxInfoExt = MGF1 hash parameter - currently always SHA-256 ]
 	CMS			wrappedData = wrapped key
 				keyData = -
 				keyContext = context containing key
@@ -946,6 +946,8 @@ typedef struct {
 /* A structure to hold information needed by the sign/sig check message 
    mechanism */
 
+#if 0	/* Not needed at present */
+
 typedef struct {
 	BUFFER_OPT_FIXED( signatureLength ) \
 		void *signature;					/* Signature */
@@ -955,6 +957,7 @@ typedef struct {
 	int messageLength;
 	VALUE_HANDLE CRYPT_HANDLE signContext;	/* Signing/sig check context */
 	} MECHANISM_SIGN_MSG_INFO;
+#endif /* 0 */
 
 /* A structure to hold information needed by the key derivation mechanism. 
    This differs from the KDF mechanism that follows in that the "Derive" 
@@ -1058,15 +1061,18 @@ typedef struct {
 		( mechanismInfo )->signContext = ( signCtx ); \
 		}
 
+#if 0	/* Not needed at present */
+
 #define setMechanismSignMsgInfo( mechanismInfo, sig, sigLen, msg, msgLen, signCtx ) \
 		{ \
 		memset( mechanismInfo, 0, sizeof( MECHANISM_SIGN_MSG_INFO ) ); \
 		( mechanismInfo )->signature = ( sig ); \
 		( mechanismInfo )->signatureLength = ( sigLen ); \
 		( mechanismInfo )->message = ( msg ); \
-		( mechanismInfo )->messageLen = ( msgLen ); \
+		( mechanismInfo )->messageLength = ( msgLen ); \
 		( mechanismInfo )->signContext = ( signCtx ); \
 		}
+#endif /* 0 */
 
 #define setMechanismDeriveInfo( mechanismInfo, out, outLen, in, inLen, hAlgo, slt, sltLen, iters ) \
 		{ \
@@ -1266,7 +1272,8 @@ typedef enum {
 #define KEYMGMT_FLAG_LABEL_ONLY		0x0002	/* Get key label only */
 #define KEYMGMT_FLAG_UPDATE			0x0004	/* Update existing (allow dups) */
 #define KEYMGMT_FLAG_DATAONLY_CERT	0x0008	/* Create data-only certificate */
-#define KEYMGMT_FLAG_CERT_AS_CERTCHAIN 0x010 /* Force creation of cert.chain
+#define KEYMGMT_FLAG_CERT_AS_CERTCHAIN \
+									0x0010	/* Force creation of cert.chain
 												even if single cert.present */
 #define KEYMGMT_FLAG_USAGE_CRYPT	0x0020	/* Prefer encryption key */
 #define KEYMGMT_FLAG_USAGE_SIGN		0x0040	/* Prefer signature key */
@@ -1294,6 +1301,7 @@ typedef struct {
 
 #define setMessageKeymgmtInfo( keymgmtInfo, idType, id, idLength, aux, auxLen, keyFlags ) \
 		{ \
+		memset( keymgmtInfo, 0, sizeof( MESSAGE_KEYMGMT_INFO ) ); \
 		( keymgmtInfo )->cryptHandle = CRYPT_ERROR; \
 		( keymgmtInfo )->keyIDtype = ( idType ); \
 		( keymgmtInfo )->keyID = ( id ); \
@@ -1317,6 +1325,7 @@ typedef struct {
 
 #define setMessageCertMgmtInfo( certMgmtInfo, mgmtCaKey, mgmtRequest ) \
 		{ \
+		memset( certMgmtInfo, 0, sizeof( MESSAGE_CERTMGMT_INFO ) ); \
 		( certMgmtInfo )->cryptCert = CRYPT_ERROR; \
 		( certMgmtInfo )->caKey = ( mgmtCaKey ); \
 		( certMgmtInfo )->request = ( mgmtRequest ); \

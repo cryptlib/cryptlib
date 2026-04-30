@@ -74,7 +74,7 @@ static BOOLEAN checkLowlevelInfo( const CRYPT_DEVICE cryptDevice,
 		{
 		fprintf( outputStream, "crypt%sQueryCapability() reports %s "
 				 "algorithm is not available, status = %d.\n", 
-				 isDevice ? "Device" : "", algoName( cryptAlgo ), 
+				 isDevice ? "Device" : "", algoToName( cryptAlgo ), 
 				 status );
 		return( FALSE );
 		}
@@ -442,6 +442,11 @@ int testCrypt( const CRYPT_CONTEXT cryptContext,
 		return( CRYPT_OK );
 		}
 #endif /* TEST_DH */
+#ifdef TEST_RSA
+	/* We used to allow use of RSA with cryptEncrypt()/cryptDecrypt() until 
+	   3.4.9, given the complex formatting requirements for RSA data it's 
+	   unlikely this was ever used and disallowing it brings it into line 
+	   with all other algorithms */
 	if( cryptAlgo == CRYPT_ALGO_RSA )
 		{
 #if 0	/* Encrypted values from initTestBuffers(), which are rejected because 
@@ -676,6 +681,7 @@ int testCrypt( const CRYPT_CONTEXT cryptContext,
 
 		return( CRYPT_OK );
 		}
+#endif /* TEST_RSA */
 	if( cryptAlgo >= CRYPT_ALGO_FIRST_HASH && \
 		cryptAlgo <= CRYPT_ALGO_LAST_MAC )
 		{
@@ -732,7 +738,7 @@ int testCrypt( const CRYPT_CONTEXT cryptContext,
 
 	fprintf( outputStream, "Unknown encryption algorithm/mode %d.\n", 
 			 cryptAlgo );
-	return( CRYPT_OK );
+	return( CRYPT_ERROR_NOTAVAIL );
 	}
 
 /* Perform a test en/decryption using the direct API */
@@ -785,7 +791,7 @@ static int testCryptDirectAPI( const CRYPT_CONTEXT cryptContext,
 		{
 		fprintf( outputStream, "Couldn't get direct-access function for %s "
 				 "algorithm, status = %d, line %d.\n", 
-				 algoName( cryptAlgo ), status, __LINE__ );
+				 algoToName( cryptAlgo ), status, __LINE__ );
 		return( status );
 		}
 
@@ -846,15 +852,6 @@ int testLowlevel( const CRYPT_DEVICE cryptDevice,
 	if( checkOnly )
 		return( TRUE );
 
-	/* Since DH/ECDH/25519 only perform key agreement rather than a true key 
-	   exchange we can't test their encryption capabilities unless we're
-	   using a custom-modified version of cryptlib */
-#ifndef TEST_DH
-	if( cryptAlgo == CRYPT_ALGO_DH || cryptAlgo == CRYPT_ALGO_ECDH || \
-		cryptAlgo == CRYPT_ALGO_25519 )
-		return( TRUE );
-#endif /* TEST_DH */
-
 	/* Test each mode of an algorithm.  We have to be very careful about
 	   destroying any objects we create before we exit, because objects left
 	   active in a device will prevent it from being shut down once the
@@ -908,11 +905,10 @@ int testLowlevel( const CRYPT_DEVICE cryptDevice,
 									   ( BYTE * ) "", 0 );
 				break;
 
-#ifdef TEST_DH
 			case CRYPT_ALGO_DH:
-				status = loadDHKey( cryptDevice, &cryptContext );
+				status = loadDHContexts( cryptDevice, &cryptContext, 
+									&decryptContext );
 				break;
-#endif /* TEST_DH */
 
 			case CRYPT_ALGO_RSA:
 				status = loadRSAContexts( cryptDevice, &cryptContext,
@@ -925,7 +921,8 @@ int testLowlevel( const CRYPT_DEVICE cryptDevice,
 				break;
 
 			case CRYPT_ALGO_ELGAMAL:
-				status = loadElgamalContexts( &cryptContext, &decryptContext );
+				status = loadElgamalContexts( &cryptContext, 
+											  &decryptContext );
 				break;
 
 			case CRYPT_ALGO_ECDSA:
@@ -933,22 +930,25 @@ int testLowlevel( const CRYPT_DEVICE cryptDevice,
 											&decryptContext );
 				break;
 
-#ifdef TEST_DH
 			case CRYPT_ALGO_ECDH:
-				status = loadECDHKey( cryptDevice, &cryptContext );
+				status = loadECDHContexts( cryptDevice, &cryptContext, 
+										   &decryptContext );
 				break;
-#endif /* TEST_DH */
 
 			case CRYPT_ALGO_ED25519:
-				status = load25519Contexts( cryptDevice, &cryptContext, 
-											&decryptContext );
+				status = loadEd25519Contexts( cryptDevice, &cryptContext, 
+											  &decryptContext );
 				break;
 
-#ifdef TEST_DH
 			case CRYPT_ALGO_25519:
-				status = loadECDHKey( cryptDevice, &cryptContext );
+				status = loadX25519Contexts( cryptDevice, &cryptContext, 
+											 &decryptContext );
 				break;
-#endif /* TEST_DH */
+
+			case CRYPT_ALGO_MLKEM:
+				status = loadMLKEMContexts( cryptDevice, &cryptContext, 
+											&decryptContext );
+				break;
 
 			default:
 #if defined( __GNUC__ ) && ( __GNUC__ == 13 ) 
@@ -982,10 +982,34 @@ int testLowlevel( const CRYPT_DEVICE cryptDevice,
 		if( !status )
 			return( FALSE );
 
+		/* Since DH/ECDH/25519/ML-KEM only perform key agreement rather than 
+		   a true key exchange we can't test their encryption capabilities 
+		   unless we're using a custom-modified version of cryptlib */
+		if( cryptAlgo == CRYPT_ALGO_DH || cryptAlgo == CRYPT_ALGO_ECDH || \
+			cryptAlgo == CRYPT_ALGO_25519 || cryptAlgo == CRYPT_ALGO_MLKEM )
+			{
+			destroyContexts( cryptDevice, cryptContext, decryptContext );
+			return( TRUE );
+			}
+
 		/* DLP-based algorithms can't be called directly from user code
 		   because of the special data-formatting requirements */
 		if( cryptAlgo == CRYPT_ALGO_DSA || cryptAlgo == CRYPT_ALGO_ELGAMAL || \
 			cryptAlgo == CRYPT_ALGO_ECDSA || cryptAlgo == CRYPT_ALGO_ED25519 )
+			{
+			destroyContexts( cryptDevice, cryptContext, decryptContext );
+			return( TRUE );
+			}
+
+		/* The ability to use raw RSA was present until 3.4.9 but was both 
+		   never used (it required manual formatting of PKCS #1 or PSS data) 
+		   and made for a non-orthogonal interface where calling 
+		   cryptEncrypt() on an RSA context was possible but on a DH context 
+		   wasn't.  Because of this it was removed after 3.4.9 by 
+		   disallowing the use of PKC contexts with cryptEncrypt()/
+		   cryptDecrypt() in cryptapi.c, specifically at the cmdEncrypt()/
+		   cmdDecrypt() level */
+		if( cryptAlgo == CRYPT_ALGO_RSA )
 			{
 			destroyContexts( cryptDevice, cryptContext, decryptContext );
 			return( TRUE );
@@ -1192,9 +1216,7 @@ int testRSAMinimalKey( void )
 
 	/* Make sure that we can encrypt and decrypt with the reconstituted CRT
 	   private key */
-	status = testCrypt( cryptContext, decryptContext, CRYPT_ALGO_RSA, 
-						buffer, TRUE, FALSE );
-	if( cryptStatusError( status ) )
+	if( !testRSAContexts( cryptContext, decryptContext ) )
 		return( FALSE );
 
 	/* Clean up */
@@ -1241,8 +1263,8 @@ int testRSALargeKey( void )
 								FALSE );
 	if( cryptStatusOK( status ) )
 		{
-		status = testCrypt( cryptContext, decryptContext, CRYPT_ALGO_RSA, 
-							buffer, TRUE, FALSE );
+		if( !testRSAContexts( cryptContext, decryptContext ) )
+			status = -1;
 		}
 	if( cryptStatusOK( status ) )
 		{
@@ -1252,8 +1274,8 @@ int testRSALargeKey( void )
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = testCrypt( cryptContext, decryptContext, CRYPT_ALGO_RSA, 
-							buffer, TRUE, FALSE );
+		if( !testRSAContexts( cryptContext, decryptContext ) )
+			status = -1;
 		}
 	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_MISC_SIDECHANNELPROTECTION, 
 					   value );

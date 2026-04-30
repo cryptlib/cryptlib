@@ -704,11 +704,11 @@ int testTimingAttackConv( void )
 		return( FALSE );
 
 	/* Create the encrypted key blob */
-	status = cryptExportKey( encryptedKeyBlob, 1024, &length, cryptContext, 
+	status = cryptWrapKey( encryptedKeyBlob, 1024, &length, cryptContext, 
 							 sessionKeyContext );
 	if( cryptStatusError( status ) )
 		{
-		fprintf( outputStream, "cryptExportKeyEx() failed with error "
+		fprintf( outputStream, "cryptWrapKey() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		return( FALSE );
 		}
@@ -729,13 +729,13 @@ int testTimingAttackConv( void )
 		cryptCreateContext( &sessionKeyContext, CRYPT_UNUSED, 
 							DEFAULT_CRYPT_ALGO );
 		timeVal = timeDiff( 0 );
-		status = cryptImportKey( encryptedKeyBlob, length, decryptContext, 
+		status = cryptUnwrapKey( encryptedKeyBlob, length, decryptContext, 
 								 sessionKeyContext );
 		timeVal = timeDiff( timeVal ); 
 		cryptDestroyContext( sessionKeyContext );
 		if( cryptStatusError( status ) )
 			{
-			fprintf( outputStream, "cryptImportKey() failed with status %s, "
+			fprintf( outputStream, "cryptUnwrapKey() failed with status %s, "
 					 "line %d.\n", status, __LINE__ );
 			return( FALSE );
 			}
@@ -769,7 +769,7 @@ int testTimingAttackConv( void )
 		if( cryptStatusError( status ) )
 			return( FALSE );
 		timeVal = timeDiff( 0 );
-		status = cryptImportKey( buffer, length, decryptContext, 
+		status = cryptUnwrapKey( buffer, length, decryptContext, 
 								 sessionKeyContext );
 		timeVal = timeDiff( timeVal ); 
 		cryptDestroyContext( sessionKeyContext );

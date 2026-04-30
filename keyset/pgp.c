@@ -280,7 +280,7 @@ BOOLEAN pgpCheckKeyMatch( const PGP_INFO *pgpInfo,
 	assert( isReadPtr( keyInfo, sizeof( PGP_KEYINFO ) ) );
 	assert( isReadPtr( keyMatchInfo, sizeof( KEY_MATCH_INFO ) ) );
 
-	REQUIRES( sanityCheckPGP( pgpInfo ) );
+	REQUIRES_B( sanityCheckPGP( pgpInfo ) );
 
 	/* If there's an explicitly requested key usage type, make sure that the 
 	   key is suitable */
@@ -305,7 +305,7 @@ BOOLEAN pgpCheckKeyMatch( const PGP_INFO *pgpInfo,
 	/* If it's a wildcard match, return the first key */
 	if( keyMatchInfo->keyID == NULL )
 		{
-		ENSURES( keyMatchInfo->keyIDlength == 0 );
+		ENSURES_B( keyMatchInfo->keyIDlength == 0 );
 
 		return( TRUE );
 		}
@@ -314,8 +314,8 @@ BOOLEAN pgpCheckKeyMatch( const PGP_INFO *pgpInfo,
 	   for a match */
 	LOOP_EXT( i = 0, i < pgpInfo->lastUserID, i++, MAX_PGP_USERIDS + 1 )
 		{
-		ENSURES( LOOP_INVARIANT_EXT( i, 0, pgpInfo->lastUserID - 1,
-									 MAX_PGP_USERIDS + 1 ) );
+		ENSURES_B( LOOP_INVARIANT_EXT( i, 0, pgpInfo->lastUserID - 1,
+									   MAX_PGP_USERIDS + 1 ) );
 
 		/* Check if it's the one that we want.  If it's a key with subkeys 
 		   and no usage type is explicitly specified this will always return 
@@ -330,7 +330,7 @@ BOOLEAN pgpCheckKeyMatch( const PGP_INFO *pgpInfo,
 						keyMatchInfo->keyIDlength ) >= 0 )
 			return( TRUE );
 		}
-	ENSURES( LOOP_BOUND_OK );
+	ENSURES_B( LOOP_BOUND_OK );
 
 	return( FALSE );
 	}
@@ -867,11 +867,10 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		if( findEntry( pgpInfo, 1, CRYPT_KEYID_NAME, label, labelLength, 
 					   KEYMGMT_FLAG_NONE, NULL ) != NULL )
 			{
-			retExt( CRYPT_ERROR_DUPLICATE, 
-					( CRYPT_ERROR_DUPLICATE, KEYSET_ERRINFO, 
-					  "Item with label '%s' is already present",
-					  sanitiseString( label, CRYPT_MAX_TEXTSIZE, 
-									  labelLength ) ) );
+			retExtSan( CRYPT_ERROR_DUPLICATE, 
+					   ( CRYPT_ERROR_DUPLICATE, KEYSET_ERRINFO, 
+						 "Item with label '%s' is already present",
+						 label, labelLength, NULL, 0, NULL, 0 ) );
 			}
 		}
 #endif /* 0 */

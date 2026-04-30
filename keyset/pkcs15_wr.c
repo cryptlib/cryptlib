@@ -39,7 +39,7 @@ static int writeObjectWrapper( INOUT_PTR STREAM *stream,
 	REQUIRES( tag >= 0 && tag < MAX_TAG_VALUE );
 	REQUIRES( isShortIntegerRangeNZ( length ) );
 
-	writeConstructed( stream, sizeofObject( length ), tag );
+	writeConstructed( stream, sizeofShortObject( length ), tag );
 	return( writeConstructed( stream, length, CTAG_OV_DIRECT ) );
 	}
 
@@ -103,7 +103,7 @@ static int writeDataItem( INOUT_PTR STREAM *stream,
 					  sizeofShortObject( \
 							sizeofOID( OID_CRYPTLIB_CONTENTTYPE ) ) + \
 					  sizeofShortObject( \
-							sizeofObject( contentSize ) ),
+							sizeofShortObject( contentSize ) ),
 					  CTAG_DO_OIDDO );
 	writeSequence( stream, labelSize );
 	if( labelSize > 0 )
@@ -161,11 +161,17 @@ int pkcs15Flush( INOUT_PTR STREAM *stream,
 				break;
 
 			case PKCS15_SUBTYPE_NORMAL:
+				REQUIRES( !checkOverflowAdd( pubKeySize,
+									pkcs15info[ i ].pubKeyDataSize ) );
 				pubKeySize += pkcs15info[ i ].pubKeyDataSize;
+				REQUIRES( !checkOverflowAdd( privKeySize,
+									pkcs15info[ i ].privKeyDataSize ) );
 				privKeySize += pkcs15info[ i ].privKeyDataSize;
 				STDC_FALLTHROUGH;
 
 			case PKCS15_SUBTYPE_CERT:
+				REQUIRES( !checkOverflowAdd( certSize,
+									pkcs15info[ i ].certDataSize ) );
 				certSize += pkcs15info[ i ].certDataSize;
 				break;
 
@@ -179,6 +185,7 @@ int pkcs15Flush( INOUT_PTR STREAM *stream,
 				status = sizeofDataItem( &pkcs15info[ i ], &length );
 				if( cryptStatusError( status ) )
 					return( status );
+				REQUIRES( !checkOverflowAdd( dataSize, length ) );
 				dataSize += length;
 				break;
 				}
@@ -190,15 +197,37 @@ int pkcs15Flush( INOUT_PTR STREAM *stream,
 	ENSURES( LOOP_BOUND_OK );
 
 	/* Determine how much data there is to write.  If there's no data
-	   present, let the caller know that the keyset is empty */
+	   present, let the caller know that the keyset is empty.  
+	   sizeofObject() is overflow-checked so we don't need to 
+	   checkOverflowAdd() each one */
 	if( pubKeySize > 0 )
-		objectsSize += sizeofObject( sizeofObject( pubKeySize ) );
+		{
+		const int pubObjSize = sizeofObject( sizeofObject( pubKeySize ) );
+
+		REQUIRES( !checkOverflowAdd( objectsSize, pubObjSize ) );
+		objectsSize += pubObjSize;
+		}
 	if( privKeySize > 0 )
-		objectsSize += sizeofObject( sizeofObject( privKeySize ) );
+		{
+		const int privObjSize = sizeofObject( sizeofObject( privKeySize ) );
+
+		REQUIRES( !checkOverflowAdd( objectsSize, privObjSize ) );
+		objectsSize += privObjSize;
+		}
 	if( certSize > 0 )
-		objectsSize += sizeofObject( sizeofObject( certSize ) );
+		{
+		const int certObjSize = sizeofObject( sizeofObject( certSize ) );
+
+		REQUIRES( !checkOverflowAdd( objectsSize, certObjSize ) );
+		objectsSize += certObjSize;
+		}
 	if( dataSize > 0 )
-		objectsSize += sizeofObject( sizeofObject( dataSize ) );
+		{
+		const int dataObjSize = sizeofObject( sizeofObject( dataSize ) );
+
+		REQUIRES( !checkOverflowAdd( objectsSize, dataObjSize ) );
+		objectsSize += dataObjSize;
+		}
 	if( objectsSize <= 0 )
 		return( OK_SPECIAL );	/* Keyset is empty */
 

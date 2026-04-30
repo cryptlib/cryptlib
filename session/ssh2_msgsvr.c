@@ -60,7 +60,17 @@ typedef struct {
 #ifdef USE_SSH_EXTENDED
 
 /* Read host name/address and port information and format it into string
-   form for the caller */
+   form for the caller.  What to do in case the host name (and optionally 
+   port number) exceed the allowed output size is a bit unclear, we don't 
+   use this information but simply pass it back to the caller who then 
+   decides what to do with it.  No-one should be sending us a (legitimate) 
+   host name large enough to overflow hostInfoMaxLen, but then we also don't 
+   want to abort the entire session if they do.  The compromise is to
+   reject an over-long host name but, if the combination of host name and
+   port number overflows the allowed output size at least report the host
+   name to the caller.  We also don't use sanitiseString() on the data since
+   we're reporting the raw information back to the caller as we would with,
+   for example, information in certificates */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
 static int readAddressAndPort( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
@@ -92,36 +102,37 @@ static int readAddressAndPort( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		string	host
 		uint32	port */
-	status = readString32( stream, stringBuffer, CRYPT_MAX_TEXTSIZE - 4,
+	status = readString32( stream, stringBuffer, CRYPT_MAX_TEXTSIZE,
 						   &stringLength );
 	if( cryptStatusError( status ) || \
-		stringLength <= 0 || stringLength > CRYPT_MAX_TEXTSIZE - 4 )
+		stringLength <= 0 || stringLength > hostInfoMaxLen )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid host name value" ) );
 		}
-	if( stringLength > hostInfoMaxLen )
-		{
-		/* Limit the returned size to the maximum requested by the caller */
-		stringLength = hostInfoMaxLen;
-		}
 	status = port = readUint32( stream );
-	if( cryptStatusError( status ) || port <= 0 || port >= 65535L )
+	if( cryptStatusError( status ) || \
+		port < MIN_PORT_NUMBER || port > MAX_DEST_PORT_NUMBER )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid port number value" ) );
 		}
 
-	/* Convert the information into string form for the caller to process.  
-	   Note that although we limit the maximum string length to 8 bytes the
-	   buffer is actually declared as 16 bytes in size for those systems 
-	   that don't have sprintf_s() */
+	/* Convert the information into string form for the caller to process, 
+	   see the comment at the start of the function for why we silently
+	   drop the port number in an over-long hostname + port number 
+	   combination at this point.
+	   
+	   Note that although we limit the maximum port string length to 8 bytes 
+	   the buffer is actually declared as 16 bytes in size for those systems 
+	   that don't have the length-limiting sprintf_s() */
 	portLength = sprintf_s( portBuffer, 8, ":%d", port );
-	ENSURES( rangeCheck( portLength, 2, 7 ) );
+	ENSURES( rangeCheck( portLength, 3, 7 ) );
 	REQUIRES( rangeCheck( stringLength, 1, hostInfoMaxLen ) );
 	memcpy( hostInfo, stringBuffer, stringLength );
+	REQUIRES( !checkOverflowAdd( stringLength, portLength ) );
 	if( stringLength + portLength <= hostInfoMaxLen )
 		{
 		REQUIRES( boundsCheck( stringLength, portLength, hostInfoMaxLen ) );
@@ -164,10 +175,10 @@ static int getAddressAndPort( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* We're adding new forwarding information, if it already exists 
 		   this is an error */
-		retExt( CRYPT_ERROR_DUPLICATE,
-				( CRYPT_ERROR_DUPLICATE, SESSION_ERRINFO, 
-				  "Received duplicate request for existing host/port %s",
-				  sanitiseString( hostInfo, *hostInfoLen, *hostInfoLen ) ) );
+		retExtSan( CRYPT_ERROR_DUPLICATE,
+				   ( CRYPT_ERROR_DUPLICATE, SESSION_ERRINFO, 
+					 "Received duplicate request for existing host/port %s",
+					 hostInfo, *hostInfoLen, NULL, 0, NULL, 0 ) );
 		}
 
 	return( CRYPT_OK );
@@ -196,7 +207,7 @@ static int clearAddressAndPort( SESSION_INFO *sessionInfoPtr,
 		return( status );
 	return( deleteChannelAddr( sessionInfoPtr, addrInfo, addrInfoLen ) );
 #else
-	return( CRYPT_ERROR );
+	return( CRYPT_ERROR_NOTFOUND );
 #endif /* 0 */
 	}
 #endif /* USE_SSH_EXTENDED */
@@ -378,23 +389,20 @@ int processChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( channelInfoPtr == NULL )
 		{
 		/* It's an unsupported channel open type, report it as an error */
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid channel-open channel type '%s'", 
-				  sanitiseString( typeString, CRYPT_MAX_TEXTSIZE, 
-								  typeLen ) ) );
+		retExtSan( CRYPT_ERROR_BADDATA,
+				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+					 "Invalid channel-open channel type '%s'", 
+					 typeString, typeLen, NULL, 0, NULL, 0 ) );
 		}
 
-	/* Read the channel number and window size.  Quite a number of 
-	   implementations use the same approach that we do to the windowing 
-	   problem and advertise a maximum-size window, since this is 
-	   typically INT_MAX (used by e.g. PSFTP, WinSCP, and FileZilla) we 
-	   have to use an sread() rather than the range-checking readUint32() 
+	/* Read the channel number, window size, and maximum packet size.  
+	   Quite a number of implementations use the same approach that we do 
+	   to the windowing problem and advertise a maximum-size window, since 
+	   this is typically INT_MAX (used by e.g. PSFTP, WinSCP, and FileZilla) 
+	   we have to use an sread() rather than the range-checking readUint32() 
 	   to read (or at least skip) this */
 	channelNo = readUint32( stream );
 	( void ) sread( stream, buffer, UINT32_SIZE );	/* Skip window size */
-
-	/* Read the maximum packet size */
 	status = maxPacketSize = readUint32( stream );
 	if( cryptStatusError( status ) )
 		{
@@ -403,6 +411,8 @@ int processChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "Invalid '%s' channel parameters", 
 				  channelInfoPtr->channelName ) );
 		}
+
+	/* Make sure that the packet size is in order */
 	if( maxPacketSize < PACKET_SIZE_MIN || maxPacketSize > PACKET_SIZE_MAX )
 		{
 		/* General sanity check to make sure that the packet size is in 
@@ -415,6 +425,8 @@ int processChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "value %d, should be 1K...1MB", 
 				  channelInfoPtr->channelName, maxPacketSize ) );
 		}
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufSize,
+								 EXTRA_PACKET_SIZE ) );
 	maxPacketSize = min( maxPacketSize, \
 						 sessionInfoPtr->receiveBufSize - EXTRA_PACKET_SIZE );
 
@@ -566,7 +578,7 @@ int processChannelRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	BYTE stringBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
 	BOOLEAN wantReply, requestOK = TRUE;
 	LOOP_INDEX i;
-	int stringLength, status;
+	int stringLength, value, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -592,7 +604,7 @@ int processChannelRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   response when want_reply could have been false had it been able to
 	   be decoded */
 	readString32( stream, stringBuffer, CRYPT_MAX_TEXTSIZE, &stringLength );
-	status = wantReply = sgetc( stream );
+	status = value = sgetc( stream );
 	if( cryptStatusError( status ) || \
 		stringLength <= 0 || stringLength > CRYPT_MAX_TEXTSIZE  )
 		{
@@ -601,6 +613,7 @@ int processChannelRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "Invalid request type in %s request packet",
 				  isChannelRequest ? "channel" : "global" ) );
 		}
+	wantReply = value ? TRUE : FALSE;
 	DEBUG_OP(( stringBuffer[ stringLength ] = '\0' ));
 	DEBUG_PRINT(( "Processing channel request '%s'.\n", stringBuffer ));
 

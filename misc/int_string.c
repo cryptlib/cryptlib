@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  cryptlib Internal String API						*
-*						Copyright Peter Gutmann 1992-2014					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -166,6 +166,7 @@ int strStripWhitespace( OUT_PTR_PTR_COND const char **newStringPtr,
 		}
 	ENSURES_EXT( LOOP_BOUND_MAX_REV_OK, -1 );
 
+	ENSURES_EXT( !checkOverflowSub( endPos, startPos ), -1 );
 	ENSURES_EXT( rangeCheck( endPos - startPos, 1, strLen ), -1 );
 	return( endPos - startPos );
 	}
@@ -211,6 +212,7 @@ int strExtract( OUT_PTR_PTR_COND const char **newStringPtr,
 	assert( isReadPtr( newStringPtr, sizeof( char * ) ) );
 	assert( isReadPtrDynamic( string, strLen ) );
 
+	REQUIRES_EXT( !checkOverflowSub( strLen, startOffset ), -1 );
 	REQUIRES_EXT( isShortIntegerRangeNZ( strLen ), -1 );
 	REQUIRES_EXT( isShortIntegerRange( startOffset ) && \
 				  startOffset <= strLen, -1 );
@@ -256,15 +258,15 @@ int strGetNumeric( IN_BUFFER( strLen ) const char *str,
 	if( strLen < 1 || strLen > 7 )
 		return( CRYPT_ERROR_BADDATA );
 
-	/* Process the numeric string.  Note that the redundant 'value < 0' 
-	   check is necessary in order to prevent gcc from detecting what it 
-	   thinks is Undefined Behaviour (UB) and removing further checks from 
-	   the code.  In addition the second check for MAX_INTLENGTH - ch isn't
-	   really necessary because we know that value < MAX_INTLENGTH / 10,
-	   which means that value <= MAX_INTLENGTH / 10 - 1, so 
-	   value * 10 <= MAX_INTLENGTH - 10, therefore 
-	   value * 10 < MAX_INTLENGTH - 9, so value * 10 < MAX_INTLENGTH - ch,
-	   however we leave it in to make the condition explicit */
+	/* Process the numeric string.  In addition the second 
+	   checkOverflowAdd() isn't really necessary because we know that 
+	   value < MAX_INTLENGTH / 10, which means that 
+	   value <= MAX_INTLENGTH / 10 - 1, so value * 10 <= MAX_INTLENGTH - 10, 
+	   therefore value * 10 < MAX_INTLENGTH - 9, so 
+	   value * 10 < MAX_INTLENGTH - ch, however we leave it in to make the 
+	   condition explicit and because the more checks we have the harder it
+	   is for gcc to find an excuse to remove them (see the comments in the
+	   checkOverflowXYZ() functions in misc/safety.h) */
 	LOOP_MAX( ( i = 0, value = 0 ), i < strLen, i++ )
 		{
 		int ch;
@@ -274,10 +276,10 @@ int strGetNumeric( IN_BUFFER( strLen ) const char *str,
 		ch = byteToInt( str[ i ] ) - '0';
 		if( ch < 0 || ch > 9 )
 			return( CRYPT_ERROR_BADDATA );
-		if( value < 0 || value >= MAX_INTLENGTH / 10 )
+		if( checkOverflowMul( value, 10 ) )
 			return( CRYPT_ERROR_BADDATA );
 		value *= 10;
-		if( value >= MAX_INTLENGTH - ch )
+		if( checkOverflowAdd( value, ch ) )
 			return( CRYPT_ERROR_BADDATA );
 		value += ch;
 		ENSURES( isIntegerRange( value ) );
@@ -446,9 +448,11 @@ char *sanitiseString( INOUT_BUFFER( strMaxLen, strLen ) void *string,
 		}
 	ENSURES_EXT( LOOP_BOUND_OK, "(Internal error)" );
 
-	/* If there was more input than we could fit into the buffer and 
-	   there's room for a continuation indicator, add this to the output 
-	   string */
+	/* If there was more input than we could fit into the buffer and there's 
+	   room for a continuation indicator, add this to the output string.  We 
+	   check for strLen >= strMaxLen rather than > strMaxLen because we need 
+	   an extra byte for the '\0', since the case of strLen == strMaxLen 
+	   wouldn't leave us any room */
 	if( ( strLen >= strMaxLen ) && ( strMaxLen > 8 ) )
 		{
 		REQUIRES_EXT( boundsCheck( strMaxLen - 6, 5, strMaxLen ),

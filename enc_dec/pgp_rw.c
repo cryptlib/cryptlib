@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				Miscellaneous (Non-ASN.1) Read/Write Routines				*
-*						Copyright Peter Gutmann 1992-2014					*
+*						Copyright Peter Gutmann 1992-2024					*
 *																			*
 ****************************************************************************/
 
@@ -78,6 +78,8 @@ static int readOpenPGPLength( INOUT_PTR STREAM *stream,
 	   lengths, compressed data, uses the 2.x CTB 0xA3 instead */
 	if( localLength < 255 )
 		{
+		const int shiftAmount = localLength & 0x1F;
+		
 		if( !indefOK )
 			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 
@@ -86,10 +88,22 @@ static int readOpenPGPLength( INOUT_PTR STREAM *stream,
 		   encodes a partial length as a sequence of power-of-two exponent 
 		   values with a standard length encoding for the last sub-segment.
 		   So once we're in indefinite-length mode we have to record the 
-		   current *type* of the length (as well as its value) to determine 
-		   whether more length packets follow */
+		   current *type* of the length as well as its value to determine 
+		   whether more length packets follow.
+		   
+		   The spec says (section 4.2.2.4) that the "length is a power of 2, 
+		   from 1 to 1,073,741,824 (2 to the 30th power)" but it's not clear
+		   that 2^0, or even slighly larger values, should be allowed since
+		   any odd bits at the end of the data would be included in the
+		   definite-length final sub-segment, so we require a shift amount 
+		   of at least 2, for four bytes of data.
+		   
+		   Fortunately the standard also specifies an upper bound, 2^30, 
+		   which keeps us away from problems with 32-bit integers */
 		*indefiniteLength = TRUE;
-		localLength = 1 << ( localLength & 0x1F );
+		if( shiftAmount < 2 || shiftAmount > 30 )
+			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+		localLength = 1 << shiftAmount;
 		if( !isIntegerRangeNZ( localLength ) )
 			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 		*length = localLength;
@@ -102,6 +116,8 @@ static int readOpenPGPLength( INOUT_PTR STREAM *stream,
 	status = localLength = readUint32( stream );
 	if( cryptStatusError( status ) )
 		return( status );
+	ENSURES_S( isIntegerRange( localLength ) );
+			   /* Guaranteed by readUint32() */
 	*length = localLength;
 
 	return( CRYPT_OK );
@@ -144,7 +160,7 @@ static int readPGP2Length( INOUT_PTR STREAM *stream,
 			localLength = CRYPT_ERROR_BADDATA;
 		}
 	if( cryptStatusError( localLength ) )
-		return( localLength );
+		return( sSetError( stream, localLength ) );
 	if( !isIntegerRange( localLength ) )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	*length = localLength;
@@ -199,7 +215,7 @@ static int pgpReadLength( INOUT_PTR STREAM *stream,
 	return( indefiniteLength ? OK_SPECIAL : CRYPT_OK );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int readPacketHeader( INOUT_PTR STREAM *stream, 
 							 OUT_OPT_BYTE int *ctb, 
 							 OUT_OPT_LENGTH_Z long *length, 
@@ -278,14 +294,19 @@ static int readPacketHeader( INOUT_PTR STREAM *stream,
 		if( status != OK_SPECIAL )
 			return( status );
 
-		/* It's an indefinite-length encoding, this is only valid for
-		   payload data packets (RFC 4880 section 4.2.2.4) so we make 
-		   sure that we've got one of these packet types present */
+		/* It's an indefinite-length encoding, this is only valid for 
+		   payload data packets (RFC 4880 section 4.2.2.4) so we make sure 
+		   that we've got one of these packet types present */
 		ENSURES_S( indefOK );
 		type = pgpGetPacketType( localCTB );
 		if( type != PGP_PACKET_DATA && type != PGP_PACKET_COPR && \
 			type != PGP_PACKET_ENCR && type != PGP_PACKET_ENCR_MDC )
 			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+		
+		/* localLength at this point is first partial length, not the 
+		   overall data length, which we indicate to the caller through the 
+		   OK_SPECIAL return status which passes through to the following
+		   code */
 		}
 	if( ctb != NULL )
 		*ctb = localCTB;
@@ -336,7 +357,7 @@ int pgpReadPacketHeader( INOUT_PTR STREAM *stream, OUT_OPT_BYTE int *ctb,
 							  FALSE ) );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1 ) ) \
 int pgpReadPacketHeaderI( INOUT_PTR STREAM *stream, OUT_OPT_BYTE int *ctb, 
 						  OUT_OPT_LENGTH_Z long *length, 
 						  IN_LENGTH_SHORT const int minLength )
@@ -374,6 +395,13 @@ int pgpWriteLength( INOUT_PTR STREAM *stream,
 	
 	REQUIRES_S( isIntegerRangeNZ( length ) );
 
+	/* A second check for systems with 64-bit longs, for which values over 
+	   4GB would get truncated, as well as 32-bit longs, for which shifting
+	   sign bits causes gcc to throw a wobbly.  Since we should never get
+	   lengths of this size we make it a REQUIRES() rather than a parameter 
+	   check */
+	REQUIRES_S( length < 0x7FFFFFFFL );
+
 	if( length <= 191 )
 		return( sputc( stream, length ) );
 	if( length <= 8383 )
@@ -384,10 +412,10 @@ int pgpWriteLength( INOUT_PTR STREAM *stream,
 		return( sputc( stream, ( adjustedLength & 0xFF ) ) );
 		}
 	sputc( stream, 0xFF );
-	sputc( stream, ( length >> 24 ) & 0xFF );
-	sputc( stream, ( length >> 16 ) & 0xFF );
-	sputc( stream, ( length >> 8 ) & 0xFF );
-	return( sputc( stream, ( length & 0xFF ) ) );
+	sputc( stream, intToByte( length >> 24 ) );
+	sputc( stream, intToByte( length >> 16 ) );
+	sputc( stream, intToByte( length >> 8 ) );
+	return( sputc( stream, intToByte( length ) ) );
 	}
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \

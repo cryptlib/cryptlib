@@ -94,6 +94,7 @@ static int readWantBacks( INOUT_PTR STREAM *stream,
 	status = readConstructed( stream, &length, CTAG_QR_WANTBACK );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 	endPos = stell( stream ) + length;
 	ENSURES( isIntegerRangeMin( endPos, length ) );
 
@@ -251,6 +252,7 @@ static int readScvpRequest( INOUT_PTR STREAM *stream,
 	status = readSequence( stream, &length );
 	if( cryptStatusOK( status ) )
 		{
+		REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 		endPos = stell( stream ) + length;
 		ENSURES( isIntegerRangeMin( endPos, length ) );
 		status = readCertRefs( stream, &sessionInfoPtr->iCertRequest, 
@@ -806,7 +808,7 @@ static int writeReplyObjects( INOUT_PTR STREAM *stream,
 		/* Pseudo-write the wantBack information so that an stell() can 
 		   determine the total length */
 		writeSequence( stream, protocolInfo->wbTotalSize );
-		return( sSkip( stream, protocolInfo->wbTotalSize, SSKIP_MAX ) );
+		return( sExtend( stream, protocolInfo->wbTotalSize, SSKIP_MAX ) );
 		}
 
 	/* Write the overall wrapper for the wantbacks */

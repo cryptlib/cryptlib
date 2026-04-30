@@ -62,6 +62,8 @@ BOOLEAN sanityCheckSessionSSH( IN_PTR const SESSION_INFO *sessionInfoPtr )
 	if( ( sshInfo->authRead != TRUE && sshInfo->authRead != FALSE ) || \
 		sshInfo->partialPacketDataLength < 0 || \
 		sshInfo->partialPacketDataLength >= sessionInfoPtr->receiveBufSize || \
+		sshInfo->packetTraceLength < 0 || \
+		sshInfo->packetTraceLength > MAX_PACKET_TRACE_LENGTH || \
 		!isEnumRangeOpt( sshInfo->prevAuthType, SSH_AUTHTYPE ) )
 		{
 		DEBUG_PUTS(( "sanityCheckSessionSSH: State information" ));

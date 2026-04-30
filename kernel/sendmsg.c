@@ -66,6 +66,7 @@ int checkTargetType( IN_HANDLE const CRYPT_HANDLE originalObjectHandle,
 
 	/* Precondition: Source is a valid object, destination(s) are valid
 	   target(s) */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( originalObjectHandle ) );
 	REQUIRES( isValidType( target ) );
 	REQUIRES( altTarget == OBJECT_TYPE_NONE || isValidType( altTarget ) );
@@ -216,6 +217,7 @@ static void getObjectDescription( IN_HANDLE const int objectHandle,
 
 	assert( isValidObject( objectHandle ) );
 
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES_V( isValidHandle( objectHandle ) );
 	REQUIRES_V( isShortIntegerRangeNZ( descriptionMaxLength ) );
 
@@ -246,7 +248,7 @@ static void getObjectDescription( IN_HANDLE const int objectHandle,
 									   FAILSAFE_ARRAYSIZE( objectNameInfo, \
 														   OBJECT_NAME_INFO ),
 									   objectInfoPtr->subType ) );
-	ENSURES_V( rangeCheck( offset, 14, descriptionMaxLength - 1 ) );
+	ENSURES_V( rangeCheck( offset, 20, descriptionMaxLength - 1 ) );
 	if( objectInfoPtr->owner < NO_SYSTEM_OBJECTS )
 		{
 		length = sprintf_s( description + offset, 
@@ -261,7 +263,8 @@ static void getObjectDescription( IN_HANDLE const int objectHandle,
 							descriptionMaxLength - offset, 
 							" owned by %d", objectInfoPtr->owner );
 		}
-	ENSURES_V( rangeCheck( length, 24, descriptionMaxLength - 1 ) );
+	ENSURES_V( rangeCheck( length, 11, \
+						   descriptionMaxLength - ( offset + 1 ) ) );
 	offset += length;
 	if( objectInfoPtr->dependentObject != CRYPT_ERROR )
 		{
@@ -269,10 +272,11 @@ static void getObjectDescription( IN_HANDLE const int objectHandle,
 							descriptionMaxLength - offset, 
 							", dependent object %d", 
 							objectInfoPtr->dependentObject );
-		ENSURES_V( rangeCheck( length, 44, descriptionMaxLength - 1 ) );
+		ENSURES_V( rangeCheck( length, 20, \
+							   descriptionMaxLength - ( offset + 1 ) ) );
 		offset += length;
 		}
-	ENSURES_V( rangeCheck( offset, 24, descriptionMaxLength - 1 ) );
+	ENSURES_V( rangeCheck( offset, 31, descriptionMaxLength - 1 ) );
 	}
 
 /* Non thread-safe version of the above that can be used directly in
@@ -322,14 +326,17 @@ const char *getObjectTypeDescriptionNT( IN_ENUM( OBJECT_TYPE ) \
 											const OBJECT_SUBTYPE subType )
 	{
 	THREAD_STORAGE_STATIC char buffer[ 128 ];
+	int length;
 
 	REQUIRES_EXT( isValidType( type ), "unknown object type" );
 
-	sprintf_s( buffer, 128, "%s/%s", objectTypeNames[ type ], 
-			   getObjectName( objectNameInfo,
-							  FAILSAFE_ARRAYSIZE( objectNameInfo, \
-												  OBJECT_NAME_INFO ),
-							  subType ) );
+	length = sprintf_s( buffer, 128, "%s/%s", objectTypeNames[ type ], 
+						getObjectName( objectNameInfo,
+									   FAILSAFE_ARRAYSIZE( objectNameInfo, \
+														   OBJECT_NAME_INFO ),
+									   subType ) );
+	ENSURES_EXT( rangeCheck( length, 8, 127 ), 
+				 "object name buffer overflow" );
 
 	return( buffer );
 	}
@@ -359,6 +366,8 @@ static void waitWarn( IN_HANDLE const int objectHandle,
 	assert( waitCount > WAITCOUNT_WARN_THRESHOLD && \
 			waitCount <= MAX_WAITCOUNT );
 
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+
 	getObjectDescription( objectHandle, description, 128 );
 	DEBUG_DIAG(( "\nWarning: Thread %lX waited %d iteration%s for %s",
 				 ( unsigned long ) THREAD_SELF(), waitCount, 
@@ -376,6 +385,8 @@ int waitForObject( IN_HANDLE const int objectHandle,
 	LOOP_INDEX waitCount;
 
 	/* Preconditions: The object is in use by another thread */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isInUse( objectHandle ) && !isObjectOwner( objectHandle ) );
 
@@ -435,6 +446,7 @@ int waitForObject( IN_HANDLE const int objectHandle,
 			}
 		MUTEX_LOCK( objectTable );
 		objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
+		REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 		}
 	ENSURES( LOOP_BOUND_OK );
 #if defined( USE_ERRMSGS ) && !defined( NDEBUG ) && !defined( __WIN16__ )
@@ -505,6 +517,7 @@ int findTargetType( IN_HANDLE const CRYPT_HANDLE originalObjectHandle,
 
 	/* Preconditions: Source is a valid object, destination(s) are valid
 	   target(s) */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isValidType( target ) );
 	REQUIRES( altTarget1 == OBJECT_TYPE_NONE || isValidType( altTarget1 ) );
@@ -598,6 +611,7 @@ static int routeCompareMessageTarget( IN_HANDLE const CRYPT_HANDLE originalObjec
 	int status;
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( originalObjectHandle ) );
 	REQUIRES( messageValue == MESSAGE_COMPARE_HASH || \
 			  messageValue == MESSAGE_COMPARE_ICV || \
@@ -1176,6 +1190,8 @@ static int initMessageQueue( void )
 
 	assert( isWritePtr( krnlData, sizeof( KERNEL_DATA ) ) );
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+
 	LOOP_EXT( i = 0, i < MESSAGE_QUEUE_SIZE, i++, MESSAGE_QUEUE_SIZE + 1 )
 		{
 		ENSURES( LOOP_INVARIANT_EXT( i, 0, MESSAGE_QUEUE_SIZE - 1,
@@ -1342,6 +1358,8 @@ static int enqueueMessage( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( handlingInfoPtr, sizeof( MESSAGE_HANDLING_INFO ) ) );
 
 	/* Precondition: It's a valid message being sent to a valid object */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isValidMessage( message & MESSAGE_MASK ) );
 
@@ -1389,7 +1407,10 @@ static int enqueueMessage( IN_HANDLE const int objectHandle,
 		+---------------+		+---------------+
 			   ^	 ^					 ^	   ^
 			  qPos	qEnd				qPos  qEnd */
+	REQUIRES( ( queuePos == -1 ) || \
+			  !checkOverflowInc( queuePos ) );
 	queuePos++;		/* Insert after current position */
+	ENSURES( queuePos >= 0 && queuePos <= krnlData->queueEnd );
 	LOOP_EXT_REV( i = krnlData->queueEnd - 1, i >= queuePos, i--, 
 				  MESSAGE_QUEUE_SIZE + 1 )
 		{
@@ -1406,6 +1427,7 @@ static int enqueueMessage( IN_HANDLE const int objectHandle,
 	DATAPTR_SET( messageQueue[ queuePos ].messageDataPtr, 
 				 ( void * ) messageDataPtr );
 	messageQueue[ queuePos ].messageValue = messageValue;
+	REQUIRES( !checkOverflowInc( krnlData->queueEnd ) );
 	krnlData->queueEnd++;
 
 	/* Postcondition: The queue is within bounds and has grown by one 
@@ -1435,6 +1457,7 @@ static int dequeueMessage( IN_RANGE( 0, MESSAGE_QUEUE_SIZE ) \
 	ORIGINAL_INT_VAR( queueEnd, krnlData->queueEnd );
 
 	/* Precondition: We're deleting a valid queue position */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( messagePosition >= 0 && \
 			  messagePosition < krnlData->queueEnd );
 	REQUIRES( krnlData->queueEnd > 0 && \
@@ -1455,6 +1478,7 @@ static int dequeueMessage( IN_RANGE( 0, MESSAGE_QUEUE_SIZE ) \
 	zeroise( messageQueuePtr, sizeof( MESSAGE_QUEUE_DATA ) );
 	DATAPTR_SET( messageQueuePtr->handlingInfoPtr, NULL );
 	DATAPTR_SET( messageQueuePtr->messageDataPtr, NULL );
+	REQUIRES( !checkOverflowDec( krnlData->queueEnd ) );
 	krnlData->queueEnd--;
 
 	/* Postcondition: the queue is one element shorter, all queue entries 
@@ -1486,6 +1510,7 @@ static BOOLEAN getNextMessage( IN_HANDLE const int objectHandle,
 	/* Preconditions: It's a valid object table entry.  It's not necessarily
 	   a valid object since we may be de-queueing messages for it because 
 	   it's just been destroyed */
+	REQUIRES_B( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
 	REQUIRES_B( objectHandle == SYSTEM_OBJECT_HANDLE || \
 				objectHandle == DEFAULTUSER_OBJECT_HANDLE || \
@@ -1510,8 +1535,8 @@ static BOOLEAN getNextMessage( IN_HANDLE const int objectHandle,
 	   time */
 	LOOP_EXT( i = 0, i < krnlData->queueEnd, i++, MESSAGE_QUEUE_SIZE + 1 )
 		{
-		ENSURES( LOOP_INVARIANT_EXT( i, 0, krnlData->queueEnd - 1,
-									 MESSAGE_QUEUE_SIZE + 1 ) );
+		ENSURES_B( LOOP_INVARIANT_EXT( i, 0, krnlData->queueEnd - 1,
+									   MESSAGE_QUEUE_SIZE + 1 ) );
 
 		if( messageQueue[ i ].objectHandle == objectHandle )
 			{
@@ -1546,6 +1571,7 @@ static void dequeueAllMessages( IN_HANDLE const int objectHandle )
 	/* Preconditions: It's a valid object table entry.  It's not necessarily
 	   a valid object since we may be de-queueing messages for it because 
 	   it's just been destroyed */
+	REQUIRES_V( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
 	REQUIRES_V( objectHandle == SYSTEM_OBJECT_HANDLE || \
 				objectHandle == CRYPTO_OBJECT_HANDLE || \
@@ -1595,6 +1621,7 @@ static int processInternalMessage( IN_HANDLE const int localObjectHandle,
 	assert( isReadPtr( handlingInfoPtr, sizeof( MESSAGE_HANDLING_INFO ) ) );
 
 	/* Precondition: It's a valid message being sent to a valid object */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( localObjectHandle ) );
 	REQUIRES( isValidMessage( message & MESSAGE_MASK ) );
 
@@ -1698,6 +1725,8 @@ static int dispatchMessage( IN_HANDLE const int localObjectHandle,
 	assert( isWritePtr( objectInfoPtr, sizeof( OBJECT_INFO ) ) );
 	assert( isReadPtr( handlingInfoPtr, sizeof( MESSAGE_HANDLING_INFO ) ) );
 
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( localObjectHandle ) );
 	REQUIRES( !isInUse( localObjectHandle ) || \
 			  isObjectOwner( localObjectHandle ) );
@@ -1735,6 +1764,7 @@ static int dispatchMessage( IN_HANDLE const int localObjectHandle,
 	   exclusive use and further messages to it will be enqueued, dispatch
 	   the message with the object table unlocked, and mark the object as
 	   non-busy again */
+	REQUIRES( !checkOverflowInc( objectInfoPtr->lockCount ) );
 	objectInfoPtr->lockCount++;
 #ifdef USE_THREADS
 	objectInfoPtr->lockOwner = THREAD_SELF();
@@ -1745,11 +1775,15 @@ static int dispatchMessage( IN_HANDLE const int localObjectHandle,
 							  messageQueueData->messageValue );
 	MUTEX_LOCK( objectTable );
 	objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	objectInfoPtr = &objectTable[ localObjectHandle ];
 	if( !isValidType( objectInfoPtr->type ) )
 		retIntError();	/* Something catastrophic happened while unlocked */
 	if( !( mayUnlock && isMessageObjectUnlocked( &messageExtInfo ) ) )
+		{
+		REQUIRES( !checkOverflowDec( objectInfoPtr->lockCount ) );
 		objectInfoPtr->lockCount--;
+		}
 
 	/* Postcondition: The lock count is non-negative and, if it's not the
 	   system object, has been reset to its previous value */
@@ -1861,6 +1895,7 @@ int krnlSendMessage( IN_HANDLE const int objectHandle,
 	   programming errors (thus for example isValidHandle() vs.
 	   isValidObject(), since this would trap if a message is sent to a
 	   destroyed object) */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( isValidMessage( localMessage ) );
 	REQUIRES( !isInternalMessage || isValidHandle( objectHandle ) );
 
@@ -1947,6 +1982,7 @@ int krnlSendMessage( IN_HANDLE const int objectHandle,
 	   access it */
 	MUTEX_LOCK( objectTable );
 	objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 
 	/* The first line of defence: Make sure that the message is being sent
 	   to a valid object and that the object is externally visible and

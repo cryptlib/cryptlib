@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib HTTP Interface Header						*
-*						Copyright Peter Gutmann 1998-2017					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -23,8 +23,9 @@
 
 /* The size of the HTTP text-line buffer when we're using a dedicated buffer
    to read header lines rather than the main stream buffer, and the minimum 
-   size that we'll accept in functions that use the line buffer.  Any data
-   that goes past HTTP_LINEBUF_SIZE is dropped */
+   size that we'll accept in functions that use the line buffer.  Any 
+   additional data that goes past HTTP_LINEBUF_SIZE is discarded, HTTP as a 
+   substrate shouldn't have lines this long */
 
 #define MIN_LINEBUF_SIZE	512
 #define HTTP_LINEBUF_SIZE	1024
@@ -50,10 +51,10 @@
 #define HTTP_FLAG_UPGRADE	0x20	/* Operation is HTTP Upgrade */
 #define HTTP_FLAG_MAX		0x3F	/* Maximum possible flag value */
 
-/* The minimum and maximum HTTP status values */
+/* The minimum and maximum HTTP status codes */
 
-#define MIN_HTTP_STATUS		0
-#define MAX_HTTP_STATUS		600
+#define MIN_HTTP_STATUS		100
+#define MAX_HTTP_STATUS		599
 
 /* HTTP header parsing information as used by readHeaderLines() */
 
@@ -110,16 +111,19 @@ BOOLEAN sanityCheckHttpDataInfo( const HTTP_DATA_INFO *httpDataInfo );
 #endif /* !CONFIG_CONSERVE_MEMORY_EXTRA */
 CHECK_RETVAL_PTR \
 const HTTP_STATUS_INFO *getHTTPStatusInfo( IN_INT const int httpStatus );
-STDC_NONNULL_ARG( ( 1, 2 ) ) \
+STDC_NONNULL_ARG( ( 1 ) ) \
 int sendHTTPError( INOUT_PTR STREAM *stream, 
-				   OUT_BUFFER_FIXED( headerBufMaxLen ) char *headerBuffer, 
-				   IN_LENGTH_SHORT_MIN( MIN_LINEBUF_SIZE ) \
-						const int headerBufMaxLen, 
 				   IN_INT const int httpStatus );
 CHECK_RETVAL_RANGE( 0, 8 ) STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int checkHTTPID( IN_BUFFER( dataLength ) const char *data, 
 				 IN_LENGTH_SHORT const int dataLength, 
 				 INOUT_PTR STREAM *stream );
+STDC_NONNULL_ARG( ( 1, 4 ) ) \
+int retTextLineError( INOUT_PTR STREAM *stream, 
+					  IN_ERROR const int status, 
+					  IN_BOOL const BOOLEAN isTextLineError, 
+					  FORMAT_STRING const char *format, 
+					  const int value );
 
 /* Prototypes for functions in http_wr.c */
 
@@ -133,7 +137,7 @@ int writeRequestHeader( INOUT_PTR STREAM *stream,
 						IN_BOOL const BOOLEAN forceGet );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int sendHTTPData( INOUT_PTR STREAM *stream, 
-				  IN_BUFFER( length ) void *buffer, 
+				  IN_BUFFER( length ) const void *buffer, 
 				  IN_LENGTH const int length, 
 				  IN_FLAGS_Z( TRANSPORT ) const int flags );
 STDC_NONNULL_ARG( ( 1 ) ) \
@@ -167,10 +171,4 @@ int readTrailerLines( INOUT_PTR STREAM *stream,
 					  OUT_BUFFER_FIXED( lineBufMaxLen ) char *lineBuffer, 
 					  IN_LENGTH_SHORT_MIN( MIN_LINEBUF_SIZE ) \
 							const int lineBufMaxLen );
-STDC_NONNULL_ARG( ( 1, 4 ) ) \
-int retTextLineError( INOUT_PTR STREAM *stream, IN_ERROR const int status, 
-					  IN_BOOL const BOOLEAN isTextLineError, 
-					  FORMAT_STRING const char *format, 
-					  const int value );
-
 #endif /* _HTTP_DEFINED */

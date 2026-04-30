@@ -324,7 +324,7 @@ static int selfTest( void )
 #else
 	/* Emulation of what the above code would do */
 	pkcInfo->dlpParam_p.d[ 8 ] ^= 0x0011;
-	status = checksumContextData( pkcInfo, CRYPT_ALGO_ELGAMAL, TRUE );
+	status = checksumContextData( pkcInfo, TRUE );
 	if( !cryptStatusError( status ) )
 		{
 		staticDestroyContext( &contextInfo );
@@ -407,6 +407,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			break;
 		}
 	ENSURES( LOOP_BOUND_OK );
+	REQUIRES( !checkOverflowSub( length, i ) );
 	if( length - i < MIN_PKCSIZE - 8 )
 		return( CRYPT_ERROR_BADDATA );
 
@@ -564,6 +565,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   that aren't extracted from the bignum.  In addition we can't use
 	   the length returned from exportBignum() because this is the length 
 	   of the zero-truncated result, not the full length */
+	REQUIRES( !checkOverflowSub( length, BN_num_bytes( s ) ) );
 	offset = length - BN_num_bytes( s );
 	ENSURES( offset >= 0 && offset <= length );
 	if( offset > 0 )
@@ -576,6 +578,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		memset( dlpParams->outParam, 0, offset );
 		}
 	dlpParams->outLen = length;
+	REQUIRES( !checkOverflowSub( dlpParams->outLen, offset ) );
 	status = exportBignum( dlpParams->outParam + offset, 
 						   dlpParams->outLen - offset, &dummy, s );
 	if( cryptStatusError( status ) )
@@ -622,7 +625,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		if( egKey->isPublicKey )
 			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPUBLICKEY );
 		else
-			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPRIVATEKEY );
+			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		status = importBignum( &pkcInfo->dlpParam_p, egKey->p, 
 							   bitsToBytes( egKey->pLen ),
 							   DLPPARAM_MIN_P, DLPPARAM_MAX_P, NULL, 

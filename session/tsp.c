@@ -913,7 +913,9 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( type == CRYPT_SESSINFO_RESPONSE || \
 			  type == CRYPT_IATTRIBUTE_ENC_TIMESTAMP );
-	REQUIRES( isBufsizeRange( dataSize ) );
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufEnd,
+								 sessionInfoPtr->receiveBufPos ) );
+	ENSURES( isBufsizeRange( dataSize ) );
 
 	/* Make sure that there's actually a timestamp present (this can happen 
 	   if we're using a persistent session and a subsequent transaction

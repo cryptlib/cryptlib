@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							cryptlib Internal API							*
-*						Copyright Peter Gutmann 1992-2022					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -28,183 +28,6 @@
 	defined( TRUE_REDEFINED )
   #pragma message( "Warning: TRUE has been defined externally, redefining for cryptlib use." )
 #endif /* TRUE_REDEFINED */
-
-/* Perform the FIPS-140 statistical checks that are feasible on a byte
-   string.  The full suite of tests assumes that an infinite source of
-   values (and time) is available, the following is a scaled-down version
-   used to sanity-check keys and other short random data blocks.  Note that
-   this check requires at least 64 bits of data in order to produce useful
-   results */
-
-CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
-static BOOLEAN checkNontrivialKey( IN_BUFFER( dataLength ) const BYTE *data, 
-								   IN_LENGTH_SHORT_MIN( MIN_KEYSIZE ) \
-										const int dataLength )
-	{
-	LOOP_INDEX i;
-	int count = 0;
-
-	REQUIRES_B( isShortIntegerRangeMin( dataLength, MIN_KEYSIZE ) );
-
-	/* Check that it's not just a text string */
-	LOOP_LARGE( i = 0, i < dataLength, i++	)
-		{
-		ENSURES_B( LOOP_INVARIANT_LARGE( i, 0, dataLength - 1 ) );
-
-		if( !isAlnum( data[ i ] ) )
-			break;
-		}
-	ENSURES_B( LOOP_BOUND_OK );
-	if( i >= dataLength )
-		return( FALSE );
-
-	/* Check for a run of more than 64 bits of identical or near-identical 
-	   values.  This isn't detected by checkEntropy() because it looks at
-	   the overall entropy, not localised blocks of low entropy.
-	   
-	   The lower bound of 64 bits of identical values is for the fixed DH 
-	   values which have all ones in the MSB and LSB */
-	LOOP_LARGE( i = 1, i < dataLength, i++ )
-		{
-		ENSURES( LOOP_INVARIANT_LARGE( i, 1, dataLength - 1 ) );
-		
-		if( abs( data[ i ] - data[ i - 1 ] ) <= 8 )
-			{
-			count++;
-			if( count > 8 )
-				return( FALSE );
-			}
-		else
-			{
-			count = 0;
-			}
-		}
-	ENSURES( LOOP_BOUND_OK );
-
-	return( TRUE );
-	}
-
-CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
-BOOLEAN checkEntropy( IN_BUFFER( dataLength ) const BYTE *data, 
-					  IN_LENGTH_SHORT_MIN( MIN_KEYSIZE ) const int dataLength )
-	{
-	const int minCount = ( dataLength / 2 ) - ( dataLength <= 16 ? 1 : 0 );
-	LOOP_INDEX i;
-	int bitCount[ 4 + 8 ], noOnes, exceptionCount = 0, errorCount = 0;
-
-	assert( isReadPtrDynamic( data, dataLength ) );
-
-	REQUIRES_B( isShortIntegerRangeMin( dataLength, MIN_KEYSIZE ) );
-
-	/* Make sure that we haven't been given an obviously non-random key */
-	if( !checkNontrivialKey( data, dataLength ) )
-		return( FALSE );
-
-	memset( bitCount, 0, 4 * sizeof( int ) );
-	LOOP_LARGE( i = 0, i < dataLength, i++ )
-		{
-		int value;
-
-		ENSURES_B( LOOP_INVARIANT_LARGE( i, 0, dataLength - 1 ) );
-
-		value = byteToInt( data[ i ] );
-		bitCount[ value & 3 ]++;
-		bitCount[ ( value >> 2 ) & 3 ]++;
-		bitCount[ ( value >> 4 ) & 3 ]++;
-		bitCount[ ( value >> 6 ) & 3 ]++;
-		}
-	ENSURES_B( LOOP_BOUND_OK );
-
-	/* Monobit test: Make sure that at least 1/4 of the bits are ones and 1/4
-	   are zeroes */
-	noOnes = bitCount[ 1 ] + bitCount[ 2 ] + ( 2 * bitCount[ 3 ] );
-	if( noOnes < dataLength * 2 || noOnes > dataLength * 6 )
-		{
-		zeroise( bitCount, 4 * sizeof( int ) );
-		return( FALSE );
-		}
-
-	/* Poker test (almost): Make sure that each bit pair is present at least
-	   1/16 of the time.  The FIPS 140 version uses 4-bit values but the
-	   numer of samples available from the keys is far too small for this so
-	   we can only use 2-bit values.
-
-	   Even then the small sample size leads to unacceptable FP rates so for
-	   short samples (<= 128 bits) we adjust the count by one and in addition
-	   allow a single value to be one below that in order to avoid getting too
-	   many FPs */	
-	LOOP_SMALL( i = 0, i < 4, i++ )
-		{
-		ENSURES_B( LOOP_INVARIANT_SMALL( i, 0, 3 ) );
-
-		if( bitCount[ i ] == minCount - 1 )
-			exceptionCount++;
-		else
-			{
-			if( bitCount[ i ] < minCount - 1 )
-				errorCount++;
-			}
-		}
-	zeroise( bitCount, 4 * sizeof( int ) );
-
-	return( ( errorCount > 0 || exceptionCount > 1 ) ? FALSE : TRUE );
-	}
-
-/* Check a bignum for suspicious patterns.  This is very vaguely-defined and 
-   is only enabled in debug mode to prevent false positives, for now all that
-   we do is the basic entropy check applied to all keys */
-
-#ifndef NDEBUG
-
-CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
-BOOLEAN checkEntropyInteger( IN_BUFFER( length ) const BYTE *buffer, 
-							 IN_LENGTH_PKC_Z const int length )
-	{
-	assert( isReadPtrDynamic( buffer, length ) );
-
-	REQUIRES( length >= 0 && length <= CRYPT_MAX_PKCSIZE );
-
-	/* If the data amount is too small to be able to draw any conclusions 
-	   from it, don't try and perform any checking */
-	if( length < MIN_KEYSIZE )
-		return( TRUE );
-
-	/* Perform a basic entropy check */
-	if( !checkEntropy( buffer, length ) )
-		return( FALSE );
-
-	/* Optional further checks here */
-
-	return( TRUE );
-	}
-#endif /* !NDEBUG */
-
-/* Check whether a block of 64 bits of data is all-zeroes, typically used 
-   for sanity-check functions that check contexts for validity.  
-   
-   Note that the length value provided to this function isn't the length of
-   the data being provided, which is fixed at 8 bytes, but the length value
-   that the caller has for the data.  If it's nonzero then we don't check
-   the data contents, only if it's zero do we go on to check whether the
-   data is also zero */
-
-CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
-BOOLEAN isEmptyData( IN_BUFFER_C( 8 ) const BYTE data[ 8 ],
-					 IN_LENGTH_SHORT_Z const int dataLengthValue )
-	{
-	assert( isReadPtr( data, 8 ) );
-
-	REQUIRES_B( isShortIntegerRange( dataLengthValue ) );
-
-	/* Perform a quick-reject check before calling the more expensive
-	   memcmp() */
-	if( dataLengthValue != 0 || data[ 0 ] != 0x00 )
-		return( FALSE );
-
-	/* Check whether the first 64 bits are zero */
-	return( memcmp( data, "\x00\x00\x00\x00\x00\x00\x00\x00", 8 ) ? \
-			FALSE : TRUE );
-	}
 
 /* Perform a bounds check on pointers to blocks of memory, verifying that an
    inner block of memory is contained entirely within an outer block of 
@@ -268,7 +91,9 @@ BOOLEAN pointerBoundsCheck( IN_PTR_OPT const void *data,
    constant expression.
    
    This function isn't decorated with attributes because it both takes and 
-   produces arbitrary-range integers */
+   produces arbitrary-range integers.  It also doesn't check for overflows
+   and similar because it doesn't matter if a few bits get lost, as long as
+   the results are consistent */
 
 CFI_CHECK_TYPE cfiCheckSequence( const CFI_CHECK_TYPE initValue, 
 								 const CFI_CHECK_TYPE label1Value,
@@ -571,12 +396,298 @@ const char *getObjectName( IN_ARRAY( objectNameInfoSize ) \
 
 /****************************************************************************
 *																			*
+*							Data-checking Functions							*
+*																			*
+****************************************************************************/
+
+/* Perform the FIPS-140 statistical checks that are feasible on a byte
+   string.  The full suite of tests assumes that an infinite source of
+   values (and time) is available, the following is a scaled-down version
+   used to sanity-check keys and other short random data blocks.  Note that
+   this check requires at least 64 bits of data in order to produce useful
+   results */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+static BOOLEAN checkNontrivialKey( IN_BUFFER( dataLength ) const BYTE *data, 
+								   IN_LENGTH_SHORT_MIN( MIN_KEYSIZE ) \
+										const int dataLength )
+	{
+	LOOP_INDEX i;
+	int count = 0;
+
+	REQUIRES_B( isShortIntegerRangeMin( dataLength, MIN_KEYSIZE ) );
+
+	/* Check that it's not just a text string */
+	LOOP_LARGE( i = 0, i < dataLength, i++	)
+		{
+		ENSURES_B( LOOP_INVARIANT_LARGE( i, 0, dataLength - 1 ) );
+
+		if( !isAlnum( data[ i ] ) )
+			break;
+		}
+	ENSURES_B( LOOP_BOUND_OK );
+	if( i >= dataLength )
+		return( FALSE );
+
+	/* Check for a run of more than 64 bits of identical or near-identical 
+	   values.  This isn't detected by checkEntropy() because it looks at
+	   the overall entropy, not localised blocks of low entropy.
+	   
+	   The lower bound of 64 bits of identical values is for the fixed DH 
+	   values which have all ones in the MSB and LSB */
+	LOOP_LARGE( i = 1, i < dataLength, i++ )
+		{
+		ENSURES_B( LOOP_INVARIANT_LARGE( i, 1, dataLength - 1 ) );
+		
+		if( abs( data[ i ] - data[ i - 1 ] ) <= 8 )
+			{
+			count++;
+			if( count > 8 )
+				return( FALSE );
+			}
+		else
+			{
+			count = 0;
+			}
+		}
+	ENSURES_B( LOOP_BOUND_OK );
+
+	return( TRUE );
+	}
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN checkEntropy( IN_BUFFER( dataLength ) const BYTE *data, 
+					  IN_LENGTH_SHORT_MIN( MIN_KEYSIZE ) const int dataLength )
+	{
+	const int minCount = ( dataLength / 2 ) - ( dataLength <= 16 ? 1 : 0 );
+	LOOP_INDEX i;
+	int bitCount[ 4 + 8 ], noOnes, exceptionCount = 0, errorCount = 0;
+
+	assert( isReadPtrDynamic( data, dataLength ) );
+
+	REQUIRES_B( isShortIntegerRangeMin( dataLength, MIN_KEYSIZE ) );
+
+	/* Make sure that we haven't been given an obviously non-random key */
+	if( !checkNontrivialKey( data, dataLength ) )
+		return( FALSE );
+
+	memset( bitCount, 0, 4 * sizeof( int ) );
+	LOOP_LARGE( i = 0, i < dataLength, i++ )
+		{
+		int value;
+
+		ENSURES_B( LOOP_INVARIANT_LARGE( i, 0, dataLength - 1 ) );
+
+		value = byteToInt( data[ i ] );
+		bitCount[ value & 3 ]++;
+		bitCount[ ( value >> 2 ) & 3 ]++;
+		bitCount[ ( value >> 4 ) & 3 ]++;
+		bitCount[ ( value >> 6 ) & 3 ]++;
+		}
+	ENSURES_B( LOOP_BOUND_OK );
+
+	/* Monobit test: Make sure that at least 1/4 of the bits are ones and 1/4
+	   are zeroes */
+	noOnes = bitCount[ 1 ] + bitCount[ 2 ] + ( 2 * bitCount[ 3 ] );
+	if( noOnes < dataLength * 2 || noOnes > dataLength * 6 )
+		{
+		zeroise( bitCount, 4 * sizeof( int ) );
+		return( FALSE );
+		}
+
+	/* Poker test (almost): Make sure that each bit pair is present at least
+	   1/16 of the time.  The FIPS 140 version uses 4-bit values but the
+	   numer of samples available from the keys is far too small for this so
+	   we can only use 2-bit values.
+
+	   Even then the small sample size leads to unacceptable FP rates so for
+	   short samples (<= 128 bits) we adjust the count by one and in addition
+	   allow a single value to be one below that in order to avoid getting too
+	   many FPs */	
+	LOOP_SMALL( i = 0, i < 4, i++ )
+		{
+		ENSURES_B( LOOP_INVARIANT_SMALL( i, 0, 3 ) );
+
+		if( bitCount[ i ] == minCount - 1 )
+			exceptionCount++;
+		else
+			{
+			if( bitCount[ i ] < minCount - 1 )
+				errorCount++;
+			}
+		}
+	ENSURES_B( LOOP_BOUND_OK );
+	zeroise( bitCount, 4 * sizeof( int ) );
+
+	return( ( errorCount > 0 || exceptionCount > 1 ) ? FALSE : TRUE );
+	}
+
+/* Check a bignum for suspicious patterns.  This is very vaguely-defined and 
+   is only enabled in debug mode to prevent false positives, for now all that
+   we do is the basic entropy check applied to all keys */
+
+#ifndef NDEBUG
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN checkEntropyInteger( IN_BUFFER( length ) const BYTE *buffer, 
+							 IN_LENGTH_PKC_Z const int length )
+	{
+	assert( isReadPtrDynamic( buffer, length ) );
+
+	REQUIRES_B( length >= 0 && length <= CRYPT_MAX_PKCSIZE );
+
+	/* If the data amount is too small to be able to draw any conclusions 
+	   from it, don't try and perform any checking */
+	if( length < MIN_KEYSIZE )
+		return( TRUE );
+
+	/* Perform a basic entropy check */
+	if( !checkEntropy( buffer, length ) )
+		return( FALSE );
+
+	/* Optional further checks here */
+
+	return( TRUE );
+	}
+#endif /* !NDEBUG */
+
+/* Check whether a block of 64 bits of data is all-zeroes, used for sanity-
+   check functions that check contexts for validity so the usage
+   is checking whether { data[], length } is all-zero.  Because of this the 
+   length value provided to this function isn't the length of the data being 
+   provided, which is fixed at 8 bytes, but the length value that the caller 
+   has for the data.  If it's nonzero then we don't check the data contents, 
+   only if it's zero do we go on to check whether the data it's matched with 
+   is also zero */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN isEmptyData( IN_BUFFER_C( 8 ) const BYTE data[ 8 ],
+					 IN_LENGTH_SHORT_Z const int dataLengthValue )
+	{
+	assert( isReadPtr( data, 8 ) );
+
+	REQUIRES_B( isShortIntegerRange( dataLengthValue ) );
+
+	/* Perform a quick-reject check before calling the more expensive
+	   memcmp() */
+	if( dataLengthValue != 0 || data[ 0 ] != 0x00 )
+		return( FALSE );
+
+	/* Check whether the first 64 bits are zero */
+	return( memcmp( data, "\x00\x00\x00\x00\x00\x00\x00\x00", 8 ) ? \
+			FALSE : TRUE );
+	}
+
+/* When we're comparing two cryptographic values, for example two MAC 
+   values, and the developer's been careful to implement things really 
+   badly, it may be possible to use a timing attack to guess a MAC value a
+   byte at a time by using a high-resolution timer to check at which byte
+   the memcmp() exits, thus guessing the MAC value a byte at a time in the
+   same way that the old TENEX password-guessing bug worked.
+   
+   This seems highly unlikely given that cryptlib implementations of 
+   protocols won't allow themselves to be used as an oracle in this manner 
+   and for someone using cryptlib to implement their own protocol the 
+   overhead of a trip through the kernel will mask out a few clock cycles of 
+   difference in the memcmp() at the end, but we defend against it anyway 
+   because no doubt someone will eventually publish a CERT advisory on it 
+   being a problem in some app somewhere.  Note that we explicitly return 
+   TRUE or FALSE since calling functions explicitly check for a return value 
+   of TRUE rather than just zero/non-zero.
+   
+   Test for compiler mangling with the following, with -O it produces code
+   as expected, with -O2/O3 it produces an incomprehensible mass of SSE 
+   instructions:
+
+	int compare( const void *src, const void *dest, const int length )
+		{
+		const unsigned char *srcPtr = src, *destPtr = dest;
+		int value = 0, i;
+
+		for( i = 0; i < length; i++ )
+			value |= srcPtr[ i ] ^ destPtr[ i ];
+
+		return( value ? 0x12345 : 0 );
+		} */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+BOOLEAN compareDataConstTime( IN_BUFFER( length ) const void *src,
+							  IN_BUFFER( length ) const void *dest,
+							  IN_LENGTH_SHORT const int length )
+	{
+	const BYTE *srcPtr = src, *destPtr = dest;
+	LOOP_INDEX i;
+	int value = 0;
+
+	assert( isReadPtrDynamic( src, length ) );
+	assert( isReadPtrDynamic( dest, length ) );
+
+	REQUIRES_B( isShortIntegerRangeNZ( length ) );
+
+	/* Compare the two values in a time-independent manner */
+	LOOP_MAX( i = 0, i < length, i++ )
+		{
+		ENSURES_B( LOOP_INVARIANT_MAX( i, 0, length - 1 ) );
+
+		value |= srcPtr[ i ] ^ destPtr[ i ];
+		}
+	ENSURES_B( LOOP_BOUND_OK );
+
+	return( value ? FALSE : TRUE );
+	}
+
+/* Check for a block of zeroes in a time-independent manner.  This is used 
+   to check bignum values for suspicious amounts of leading zeroes, typically
+   (ECD)DH outputs to make sure that an attacker hasn't forced us into a 
+   small subrange of values.
+
+   Test for compiler mangling with the following, with -O it produces code
+   as expected, with -O2/O3 it produces an incomprehensible mass of SSE 
+   instructions:
+
+	int check( const void *data, const int length )
+		{
+		const unsigned char *dataPtr = data;
+		int value = 0, i;
+
+		for( i = 0; i < length; i++ )
+			value |= dataPtr[ i ];
+
+		return( value ? 0 : 0x12345 );
+		} */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN checkZeroConstTime( IN_BUFFER( strLen ) const void *data,
+						IN_LENGTH_SHORT const int length )
+	{
+	const BYTE *dataPtr = data;
+	LOOP_INDEX i;
+	int value = 0;
+
+	assert( isReadPtrDynamic( data, length ) );
+
+	REQUIRES_EXT( isShortIntegerRangeNZ( length ), TRUE );
+
+	LOOP_MAX( i = 0, i < length, i++ )
+		{
+		ENSURES_EXT( LOOP_INVARIANT_MAX( i, 0, length - 1 ), TRUE );
+
+		value |= dataPtr[ i ];
+		}
+	ENSURES_EXT( LOOP_BOUND_OK, TRUE );
+
+	return( value ? FALSE : TRUE );
+	}
+
+/****************************************************************************
+*																			*
 *							Checksum/Hash Functions							*
 *																			*
 ****************************************************************************/
 
 /* Calculate a 16-bit Fletcher-like checksum for a block of data.  This 
-   isn't a true Fletcher checksum but this isn't a big deal since all we 
+   isn't a true Fletcher checksum (and like the CFI hashing it ignores
+   overflows, for the same reason) but this isn't a big deal since all we 
    need is consistent results for identical data, the value itself is never 
    communicated externally.  In cases where it's used in critical checks 
    it's merely used as a quick pre-check for a full hash-based check, so it 
@@ -597,7 +708,7 @@ int checksumData( IN_BUFFER( dataLength ) const void *data,
 	assert( isReadPtrDynamic( data, dataLength ) );
 
 	REQUIRES( data != NULL );
-	REQUIRES( isBufsizeRangeNZ( dataLength ) )
+	REQUIRES( isBufsizeRangeNZ( dataLength ) );
 
 	LOOP_MAX( i = 0, i < dataLength, i++ )
 		{
@@ -678,38 +789,6 @@ void hashData( OUT_BUFFER_FIXED( hashMaxLength ) BYTE *hash,
 	zeroise( hashBuffer, hashSize );
 	}
 
-/* Compare two blocks of memory in a time-independent manner.  This is used 
-   to avoid potential timing attacks on memcmp(), which bails out as soon as
-   it finds a mismatch.  Note that we explicitly return TRUE or FALSE since
-   calling functions explicitly check for a return value of TRUE rather than 
-   just zero/non-zero */
-
-CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-BOOLEAN compareDataConstTime( IN_BUFFER( length ) const void *src,
-							  IN_BUFFER( length ) const void *dest,
-							  IN_LENGTH_SHORT const int length )
-	{
-	const BYTE *srcPtr = src, *destPtr = dest;
-	LOOP_INDEX i;
-	int value = 0;
-
-	assert( isReadPtrDynamic( src, length ) );
-	assert( isReadPtrDynamic( dest, length ) );
-
-	REQUIRES_B( isShortIntegerRangeNZ( length ) );
-
-	/* Compare the two values in a time-independent manner */
-	LOOP_MAX( i = 0, i < length, i++ )
-		{
-		ENSURES( LOOP_INVARIANT_MAX( i, 0, length - 1 ) );
-
-		value |= srcPtr[ i ] ^ destPtr[ i ];
-		}
-	ENSURES( LOOP_BOUND_OK );
-
-	return( value ? FALSE : TRUE );
-	}
-
 /****************************************************************************
 *																			*
 *							Stream Export/Import Routines					*
@@ -774,7 +853,7 @@ static int exportAttr( INOUT_PTR STREAM *stream,
 	status = krnlSendMessage( cryptHandle, IMESSAGE_GETATTRIBUTE_S,
 							  &msgData, attributeType );
 	if( cryptStatusOK( status ) )
-		status = sSkip( stream, msgData.length, SSKIP_MAX );
+		status = sExtend( stream, msgData.length, SSKIP_MAX );
 	return( status );
 	}
 
@@ -843,7 +922,7 @@ int exportCertToStream( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr,
 	status = krnlSendMessage( cryptCertificate, IMESSAGE_CRT_EXPORT,
 							  &msgData, certFormatType );
 	if( cryptStatusOK( status ) )
-		status = sSkip( stream, msgData.length, SSKIP_MAX );
+		status = sExtend( stream, msgData.length, SSKIP_MAX );
 	return( status );
 	}
 
@@ -956,7 +1035,9 @@ static int checkKeyLength( INOUT_PTR STREAM *stream,
 		status = readBitStringHole( stream, &keyLength, 
 									MIN_PKCSIZE_ECCPOINT_THRESHOLD, 
 									DEFAULT_TAG );
-		if( cryptStatusOK( status ) && isShortECCKey( keyLength / 2 ) )
+		if( cryptStatusOK( status ) && \
+			( checkOverflowDiv( keyLength, 2 ) || \
+			  isShortECCKey( keyLength / 2 ) ) )
 			status = CRYPT_ERROR_NOSECURE;
 		if( cryptStatusError( status ) )
 			return( status );
@@ -1070,7 +1151,8 @@ int iCryptReadSubjectPublicKey( INOUT_PTR TYPECAST( STREAM * ) struct ST *stream
 	/* Since we're doing a direct import of a memory block, make sure that 
 	   the claimed object length as given in the wrapper matches the actual 
 	   payload length */
-	if( stell( stream ) - startPos != spkiLength )
+	if( checkOverflowSub( stell( stream ), startPos ) || \
+		stell( stream ) - startPos != spkiLength )
 		return( CRYPT_ERROR_BADDATA );
 
 	/* Create the public-key context and send the key data to it */
@@ -1365,6 +1447,7 @@ int readTextLine( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr,
 									   totalChars, localError,
 									   CRYPT_ERROR_BADDATA ) );
 			}
+		REQUIRES( !checkOverflowInc( bufPos ) );
 		lineBuffer[ bufPos++ ] = intToByte( ch );
 		ENSURES( bufPos > 0 && bufPos <= totalChars + 1 && \
 				 bufPos < MAX_LINE_LENGTH );
@@ -1461,7 +1544,7 @@ static BOOLEAN testBase64( void )
 
 	LOOP_MED( inLength = 10, inLength < 24, inLength++ )
 		{
-		ENSURES( LOOP_INVARIANT_MED( inLength, 10, 23 ) );
+		ENSURES_B( LOOP_INVARIANT_MED( inLength, 10, 23 ) );
 
 		/* Skip non-decodable lengths */
 		if( inLength == 13 || inLength == 17 || inLength == 21 )
@@ -1489,38 +1572,41 @@ static BOOLEAN testBase64( void )
 CHECK_RETVAL_BOOL \
 BOOLEAN testIntAPI( void )
 	{
-	static_assert( MIN_KEYSIZE <= 10,
+	static_assert( MIN_KEYSIZE <= 16,
 				   "MIN_KEYSIZE is larger than entropy test vector size" );
 
-	/* Test the non-trivial key check code */
-	if( !checkNontrivialKey( "\x2E\x19\x76\x57\xDB\x30\xE6\x26\x83\x76", 10 ) || \
-		!checkNontrivialKey( "\x14\xF3\x3C\x5A\xB8\x63\x13\xFB\x5B\xAF", 10 ) || \
-		!checkNontrivialKey( "\x7B\xE0\xE4\x14\x5C\x7C\x2C\x07\x02\xD9", 10 ) || \
-		!checkNontrivialKey( "\xD3\x9C\x16\x37\xAD\x12\x19\xA2\x5E\x8C", 10 ) || \
-		!checkNontrivialKey( "\x7F\x6B\x30\xAD\x02\x83\x96\xF9\x52\xF6", 10 ) || \
-		!checkNontrivialKey( "\x79\x92\xF9\xD1\x75\x43\x56\x87\x65\x61", 10 ) || \
-		!checkNontrivialKey( "\x62\xAF\x14\xCF\x1F\x5F\xA7\xC6\x5B\x45", 10 ) || \
-		!checkNontrivialKey( "\xAE\x57\xF3\x63\x45\x03\x2E\x6B\x59\xDE", 10 ) )
+	/* Test the non-trivial key check code.  The following values have no
+	   special significance but were just generated with:
+
+		od -An -N16 -tx1 < /dev/urandom */
+	if( !checkNontrivialKey( "\x2E\x19\x76\x57\xDB\x30\xE6\x26\x83\x76\x6B\xAE\xDA\x5C\x46\x28", 16 ) || \
+		!checkNontrivialKey( "\x14\xF3\x3C\x5A\xB8\x63\x13\xFB\x5B\xAF\xC4\xBA\x4F\xC8\x7F\x74", 16 ) || \
+		!checkNontrivialKey( "\x7B\xE0\xE4\x14\x5C\x7C\x2C\x07\x02\xD9\x2D\xD7\x83\x5C\x4E\xAD", 16 ) || \
+		!checkNontrivialKey( "\xD3\x9C\x16\x37\xAD\x12\x19\xA2\x5E\x8C\xEC\x71\xC3\x7D\xA4\xF8", 16 ) || \
+		!checkNontrivialKey( "\x7F\x6B\x30\xAD\x02\x83\x96\xF9\x52\xF6\x81\x84\xF0\x0C\x5D\x83", 16 ) || \
+		!checkNontrivialKey( "\x79\x92\xF9\xD1\x75\x43\x56\x87\x65\x61\x8F\x7E\x3A\xC5\x11\x55", 16 ) || \
+		!checkNontrivialKey( "\x62\xAF\x14\xCF\x1F\x5F\xA7\xC6\x5B\x45\xAF\x87\x43\x02\x27\xBB", 16 ) || \
+		!checkNontrivialKey( "\xAE\x57\xF3\x63\x45\x03\x2E\x6B\x59\xDE\x95\xD9\x0C\xCA\x71\x85", 16 ) )
 		return( FALSE );
-	if( checkNontrivialKey( "abcdefghij", 10 ) || \
-		checkNontrivialKey( "\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5", 10 ) || \
-		checkNontrivialKey( "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A", 10 ) || \
+	if( checkNontrivialKey( "abcdefghijklmnop", 16 ) || \
+		checkNontrivialKey( "\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5\xA5", 16 ) || \
+		checkNontrivialKey( "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F", 16 ) || \
 		checkNontrivialKey( "\x2E\x19\x76\x57\xDB\x30\xE6\x26\x83\x76"
 							"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A"
 							"\x14\xF3\x3C\x5A\xB8\x63\x13\xFB\x5B\xAF", 30 ) )
 		return( FALSE );
 
 	/* Test the entropy-check code */
-	if( !checkEntropy( "\x2E\x19\x76\x57\xDB\x30\xE6\x26\x83\x76", 10 ) || \
-		!checkEntropy( "\x14\xF3\x3C\x5A\xB8\x63\x13\xFB\x5B\xAF", 10 ) || \
-		!checkEntropy( "\x7B\xE0\xE4\x14\x5C\x7C\x2C\x07\x02\xD9", 10 ) || \
-		!checkEntropy( "\xD3\x9C\x16\x37\xAD\x12\x19\xA2\x5E\x8C", 10 ) || \
-		!checkEntropy( "\x7F\x6B\x30\xAD\x02\x83\x96\xF9\x52\xF6", 10 ) || \
-		!checkEntropy( "\x79\x92\xF9\xD1\x75\x43\x56\x87\x65\x61", 10 ) || \
-		!checkEntropy( "\x62\xAF\x14\xCF\x1F\x5F\xA7\xC6\x5B\x45", 10 ) || \
-		!checkEntropy( "\xAE\x57\xF3\x63\x45\x03\x2E\x6B\x59\xDE", 10 ) )
+	if( !checkEntropy( "\x2E\x19\x76\x57\xDB\x30\xE6\x26\x83\x76\x6B\xAE\xDA\x5C\x46\x28", 16 ) || \
+		!checkEntropy( "\x14\xF3\x3C\x5A\xB8\x63\x13\xFB\x5B\xAF\xC4\xBA\x4F\xC8\x7F\x74", 16 ) || \
+		!checkEntropy( "\x7B\xE0\xE4\x14\x5C\x7C\x2C\x07\x02\xD9\x2D\xD7\x83\x5C\x4E\xAD", 16 ) || \
+		!checkEntropy( "\xD3\x9C\x16\x37\xAD\x12\x19\xA2\x5E\x8C\xEC\x71\xC3\x7D\xA4\xF8", 16 ) || \
+		!checkEntropy( "\x7F\x6B\x30\xAD\x02\x83\x96\xF9\x52\xF6\x81\x84\xF0\x0C\x5D\x83", 16 ) || \
+		!checkEntropy( "\x79\x92\xF9\xD1\x75\x43\x56\x87\x65\x61\x8F\x7E\x3A\xC5\x11\x55", 16 ) || \
+		!checkEntropy( "\x62\xAF\x14\xCF\x1F\x5F\xA7\xC6\x5B\x45\xAF\x87\x43\x02\x27\xBB", 16 ) || \
+		!checkEntropy( "\xAE\x57\xF3\x63\x45\x03\x2E\x6B\x59\xDE\x95\xD9\x0C\xCA\x71\x85", 16 ) )
 		return( FALSE );
-	if( checkEntropy( "\xA5\x5A\xA5\x5A\xA5\x5A\xA5\x5A\xA5\x5A", 10 ) )
+	if( checkEntropy( "\xA5\x5A\xA5\x5A\xA5\x5A\xA5\x5A\xA5\x5A\x5A\x5A\x5A\x5A\x5A\x5A", 16 ) )
 		return( FALSE );
 
 	/* Test the hash algorithm-strength code */
@@ -1535,6 +1621,17 @@ BOOLEAN testIntAPI( void )
 		checksumData( "12345678", 8 ) == checksumData( "12345778", 8 ) || \
 		checksumData( "12345678", 8 ) == checksumData( "12345\xB7" "78", 8 ) || \
 		checksumData( "12345678", 8 ) == checksumData( "12345\x00" "78", 8 ) )
+		return( FALSE );
+	
+	/* Test the constant-time mechanisms.  We can't actually test the timing
+	   resistance on these without external instrumentation so all this is
+	   doing is making sure that it works as expected */
+	if( !compareDataConstTime( "\x2E\x19\x76\x57\xDB\x30\xE6\x26\x83\x76",
+							   "\x2E\x19\x76\x57\xDB\x30\xE6\x26\x83\x76", 10 ) || \
+		compareDataConstTime( "\x2E\x19\x76\x57\xDB\x30\xE7\x26\x83\x76",
+							  "\x2E\x19\x76\x57\xDB\x30\xE6\x26\x83\x76", 10 ) || \
+		!checkZeroConstTime( "\x00\x00\x00\x00\x00\x00\x00\x00", 8 ) || \
+		checkZeroConstTime( "\x00\x00\x00\x00\x00\x01\x00\x00", 8 ) )
 		return( FALSE );
 
 	/* Test the base64 code */

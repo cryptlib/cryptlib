@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							File Stream I/O Header							*
-*						Copyright Peter Gutmann 1993-2015					*
+*						Copyright Peter Gutmann 1993-2024					*
 *																			*
 ****************************************************************************/
 
@@ -93,7 +93,9 @@
    present as typedefs then we have to map them to something harmless.  
    
    Finally, we have to define __STDC__ to remove some hacks that are enabled
-   in the MQX headers if this isn't defined */
+   in the MQX headers if this isn't defined.  This is annoying because we
+   shouldn't be defining this, but required in order to get things to 
+   work */
 
 #ifdef _MSC_VER
   #ifdef feof
@@ -104,7 +106,9 @@
 	#undef stderr
 	#define FILE		__FILE
   #endif /* Conflicting defines */
-  #define __STDC__		1
+  #ifndef __STDC__
+	#define __STDC__		1
+  #endif /* __STDC__ */
 #endif
 
 #include <mfs.h>
@@ -275,11 +279,12 @@
 #endif /* SCO */
 
 /* SunOS 4 doesn't have memmove(), but Solaris does, so we define memmove()
-   to bcopy() under 4.  In addition SunOS doesn't define the fseek()
+   to bcopy() under 4, but have to swap the first two arguments which are
+   reversed in bcopy().  In addition SunOS doesn't define the fseek() 
    position indicators so we define these as well */
 
 #if defined( __UNIX__ ) && defined( sun ) && ( OSVERSION == 4 )
-  #define memmove				bcopy
+  #define memmove( dest, src, size )	bcopy( src, dest, size )
 
   #define SEEK_SET				0
   #define SEEK_CUR				1

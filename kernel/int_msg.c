@@ -155,6 +155,8 @@ static int updateDependentObjectPerms( IN_HANDLE const CRYPT_HANDLE objectHandle
 	   at runtime since they've already been performed by the calling
 	   function, all we're doing here is establishing preconditions rather
 	   than performing actual parameter checking */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isValidHandle( dependentObject ) );
 	REQUIRES( ( objectTable[ objectHandle ].type == OBJECT_TYPE_CONTEXT && \
@@ -244,6 +246,7 @@ static int updateDependentObjectPerms( IN_HANDLE const CRYPT_HANDLE objectHandle
 	   object hasn't been touched */
 	MUTEX_LOCK( objectTable );
 	objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	if( objectTable[ objectHandle ].uniqueID != uniqueID )
 		return( CRYPT_ERROR_SIGNALLED );
 	if( actionFlags == 0 )
@@ -274,6 +277,7 @@ int convertIntToExtRef( IN_HANDLE const int objectHandle )
 	int status;
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 
 	/* Convert at least one internal reference to the object to an external 
@@ -383,6 +387,7 @@ int getPropertyAttribute( IN_HANDLE const int objectHandle,
 	assert( isWritePtr( messageDataPtr, sizeof( int ) ) );
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( attribute == CRYPT_PROPERTY_OWNER || \
 			  attribute == CRYPT_PROPERTY_FORWARDCOUNT || \
@@ -481,6 +486,7 @@ int setPropertyAttribute( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( int ) ) );
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( attribute == CRYPT_PROPERTY_HIGHSECURITY || \
 			  attribute == CRYPT_PROPERTY_OWNER || \
@@ -519,6 +525,7 @@ int setPropertyAttribute( IN_HANDLE const int objectHandle,
 				{
 				if( objectInfoPtr->forwardCount <= 0 )
 					return( CRYPT_ERROR_PERMISSION );
+				REQUIRES( !checkOverflowDec( objectInfoPtr->forwardCount ) );
 				objectInfoPtr->forwardCount--;
 				}
 			if( value == CRYPT_UNUSED )
@@ -653,6 +660,7 @@ int setPropertyAttribute( IN_HANDLE const int objectHandle,
 				/* Precondition: The lock count is positive or zero */
 				REQUIRES( objectInfoPtr->lockCount >= 0 );
 
+				REQUIRES( !checkOverflowInc( objectInfoPtr->lockCount ) );
 				objectInfoPtr->lockCount++;
 
 				ENSURES( objectInfoPtr->lockCount < MAX_INTLENGTH );
@@ -665,6 +673,7 @@ int setPropertyAttribute( IN_HANDLE const int objectHandle,
 				/* Precondition: The lock count is positive */
 				REQUIRES( objectInfoPtr->lockCount > 0 );
 
+				REQUIRES( !checkOverflowDec( objectInfoPtr->lockCount ) );
 				objectInfoPtr->lockCount--;
 
 				ENSURES( objectInfoPtr->lockCount >= 0 );
@@ -725,6 +734,7 @@ int incRefCount( IN_HANDLE const int objectHandle,
 
 	/* Preconditions.  Since there are two reference counts, the one that 
 	   we're updating can be zero if the other one is nonzero */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isBooleanValue( isInternal ) );
 	REQUIRES( isShortIntegerRange( *referenceCountPtr ) );
@@ -735,6 +745,7 @@ int incRefCount( IN_HANDLE const int objectHandle,
 		return( CRYPT_ARGERROR_OBJECT );
 
 	/* Increment the object's reference count */
+	REQUIRES( !checkOverflowInc( *referenceCountPtr ) );
 	( *referenceCountPtr )++;
 
 	/* Postcondition: We incremented the reference count and it's now greater
@@ -760,6 +771,8 @@ int decRefCount( IN_HANDLE const int objectHandle,
 	ORIGINAL_INT_VAR( oldRefCount, *referenceCountPtr );
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isBooleanValue( isInternal ) );
 	REQUIRES( isShortIntegerRangeNZ( *referenceCountPtr ) );
@@ -776,6 +789,7 @@ int decRefCount( IN_HANDLE const int objectHandle,
 		}
 
 	/* Decrement the object's reference count */
+	REQUIRES( !checkOverflowDec( *referenceCountPtr ) );
 	( *referenceCountPtr )--;
 
 	/* Postconditions: We decremented the reference count and it's greater 
@@ -827,6 +841,7 @@ int getDependentObject( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( int ) ) );
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( isValidType( targetType ) );
 
@@ -867,6 +882,7 @@ int setDependentObject( IN_HANDLE const int objectHandle,
 	assert( isReadPtr( messageDataPtr, sizeof( int ) ) );
 
 	/* Preconditions: Parameters are valid */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( option == SETDEP_OPTION_NOINCREF || \
 			  option == SETDEP_OPTION_INCREF );
@@ -1021,6 +1037,7 @@ int clearDependentObject( IN_HANDLE const int objectHandle,
 	int status;
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) );
 	REQUIRES( messageValue == 0 && messageDataPtr == NULL );
 	REQUIRES( isValidObject( objectInfoPtr->dependentObject ) );
@@ -1063,6 +1080,7 @@ int cloneObject( IN_HANDLE const int objectHandle,
 	int actionFlags, status;
 
 	/* Preconditions */
+	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	REQUIRES( isValidObject( objectHandle ) && \
 			  objectHandle >= NO_SYSTEM_OBJECTS );
 	REQUIRES( sanityCheckObject( objectInfoPtr ) );

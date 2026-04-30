@@ -335,6 +335,7 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 		REQUIRES( rangeCheck( subjCertIDlength, KEYID_ESC_SIZE + 1, 
 							  ENCODED_DBXKEYID_SIZE ) );
 		memcpy( specialCertID, KEYID_ESC1, KEYID_ESC_SIZE );
+		REQUIRES( !checkOverflowSub( subjCertIDlength, KEYID_ESC_SIZE ) );
 		memcpy( specialCertID + KEYID_ESC_SIZE, subjCertID + KEYID_ESC_SIZE, 
 				subjCertIDlength - KEYID_ESC_SIZE );
 		specialCertIDlength = subjCertIDlength;
@@ -574,6 +575,7 @@ int caIssueCRL( INOUT_PTR DBMS_INFO *dbmsInfo,
 				operationString = "Some CRL entries couldn't be read from "
 								  "the certificate store";
 				}
+			REQUIRES( !checkOverflowInc( errorCount ) );
 			errorCount++;
 			continue;
 			}
@@ -592,6 +594,7 @@ int caIssueCRL( INOUT_PTR DBMS_INFO *dbmsInfo,
 				operationString = "Some CRL entries couldn't be added to "
 								  "the CRL";
 				}
+			REQUIRES( !checkOverflowInc( errorCount ) );
 			errorCount++;
 			continue;
 			}

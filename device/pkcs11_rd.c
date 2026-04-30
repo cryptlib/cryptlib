@@ -13,9 +13,9 @@
   #include "pkcs11_api.h"
   #include "asn1.h"
   #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	  defined( USE_25519 ) || defined( USE_ED25519 )
+	  defined( USE_X25519 ) || defined( USE_ED25519 )
 	#include "asn1_ext.h"
-  #endif /* USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 */
+  #endif /* USE_ECDSA || USE_ECDH || USE_X25519 || USE_ED25519 */
 #else
   #include "crypt.h"
   #include "context/context.h"
@@ -23,9 +23,9 @@
   #include "device/pkcs11_api.h"
   #include "enc_dec/asn1.h"
   #if defined( USE_ECDSA ) || defined( USE_ECDH ) || \
-	  defined( USE_ECDSA ) || defined( USE_25519 )
+	  defined( USE_ECDSA ) || defined( USE_X25519 )
 	#include "enc_dec/asn1_ext.h"
-  #endif /* USE_ECDSA || USE_ECDH || USE_25519 || USE_ED25519 */
+  #endif /* USE_ECDSA || USE_ECDH || USE_X25519 || USE_ED25519 */
 #endif /* Compiler-specific includes */
 
 /* In some rare situations only incomplete PKCS #11 support is available in 
@@ -312,7 +312,7 @@ static int getMechanismInfo( IN_PTR const PKCS11_INFO *pkcs11Info,
 		{ CKA_KEY_TYPE, ( CK_VOID_PTR ) &keyType, sizeof( CK_KEY_TYPE ) };
 	CK_RV status;
 	const CAPABILITY_INFO *capabilityInfoPtr;
-	const PKCS11_MECHANISM_INFO *mechanismInfoPtr;
+	const PKCS11_MECHANISM_INFO *mechanismInfo, *mechanismInfoPtr;
 	LOOP_INDEX i;
 	int mechanismInfoSize;
 
@@ -363,11 +363,11 @@ static int getMechanismInfo( IN_PTR const PKCS11_INFO *pkcs11Info,
 	/* Get the equivalent cryptlib algorithm type and use that to get the
 	   capability information for the algorithm */
 	if( isPKC )
-		mechanismInfoPtr = getMechanismInfoPKC( &mechanismInfoSize );
+		mechanismInfo = getMechanismInfoPKC( &mechanismInfoSize );
 	else
-		mechanismInfoPtr = getMechanismInfoConv( &mechanismInfoSize );
+		mechanismInfo = getMechanismInfoConv( &mechanismInfoSize );
 	LOOP_MED( i = 0, i < mechanismInfoSize && \
-					 mechanismInfoPtr[ i ].keyType != keyType, i++ )
+					 mechanismInfo[ i ].keyType != keyType, i++ )
 		{
 		ENSURES( LOOP_INVARIANT_MED( i, 0, mechanismInfoSize - 1 ) );
 		}
@@ -387,7 +387,7 @@ static int getMechanismInfo( IN_PTR const PKCS11_INFO *pkcs11Info,
 				  "PKCS #11 algorithm type %d for object isn't available "
 				  "in cryptlib", keyTypeInt ) );
 		}
-	mechanismInfoPtr = &mechanismInfoPtr[ i ];
+	mechanismInfoPtr = &mechanismInfo[ i ];
 	*cryptAlgo = mechanismInfoPtr->cryptAlgo;
 	capabilityInfoPtr = findCapabilityInfo( capabilityInfoList, *cryptAlgo );
 	if( capabilityInfoPtr == NULL )
@@ -942,6 +942,7 @@ static int findCertFromTemplate( INOUT_PTR PKCS11_INFO *pkcs11Info,
 		return( CRYPT_OK );
 		}
 
+	REQUIRES( iCryptCert != NULL );
 	return( getCertChain( pkcs11Info, iCertSource, hFindCertificate, 
 						  iCryptCert, 
 						  ( findAction == FINDCERT_NORMAL ) ? TRUE : FALSE, 
@@ -2076,6 +2077,8 @@ static int getItemFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 				return( CRYPT_OK );
 			if( flags & KEYMGMT_FLAG_LABEL_ONLY )
 				{
+				REQUIRES( auxInfo != NULL );
+
 				return( getObjectLabel( pkcs11Info, hCertificateLabelObject, 
 										auxInfo, *auxInfoLength, 
 										auxInfoLength ) );

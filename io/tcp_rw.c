@@ -20,6 +20,11 @@
 
 #ifdef USE_TCP
 
+/* Set the following to 1 to add diagnostic tracing to the select() 
+   process */
+
+#define DIAG_SELECT		0
+
 /****************************************************************************
 *																			*
 *						 		Utility Routines							*
@@ -44,8 +49,8 @@ static BOOLEAN isSameAddress( const struct sockaddr *addr1,
 		return( FALSE );
     if( addr1->sa_family == AF_INET )
 		{
-		const struct sockaddr_in *addr1in = ( struct sockaddr_in * ) addr1;
-		const struct sockaddr_in *addr2in = ( struct sockaddr_in * ) addr2;
+		const struct sockaddr_in *addr1in = ( const struct sockaddr_in * ) addr1;
+		const struct sockaddr_in *addr2in = ( const struct sockaddr_in * ) addr2;
 
 		if( addr1in->sin_addr.s_addr != addr2in->sin_addr.s_addr )
 			return( FALSE );
@@ -56,8 +61,8 @@ static BOOLEAN isSameAddress( const struct sockaddr *addr1,
 		{
 		if( addr1->sa_family == AF_INET6 )
 			{
-			struct sockaddr_in6 *addr1in6 = ( struct sockaddr_in6 * ) addr1;
-			struct sockaddr_in6 *addr2in6 = ( struct sockaddr_in6 * ) addr2;
+			struct sockaddr_in6 *addr1in6 = ( const struct sockaddr_in6 * ) addr1;
+			struct sockaddr_in6 *addr2in6 = ( const struct sockaddr_in6 * ) addr2;
 
 			if( memcmp( addr1in6->sin6_addr.s6_addr, addr2in6->sin6_addr.s6_addr,
 						sizeof( addr1in6->sin6_addr.s6_addr ) ) )
@@ -168,10 +173,10 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 	   this can be increased explicitly using setrlimit() or, from the 
 	   shell, 'ulimit -n 512' to make it 512, which will cause an overflow.  
 	   To deal with this, we reject any socket values less than zero (if 
-	   it's a signed variable) or greater than FD_SETSIZE */
+	   it's a signed variable) or greater than FD_SETSIZE - 1 */
 #ifndef __WINDOWS__ 
 	REQUIRES( netStream->netSocket >= 0 && \
-			  netStream->netSocket <= FD_SETSIZE );
+			  netStream->netSocket < FD_SETSIZE );
 #endif /* !Windows */
 
 	/* Set up the information needed to handle timeouts and wait on the
@@ -261,6 +266,8 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 			{
 			int dummy;
 
+			DEBUG_PRINT_COND( DIAG_SELECT, 
+							  ( "ioWait(): Standard select() error.\n" ) );
 			return( getSocketError( netStream, errorInfo[ type ].status, 
 									&dummy ) );
 			}
@@ -299,20 +306,39 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 		char errorMessage[ 128 + 8 ];
 		int errorMessageLength;
 
+		DEBUG_PRINT_COND( DIAG_SELECT && status == 0, 
+						  ( "ioWait(): Wait timed out (status == 0), "
+						    "entering handler.\n" ) );
+		DEBUG_PRINT_COND( DIAG_SELECT && status != 0, 
+						  ( "ioWait(): Wait timed out (isSocketError()), "
+						    "entering handler.\n" ) );
+
 		/* If we've already received data from a previous I/O, tell the 
 		   caller to use that as the transferred byte count even though we 
 		   timed out this time round */
 		if( previousDataRead )
+			{
+			DEBUG_PRINT_COND( DIAG_SELECT, 
+							  ( "  Previous data read, continuing.\n" ) );
 			return( OK_SPECIAL );
+			}
 
 		/* If it's a nonblocking wait (usually used as a poll to determine
 		   whether I/O is possible) then a timeout isn't an error.  The
 		   caller can distinguish this from the previous OK_SPECIAL return 
 		   by whether previousDataRead was set or not */
 		if( timeout <= 0 )
+			{
+			DEBUG_PRINT_COND( DIAG_SELECT, 
+							  ( "  Timeout in nonblocking wait (poll), "
+							    "continuing.\n" ) );
 			return( OK_SPECIAL );
+			}
 
 		/* The select() timed out, exit */
+		DEBUG_PRINT_COND( DIAG_SELECT, 
+						  ( "  select() timeout after %d seconds.\n", 
+						    timeout ) );
 		errorMessageLength = sprintf_s( errorMessage, 128,
 										"Timeout on %s (select()) after %d "
 										"second%s",
@@ -339,10 +365,18 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 		{
 		int socketErrorCode;
 
+		DEBUG_PRINT_COND( DIAG_SELECT, 
+						  ( "ioWait(): Exception on socket, entering "
+						    "handler.\n" ) );
 		status = getSocketError( netStream, errorInfo[ type ].status, 
 								 &socketErrorCode );
 		if( socketErrorCode != 0 )
+			{
+			DEBUG_PRINT_COND( DIAG_SELECT, 
+							  ( "  Socket error code %d, exiting with "
+								"status %d.\n", socketErrorCode, status ) );
 			return( status );
+			}
 
 		/* We got a no-error error code even though there's an exception 
 		   condition present, this typically only happens under Windows.  
@@ -368,6 +402,10 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 			{
 			( void ) mapNetworkError( netStream, NONBLOCKCONNECT_ERROR, 
 									  FALSE, CRYPT_ERROR_OPEN );
+			DEBUG_PRINT_COND( DIAG_SELECT, 
+							  ( "  No-error socket error code on connect "
+							    "(network stack bug), exiting with "
+							    "status %d.\n", status ) );
 			return( status );
 			}
 
@@ -384,6 +422,10 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 		   don't need to do anything with the mapError() return value */
 		( void ) mapNetworkError( netStream, TIMEOUT_ERROR, FALSE, 
 								  CRYPT_ERROR_TIMEOUT );
+		DEBUG_PRINT_COND( DIAG_SELECT, 
+						  ( "  Catch-all handler for no-error socket "
+						    "errors (network stack bug), exiting with "
+						    "status %d.\n", status ) );
 		return( status );
 		}
 
@@ -396,7 +438,8 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 			 ( type == IOWAIT_CONNECT && \
 			   ( FD_ISSET( netStream->netSocket, &readfds ) || \
 				 FD_ISSET( netStream->netSocket, &writefds ) ) ) || \
-			 ( type == IOWAIT_ACCEPT ) );
+			 ( type == IOWAIT_ACCEPT && \
+			   FD_ISSET( netStream->netSocket, &readfds ) ) );
 	return( CRYPT_OK );
 	}
 
@@ -542,7 +585,11 @@ static int readSocketFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 			if( bytesRead > 0 )
 				{
 				/* If this is the first data read, remember the peer's 
-				   address information */
+				   address information.  The udpAddrLen is a value-return
+				   parameter that's set on calling recvfrom() and gets 
+				   filled in with the actual size of the udpAddrInfo data.
+				   This is then copied to netStream->transportInfo, a buffer
+				   of size sizeof( SOCKADDR_STORAGE ) */
 				if( !TEST_FLAG( netStream->nFlags, \
 								STREAM_NFLAG_FIRSTREADOK ) )
 					{
@@ -673,7 +720,9 @@ static int readSocketFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 			continue;
 			}
 		bufPtr += bytesRead;
+		REQUIRES( !checkOverflowSub( bytesToRead, bytesRead ) );
 		bytesToRead -= bytesRead;
+		REQUIRES( !checkOverflowAdd( byteCount, bytesRead ) );
 		byteCount += bytesRead;
 		ENSURES( isBufsizeRange( bytesToRead ) && bytesToRead < maxLength );
 		ENSURES( isBufsizeRangeNZ( byteCount ) && byteCount <= maxLength );
@@ -697,7 +746,7 @@ static int readSocketFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 		   if data is trickling in at a few bytes a second */
 		if( flags & TRANSPORT_FLAG_BLOCKING )
 			{
-			ENSURES( timeout > 0 );
+			REQUIRES( timeout > 0 );
 
 			/* If the timer expiry is imminent but data is still flowing in, 
 			   extend the timing duration to allow for further data to 
@@ -707,6 +756,7 @@ static int readSocketFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 			   at 1K/s, which means 16s for TLS packets and 32s for SSH 
 			   packets), but to make things a bit less predictable we dither 
 			   the timeout a bit */
+			REQUIRES( !checkOverflowDiv( byteCount, timeout ) );
 			if( ( byteCount / timeout ) >= 1000 && \
 				checkMonoTimerExpiryImminent( &timerInfo, 5 ) )
 				{
@@ -845,11 +895,8 @@ static int writeSocketFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 			   a previous read or it's a nonblocking write, so this isn't an
 			   error */
 			if( byteCount > 0 )
-				{
 				*length = byteCount;
 
-				return( CRYPT_OK );
-				}
 			return( CRYPT_OK );
 			}
 		if( cryptStatusError( status ) )
@@ -906,7 +953,9 @@ static int writeSocketFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 			return( getSocketError( netStream, CRYPT_ERROR_WRITE, &dummy ) );
 			}
 		bufPtr += bytesWritten;
+		REQUIRES( !checkOverflowSub( bytesToWrite, bytesWritten ) );
 		bytesToWrite -= bytesWritten;
+		REQUIRES( !checkOverflowAdd( byteCount, bytesWritten ) );
 		byteCount += bytesWritten;
 		ENSURES( isBufsizeRange( bytesToWrite ) && \
 				 bytesToWrite < maxLength );

@@ -90,7 +90,7 @@ static BOOLEAN checkAttributePresent( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	{
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
-	REQUIRES( isAttribute( attribute ) );
+	REQUIRES_B( isAttribute( attribute ) );
 
 	/* Some attributes are present directly in the session information so we 
 	   have to handle them specially */
@@ -190,15 +190,10 @@ static int checkAuthToken( IN_BUFFER( credentialLength ) const void *credential,
 	   password */
 	if( compareDataConstTime( credential, totpBuffer, 6 ) != TRUE )
 		{
-		BYTE credentialBuffer[ 16 + 8 ];
-
-		memcpy( credentialBuffer, credential, 6 );
-		totpBuffer[ 6 ] = '\0';
-		retExt( CRYPT_ERROR_WRONGKEY,
-				( CRYPT_ERROR_WRONGKEY, errorInfo, 
-				  "Invalid client TOTP value '%s', should have been '%s'", 
-				  sanitiseString( credentialBuffer, 16, 6 ),
-				  totpBuffer ) );
+		retExtSan( CRYPT_ERROR_WRONGKEY,
+				   ( CRYPT_ERROR_WRONGKEY, errorInfo, 
+					 "Invalid client TOTP value '%s', should have been '%s'", 
+					 credential, 6, totpBuffer, 6, NULL, 0 ) );
 		}
 
 	return( CRYPT_OK );
@@ -563,9 +558,6 @@ static int addPrivateKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	const int requiredAttributeFlags = \
 		isServer( sessionInfoPtr ) ? sessionInfoPtr->serverReqAttrFlags : \
 									 sessionInfoPtr->clientReqAttrFlags;
-#ifndef USE_SHA2_EXT
-	int privateKeyAlgo;
-#endif /* USE_SHA2_EXT */
 	int privateKeyAlgo;		/* int vs. enum */
 	int status;
 

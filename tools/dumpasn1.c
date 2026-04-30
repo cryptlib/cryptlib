@@ -7,10 +7,10 @@
    Manger, Igor Perminov, and several other people whose names I've
    misplaced.
 
-   Available from https://www.cs.auckland.ac.nz/~pgut001/dumpasn1.c. Last
-   updated 6 June 2025 (version 20250606, if you prefer it that way,
-   see also UPDATE_STRING below).  To build under Windows, use 
-   'cl /MD dumpasn1.c'.  To build on OS390 or z/OS, use 
+   Available from https://github.com/cryptlib/dumpasn1.  Last updated 8
+   January 2026 (version 20260108, if you prefer it that way, see also
+   UPDATE_STRING below).  To build under Windows, use 'cl /MD dumpasn1.c'.
+   To build on OS390 or z/OS, use
    '/bin/c89 -D OS390 -o dumpasn1 dumpasn1.c'.
 
    This code grew slowly over time without much design or planning, and with
@@ -18,13 +18,13 @@
    normal coding style, and should only be used as a debugging/diagnostic
    tool and not in a production environment (I'm not sure how you'd use
    it in production anyway, but felt I should point that out).  cryptlib,
-   https://www.cs.auckland.ac.nz/~pgut001/cryptlib/, does a much better job 
-   of checking ASN.1 than this does, since dumpasn1 is a display program 
-   written to accept the widest possible range of input and not a compliance 
-   checker.  In other words it will bend over backwards to even accept 
-   invalid data, since a common use for it is to try and locate encoding 
-   problems that lead to invalid encoded data.  While it will warn about 
-   some types of common errors, the fact that dumpasn1 will display an ASN.1 
+   https://github.com/cryptlib/cryptlib/, does a much better job of
+   checking ASN.1 than this does, since dumpasn1 is a display program
+   written to accept the widest possible range of input and not a compliance
+   checker.  In other words it will bend over backwards to even accept
+   invalid data, since a common use for it is to try and locate encoding
+   problems that lead to invalid encoded data.  While it will warn about
+   some types of common errors, the fact that dumpasn1 will display an ASN.1
    data item doesn't mean that the item is valid.
 
    dumpasn1 requires a config file dumpasn1.cfg to be present in the same
@@ -32,12 +32,12 @@
    live (it will run without it but will display a warning message, you can
    configure the path either by hardcoding it in or using an environment
    variable as explained further down).  The config file is available from
-   https://www.cs.auckland.ac.nz/~pgut001/dumpasn1.cfg.
+   https://github.com/cryptlib/dumpasn1.
 
    This code assumes that the input data is binary, having come from a MIME-
    aware mailer or been piped through a decoding utility if the original
    format used base64 encoding.  If you need to decode it, it's recommended
-   that you use a utility like uudeview, which will strip most kinds of 
+   that you use a utility like uudeview, which will strip most kinds of
    encoding (MIME, PEM, PGP, whatever) to recover the binary original.
 
    You can use this code in whatever way you want, as long as you don't try
@@ -46,9 +46,9 @@
    (Someone asked for clarification on what this means, treat it as a very
    mild form of the BSD license in which you're not required to include LONG
    LEGAL DISCLAIMERS IN ALL CAPS but just a small note in a corner somewhere
-   (e.g. the back of a manual) that you're using the dumpasn1 code.  If you 
-   do use it, please make sure you're using a recent version, I occasionally 
-   see screen shots from incredibly ancient versions that are nowhere near 
+   (e.g. the back of a manual) that you're using the dumpasn1 code.  If you
+   do use it, please make sure you're using a recent version, I occasionally
+   see screen shots from incredibly ancient versions that are nowhere near
    as good as what current versions produce.  Finally, see the note earlier
    about this being purely a debugging tool and not production-quality code).
 
@@ -69,8 +69,8 @@
 
 /* The update string, printed as part of the help screen */
 
-#define UPDATE_YEAR		"2025"
-#define UPDATE_STRING	"6 June 2025"
+#define UPDATE_YEAR		"2026"
+#define UPDATE_STRING	"8 January 2026"
 
 /* Useful defines */
 
@@ -1356,8 +1356,8 @@ static int adjustLevel( const int level, const int maxLevel )
 
 /* Try and display to display a Unicode character.  This is pretty hit and
    miss, and if it fails nothing is displayed.  Under Windows it just works,
-   for anything else to try and detect this we use wcstombs() to see if 
-   anything can be displayed, if it can't we drop back to trying to display 
+   for anything else to try and detect this we use wcstombs() to see if
+   anything can be displayed, if it can't we drop back to trying to display
    the data as non-Unicode */
 
 #if defined( __WIN32__ )
@@ -1388,7 +1388,7 @@ static int displayUnicode( const wchar_t *wChBuf, const int level )
 	char outBuf[ 8 ];
 	int outLen;
 
-	/* Check whether we can display this character.  On Unix systems this 
+	/* Check whether we can display this character.  On Unix systems this
 	   always fails (see below), so in order to test any of the subsequent
 	   output options it's necessary to comment the following lines out */
 #if 0
@@ -1405,27 +1405,27 @@ static int displayUnicode( const wchar_t *wChBuf, const int level )
 	/* Unix environments are completely broken for Unicode, like Win32 the
 	   output differentiates between char and widechar output but there's
 	   no easy way to deal with this.  In theory fwide() can set it but it's
-	   a one-way function, once we've set it a particular way we can't go 
+	   a one-way function, once we've set it a particular way we can't go
 	   back.  Exactly what level of braindamage it takes to have an
 	   implementation function like this is a mystery, but the description
 	   of the braindamage is in the section "Narrow and wide orientation" of
 	   e.g. https://en.cppreference.com/w/c/io/FILE:
 
-		A newly opened stream has no orientation. The first call to fwide or 
-		to any I/O function establishes the orientation: a wide I/O function 
-		makes the stream wide-oriented; a narrow I/O function makes the 
-		stream narrow-oriented.  Once set, the orientation can be changed 
+		A newly opened stream has no orientation. The first call to fwide or
+		to any I/O function establishes the orientation: a wide I/O function
+		makes the stream wide-oriented; a narrow I/O function makes the
+		stream narrow-oriented.  Once set, the orientation can be changed
 		with only freopen.  Narrow I/O functions cannot be called on a wide-
 		oriented stream; wide I/O functions cannot be called on a narrow-
-		oriented stream. 
-		
-	   What this means is that as soon as we output anything, the stream is 
+		oriented stream.
+
+	   What this means is that as soon as we output anything, the stream is
 	   locked into narrow mode and can never be used for wide characters.
 	   Windows OTOH handles this without any problems, so presumably this
 	   behaviour is someone's ideological preference.
-	   
-	   Other sources suggest using setlocale() tricks, printf() with "%lc" 
-	   or "%ls" as the format specifier, and others, but none of these seem 
+
+	   Other sources suggest using setlocale() tricks, printf() with "%lc"
+	   or "%ls" as the format specifier, and others, but none of these seem
 	   to work properly either */
 	if( level < maxNestLevel )
 		{
@@ -1528,7 +1528,7 @@ static void printValue( FILE *inFile, const int valueLength,
 /* Dump data as a string of hex digits up to a maximum of 128 bytes */
 
 typedef enum {
-	DUMPHEX_NORMAL, DUMPHEX_INTEGER, DUMPHEX_BITSTRING 
+	DUMPHEX_NORMAL, DUMPHEX_INTEGER, DUMPHEX_BITSTRING
 	} DUMPHEX_OPTION;
 
 static void dumpHex( FILE *inFile, long length, int level,
@@ -1539,7 +1539,7 @@ static void dumpHex( FILE *inFile, long length, int level,
 	BYTE intBuffer[ 2 ];
 	char printable[ 9 ];
 	long noBytes = length;
-	int singleLine = FALSE, warnPadding = FALSE; 
+	int singleLine = FALSE, warnPadding = FALSE;
 	int warnNegative = ( option == DUMPHEX_INTEGER ) ? TRUE : FALSE;
 	int displayLength = displayHeaderLength, prevCh = -1, lastCh, i;
 
@@ -1671,9 +1671,9 @@ static void dumpHex( FILE *inFile, long length, int level,
 		}
 	if( option == DUMPHEX_BITSTRING )
 		{
-		/* We have to be a bit careful here with BIT STRING holes which are 
-		   encoded as if they were OCTET STRING holes and therefore don't 
-		   obey the BIT STRING DER encoding rules.  To deal with this we 
+		/* We have to be a bit careful here with BIT STRING holes which are
+		   encoded as if they were OCTET STRING holes and therefore don't
+		   obey the BIT STRING DER encoding rules.  To deal with this we
 		   assume that anything over 4 bytes/32 bits and with an unused bit
 		   count of zero is a hole encoding */
 		if( ( length <= 4 || param != 0 ) && \
@@ -1814,8 +1814,8 @@ static int oidToString( char *textOID, int *textOIDlength,
 				length = sprintf( textOID, "%ld %ld", x, y );
 
 				/* A totally stupid ITU facility lets people register UUIDs
-				   as OIDs (see https://www.itu.int/ITU-T/asn1/uuid.html), 
-				   if we find one of these, which live under the arc '2 25' 
+				   as OIDs (see https://www.itu.int/ITU-T/asn1/uuid.html),
+				   if we find one of these, which live under the arc '2 25'
 				   = 0x69 we have to continue decoding the OID as a UUID
 				   instead of a standard OID */
 				if( data == 0x69 )
@@ -1959,15 +1959,15 @@ static void dumpBitString( FILE *inFile, const int length, const int unused,
 		complain( errorStr, 0, level );
 	}
 
-/* Display data as a text string up to a maximum of, for standard 80-char 
-   output, 240 characters (8 lines of 48 chars to match the hex limit of 8 
-   lines of 16 bytes) with special treatement for control characters and 
+/* Display data as a text string up to a maximum of, for standard 80-char
+   output, 240 characters (8 lines of 48 chars to match the hex limit of 8
+   lines of 16 bytes) with special treatement for control characters and
    other odd things that can turn up in BMPString and UniversalString types.
 
    If the string is less than 40 chars in length, we try to print it on the
    same line as the rest of the text (even if it wraps), otherwise we break
    it up into 48-char chunks in a somewhat less nice text-dump format.
-   
+
    For shorter line lengths we try and shorten the output to fit, moving
    margins around as required, with a minimum of 8 chars output */
 
@@ -1993,7 +1993,7 @@ static void displayString( FILE *inFile, long length, int level,
 	if( !doTimeStr && length <= 40 )
 		printString( level, "%s", " '" );	/* Print string on same line */
 
-	/* Calculate how long each output line will be, adjusting margins to 
+	/* Calculate how long each output line will be, adjusting margins to
 	   make sure that at least some output fits even if it means moving
 	   things around a bit */
 	level = adjustLevel( level, doPure ? 15 : 8 );
@@ -2204,7 +2204,7 @@ static void displayString( FILE *inFile, long length, int level,
 				if( ( timeStrPtr[ 0 ] == '3' && timeStrPtr[ 1 ] >= '8' ) || \
 					( timeStrPtr[ 0 ] == '4' ) )
 					{
-					/* UTCTimes starting with '0' - '4' are 20xx, '5'-'9'  
+					/* UTCTimes starting with '0' - '4' are 20xx, '5'-'9'
 					   are 19xx */
 					warnTimeT = TRUE;
 					}
@@ -2216,13 +2216,13 @@ static void displayString( FILE *inFile, long length, int level,
 				if( ( timeStrPtr[ 0 ] == '3' && timeStrPtr[ 1 ] >= '8' ) || \
 					( timeStrPtr[ 0 ] >= '4' ) )
 					{
-					/* GeneralizedTimes include centuries so anything past 
+					/* GeneralizedTimes include centuries so anything past
 					   '38' will be 20xx */
 					warnTimeT = TRUE;
 					}
 				if( timeStr[ 0 ] == '2' && timeStr[ 1 ] >= '1' )
 					{
-					/* There actually are certificates like this out 
+					/* There actually are certificates like this out
 					   there... */
 					warnTimeT = warnTimeCrazy = TRUE;
 					}
@@ -2884,7 +2884,7 @@ static void printASN1object( FILE *inFile, ASN1_ITEM *item, int level )
 		case BITSTRING:
 			if( item->length < 1 )
 				{
-				/* A bitstring always has to contain at least one byte, the unused-bits 
+				/* A bitstring always has to contain at least one byte, the unused-bits
 				   count */
 				complainLength( item, level );
 				}
@@ -2922,8 +2922,8 @@ static void printASN1object( FILE *inFile, ASN1_ITEM *item, int level )
 					complainLengthCanonical( item, level );
 				break;
 				}
-			/* Fall through to dump it as an octet string.  The comment 
-			   below must appear in exactly this form at exactly this 
+			/* Fall through to dump it as an octet string.  The comment
+			   below must appear in exactly this form at exactly this
 			   location for gcc to recognise it as a fall-through marker */
 			/* fall through */
 
@@ -3036,12 +3036,12 @@ static void printASN1object( FILE *inFile, ASN1_ITEM *item, int level )
 				{
 				if( item->length > MAX_SANE_OID_SIZE )
 					{
-					/* This typically only occurs with Microsoft's "encode 
-					   random noise and call it an OID" values, so we warn 
+					/* This typically only occurs with Microsoft's "encode
+					   random noise and call it an OID" values, so we warn
 					   about the fact that it's not really an OID */
 					complain( "OID contains random garbage", 0, level );
 					}
-				}			
+				}
 			else
 				complain( "OID has invalid encoding", 0, level );
 			if( item->nonCanonical )
@@ -3163,11 +3163,11 @@ static long processObjectStart( FILE *inFile, const ASN1_ITEM *item )
 	/* If the input isn't seekable, turn off some options that require the
 	   use of fseek().  This check isn't perfect (some streams are slightly
 	   seekable due to buffering) but it's better than nothing.
-	   
-	   This is complicated by a problem under Windows for which running 
+
+	   This is complicated by a problem under Windows for which running
 	   things in pipe mode is pretty erratic, in particular using fseek()
 	   below results in all subsequent reads returning EOF.  To try and
-	   ameliorate this we first try other checks to see if we're using 
+	   ameliorate this we first try other checks to see if we're using
 	   stdin before trying the fseek() check */
 #ifdef __WIN32__
 	if( useStdin || inFile == stdin || \
@@ -3204,16 +3204,16 @@ static long processObjectStart( FILE *inFile, const ASN1_ITEM *item )
 		if( i >= 4 && \
 			( item->header[ 0 ] == 0x30 || item->header[ 0 ] == 0x31 ) )
 			{
-			/* Special-case handling for situations that would produce a 
-			   false positive, items containing nested SEQUENCE (0x30)/SET 
+			/* Special-case handling for situations that would produce a
+			   false positive, items containing nested SEQUENCE (0x30)/SET
 			   (0x31) of an appropriate length will look like ASCII since
 			   the encoding is 0x30 0xXX 0x30 0xXX 0x30 0xXX, e.g. "0g0e0c",
 			   so we check for the pattern [0|1] alnum [0|1] alnum ... */
 			if( buffer[ 2 ] == 0x30 || buffer[ 2 ] == 0x31 )
 				{
 				/* It's at least 0x30 0xXX 0x30 0xXX, assume it's binary.
-				   This can lead to a minute number of false negatives, but 
-				   that's OK since (a) it's no any normal encoding format 
+				   This can lead to a minute number of false negatives, but
+				   that's OK since (a) it's no any normal encoding format
 				   for ASN.1 binary data and (b) all it'll do is produce
 				   an attempt to decode text as ASN.1 */
 				i = 0;
@@ -3248,7 +3248,7 @@ static int printAsn1( FILE *inFile, const int level, long length,
 	/* Bail out on suspiciously complex data */
 	if( level > MAX_NESTING_LEVEL )
 		{
-		complain( "Object contains more than %d levels of nesting", 
+		complain( "Object contains more than %d levels of nesting",
 				  MAX_NESTING_LEVEL, level );
 		exit( EXIT_FAILURE );
 		}
@@ -3598,8 +3598,8 @@ int main( int argc, char *argv[] )
 					break;
 
 				case 'W':
-					/* This is best-effort since we're not a roff, for 
-					   example long OID names can go past the output 
+					/* This is best-effort since we're not a roff, for
+					   example long OID names can go past the output
 					   width */
 					outputWidth = atoi( argPtr + 1 );
 					if( outputWidth < 40 || outputWidth > 500 )
@@ -3720,7 +3720,7 @@ int main( int argc, char *argv[] )
 		( void ) fread( buffer, 1, 8, inFile );		/* Skip 4 EOCs */
 		if( !feof( inFile ) )
 			{
-			warn( "Further data follows ASN.1 data at position %ld.\n", 
+			warn( "Further data follows ASN.1 data at position %ld.\n",
 				  position, 0 );
 			}
 		}

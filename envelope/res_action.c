@@ -854,7 +854,7 @@ BOOLEAN checkActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 					actionListCursor->action == ACTION_KEYEXCHANGE_PKC,
 				  actionListCursor = DATAPTR_GET( actionListCursor->next ) )
 			{
-			ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+			ENSURES_B( LOOP_INVARIANT_MED_GENERIC() );
 			}
 		ENSURES_B( LOOP_BOUND_OK );
 		if( envelopeInfoPtr->type == CRYPT_FORMAT_PGP && \
@@ -868,7 +868,7 @@ BOOLEAN checkActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 								actionListCursor->action == ACTION_KEYEXCHANGE,
 						   actionListCursor = DATAPTR_GET( actionListCursor->next ) )
 			{
-			ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+			ENSURES_B( LOOP_INVARIANT_MED_GENERIC() );
 			}
 		ENSURES_B( LOOP_BOUND_OK );
 		if( actionListCursor != NULL )
@@ -904,7 +904,7 @@ BOOLEAN checkActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			{
 			REQUIRES_B( sanityCheckActionList( actionListCursor ) );
 
-			ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+			ENSURES_B( LOOP_INVARIANT_MED_GENERIC() );
 
 			switch( actionListCursor->action )
 				{
@@ -986,7 +986,7 @@ BOOLEAN checkActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			{
 			REQUIRES_B( sanityCheckActionList( actionListCursor ) );
 
-			ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+			ENSURES_B( LOOP_INVARIANT_MED_GENERIC() );
 
 			if( actionListCursor->action != ACTION_HASH )
 				return( FALSE );
@@ -1005,7 +1005,7 @@ BOOLEAN checkActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			{
 			REQUIRES_B( sanityCheckActionList( actionListCursor ) );
 
-			ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+			ENSURES_B( LOOP_INVARIANT_MED_GENERIC() );
 
 			if( actionListCursor->action != ACTION_SIGN )
 				return( FALSE );

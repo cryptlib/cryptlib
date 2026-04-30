@@ -232,14 +232,17 @@
   #else
 	/* Older versions of VC++ have pre-stdint.h equivalents so we make it 
 	   look like stdint.h is defined */
+	typedef INT16			int16_t;
 	typedef INT32			int32_t;
 	typedef INT64			int64_t;
-	typedef unsigned char	uint8_t;
-	typedef unsigned short	uint16_t;
+	typedef UINT8			uint8_t;
+	typedef UINT16			uint16_t;
 	typedef DWORD32			uint32_t;
 	typedef DWORD64			uint64_t;
 	typedef INT_PTR			intptr_t;
 	typedef UINT_PTR		uintptr_t;
+	#define UINT16_MAX		USHRT_MAX
+	#define INT32_MAX		INT_MAX
 	#define HAS_STDINT
   #endif /* Different VC++ versions */
 #elif defined( __VxWorks__ ) && \
@@ -279,14 +282,19 @@
 #ifndef HAS_STDINT
   /* 8/16-bit types are fairly straightforward */
   typedef unsigned char uint8_t;
+  typedef short int16_t;
   typedef unsigned short uint16_t;
+  #define UINT16_MAX	0xFFFF
 
   /* 32-bit types will be either int or long */
   #if UINT_MAX == 0xFFFFFFFFu
+	typedef int int32_t;
 	typedef unsigned int uint32_t;
   #else
+	typedef long int32_t;
 	typedef unsigned long uint32_t;
   #endif /* int vs. long 32-bit */
+  #define INT32_MAX		0x7FFFFFFF
 
   /* 64-bit types get a bit more complicated */
   #if defined( __alpha ) || defined( __BORLANDC__ ) || \
@@ -638,7 +646,7 @@ typedef int					BOOLEAN_INT;
 
 #if defined( __GNUC__ )
   #if( defined( __ARM_EABI__ ) && \
-	   ( __GNUC__ == 4 && __GNUC_MINOR__ >= 4 ) || ( __GNUC__ > 4 ) )
+	   ( ( __GNUC__ == 4 && __GNUC_MINOR__ >= 4 ) || ( __GNUC__ > 4 ) ) )
 	/* In theory we could check __ap but in practice it's too risky to rely 
 	   on the type and state of hidden internal fields, and in any case it's 
 	   only a sanity check, not a hard requirement, so we just no-op the 
@@ -856,15 +864,17 @@ typedef int					BOOLEAN_INT;
 
 /* If we're compiling on IBM mainframes, enable EBCDIC <-> ASCII string
    conversion.  Since cryptlib uses ASCII internally for all strings, we
-   need to check to make sure it's been built with ASCII strings enabled
-   before we go any further */
+   need to check to make sure that it's been built with ASCII strings 
+   enabled before we go any further */
 
 #ifdef EBCDIC_CHARS
   #if 'A' != 0x41
 	#error cryptlib must be compiled with ASCII literals
   #endif /* Check for use of ASCII */
 
+  RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
   int asciiToEbcdic( char *dest, const char *src, const int length );
+  RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
   int ebcdicToAscii( char *dest, const char *src, const int length );
   char *bufferToEbcdic( char *buffer, const char *string );
   char *bufferToAscii( char *buffer, const char *string );
@@ -1026,8 +1036,8 @@ typedef int					BOOLEAN_INT;
 ****************************************************************************/
 
 /* Align a data item, typically a structure, at a given memory granularity.  
-   Unfortunately this isn't supported by all compilers, most notably VC++ 
-   6.0, so we have to kludge around it via the standard technique of 
+   It's possible there are still compilers around that don't support 
+   alignment so we have to kludge around it via the standard technique of 
    grabbing an oversized block of memory and defining a pointer to a sub-
    block within it that's aligned as required:
 
@@ -1049,9 +1059,9 @@ typedef int					BOOLEAN_INT;
 	KEY_DATA *keyDataPtr = \
 				( void * ) roundUp( ( uintptr_t ) &keyDataStorage, 16 ); 
 				
-  In addition to compilers that don't support it at all, some support it
-  inconsistently, namely IBM's xlc which is supposed to support __align()
-  (alongside the gcc-style __attribute__(( aligned() )) ) but only
+  In addition to possible compilers that don't support it at all, some 
+  support it inconsistently, namely IBM's xlc which is supposed to support 
+  __align() (alongside the gcc-style __attribute__(( aligned() )) ) but only
   seems to support the gcc-style option, fortunately testable by checking
   for __IBM__ALIGN being defined.
   
@@ -1087,6 +1097,12 @@ typedef int					BOOLEAN_INT;
 		  ALIGN_SPECIFIER( alignment ) BYTE name##Storage[ size + 8 ]
   #define ALIGN_GET_PTR( name, alignment )	( void * ) &( name##Storage )
 #else
+  /* We can't use checkOverflowRoundup() on this because it's a macro that 
+     computes a value, however this isn't an issue both because we should
+     never really get to this code path and because the alignment value is
+     either 8 or 16 bytes, which can't cause an overflow on pointers that 
+     point to the start of a memory block that's vastly larger than 8 or 16 
+     bytes */
   #define ALIGN_DATA( name, size, alignment ) \
 		  typedef struct { \
 			BYTE name##Storage[ size + 8 ]; \
@@ -1181,7 +1197,7 @@ typedef int					BOOLEAN_INT;
 
 STDC_NONNULL_ARG( ( 1 ) ) \
 void *ptr_align( const void *ptr, const int units );
-STDC_NONNULL_ARG( ( 1, 2 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int ptr_diff( const void *ptr1, const void *ptr2 );
 
 /* Check whether a pointer is aligned to a particular value, used by some
@@ -1227,7 +1243,7 @@ int ptr_diff( const void *ptr1, const void *ptr2 );
 	   the final versions.  Instances of this are:
    
 		TR 24731: struct tm *gmtime_s( const time_t *timer, struct tm *result );
-		VC++: errno_t gmtime_s( struct tm *result, const time_t timer );
+		VC++: errno_t gmtime_s( struct tm *result, const time_t *timer );
 
 	   Because this could potentially result in a circular definition, we 
 	   have to kludge in an intermediate layer by renaming the call to 
@@ -1256,6 +1272,10 @@ int ptr_diff( const void *ptr1, const void *ptr2 );
 	 overlaying them with a macro that make them match the TR 24731 look 
 	 and feel */
   #define strnlen_s						strnlen
+  #if defined( __UNIX__ ) && defined( sun ) && ( OSVERSION <= 10 )
+	/* Older Solaris doesn't have strnlen() */
+	size_t strnlen( const char *s, size_t n );
+  #endif /* Older Solaris */
   #define strcpy_s( s1, s1max, s2 )		strcpy( s1, s2 )
   #if defined( __UNIX__ ) && \
 	  ( defined( __APPLE__ ) || defined( __FreeBSD__ ) || \
@@ -1291,7 +1311,50 @@ int ptr_diff( const void *ptr1, const void *ptr2 );
 			mbtowc( wideChar, char, size )
   #endif /* Compiler-specific thread-safe mbtowc() support */
 
-  /* printf() */
+  /* sprintf().  Unfortunately at this point we have to deal with the 
+     totally stupid semantics of (v)snprintf(), which unlike TR 24731's 
+     (v)sprintf_s() returns an error status in two discontinuous ranges, < 0 
+     for a general error and >= the buffer size for length overruns.  
+     Specifically the functions and their descriptions are:
+
+		int snprintf( char *s, size_t n, const char *format, ... );
+		int vsnprintf( char *s, size_t n, const char* format, va_list arg );
+
+		If the resulting string would be longer than n-1 characters, the 
+		remaining characters are discarded and not stored, but counted for 
+		the value returned by the function.  A terminating null character is 
+		automatically appended after the content written.
+
+		Return value: The number of characters that would have been written 
+		if n had been sufficiently large, not counting the terminating null 
+		character.  If an encoding error occurs, a negative number is 
+		returned.  Notice that only when this returned value is non-negative 
+		and less than n, the string has been completely written.
+
+	 Compare this with the TR 24731 (v)sprintf_s():
+
+		int sprintf_s( char *buffer, size_t sizeOfBuffer, 
+					   const char *format, ... );
+
+		Return value: The number of characters written, or -1 if an error 
+		occurred.  If the buffer is too small for the formatted text, 
+		including the terminating null, then the buffer is set to an empty 
+		string by placing a null character at buffer[0], and the invalid 
+		parameter handler is invoked.
+
+	  This means that for every call to (v)snprintf we have to check not 
+	  just for the error code < 0 (actually just -1) but also the other 
+	  error code.  To make the booby-trap even better, the returned value is 
+	  the length minus the terminating null character, so a return value of 
+	  100 for a buffer size of 100 is an error, not an indication that the 
+	  buffer was successfully filled.
+
+	  To deal with this we do a rangeCheck( length, 1, bufSize - 1 ) on all 
+	  calls to the mapped (v)snprintf().  A better alternative would 
+	  probably be to wrap the stupid C-standard calls to make them work like 
+	  the TR 24731 equivalents, but for now we leave the rangeCheck()s in 
+	  place everywhere the functions are called to assuage code audit tools 
+	  that think the C-standard semantics apply */
   #if defined( _MSC_VER ) && VC_LT_2005( _MSC_VER )
     #include <stdio.h>
 
@@ -1381,6 +1444,11 @@ int ptr_diff( const void *ptr1, const void *ptr2 );
 	 function */
   #define zeroise( memory, size )	explicit_bzero( memory, size )
 #else
+  /* Fallback if nothing else is available.  It's not clear whether anything
+     will ever get to this point given that all known explicit-memset 
+     options are applied above, what's left will be a small number of 
+     embedded systems on which nothing else is running, which means there's
+     nothing else there to potentially pull data out of memory */
   #define zeroise( memory, size )	memset( memory, 0, size )
 #endif /* Systems with distinct zeroise functions */
 

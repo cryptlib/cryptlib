@@ -51,6 +51,8 @@ static int writeNonCMSheader( INOUT_PTR STREAM *stream,
 	REQUIRES( isShortIntegerRangeNZ( length ) );
 	REQUIRES( isShortIntegerRangeNZ( attrDataLength ) );
 
+	REQUIRES( !checkEncodeOverflow( length, 2, 
+							sizeofShortObject( attrDataLength ), 0 ) );
 	writeSequence( stream, sizeofOID( oid ) + \
 						   sizeofShortObject( \
 								sizeofShortObject( length ) ) + \
@@ -69,7 +71,7 @@ static int sizeofMacData( const PKCS12_INFO *pkcs12info )
 
 	return( sizeofShortObject( \
 				sizeofAlgoID( CRYPT_ALGO_SHA1 ) + \
-				sizeofObject( 20 ) ) + \
+				sizeofShortObject( 20 ) ) + \
 			 sizeofShortObject( pkcs12info->macSaltSize ) + \
 			 sizeofShortInteger( pkcs12info->macIterations ) );
 	}
@@ -104,7 +106,7 @@ static int writeMacData( INOUT_PTR STREAM *stream,
 	   is HMAC, the OID that we have to write is the one for plain SHA-1 */
 	writeSequence( stream, macDataSize );
 	writeSequence( stream, sizeofAlgoID( CRYPT_ALGO_SHA1 ) + \
-						   sizeofObject( 20 ) );
+						   sizeofShortObject( 20 ) );
 	writeAlgoID( stream, CRYPT_ALGO_SHA1, DEFAULT_TAG );
 	writeOctetString( stream, macBuffer, msgData.length, DEFAULT_TAG );
 	writeOctetString( stream, pkcs12info->macSalt, pkcs12info->macSaltSize,
@@ -150,6 +152,7 @@ static int writePrivateKey( INOUT_PTR PKCS12_OBJECT_INFO *keyObjectInfo,
 	if( ( keyObjectInfo->data = clAlloc( "setItemFunction", \
 										 64 + privKeyDataSize ) ) == NULL )
 		return( CRYPT_ERROR_MEMORY );
+	REQUIRES( !checkOverflowAdd( 64, privKeyDataSize ) );
 	keyObjectInfo->dataSize = 64 + privKeyDataSize;
 
 	/* Calculate the size of the key-derivation information */
@@ -191,6 +194,8 @@ static int writePrivateKey( INOUT_PTR PKCS12_OBJECT_INFO *keyObjectInfo,
 							  &mechanismInfo, MECHANISM_PRIVATEKEYWRAP_PKCS8 );
 	if( cryptStatusOK( status ) )
 		{
+		REQUIRES( !checkOverflowAdd( headerSize,
+									 mechanismInfo.wrappedDataLength ) );
 		keyObjectInfo->dataSize = headerSize + \
 								  mechanismInfo.wrappedDataLength;
 		keyObjectInfo->payloadOffset = headerSize;
@@ -373,7 +378,7 @@ static int writeMacItem( INOUT_PTR STREAM *stream,
 	writeSet( &memStream, attrDataSize );
 	writeSequence( &memStream, idDataSize );
 	writeOID( &memStream, OID_PKCS9_LOCALKEYID );
-	writeSet( &memStream, sizeofObject( 1 ) );
+	writeSet( &memStream, sizeofShortObject( 1 ) );
 	writeOctetStringHole( &memStream, 1, DEFAULT_TAG );
 	sputc( &memStream, 1 );		/* ID, fixed at 0x01 for a single key */
 	writeSequence( &memStream, labelDataSize );
@@ -509,7 +514,7 @@ int pkcs12Flush( INOUT_PTR STREAM *stream,
 		return( status );
 	ENSURES( isIntegerRangeNZ( objectHeaderSize ) );
 	swrite( stream, objectHeaderBuffer, objectHeaderSize );
-	status = krnlSendMessage( pkcs12info->iMacContext, 
+	status = krnlSendMessage( pkcs12info[ 0 ].iMacContext, 
 							  IMESSAGE_CTX_HASH, objectHeaderBuffer, 
 							  objectHeaderSize );
 	if( cryptStatusError( status ) )

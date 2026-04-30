@@ -288,7 +288,10 @@ int caCleanup( INOUT_PTR DBMS_INFO *dbmsInfo,
 			if( status == CRYPT_ERROR_NOTFOUND )
 				resetErrorInfo( dbmsInfo );
 			else
+				{
+				REQUIRES( !checkOverflowInc( errorCount ) );
 				errorCount++;
+				}
 			continue;
 			}
 		if( certIDlength > MAX_PREVCERT_DATA )
@@ -329,6 +332,7 @@ int caCleanup( INOUT_PTR DBMS_INFO *dbmsInfo,
 			{
 			/* Something went wrong, abort the transaction */
 			dbmsUpdate( NULL, NULL, DBMS_UPDATE_ABORT );
+			REQUIRES( !checkOverflowInc( errorCount ) );
 			errorCount++;
 			}
 		}
@@ -443,6 +447,7 @@ int caCleanup( INOUT_PTR DBMS_INFO *dbmsInfo,
 										   "Couldn't get partially-issued "
 										   "certificate to complete issue, "
 										   "deleting and continuing" );
+			REQUIRES( !checkOverflowInc( errorCount ) );
 			errorCount++;
 			continue;
 			}
@@ -512,6 +517,7 @@ int caCleanup( INOUT_PTR DBMS_INFO *dbmsInfo,
 										   "Couldn't get partially-renewed "
 										   "certificate to complete renewal, "
 										   "deleting and continuing" );
+			REQUIRES( !checkOverflowInc( errorCount ) );
 			errorCount++;
 			continue;
 			}
@@ -561,6 +567,7 @@ int caCleanup( INOUT_PTR DBMS_INFO *dbmsInfo,
 				break;
 				}
 
+			REQUIRES( !checkOverflowInc( errorCount ) );
 			errorCount++;
 			continue;
 			}
@@ -591,6 +598,7 @@ int caCleanup( INOUT_PTR DBMS_INFO *dbmsInfo,
 										 "Couldn't instantiate revocation "
 										 "request from stored data, deleting "
 										 "request and continuing" );
+			REQUIRES( !checkOverflowInc( errorCount ) );
 			errorCount++;
 			continue;
 			}

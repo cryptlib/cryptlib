@@ -63,11 +63,11 @@ static int readNumericValue( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( value, sizeof( long ) ) );
 
-	REQUIRES( noBytes >= 1 && \
-			  noBytes <= ( isShortValue ? MAX_NUMERIC_DATA_BYTES_SHORT : \
-										  MAX_NUMERIC_DATA_BYTES ) );
-	REQUIRES( isBooleanValue( isZeroValueOK ) );
-	REQUIRES( isBooleanValue( isShortValue ) );
+	REQUIRES_S( noBytes >= 1 && \
+				noBytes <= ( isShortValue ? MAX_NUMERIC_DATA_BYTES_SHORT : \
+											MAX_NUMERIC_DATA_BYTES ) );
+	REQUIRES_S( isBooleanValue( isZeroValueOK ) );
+	REQUIRES_S( isBooleanValue( isShortValue ) );
 
 	/* Clear return value */
 	*value = 0;
@@ -128,12 +128,12 @@ static int readNumericValue( INOUT_PTR STREAM *stream,
 		data = byteToInt( bufPtr[ i ] );
 		if( localValue >= ( MAX_INTLENGTH >> 8 ) || \
 			localValueTmp < 0 || \
-			localValueTmp >= MAX_INTLENGTH - data )
+			checkOverflowAdd( localValueTmp, data ) )
 			{
 			/* Integer overflow */
 			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 			}
-		localValue = localValueTmp | data;
+		localValue = localValueTmp | data;	/* Or and add are the same */
 		if( !isIntegerRangeMin( localValue, localValueTmp ) )
 			{
 			/* Integer overflow.  This shouldn't occur because we've already 
@@ -355,6 +355,7 @@ static int readConstrainedData( INOUT_PTR STREAM *stream,
 	status = sread( stream, buffer, bufferMaxLength );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES_S( !checkOverflowSub( length, bufferMaxLength ) );
 	return( sSkip( stream, length - bufferMaxLength, 
 				   MAX_INTLENGTH_SHORT ) );
 	}
@@ -626,6 +627,7 @@ static int readIntegerHeader( INOUT_PTR STREAM *stream,
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	ENSURES_S( isShortIntegerRangeNZ( length - noLeadingZeroes ) );
 
+	REQUIRES_S( !checkOverflowSub( length, noLeadingZeroes ) );
 	return( length - noLeadingZeroes );
 	}
 
@@ -877,7 +879,7 @@ int readEnumeratedTag( INOUT_PTR STREAM *stream,
 	status = readNumeric( stream, &value, tag, FALSE );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( value < 0 || value > 1000 )
+	if( value < 0 || value > MAX_ENUM_VALUE )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	ENSURES_S( isIntegerRange( value ) );
 	if( enumeration != NULL )
@@ -1232,7 +1234,8 @@ int readBitStringTag( INOUT_PTR STREAM *stream,
 					  IN_TAG_EXT const int tag )
 	{
 	LOOP_INDEX i;
-	int length, data, mask, flag, value, noBits, status;
+	unsigned int mask;
+	int length, data, flag, value, noBits, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( bitString == NULL || isWritePtr( bitString, sizeof( int ) ) );
@@ -1255,8 +1258,14 @@ int readBitStringTag( INOUT_PTR STREAM *stream,
 	status = length = sgetc( stream );
 	if( cryptStatusError( status ) )
 		return( status );
-	length--;	/* Adjust for bit count */
-	if( length < 0 || length > 4 || length > sizeof( int ) )
+	if( length <= 0 )
+		length = UNDERFLOW_MARKER;
+	else
+		{
+		REQUIRES_S( !checkOverflowDec( length ) );
+		length--;	/* Adjust for bit count */
+		}
+	if( length < 0 || length > 4 )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	status = noBits = sgetc( stream );
 	if( cryptStatusError( status ) )
@@ -1265,7 +1274,7 @@ int readBitStringTag( INOUT_PTR STREAM *stream,
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	if( length <= 0 )
 		return( CRYPT_OK );		/* Zero value */
-	ENSURES_S( length >= 1 && length <= min( 4, sizeof( int ) ) );
+	ENSURES_S( length >= 1 && length <= 4 );
 	ENSURES_S( noBits >= 0 && noBits <= 7 );
 
 	/* Convert the bit count from the unused-remainder bit count into the 
@@ -1305,12 +1314,12 @@ int readBitStringTag( INOUT_PTR STREAM *stream,
 			return( status );
 		if( data >= ( MAX_INTLENGTH >> 8 ) || \
 			dataValTmp < 0 || \
-			dataValTmp >= MAX_INTLENGTH - data )
+			checkOverflowAdd( dataValTmp, dataTmp ) )
 			{
 			/* Integer overflow */
 			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 			}
-		data = dataValTmp | dataTmp;
+		data = dataValTmp | dataTmp;	/* Or and add are the same */
 		if( !isIntegerRange( data ) || data < dataValTmp )
 			{
 			/* Integer overflow.  This shouldn't occur because we've already 
@@ -1382,7 +1391,7 @@ static int readTimeData( INOUT_PTR STREAM *stream,
 		return( status );
 	LOOP_MED( i = 0, i < length - 1, i++ )
 		{
-		ENSURES_S( LOOP_INVARIANT_MED( i, 0, length - 1 ) );
+		ENSURES_S( LOOP_INVARIANT_MED( i, 0, length - 2 ) );
 
 		if( !isDigit( buffer[ i ] ) )
 			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
@@ -1465,6 +1474,13 @@ static int readTimeData( INOUT_PTR STREAM *stream,
 			{
 			theTime.tm_year = 136;		/* 2036 */
 			utcTime = mktime( &theTime );
+			if( utcTime < 0 )
+				{
+				/* Another should-never-occur condition, just set the result
+				   to the time equivalent of INT_MAX */
+				*timePtr = MAX_TIME_VALUE - 1;
+				return( CRYPT_OK );
+				}
 			}
 
 		/* Some broken apps set dates to 1/1/1970, handling times this close 
@@ -1526,12 +1542,14 @@ static int readTimeData( INOUT_PTR STREAM *stream,
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	if( utcTime < gmTime )
 		{
-		/* If time_t is signed then this and the expression in the "else"
-		   branch do the same thing since in the following line if e.g. 
-		   utcTime > gmTime then ( gmTime - utcTime ) is negative, so
-		   subtracting that means adding it, the same as the "else" portion
-		   below, however we leave the two distinct for cases where time_t
-		   is unsigned */
+		/* When time_t is signed, which seems to be universally the case
+		   despite the standard not saying anything about it, then this and 
+		   the expression in the "else" branch do the same thing since in 
+		   the following line if e.g. utcTime > gmTime then 
+		   ( gmTime - utcTime ) is negative, so subtracting that means 
+		   adding it, the same as the "else" portion below.  However we 
+		   leave the two distinct for in case some system exists where 
+		   time_t is unsigned (VAX/VMS allegedly used an unsigned time_t) */
 		*timePtr = utcTime - ( gmTime - utcTime );
 		}
 	else
@@ -1672,7 +1690,7 @@ static int checkReadTag( INOUT_PTR STREAM *stream,
 
 	REQUIRES_S( ( tag == ANY_TAG ) || isValidTag( tag ) );
 				/* Note tag != 0 */
-	REQUIRES( isBooleanValue( allowRelaxedMatch ) );
+	REQUIRES_S( isBooleanValue( allowRelaxedMatch ) );
 
 	/* Read the identifier field */
 	status = tagValue = readTag( stream );
@@ -1730,7 +1748,7 @@ static int readObjectHeader( INOUT_PTR STREAM *stream,
 	REQUIRES_S( isShortIntegerRange( minLength ) );
 	REQUIRES_S( ( tag == ANY_TAG ) || isValidTag( tag ) );
 				/* Note tag != 0 */
-	REQUIRES( isFlagRangeZ( flags, READOBJ ) );
+	REQUIRES_S( isFlagRangeZ( flags, READOBJ ) );
 
 	/* Clear return value */
 	if( length != NULL )
@@ -1764,7 +1782,13 @@ static int readObjectHeader( INOUT_PTR STREAM *stream,
 
 		if( dataLength != CRYPT_UNUSED )
 			{
-			dataLength--;
+			if( dataLength <= 0 )
+				dataLength = UNDERFLOW_MARKER;
+			else
+				{
+				REQUIRES_S( !checkOverflowDec( dataLength ) );
+				dataLength--;
+				}
 			if( !isIntegerRange( dataLength ) )
 				return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 			}
@@ -1807,8 +1831,8 @@ static int readLongObjectHeader( INOUT_PTR STREAM *stream,
 	REQUIRES_S( isShortIntegerRange( minLength ) );
 	REQUIRES_S( ( tag == ANY_TAG ) || isValidTag( tag ) );
 				/* Note tag != 0 */
-	REQUIRES( flags == READOBJ_FLAG_NONE || \
-			  flags == READOBJ_FLAG_UNIVERSAL );
+	REQUIRES_S( flags == READOBJ_FLAG_NONE || \
+				flags == READOBJ_FLAG_UNIVERSAL );
 
 	/* Clear return value */
 	if( length != NULL )
@@ -1852,7 +1876,7 @@ int readSequenceExt( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 
-	REQUIRES( isEnumRange( lengthCheckType, LENGTH_CHECK ) );
+	REQUIRES_S( isEnumRange( lengthCheckType, LENGTH_CHECK ) );
 
 	return( readObjectHeader( stream, length, 
 					( lengthCheckType == LENGTH_CHECK_ZERO ) ? 0 : 1, 
@@ -1872,7 +1896,7 @@ int readSetExt( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 
-	REQUIRES( isEnumRange( lengthCheckType, LENGTH_CHECK ) );
+	REQUIRES_S( isEnumRange( lengthCheckType, LENGTH_CHECK ) );
 
 	return( readObjectHeader( stream, length, 
 					( lengthCheckType == LENGTH_CHECK_ZERO ) ? 0 : 1, 
@@ -1894,7 +1918,7 @@ int readConstructedExt( INOUT_PTR STREAM *stream,
 	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 
 	REQUIRES_S( ( tag == DEFAULT_TAG ) || ( tag >= 0 && tag < MAX_TAG_VALUE ) );
-	REQUIRES( isEnumRange( lengthCheckType, LENGTH_CHECK ) );
+	REQUIRES_S( isEnumRange( lengthCheckType, LENGTH_CHECK ) );
 
 	return( readObjectHeader( stream, length, 
 					( lengthCheckType == LENGTH_CHECK_ZERO ) ? 0 : 1, 
@@ -2024,7 +2048,7 @@ int readLongGenericHoleExt( INOUT_PTR STREAM *stream,
 			   /* We use MAX_TAG rather than MAX_TAG_VALUE since we don't
 			      know what form it has to be turned into when reading
 				  the tag */
-	REQUIRES( isEnumRange( lengthCheckType, LENGTH_CHECK ) );
+	REQUIRES_S( isEnumRange( lengthCheckType, LENGTH_CHECK ) );
 
 	return( readLongObjectHeader( stream, length, 
 						( lengthCheckType == LENGTH_CHECK_ZERO ) ? 0 : 1, 
@@ -2043,7 +2067,7 @@ int readGenericObjectHeader( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( length, sizeof( long ) ) );
 
-	REQUIRES( isBooleanValue( isLongObject ) );
+	REQUIRES_S( isBooleanValue( isLongObject ) );
 
 	/* Clear return value */
 	*length = 0L;
@@ -2099,7 +2123,10 @@ int readRawObjectAlloc( INOUT_PTR STREAM *stream,
 
 	/* Find out how much data we need to read.  This may be a non-seekable
 	   stream so we have to grab the first OBJECT_HEADER_DATA_SIZE bytes 
-	   from the stream and decode them to see what's next */
+	   from the stream and decode them to see what's next.  Note that the
+	   headerSize value is whatever subset of OBJECT_HEADER_DATA_SIZE is
+	   required to encode the header, not necessarily the entire 
+	   OBJECT_HEADER_DATA_SIZE */
 	REQUIRES_S( rangeCheck( OBJECT_HEADER_DATA_SIZE, 1, \
 							OBJECT_HEADER_DATA_SIZE ) );
 	status = sread( stream, buffer, OBJECT_HEADER_DATA_SIZE );
@@ -2116,10 +2143,13 @@ int readRawObjectAlloc( INOUT_PTR STREAM *stream,
 		sSetError( stream, status );
 		return( status );
 		}
-	ENSURES_S( isIntegerRangeNZ( headerSize ) );
+	REQUIRES_S( !checkOverflowAdd( objectLength, headerSize ) );
 	objectLength += headerSize;
 
-	/* Make sure that the object has a sensible length */
+	/* Make sure that the object has a sensible length.  We know from the 
+	   check above that minLength is at least OBJECT_HEADER_DATA_SIZE, so 
+	   the following also ensures that 
+	   objectLength >= OBJECT_HEADER_DATA_SIZE */
 	if( objectLength < minLength || objectLength > maxLength )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 
@@ -2137,17 +2167,23 @@ int readRawObjectAlloc( INOUT_PTR STREAM *stream,
 
 	/* Read the remainder of the object data into the memory buffer and 
 	   check that the overall object is valid */
-	REQUIRES_S_PTR( boundsCheck( OBJECT_HEADER_DATA_SIZE, \
-								 objectLength - OBJECT_HEADER_DATA_SIZE, \
-								 objectLength ), objectData );
-	status = sread( stream, ( BYTE * ) objectData + OBJECT_HEADER_DATA_SIZE,
-					objectLength - OBJECT_HEADER_DATA_SIZE );
-	if( cryptStatusError( status ) )
+	if( objectLength > OBJECT_HEADER_DATA_SIZE )
 		{
-		REQUIRES_S_PTR( isShortIntegerRangeNZ( objectLength ), objectData ); 
-		zeroise( objectData, objectLength );
-		clFree( "readRawObjectAlloc", objectData );
-		return( status );
+		REQUIRES_S_PTR( !checkOverflowSub( objectLength, \
+										   OBJECT_HEADER_DATA_SIZE ) && \
+						boundsCheck( OBJECT_HEADER_DATA_SIZE, \
+									 objectLength - OBJECT_HEADER_DATA_SIZE, \
+									 objectLength ), objectData );
+		status = sread( stream, 
+						( BYTE * ) objectData + OBJECT_HEADER_DATA_SIZE,
+						objectLength - OBJECT_HEADER_DATA_SIZE );
+		if( cryptStatusError( status ) )
+			{
+			REQUIRES_S_PTR( isShortIntegerRangeNZ( objectLength ), objectData ); 
+			zeroise( objectData, objectLength );
+			clFree( "readRawObjectAlloc", objectData );
+			return( status );
+			}
 		}
 	status = checkObjectEncoding( objectData, objectLength );
 	if( cryptStatusError( status ) )

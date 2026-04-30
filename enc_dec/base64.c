@@ -166,11 +166,11 @@ static BOOLEAN checkBase64( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	REQUIRES( isBooleanValue( isPEM ) );
+	REQUIRES_B( isBooleanValue( isPEM ) );
 
 	/* Make sure that there's enough data present to perform a reliable
 	   check */
-	REQUIRES( rangeCheck( BASE64_MIN_LINESIZE, 1, BASE64_MIN_LINESIZE ) );
+	REQUIRES_B( rangeCheck( BASE64_MIN_LINESIZE, 1, BASE64_MIN_LINESIZE ) );
 	status = sread( stream, buffer, BASE64_MIN_LINESIZE );
 	if( cryptStatusError( status ) )
 		return( FALSE );
@@ -688,7 +688,7 @@ static int writeAccumulator( INOUT_PTR STREAM *stream,
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	REQUIRES( byteCount >= 2 && byteCount <= 4 );
+	REQUIRES_S( byteCount >= 2 && byteCount <= 4 );
 
 	if( byteCount == 4 )
 		{
@@ -773,6 +773,7 @@ int base64decode( OUT_BUFFER( destMaxLen, *destLen ) void *dest,
 				}
 
 			/* It's  CR or LF, skip it */
+			REQUIRES( !checkOverflowSub( srcLen, srcIndex ) );
 			status = checkEOL( src + srcIndex, srcLen - srcIndex, 
 							   &eolDataSize, format );
 			if( cryptStatusError( status ) )
@@ -785,6 +786,7 @@ int base64decode( OUT_BUFFER( destMaxLen, *destLen ) void *dest,
 				sMemDisconnect( &stream );
 				return( status );
 				}
+			REQUIRES( !checkOverflowAdd( srcIndex, eolDataSize - 1 ) );
 			srcIndex += eolDataSize - 1;	/* Loop increments srcIndex */
 			continue;
 			}
@@ -903,13 +905,10 @@ int base64decodeLen( IN_BUFFER( dataLength ) const BYTE *data,
 	ENSURES( LOOP_BOUND_OK );
 	sMemDisconnect( &stream );
 
-	static_assert( MAX_BUFFER_SIZE < MAX_INTLENGTH / 3,
-				   "Integer overflow check for base64" );
-	ENSURES( length < MAX_INTLENGTH / 3 );
-
 	/* Return a rough estimate of how much room the decoded data will occupy.
 	   This overestimates by a few bytes, but a strict value isn't necessary 
 	   since it's only used for memory buffer allocation */
+	REQUIRES( !checkOverflowMul( length, 3 ) );
 	*decodedLength = ( length * 3 ) / 4;
 
 	return( CRYPT_OK );
@@ -971,6 +970,8 @@ int base64encodeLen( IN_DATALENGTH_MIN( 10 ) const int dataLength,
 		   analysers happy */
 		return( CRYPT_ERROR_OVERFLOW );
 		}
+	REQUIRES( !checkOverflowMul( dataLength, 4 ) );
+	REQUIRES( !checkOverflowRoundup( ( dataLength * 4 ) / 3, 4 ) );
 	length = roundUp( ( dataLength * 4 ) / 3, 4 );
 	ENSURES( isBufsizeRangeMin( length, 10 ) );
 
@@ -989,8 +990,16 @@ int base64encodeLen( IN_DATALENGTH_MIN( 10 ) const int dataLength,
 	headerInfoPtr = getHeaderInfo( certType );
 	ENSURES( headerInfoPtr != NULL );
 
-	/* Calculate the extra length due to EOLs and delimiters */
+	/* Calculate the extra length due to EOLs and delimiters.  This can't 
+	   overflow because of the check earlier but we repeat it here to 
+	   document that fact */
+	REQUIRES( isBufsizeRangeMin( length, 10 ) );
+	REQUIRES( !checkOverflowRoundup( length, BASE64_LINESIZE ) );
+	REQUIRES( !checkOverflowAdd( length,
+			  ( ( roundUp( length, BASE64_LINESIZE ) / BASE64_LINESIZE ) * EOL_LEN ) ) );
 	length += ( ( roundUp( length, BASE64_LINESIZE ) / BASE64_LINESIZE ) * EOL_LEN );
+	REQUIRES( !checkOverflowAdd( length, headerInfoPtr->headerLen + \
+										 headerInfoPtr->trailerLen ) );
 	length += headerInfoPtr->headerLen + headerInfoPtr->trailerLen;
 
 	ENSURES( isBufsizeRangeMin( length, 64 ) );
@@ -1057,6 +1066,8 @@ int base64encode( OUT_BUFFER( destMaxLen, *destLen ) char *dest,
 		ENSURES( LOOP_INVARIANT_EXT_XXX( srcIndex, 0, srcLen - 1,
 										 MAX_BUFFER_SIZE / 4 ) );
 				 /* srcIndex is incremented based on chars output */
+
+		REQUIRES( !checkOverflowSub( srcLen, srcIndex ) );
 
 		/* If we've reached the end of a line of binary data and it's a
 		   certificate object rather than a raw binary blob, add the EOL 
@@ -1125,6 +1136,7 @@ int base64encode( OUT_BUFFER( destMaxLen, *destLen ) char *dest,
 			}
 
 		/* Add the trailer */
+		ANALYSER_HINT( headerInfoPtr != NULL );
 		swrite( &stream, EOL, EOL_LEN );
 		status = swrite( &stream, headerInfoPtr->trailer, 
 						 headerInfoPtr->trailerLen );

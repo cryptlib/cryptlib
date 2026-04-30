@@ -64,7 +64,7 @@
 		and the RAW flag is an indicator that the HTTP stream should read 
 		the normally out-of-band header (i.e. the HTTP wrapper for an 
 		encapsulated data type) as well as the actual data.  
-C
+
 	MFLAG_VFILE: The underlying OS doesn't support conventional file I/O (it
 		may only support, for example, access to fixed blocks of flash 
 		memory) so this is a memory stream emulating a file stream */
@@ -233,6 +233,13 @@ C
 #define MIN_HOST_SIZE			MIN_DNS_SIZE
 #define MAX_HOST_SIZE			MAX_DNS_SIZE
 
+/* The maximum network address size as a text string.  There are various 
+   disagreements over the length as people compete to find the encoding
+   quirk that'll give the pathologically longest address (39, 45, 54), we
+   just use 64 to give a good safety margin */
+
+#define MAX_TEXT_NETWORKADDRESS	64
+
 /* The size of the memory buffer used for virtual file streams, which are 
    used in CONFIG_NO_STDIO environments to store data before it's committed
    to backing storage */
@@ -399,11 +406,11 @@ typedef struct NS {
 	char *path;
 	int pathLen;
 	int port;					/* Host name, path on host, and port */
-	BUFFER( CRYPT_MAX_TEXTSIZE / 2, clientAddressLen ) \
-	char clientAddress[ ( CRYPT_MAX_TEXTSIZE / 2 ) + 4 ];
-	int clientAddressLen;		/* Client IP address (dotted-decimal) */
+	BUFFER( MAX_TEXT_NETWORKADDRESS, clientAddressLen ) \
+	char clientAddress[ MAX_TEXT_NETWORKADDRESS + 8 ];
+	int clientAddressLen;		/* Client IP address (text form) */
 	int clientPort;				/* Client port */
-	BYTE clientAddressBinary[ 16 + 4 ];
+	BYTE clientAddressBinary[ 16 + 8 ];
 	int clientAddressBinaryLen;	/* Client IP address (network byte order) */
 
 	/* Sometimes we can fingerprint the application running on the peer 

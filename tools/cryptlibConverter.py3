@@ -4,6 +4,7 @@
 # Ported to python3 by Ralf Senderek, October 2018
 # Modified to use the new Buffer Protocol (PyObject_GetBuffer), November 2023
 # Transformed comments for Javadoc and added method comments, March 2026
+# Remove deprecated functions from cryptlib.h, April 2026
 
 import sys
 import os
@@ -182,7 +183,7 @@ if language == "java":
          FuncDictString = F.read()
          F.close()
          FunctionComments = eval(FuncDictString)
-         print("Found " + str(len(FunctionComments.keys())) + "function comments")
+         print("Found " + str(len(FunctionComments.keys())) + " function comments")
     except:
          print ("Error: cannot read function comments, missing file " + FunctionCommentFile)
 
@@ -862,6 +863,18 @@ public class crypt
 
 s = open(inFile).read()
 inFileTabSize = 4
+
+# remove all deprecated functions, (April 2026)
+# find the code block starting with C_DECLSPEC_DEPRECATED and ending in C_ATTRIBUTE_DEPRECATED;
+i = 0
+begin = 0
+while i < len(s):
+     begin = s.find("C_DECLSPEC_DEPRECATED",begin)
+     end = s.find("C_ATTRIBUTE_DEPRECATED",begin)
+     if (begin != -1) and (end != -1) :
+          # remove this deprecated code block from s
+          s = s[:begin] + s[end + 23 :]
+     i += 100
 
 #Global variables
 #These accumulate information about the types in the input file
@@ -2022,13 +2035,12 @@ void releasePointerString(JNIEnv* env, jstring str, jbyte* bytesPtr)
                     # (Aug 2023, Ralf Senderek)
                     if functionName.find("CreateSignature") != -1:
                          newFunctionBody += "if (signatureMaxLength == 0) \n    if (!processStatus(env, crypt%s(%s)))\n\tgoto finish;\n" % (functionName, argumentsWithNull)
-                    elif functionName.find("ExportKey") != -1:
+                    elif functionName.find("WrapKey") != -1:
                          newFunctionBody += "if (encryptedKeyMaxLength == 0) \n    if (!processStatus(env, crypt%s(%s)))\n\tgoto finish;\n" % (functionName, argumentsWithNull)
                     else:
                          newFunctionBody += "if (!processStatus(env, crypt%s(%s)))\n\tgoto finish;\n" % (functionName, argumentsWithNull)
                     # end modification
 
-                    #########newFunctionBody += "if (!processStatus(env, crypt%s(%s)))\n\tgoto finish;\n" % (functionName, argumentsWithNull)
                 newFunctionBody += "\n"
             elif functionName.find("PopData") != -1:
                 newFunctionBody += "//CryptPopData is a special case that doesn't have the length querying call\n\n"
@@ -2239,7 +2251,7 @@ if (!PyArg_ParseTuple(args, "%s", %s))
 		    # (Aug 2023, Ralf Senderek)
                     if functionName.find("CreateSignature") != -1:
                          newFunctionBody += "if (signatureMaxLength == 0) \n    if (!processStatusBool(crypt%s(%s)))\n\tgoto finish;\n" % (functionName, argumentsWithNull)
-                    elif functionName.find("ExportKey") != -1:
+                    elif functionName.find("WrapKey") != -1:
                          newFunctionBody += "if (encryptedKeyMaxLength == 0) \n    if (!processStatusBool(crypt%s(%s)))\n\tgoto finish;\n" % (functionName, argumentsWithNull)
                     else:
                          newFunctionBody += "if (!processStatusBool(crypt%s(%s)))\n\tgoto finish;\n" % (functionName, argumentsWithNull)

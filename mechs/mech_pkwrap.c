@@ -222,6 +222,7 @@ static int pgpGenerateChecksum( INOUT_BUFFER_FIXED( dataLength ) void *data,
 	ENSURES( LOOP_BOUND_OK );
 
 	/* Append the checksum to the MPI data */
+	REQUIRES( !checkOverflowSub( dataLength, keyDataLength ) );
 	sMemOpen( &stream, dataPtr + keyDataLength, dataLength - keyDataLength );
 	status = writeUint16( &stream, checksum & 0xFFFF );
 	sMemDisconnect( &stream );
@@ -425,6 +426,8 @@ static int pkcWrapData( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 				memmove( wrappedData, dataPtr, dataLength );
 				REQUIRES( rangeCheck( wrappedDataLength - dataLength, 
 									  1, CRYPT_MAX_PKCSIZE ) );
+				REQUIRES( !checkOverflowSub( wrappedDataLength, 
+											 dataLength ) );
 				memset( wrappedData + dataLength, 0, 
 						wrappedDataLength - dataLength );
 				}
@@ -567,7 +570,8 @@ static int generatePkcs1DataBlock( OUT_BUFFER( dataMaxLen, *dataLength ) \
 	REQUIRES( isShortIntegerRangeMin( dataMaxLen, MIN_PKCSIZE ) );
 	REQUIRES( isShortIntegerRangeMin( messageLen, MIN_KEYSIZE ) && \
 			  messageLen < dataMaxLen );
-	
+	REQUIRES( !checkOverflowSub( dataMaxLen, messageLen + 3 ) );
+
 	/* Clear return values */
 	REQUIRES( isShortIntegerRangeNZ( dataMaxLen ) ); 
 	memset( data, 0, min( 16, dataMaxLen ) );
@@ -665,7 +669,7 @@ static int recoverPkcs1DataBlock( IN_BUFFER( dataLength ) const BYTE *data,
 		   that the PKCS #1 conditions are being checked */
 		return( CRYPT_ERROR_BADDATA );
 		}
-#if 0	/* Alternative constant-time version */
+#if 0	/* Alternative difficult-to-verify constant-time version */
 	{
 	int result;
 
@@ -693,6 +697,8 @@ static int recoverPkcs1DataBlock( IN_BUFFER( dataLength ) const BYTE *data,
 			ch0pos = index;		/* Set ch0pos on first zero byte */
 		}
 	ENSURES( LOOP_BOUND_OK );
+	static_assert( MIN_PKCSIZE - ( MAX_PAYLOAD_SIZE + 8 ) > 0,
+				   "MIN_PKCSIZE < MAX_PAYLOAD_SIZE" );
 	if( ch0pos < MIN_PKCSIZE - ( MAX_PAYLOAD_SIZE + 8 ) )
 		return( CRYPT_ERROR_BADDATA );
 	if( dataLength - ( ch0pos + 1 ) < MIN_KEYSIZE )
@@ -812,7 +818,7 @@ static int pkcs1Wrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 			status = cryptlibToPgpAlgo( sessionKeyAlgo, &pgpAlgoID );
 		if( cryptStatusError( status ) )
 			return( status );
-		payloadSize += 3;	/* 1-byte algo ID + 2-byte checksum */
+		payloadSize += 1 + UINT16_SIZE;	/* Algo ID + checksum */
 		}
 #endif /* USE_PGP */
 	CFI_CHECK_UPDATE( "payloadSize" );
@@ -858,7 +864,8 @@ static int pkcs1Wrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 		case PKCS1_WRAP_PGP:
 			*dataPtr++ = intToByte( pgpAlgoID );
 			status = extractKeyData( mechanismInfo->keyContext, dataPtr,
-									 payloadSize - 3, "keydata", 7 );
+									 payloadSize - ( 1 + UINT16_SIZE ), 
+									 "keydata", 7 );
 			if( cryptStatusOK( status ) )
 				{
 				status = pgpGenerateChecksum( dataPtr, payloadSize - 1,
@@ -991,7 +998,13 @@ static int pkcs1Unwrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 	   padding and make sure that it can (plausibly) hold a key.  See the
 	   analysis in recoverPkcs1DataBlock() about using this as a timing 
 	   oracle */
-	length -= pkcs1PadSize;
+	if( length <= pkcs1PadSize )
+		length = UNDERFLOW_MARKER;
+	else
+		{
+		REQUIRES( !checkOverflowSub( length, pkcs1PadSize ) );
+		length -= pkcs1PadSize;
+		}
 	if( length < MIN_KEYSIZE || length > maxPayloadLength )
 		{
 		zeroise( decryptedData, CRYPT_MAX_PKCSIZE );
@@ -1011,7 +1024,10 @@ static int pkcs1Unwrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 			if( cryptStatusError( status ) )
 				break;
 			payloadPtr++;		/* Skip algorithm ID */
-			length -= 3;		/* Subtract extra wrapping length */
+			length -= ( 1 + UINT16_SIZE );		
+								/* Subtract extra wrapping length.  We know
+								   that length >= MIN_KEYSIZE from the check
+								   earlier */
 			if( length < MIN_KEYSIZE )
 				{
 				zeroise( decryptedData, CRYPT_MAX_PKCSIZE );
@@ -1307,6 +1323,8 @@ static int generateOaepDataBlock( OUT_BUFFER_FIXED( dataMaxLen ) BYTE *data,
 	   Although PS may have a length of zero bytes we require at least one
 	   padding byte.  The only case where we can run into problems is if we 
 	   try and use SHA2-512 in combination with a 1024-bit key */
+	REQUIRES( !checkOverflowAdd3( 1 + 1 + 1, seedLen + seedLen, 
+								  messageLen ) );
 	if( 1 + seedLen + seedLen + 1 + 1 + messageLen > dataMaxLen )
 		return( CRYPT_ERROR_OVERFLOW );
 
@@ -1321,6 +1339,7 @@ static int generateOaepDataBlock( OUT_BUFFER_FIXED( dataMaxLen ) BYTE *data,
 		maskedSeed	   db */
 	maskedSeed = data + 1;
 	db = maskedSeed + seedLen;
+	REQUIRES( !checkOverflowSub( dataMaxLen, 1 + seedLen ) );
 	dbLen = dataMaxLen - ( 1 + seedLen );
 
 	ENSURES( dbLen >= 20 && dbLen >= messageLen + 1 && \
@@ -1332,6 +1351,7 @@ static int generateOaepDataBlock( OUT_BUFFER_FIXED( dataMaxLen ) BYTE *data,
 	status = getOaepHash( db, dbLen, &length, hashAlgo, hashParam );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowSub( dbLen, messageLen - 1 ) );
 	db[ dbLen - messageLen - 1 ] = 0x01;
 	REQUIRES( boundsCheck( 1 + seedLen + dbLen - messageLen, messageLen,
 						   dataMaxLen ) );
@@ -1434,6 +1454,7 @@ static int recoverOaepDataBlock( OUT_BUFFER( messageMaxLen, *messageLen ) \
 	/* Calculate the size and position of the various data quantities */
 	seed = dataBuffer + 1;
 	db = seed + seedLen;
+	REQUIRES( !checkOverflowSub( dataLen, 1 + seedLen ) );
 	dbLen = dataLen - ( 1 + seedLen );
 
 	ENSURES( dbLen >= 16 && 1 + seedLen + dbLen <= dataLen );
@@ -1518,7 +1539,13 @@ static int recoverOaepDataBlock( OUT_BUFFER( messageMaxLen, *messageLen ) \
 	ENSURES( LOOP_BOUND_OK );
 	if( i <= seedLen || i >= dbLen || db[ i++ ] != 0x01 )
 		return( CRYPT_ERROR_BADDATA );
-	length = dbLen - i;
+	if( dbLen < i )
+		length = UNDERFLOW_MARKER;
+	else
+		{
+		REQUIRES( !checkOverflowSub( dbLen, i ) );
+		length = dbLen - i;
+		}
 	if( length < MIN_KEYSIZE )
 		return( CRYPT_ERROR_UNDERFLOW );
 	if( length > messageMaxLen )
@@ -1819,6 +1846,7 @@ static int testPKCS1( IN_ENUM( TEST ) const TEST_TYPE testType )
 	status = recoverPkcs1DataBlock( buffer, length, &padSizeOut );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowSub( payloadSizeOut, padSizeOut ) );
 	payloadSizeOut -= padSizeOut;
 	payloadPtrOut = buffer + padSizeOut;
 	if( padSizeOut != padSizeIn || payloadPtrOut != payloadPtrIn || \

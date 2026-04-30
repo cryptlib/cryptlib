@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							SCEP Definitions Header File					*
-*						Copyright Peter Gutmann 1999-2019					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -18,32 +18,32 @@
 /* SCEP protocol-specific flags that augment the general session flags.  These
    are:
 
-	PFLAG_PNPPKI: The remote systenm is PnP PKI capable.
+	PFLAG_FETCHEDCACERT: The CA certificate was fetched automatically by 
+		cryptlib as part of a SCEP protocol run rather than being added 
+		explicitly by the user.  If it was fetched automatically then it's
+		part of the output of a protocol run and can be read by the user
+		after the run is complete, otherwise it's part of the protocol 
+		parameters and write-only 
+
+	PFLAG_GOTCACAPS: The GetCACaps message used to determine a server's
+		capabilities has been sent.
 
 	PFLAG_PENDING: The last exchange with the server returned a 'pending' 
 		status, so the get-server-response needs to be retried without
 		genering a new request.
 
-	PFLAG_GOTCACAPS: The GetCACaps message used to determine a server's
-		capabilities has been sent.
+	PFLAG_PNPPKI: The remote systenm is PnP PKI capable.
 
 	PFLAG_SCEPSTANDARD: The server supports the full SCEP standard, RFC 
-		8894.  This allows additional protocol capabilities to be enabled.
-
-	PFLAG_USERCACERT: The CA certificate was fetched automatically by 
-		cryptlib as part of a SCEP protocol run rather than being added 
-		explicitly by the user.  If it was fetched automatically then it's
-		part of the output of a protocol run and can be read by the user
-		after the run is complete, otherwise it's part of the protocol 
-		parameters and write-only */
+		8894.  This allows additional protocol capabilities to be enabled */
 
 #define SCEP_PFLAG_NONE			0x00	/* No protocol-specific flags */
 #define SCEP_PFLAG_PNPPKI		0x01	/* Session is PnP PKI-capable */
 #define SCEP_PFLAG_FETCHEDCACERT 0x02	/* CA cert fetched via SCEP */
-#define SCEP_PFLAG_PENDING		0x08	/* Certificate issue is pending */
-#define SCEP_PFLAG_GOTCACAPS	0x10	/* Sent GetCACaps message to server */
-#define SCEP_PFLAG_SCEPSTANDARD	0x20	/* Server supports the full SCEP RFC */
-#define SCEP_PFLAG_MAX			0x3F	/* Maximum possible flag value */
+#define SCEP_PFLAG_PENDING		0x04	/* Certificate issue is pending */
+#define SCEP_PFLAG_GOTCACAPS	0x08	/* Sent GetCACaps message to server */
+#define SCEP_PFLAG_SCEPSTANDARD	0x10	/* Server supports the full SCEP RFC */
+#define SCEP_PFLAG_MAX			0x1F	/* Maximum possible flag value */
 
 /* The SCEP message type, status, and failure information.  For some 
    bizarre reason these integer values are communicated as text strings.

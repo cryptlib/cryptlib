@@ -158,6 +158,11 @@ static const URL_PARSE_INFO invalidUrlParseInfo[] = {
 	{ TEXT( "@www.server.com" ), NULL, 0, NULL },
 	{ TEXT( "   @www.server.com" ), NULL, 0, NULL },
 
+	/* Malicious URLs.  These are technically valid but we reject them 
+	   because no legitimate URL should look like that */
+	{ TEXT( "http://fqdn1.com?@fqdn2.com" ), NULL, 0, NULL },
+	{ TEXT( "http://fqdn1.com/path?@fqdn2.com" ), NULL, 0, NULL },
+
 	{ NULL, NULL, 0, NULL }
 	};
 

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  Certificate DN Header File						*
-*						Copyright Peter Gutmann 1996-2008					*
+*						Copyright Peter Gutmann 1996-2024					*
 *																			*
 ****************************************************************************/
 
@@ -27,8 +27,8 @@
 #define DN_FLAG_NONE		0x00	/* No DN flag */
 #define DN_FLAG_CONTINUED	0x01	/* RDN continues with another AVA */
 #define DN_FLAG_LOCKED		0x02	/* RDN can't be modified */
-#define DN_FLAG_NOCHECK		0x08	/* Don't check validity of components */
-#define DN_FLAG_MAX			0x0F	/* Maximum possible flag value */
+#define DN_FLAG_NOCHECK		0x04	/* Don't check validity of components */
+#define DN_FLAG_MAX			0x07	/* Maximum possible flag value */
 
 /* When comparing DN fields we only want to compare relevant data and not 
    incidental flags related to parsing or encoding actions.  The following
@@ -114,14 +114,14 @@ int insertDNstring( INOUT_PTR DATAPTR_DN *dnComponentPtr,
 /* Prototypes for functions in dnstring.c */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
-int copyToAsn1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest, 
+int copyToASN1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest, 
 					  IN_LENGTH_SHORT const int destMaxLen, 
 					  OUT_LENGTH_BOUNDED_Z( destMaxLen ) int *destLen, 
 					  IN_BUFFER( sourceLen ) const void *source, 
 					  IN_LENGTH_SHORT const int sourceLen,
 					  IN_RANGE( 1, 20 ) const int stringType );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4, 5 ) ) \
-int copyFromAsn1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest, 
+int copyFromASN1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest, 
 						IN_LENGTH_SHORT const int destMaxLen, 
 						OUT_LENGTH_BOUNDED_Z( destMaxLen ) int *destLen, 
 						OUT_RANGE( 0, 20 ) int *destStringType,

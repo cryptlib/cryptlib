@@ -21,8 +21,6 @@
   #include "mechs/mech.h"
 #endif /* Compiler-specific includes */
 
-#ifdef USE_INT_CMS
-
 /* The external signature/sig.check functions pass control down to the 
    internal ones but don't have a means of doing anything with the 
    ERROR_INFO that it returns.  To deal with this we pass in a dummy 
@@ -40,6 +38,8 @@ static const int dummyErrorInfo = 0;
 *																			*
 ****************************************************************************/
 
+#ifdef USE_INT_CMS
+
 /* Sanity-check a SIG_DATA_INFO structure.  Usually we're signing a hash,
    but some special-snowflake algorithms require that they be passed the 
    entire message to sign so we have to check both options */
@@ -53,8 +53,8 @@ BOOLEAN sanityCheckSigDataInfo( IN_PTR \
 	{
 	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
 
-	REQUIRES( isEnumRange( signatureType, SIGNATURE ) );
-	REQUIRES( isBooleanValue( isInternal ) );
+	REQUIRES_B( isEnumRange( signatureType, SIGNATURE ) );
+	REQUIRES_B( isBooleanValue( isInternal ) );
 
 	/* If it's a special-snowflake algorithm then in most cases we need to 
 	   be passed the entire message */

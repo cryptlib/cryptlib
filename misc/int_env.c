@@ -64,7 +64,8 @@ int envelopeWrap( IN_BUFFER( inDataLength ) const void *inData,
 			  ( password != NULL && \
 			    isShortIntegerRangeNZ( passwordLength ) ) );
 	REQUIRES( iPublicKey == CRYPT_UNUSED || password == NULL );
-	REQUIRES( isBufsizeRangeMin( minBufferSize, MIN_BUFFER_SIZE ) );
+	REQUIRES( !checkOverflowAdd( inDataLength, 512 ) );
+	ENSURES( isBufsizeRangeMin( minBufferSize, MIN_BUFFER_SIZE ) );
 
 	/* Clear return values.  Note that we can't clear the output buffer 
 	   at this point since this function is frequently used for in-place 
@@ -365,7 +366,8 @@ int envelopeSign( IN_BUFFER_OPT( inDataLength ) const void *inData,
 	REQUIRES( isHandleRangeValid( iSigKey ) );
 	REQUIRES( iCmsAttributes == CRYPT_UNUSED || \
 			  isHandleRangeValid( iCmsAttributes ) );
-	REQUIRES( isBufsizeRangeMin( minBufferSize, MIN_BUFFER_SIZE ) );
+	REQUIRES( !checkOverflowAdd( inDataLength, 512 ) );
+	ENSURES( isBufsizeRangeMin( minBufferSize, MIN_BUFFER_SIZE ) );
 
 	/* Clear return values.  Note that we can't clear the output buffer 
 	   at this point since this function is frequently used for in-place 

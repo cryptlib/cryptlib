@@ -113,13 +113,14 @@ static BOOLEAN isChannelActive( const SESSION_INFO *sessionInfoPtr,
 
 		/* It's an SSH channel, check whether it's the one that we're
 		   after */
-		ENSURES( attributeListPtr->valueLength == sizeof( SSH_CHANNEL_INFO ) );
+		ENSURES_B( attributeListPtr->valueLength == \
+								sizeof( SSH_CHANNEL_INFO ) );
 		channelInfoPtr = attributeListPtr->value;
 		if( isActiveChannel( channelInfoPtr ) && \
 			channelInfoPtr->channelID != excludedChannelID )
 			return( TRUE );
 		}
-	ENSURES( LOOP_BOUND_OK );
+	ENSURES_B( LOOP_BOUND_OK );
 
 	return( FALSE );
 	}
@@ -850,7 +851,10 @@ int addChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				    channel */
 
 		if( attributeListPtr->attributeID == CRYPT_SESSINFO_SSH_CHANNEL )
+			{
+			REQUIRES( !checkOverflowInc( channelCount ) );
 			channelCount++;
+			}
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( channelCount > SSH_MAX_CHANNELS )
@@ -863,6 +867,7 @@ int addChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Initialise the information for the new channel and create it */
 	memset( &channelInfo, 0, sizeof( SSH_CHANNEL_INFO ) );
+	REQUIRES( !checkOverflowInc( sshInfo->channelIndex ) );
 	channelInfo.channelID = sshInfo->channelIndex++;
 	channelInfo.readChannelNo = channelInfo.writeChannelNo = channelNo;
 	channelInfo.maxPacketSize = maxPacketSize;
@@ -911,11 +916,15 @@ int createChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
 
 		/* This channel number is already in use, move on to the next one */
+		REQUIRES( !checkOverflowInc( sshInfo->nextChannelNo ) );
 		sshInfo->nextChannelNo++;
 		}
 	ENSURES( LOOP_BOUND_OK );
 
 	/* Create a channel with the new channel number */
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize, 
+								 EXTRA_PACKET_SIZE ) );
+	REQUIRES( !checkOverflowInc( sshInfo->nextChannelNo ) );
 	return( addChannel( sessionInfoPtr, sshInfo->nextChannelNo++,
 						sessionInfoPtr->sendBufSize - EXTRA_PACKET_SIZE,
 						"session", 7, NULL, 0 ) );
@@ -1149,6 +1158,8 @@ static int encodeSendResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Assemble the response as a new packet at the end of any existing
 	   data */
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize, 
+								 sendBufOffset ) );
 	REQUIRES( boundsCheckZ( sendBufOffset, 
 						    sessionInfoPtr->sendBufSize - sendBufOffset,
 						    sessionInfoPtr->sendBufSize ) );
@@ -1217,6 +1228,8 @@ static int encodeSendResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	else
 		{
 		assert( 0 );	/* When does this occur? */
+		REQUIRES( !checkOverflowAdd( sessionInfoPtr->sendBufPos,
+									 encodedResponseSize ) );
 		sessionInfoPtr->sendBufPos += encodedResponseSize;
 		}
 	sessionInfoPtr->partialWrite = TRUE;

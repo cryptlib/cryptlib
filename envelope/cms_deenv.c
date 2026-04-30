@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib De-enveloping Routines						*
-*					 Copyright Peter Gutmann 1996-2016						*
+*					 Copyright Peter Gutmann 1996-2024						*
 *																			*
 ****************************************************************************/
 
@@ -407,7 +407,8 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		}
 
 	/* Allocate memory for the new content list item and copy information on
-	   the item across */
+	   the item across.  After this point contentListObjectPtr is part of the
+	   contentListItem so will be freed when that is freed */
 	status = createContentListItem( &contentListItem, 
 					envelopeInfoPtr->memPoolState, contentType, 
 					queryInfo.formatType, contentListObjectPtr, 
@@ -426,7 +427,11 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		status = initExternalContentInfo( contentListItem, contentType, 
 										  &queryInfo );
 		if( cryptStatusError( status ) )
+			{
+			deleteContentListItem( envelopeInfoPtr->memPoolState, 
+								   contentListItem );
 			return( status );
+			}
 		}
 	else
 		{
@@ -438,7 +443,11 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			status = initPkcContentInfo( contentListItem, &queryInfo,
 										 contentListObjectPtr, objectSize );
 			if( cryptStatusError( status ) )
+				{
+				deleteContentListItem( envelopeInfoPtr->memPoolState, 
+									   contentListItem );
 				return( status );
+				}
 			}
 		if( queryInfo.type == CRYPT_OBJECT_ENCRYPTED_KEY )
 			{
@@ -447,7 +456,11 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			status = initEncKeyContentInfo( contentListItem, &queryInfo,
 											contentListObjectPtr, objectSize );
 			if( cryptStatusError( status ) )
+				{
+				deleteContentListItem( envelopeInfoPtr->memPoolState, 
+									   contentListItem );
 				return( status );
+				}
 			}
 		}
 	status = appendContentListItem( envelopeInfoPtr, contentListItem );
@@ -455,8 +468,6 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		{
 		deleteContentListItem( envelopeInfoPtr->memPoolState, 
 							   contentListItem );
-		if( contentListObjectPtr != NULL )
-			clFree( "addContentListItem", contentListObjectPtr );
 		return( status );
 		}
 	ENSURES( isIntegerRange( queryInfo.size ) );
@@ -1218,6 +1229,8 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 						status = CRYPT_ERROR_BADDATA;
 						break;
 						}
+					REQUIRES( !checkOverflowSub( envelopeInfoPtr->hdrSetLength, 
+												 contentItemLength ) );
 					envelopeInfoPtr->hdrSetLength -= contentItemLength;
 					if( envelopeInfoPtr->hdrSetLength <= 0 )
 						{
@@ -1357,6 +1370,8 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 						status = CRYPT_ERROR_BADDATA;
 						break;
 						}
+					REQUIRES( !checkOverflowSub( envelopeInfoPtr->hdrSetLength, 
+												 hashInfoLength ) );
 					envelopeInfoPtr->hdrSetLength -= hashInfoLength;
 					streamPos = stell( &stream );
 					ENSURES( isBufsizeRangeNZ( streamPos ) );
@@ -1519,6 +1534,7 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 
 	/* Consume the input that we've processed so far by moving everything 
 	   past the current position down to the start of the envelope buffer */
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos, streamPos ) );
 	remainder = envelopeInfoPtr->bufPos - streamPos;
 	REQUIRES( isBufsizeRange( remainder ) && \
 			  streamPos + remainder <= envelopeInfoPtr->bufSize );
@@ -1572,6 +1588,8 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 	/* If there's not enough data left in the stream to do anything, don't 
 	   try and go any further */
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos, 
+								 envelopeInfoPtr->dataLeft ) );
 	if( envelopeInfoPtr->bufPos - envelopeInfoPtr->dataLeft < 2 )
 		{
 		return( checkSoftError( CRYPT_ERROR_UNDERFLOW, isFlush ) ? \
@@ -1801,6 +1819,8 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 					status = CRYPT_ERROR_BADDATA;
 					break;
 					}
+				REQUIRES( !checkOverflowSub( envelopeInfoPtr->hdrSetLength, 
+											 contentItemLength ) );
 				envelopeInfoPtr->hdrSetLength -= contentItemLength;
 				if( envelopeInfoPtr->hdrSetLength <= 0 )
 					{
@@ -1880,6 +1900,9 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 					|<--+-->|<-- rem -->|
 						|
 					streamPos */
+	REQUIRES( !checkOverflowAdd( envelopeInfoPtr->dataLeft, streamPos ) );
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos,
+								 envelopeInfoPtr->dataLeft + streamPos ) );
 	remainder = envelopeInfoPtr->bufPos - \
 				( envelopeInfoPtr->dataLeft + streamPos );
 	REQUIRES( isBufsizeRange( remainder ) && \
@@ -1891,8 +1914,9 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							   remainder, envelopeInfoPtr->bufPos ) );
 		memmove( envelopeInfoPtr->buffer + envelopeInfoPtr->dataLeft,
 				 envelopeInfoPtr->buffer + envelopeInfoPtr->dataLeft + streamPos,
-				 remainder );
+				 remainder );	/* Add checked above */
 		}
+	REQUIRES( !checkOverflowAdd( envelopeInfoPtr->dataLeft, remainder ) );
 	envelopeInfoPtr->bufPos = envelopeInfoPtr->dataLeft + remainder;
 	ENSURES( sanityCheckEnvCMSDenv( envelopeInfoPtr ) );
 	if( failedMAC )

@@ -100,8 +100,6 @@ BOOLEAN sanityCheckNetStreamEAP( IN_PTR const NET_STREAM_INFO *netStream )
    MD5 */
 
 #define HMAC_BLOCK_SIZE		64
-#define HMAC_IPAD			0x36
-#define HMAC_OPAD			0x5C
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 5 ) ) \
 int radiusMD5MacBuffer( OUT_BUFFER_FIXED( 16 ) BYTE *macValue,
@@ -124,7 +122,7 @@ int radiusMD5MacBuffer( OUT_BUFFER_FIXED( 16 ) BYTE *macValue,
 
 	REQUIRES( macLength == 16 );
 	REQUIRES( isShortIntegerRangeNZ( dataLength ) );
-	REQUIRES( isShortIntegerRangeNZ( keyDataLength ) );
+	REQUIRES( rangeCheck( keyDataLength, 1, HMAC_BLOCK_SIZE ) );
 
 	getHashParameters( CRYPT_ALGO_MD5, 0, &hashFunction, &hashSize );
 
@@ -162,7 +160,9 @@ int radiusMD5MacBuffer( OUT_BUFFER_FIXED( 16 ) BYTE *macValue,
 	hashFunction( hashInfo, macValue, macLength, hashBuffer, hashSize,
 				  HASH_STATE_END );
 
+	zeroise( hashInfo, sizeof( HASHINFO ) );
 	zeroise( hmacBlockBuffer, HMAC_BLOCK_SIZE );
+	zeroise( hashBuffer, CRYPT_MAX_HASHSIZE );
 
 	return( CRYPT_OK );
 	}
@@ -705,7 +705,7 @@ static int activateEAPClient( INOUT_PTR STREAM *stream,
 	DEBUG_PRINT(( "Successfully negotiated %s (%d) with server.\n", 
 				  getEAPSubtypeName( eapSubType ), eapSubType ));
 
-	return( status );
+	return( CRYPT_OK );
 	}
 
 /* Activate an EAP server  session */

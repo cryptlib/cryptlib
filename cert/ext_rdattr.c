@@ -209,14 +209,28 @@ int findItemEnd( IN_PTR_PTR const ATTRIBUTE_INFO **attributeInfoPtrPtr,
 		/* If it's a SEQUENCE/SET, increment the depth; if it's an end-of-
 		   constructed-item marker, decrement it by the appropriate amount 
 		   (decodeNestingLevel() is only nonzero at the end of a constructed
-		   item) */
+		   item).  For complex extensions with optional nested fields we 
+		   don't always return to a nestLevel of zero because we don't know 
+		   how many levels we went down before this point (see for example 
+		   the end of certPolicies in certs/ext_def.c), so we explicitly 
+		   check for an underflow  */
 		if( attributeInfoPtr->fieldType == BER_SEQUENCE || \
 			attributeInfoPtr->fieldType == BER_SET )
+			{
+			REQUIRES( !checkOverflowInc( currentDepth ) );
 			currentDepth++;
+			}
 		else
 			{
-			currentDepth -= \
+			if( currentDepth < decodeNestingLevel( attributeInfoPtr->encodingFlags ) )
+				currentDepth = UNDERFLOW_MARKER;
+			else
+				{
+				REQUIRES( !checkOverflowSub( currentDepth, 
+					decodeNestingLevel( attributeInfoPtr->encodingFlags ) ) );
+				currentDepth -= \
 					decodeNestingLevel( attributeInfoPtr->encodingFlags );
+				}
 			}
 		if( currentDepth <= 0 )
 			break;
@@ -310,7 +324,13 @@ static int findIdentifiedItem( INOUT_PTR STREAM *stream,
 							 BER_OBJECT_IDENTIFIER );
 	if( cryptStatusError( status ) )
 		return( status );
-	sequenceLength -= oidLength;
+	if( sequenceLength < oidLength )
+		sequenceLength = UNDERFLOW_MARKER;
+	else
+		{
+		REQUIRES( !checkOverflowSub( sequenceLength, oidLength ) );
+		sequenceLength -= oidLength;
+		}
 	if( !isShortIntegerRange( sequenceLength ) )
 		return( CRYPT_ERROR_BADDATA );
 
@@ -418,8 +438,8 @@ static int processIdentifiedItem( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( errorLocus, sizeof( CRYPT_ATTRIBUTE_TYPE ) ) );
 	assert( isWritePtr( errorType, sizeof( CRYPT_ERRTYPE_TYPE ) ) );
 
-assert( ( flags & ~( ATTR_FLAG_CRITICAL ) ) == 0 );
 	REQUIRES( isFlagRangeZ( flags, ATTR ) );
+	REQUIRES( ( flags & ~( ATTR_FLAG_CRITICAL ) ) == 0 );
 
 	setofInfoPtr = setofTOS( setofStack );
 	ENSURES( setofInfoPtr != NULL );
@@ -525,8 +545,8 @@ static int readIdentifierFields( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( errorLocus, sizeof( CRYPT_ATTRIBUTE_TYPE ) ) );
 	assert( isWritePtr( errorType, sizeof( CRYPT_ERRTYPE_TYPE ) ) );
 
-assert( ( flags == ATTR_FLAG_NONE ) || ( flags == ATTR_FLAG_CRITICAL ) );
 	REQUIRES( isFlagRangeZ( flags, ATTR ) );
+	REQUIRES( ( flags == ATTR_FLAG_NONE ) || ( flags == ATTR_FLAG_CRITICAL ) );
 	REQUIRES( ( fieldID == CRYPT_ATTRIBUTE_NONE ) || \
 			  isValidExtension( fieldID ) );
 
@@ -624,6 +644,7 @@ assert( ( flags == ATTR_FLAG_NONE ) || ( flags == ATTR_FLAG_CRITICAL ) );
 			if( cryptStatusError( status ) )
 				return( status );
 			}
+		REQUIRES( !checkOverflowInc( count ) );
 		count++;
 
 		/* If there's more than one OID present in a CHOICE, it's an error */
@@ -688,6 +709,8 @@ assert( ( flags == ATTR_FLAG_NONE ) || ( flags == ATTR_FLAG_CRITICAL ) );
    be tagged so we process the tag at a higher level and only read the 
    contents here */
 
+#define ATTRIBUTE_BUFFER_SIZE		512
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 6, 7, 8 ) ) \
 static int readAttributeField( INOUT_PTR STREAM *stream, 
 							   INOUT_PTR DATAPTR_ATTRIBUTE *attributePtrPtr,
@@ -703,7 +726,7 @@ static int readAttributeField( INOUT_PTR STREAM *stream,
 	{
 	CRYPT_ATTRIBUTE_TYPE fieldID, subFieldID;
 	DATAPTR_DN dn;
-	BYTE buffer[ 512 + 8 ];
+	BYTE buffer[ ATTRIBUTE_BUFFER_SIZE + 8 ];
 	const void *dataPtr = NULL;
 	time_t timeVal;
 	int dataLength = 0, dataFlags = ATTR_FLAG_NONE;
@@ -719,8 +742,8 @@ static int readAttributeField( INOUT_PTR STREAM *stream,
 	REQUIRES( ( subtypeParent == CRYPT_ATTRIBUTE_NONE ) || \
 			  ( subtypeParent > CRYPT_CERTINFO_FIRST && \
 				subtypeParent < CRYPT_CERTINFO_LAST ) );
-assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_CRITICAL | \
-					 ATTR_FLAG_MULTIVALUED ) ) == 0 );
+	REQUIRES( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_CRITICAL | \
+						   ATTR_FLAG_MULTIVALUED ) ) == 0 );
 	REQUIRES( isFlagRangeZ( flags, ATTR ) );
 
 	/* Clear return values */
@@ -814,17 +837,18 @@ assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_CRITICAL | \
 			/* If it's a string type or a blob read it in as a blob, the 
 			   only difference being that for a true blob we read the tag 
 			   and length as well.  We read the data to a maximum length of 
-			   512 bytes, the text strings all top out at either 200 or 255 
-			   bytes but BLOB_ANY and FIELDTYPE_BLOB_SEQUENCE can go up to 
-			   MAX_ATTRIBUTE_SIZE.
+			   ATTRIBUTE_BUFFER_SIZE bytes, the text strings all top out at 
+			   either 200 or 255 bytes but BLOB_ANY and 
+			   FIELDTYPE_BLOB_SEQUENCE can go up to MAX_ATTRIBUTE_SIZE.
 
 			   This is however modified by two special cases.  Firstly, 
 			   readRawObject() as used to read blobs only allows lengths up 
-			   to 256 bytes, however as of 2020 a case of a field that goes
-			   beyond this size has never been encountered.  Secondly, CAs 
-			   really like to overrun CRYPT_CERTINFO_CERTPOLICY_EXPLICITTEXT 
-			   beyond its limit of 200 characters with overlong legal 
-			   disclaimers so this handles those as well */
+			   to 256 bytes (meaning tag + length + 256 bytes payload), 
+			   however as of 2025 a case of a field that goes beyond this 
+			   size has never been encountered.  Secondly, CAs really like 
+			   to overrun CRYPT_CERTINFO_CERTPOLICY_EXPLICITTEXT beyond its 
+			   limit of 200 characters with overlong legal disclaimers so 
+			   this handles those as well */
 			if( isBlobField( attributeInfoPtr->fieldType ) )
 				{
 				int tag;
@@ -843,7 +867,8 @@ assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_CRITICAL | \
 					{
 					ANALYSER_HINT( isValidTag( tag ) );	
 								   /* Guaranteed by peekTag() */
-					status = readRawObject( stream, buffer, 512, 
+					status = readRawObject( stream, buffer, 
+											ATTRIBUTE_BUFFER_SIZE, 
 											&dataLength, tag );
 					}
 				}
@@ -854,13 +879,15 @@ assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_CRITICAL | \
 					{
 					/* It's an aliased encoding, specifically an INTEGER 
 					   hole */
-					status = readIntegerData( stream, buffer, 512, 
+					status = readIntegerData( stream, buffer, 
+											  ATTRIBUTE_BUFFER_SIZE, 
 											  &dataLength );
 					}
 				else
 					{
-					status = readOctetStringData( stream, buffer, &dataLength, 
-												  1, 512 );
+					status = readOctetStringData( stream, buffer, 
+												  &dataLength, 1, 
+												  ATTRIBUTE_BUFFER_SIZE );
 					}
 				}
 			if( cryptStatusError( status ) )
@@ -1063,7 +1090,7 @@ int readAttribute( INOUT_PTR STREAM *stream,
 	const int endPos = stell( stream ) + attributeLength;
 #ifdef USE_RPKI
 	CRYPT_ATTRIBUTE_TYPE fieldID = attributeInfoPtr->fieldID;
-	int maxAttributeFields;
+	int maxAttributeFields = min( 5 + ( attributeLength / 3 ), 256 );
 #else
 	const int maxAttributeFields = min( 5 + ( attributeLength / 3 ), 256 );
 #endif /* USE_RPKI */
@@ -1081,7 +1108,8 @@ int readAttribute( INOUT_PTR STREAM *stream,
 	
 	REQUIRES( isShortIntegerRange( attributeLength ) );
 	REQUIRES( isBooleanValue( criticalFlag ) );
-	REQUIRES( isIntegerRangeMin( endPos, attributeLength ) );
+	REQUIRES( !checkOverflowAdd( stell( stream ), attributeLength ) );
+	ENSURES( isIntegerRangeMin( endPos, attributeLength ) );
 
 	/* Clear return values */
 	*errorLocus = CRYPT_ATTRIBUTE_NONE;
@@ -1319,7 +1347,10 @@ int readAttribute( INOUT_PTR STREAM *stream,
 			   shouldn't be counted in the total when we continue decoding,
 			   so we adjust the fields-processed value to account for this */
 			if( attributeFieldsProcessed > 0 )
+				{
+				REQUIRES( !checkOverflowDec( attributeFieldsProcessed ) );
 				attributeFieldsProcessed--;
+				}
 
 			goto continueDecoding;
 			}

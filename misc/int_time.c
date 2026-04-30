@@ -32,7 +32,10 @@
    Because of the implementation-dependent behaviour of the time_t type we 
    perform an explicit check against '( time_t ) -1' as well as a general 
    range check to avoid being caught by conversion problems if time_t is a 
-   type too far removed from int.
+   type too far removed from int.  This also means we can't use the usual
+   checkOverflowXYZ() but have to hardcode in explicit checks, but this isn't
+   as fatal as an integer overflow when calculating an index into memory or
+   something similar.
    
    We allow the time to be overridden by a user-set value for testing 
    purposes, since a single bit-flip can now potentially upset all time-
@@ -436,6 +439,7 @@ BOOLEAN checkMonoTimerExpiryImminent( INOUT_PTR MONOTIMER_INFO *timerInfo,
 		{
 		if( timerInfo->badTimeCount <= 0 )
 			return( TRUE );
+		REQUIRES( !checkOverflowDec( timerInfo->badTimeCount ) );
 		timerInfo->badTimeCount--;
 		return( FALSE );
 		}
@@ -705,6 +709,9 @@ static void randomDelay( IN_RANGE( 0, 10 ) const int baseDelaySeconds,
 	ENSURES_V( delayTime >= 5 && delayTime <= 5000 );
 
 	/* Add the base delay amount */
+	REQUIRES_V( !checkOverflowMul( baseDelaySeconds, 1000 ) );
+	REQUIRES_V( !checkOverflowAdd( delayTime,
+								   baseDelaySeconds * 1000 ) );
 	delayTime += baseDelaySeconds * 1000;
 
 	/* Wait for the given number of milliseconds */
@@ -734,6 +741,7 @@ int delayRandom( void )
 int registerCryptoFailure( void )
 	{
 	static time_t intervalStartTime = CURRENT_TIME_VALUE;
+									  /* Dummy value, updated on each call */
 	static int failures = 0;
 	const time_t currentTime = getTime( GETTIME_NONE );
 	int status;
@@ -787,7 +795,10 @@ int registerCryptoFailure( void )
 	/* Increment the failure count, capping the total at a reasonable 
 	   value */ 
 	if( failures < 50000 )
+		{
+		REQUIRES( !checkOverflowInc( failures ) );
 		failures++;
+		}
 
 	krnlExitMutex( MUTEX_CRYPTODELAY );
 

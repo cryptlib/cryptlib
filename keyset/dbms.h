@@ -167,39 +167,42 @@
    performUpdate() which type of operation to perform */
 
 typedef enum {
-	DBMS_QUERY_NONE,				/* No DBMS query */
-	DBMS_QUERY_NORMAL,				/* Standard data fetch */
-	DBMS_QUERY_CHECK,				/* Check-type fetch, don't fetch data */
-	DBMS_QUERY_START,				/* Begin an ongoing query */
-	DBMS_QUERY_CONTINUE,			/* Continue an ongoing query */
-	DBMS_QUERY_CANCEL,				/* Cancel ongoing query */
-	DBMS_QUERY_LAST					/* Last valid DBMS query type */
+	DBMS_QUERY_NONE,			/* No DBMS query */
+	DBMS_QUERY_NORMAL,			/* Standard data fetch */
+	DBMS_QUERY_CHECK,			/* Check-type fetch, don't fetch data */
+	DBMS_QUERY_START,			/* Begin an ongoing query */
+	DBMS_QUERY_CONTINUE,		/* Continue an ongoing query */
+	DBMS_QUERY_CANCEL,			/* Cancel ongoing query */
+	DBMS_QUERY_LAST				/* Last valid DBMS query type */
 	} DBMS_QUERY_TYPE;
 
 typedef enum {
-	DBMS_UPDATE_NONE,				/* No DBMS update */
-	DBMS_UPDATE_NORMAL,				/* Standard update */
-	DBMS_UPDATE_BEGIN,				/* Begin a transaction */
-	DBMS_UPDATE_CONTINUE,			/* Continue an ongoing transaction */
-	DBMS_UPDATE_COMMIT,				/* Commit a transaction */
-	DBMS_UPDATE_ABORT,				/* Abort a transaction */
-	DBMS_UPDATE_LAST				/* Last valid DBMS update type */
+	DBMS_UPDATE_NONE,			/* No DBMS update */
+	DBMS_UPDATE_NORMAL,			/* Standard update */
+	DBMS_UPDATE_BEGIN,			/* Begin a transaction */
+	DBMS_UPDATE_CONTINUE,		/* Continue an ongoing transaction */
+	DBMS_UPDATE_COMMIT,			/* Commit a transaction */
+	DBMS_UPDATE_ABORT,			/* Abort a transaction */
+	DBMS_UPDATE_LAST			/* Last valid DBMS update type */
 	} DBMS_UPDATE_TYPE;
 
 /* To optimise database accesses we use prepared queries that are prepared
    once and then re-used whenever a new result set is required.  The following
-   values are used to refer to the prepared query types */
+   values are used to refer to the prepared query types.  The values used
+   start at DBMS_CACHEDQUERY_NONE for an uncached query so NO_CACHED_QUERIES
+   is 5 rather than the more obvious 4 for DBMS_CACHEDQUERY_CERTID ... 
+   DBMS_CACHEDQUERY_URI */
 
 typedef enum {
-	DBMS_CACHEDQUERY_NONE,			/* No cached query */
-	DBMS_CACHEDQUERY_CERTID,		/* Query on certificate ID */
-	DBMS_CACHEDQUERY_ISSUERID,		/* Query on issuer ID */
-	DBMS_CACHEDQUERY_NAMEID,		/* Query in name ID */
-	DBMS_CACHEDQUERY_URI,			/* Query on URI */
-	DBMS_CACHEDQUERY_LAST			/* Last valid cached query type */
+	DBMS_CACHEDQUERY_NONE,		/* No cached query */
+	DBMS_CACHEDQUERY_CERTID,	/* Query on certificate ID */
+	DBMS_CACHEDQUERY_ISSUERID,	/* Query on issuer ID */
+	DBMS_CACHEDQUERY_NAMEID,	/* Query in name ID */
+	DBMS_CACHEDQUERY_URI,		/* Query on URI */
+	DBMS_CACHEDQUERY_LAST		/* Last valid cached query type */
 	} DBMS_CACHEDQUERY_TYPE;
 
-#define NO_CACHED_QUERIES	5
+#define NO_CACHED_QUERIES		5
 
 /* When we add or read information to/from a table we sometimes have to
    specify type information which is an integer value, however SQL requires
@@ -254,26 +257,26 @@ typedef enum {
    CA management-specific parameter type to its corresponding parameter 
    error type */
 
-#define CAMGMT_ARGERROR_CAKEY		CRYPT_ARGERROR_NUM1
-#define CAMGMT_ARGERROR_REQUEST		CRYPT_ARGERROR_NUM2
-#define CAMGMT_ARGERROR_ACTION		CRYPT_ARGERROR_VALUE
+#define CAMGMT_ARGERROR_CAKEY	CRYPT_ARGERROR_NUM1
+#define CAMGMT_ARGERROR_REQUEST	CRYPT_ARGERROR_NUM2
+#define CAMGMT_ARGERROR_ACTION	CRYPT_ARGERROR_VALUE
 
 /* To avoid SQL injection attacks and speed up performance we make extensive 
    use of bound parameters.  The following structure is used to communicate 
    these parameters to the database back-end */
 
 typedef enum {
-	BOUND_DATA_NONE,		/* No bound data type */
-	BOUND_DATA_STRING,		/* Character string */
-	BOUND_DATA_BLOB,		/* Binary string */
-	BOUND_DATA_TIME,		/* Date/time */
-	BOUND_DATA_LAST			/* Last bound data type */
+	BOUND_DATA_NONE,			/* No bound data type */
+	BOUND_DATA_STRING,			/* Character string */
+	BOUND_DATA_BLOB,			/* Binary string */
+	BOUND_DATA_TIME,			/* Date/time */
+	BOUND_DATA_LAST				/* Last bound data type */
 	} BOUND_DATA_TYPE;
 
 typedef struct BD {
-	BOUND_DATA_TYPE type;	/* Type of this data item */
+	BOUND_DATA_TYPE type;		/* Type of this data item */
 	BUFFER_FIXED( dataLength ) \
-	const void *data;		/* Data and data length */
+	const void *data;			/* Data and data length */
 #ifdef USE_ODBC
 	SQLLEN dataLength;
 #else
@@ -296,7 +299,7 @@ typedef struct BD {
 		const int bdLocalIndex = ( bdIndex ); \
 		\
 		( bdStorage )[ bdLocalIndex ].type = BOUND_DATA_STRING; \
-		( bdStorage )[ bdLocalIndex ].data = ( bdValueLen > 0 ) ? bdValue : NULL; \
+		( bdStorage )[ bdLocalIndex ].data = ( ( bdValueLen ) > 0 ) ? ( bdValue ) : NULL; \
 		( bdStorage )[ bdLocalIndex ].dataLength = bdValueLen; \
 		}
 #define setBoundDataBlob( bdStorage, bdIndex, bdValue, bdValueLen ) \
@@ -472,6 +475,7 @@ int initDBMSCA( INOUT_PTR struct KI *keysetInfoPtr );
   #define initDispatchODBC( dbmsInfo )		CRYPT_ERROR
 #endif /* USE_ODBC */
 #if defined( USE_DATABASE )
+  CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
   int initDispatchDatabase( struct DBXI *dbmsInfo );
 #else
   #define initDispatchDatabase( dbmsInfo )	CRYPT_ERROR

@@ -318,13 +318,14 @@ static int testAESGCM( void )
 		contextData.keyDataSize = AES_EXPANDED_KEYSIZE;
 		contextData.keyDataChecksum = checksumData( contextData.key, 
 													contextData.keyDataSize );
-		status = capabilityInfo->initParamsFunction( &contextInfo, KEYPARAM_IV, 
-													 aesGcmIV, bitsToBytes
-													 ( 96 ) );
+		status = capabilityInfo->initParamsFunction( &contextInfo, 
+													 KEYPARAM_IV, aesGcmIV, 
+													 bitsToBytes( 96 ) );
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = capabilityInfo->initParamsFunction( &contextInfo, KEYPARAM_AAD, 
+		status = capabilityInfo->initParamsFunction( &contextInfo, 
+													 KEYPARAM_AAD, 
 													 aesGcmAAD, 70 );	
 		}
 	if( cryptStatusOK( status ) )
@@ -691,9 +692,9 @@ static int encryptGCM( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   An additional operation that we could perform is to check whether
 	   this internal counter has overflowed, however this both requires
 	   poking around in data structures internal to the AES code and seems 
-	   unnecessary, it counts AES blocks using a 32-bit counter so the user 
-	   would need to encrypt 68 GB of data to trigger the overflow, which
-	   seems unlikely */
+	   unnecessary, it counts 16-byte AES blocks using a 32-bit counter so 
+	   the user would need to encrypt 68 GB of data to trigger the overflow, 
+	   which seems unlikely */
 	convInfo->keyDataChecksum = checksumData( convInfo->key, 
 											  convInfo->keyDataSize );
 	return( CRYPT_OK );

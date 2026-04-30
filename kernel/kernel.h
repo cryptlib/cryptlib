@@ -577,7 +577,8 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int preDispatchCheckTrustMgmtAccess( IN_HANDLE const int objectHandle, 
 									 IN_MESSAGE const MESSAGE_TYPE message,
 									 IN_PTR const void *messageDataPtr,
-									 STDC_UNUSED const int messageValue, 
+									 IN_ENUM( MESSAGE_TRUSTMGMT ) \
+										const int messageValue, 
 									 STDC_UNUSED const void *dummy );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int postDispatchSignalDependentDevices( IN_HANDLE const int objectHandle,
@@ -736,21 +737,14 @@ void clearSemaphore( IN_ENUM( SEMAPHORE ) const SEMAPHORE_TYPE semaphore );
    functions, non-kernel storage is allocated via the functions defined in 
    int_api.h */
 
-typedef enum {
-	SYSTEM_STORAGE_NONE,
-	SYSTEM_STORAGE_KRNLDATA,
-	SYSTEM_STORAGE_OBJECT_TABLE,
-	SYSTEM_STORAGE_LAST
-	} SYSTEM_STORAGE_TYPE;
-
 void initBuiltinStorage( void );
 void destroyBuiltinStorage( void );
 void clearKernelData( void );
-void *getSystemStorage( IN_ENUM( SYSTEM_STORAGE ) \
-							const SYSTEM_STORAGE_TYPE storageType );
+void *getSystemStorage( IN_ENUM( BUILTIN_STORAGE ) \
+							const BUILTIN_STORAGE_TYPE storageType );
 #ifndef NDEBUG
-int getSystemStorageSize( IN_ENUM( SYSTEM_STORAGE ) \
-							const SYSTEM_STORAGE_TYPE storageType );
+int getSystemStorageSize( IN_ENUM( BUILTIN_STORAGE ) \
+							const BUILTIN_STORAGE_TYPE storageType );
 #endif /* !NDEBUG */
 CHECK_RETVAL_PTR \
 void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,

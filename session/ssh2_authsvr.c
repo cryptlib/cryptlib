@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *			cryptlib SSHv2 Server-side Authentication Management			*
-*						Copyright Peter Gutmann 1998-2024					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -585,19 +585,11 @@ static int processPasswordAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   the password, so we reject any messages that have the kludgeFlag set */
 	if( authInfo->kludgeFlag )
 		{
-#ifdef USE_ERRMSGS
-		BYTE userNameBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
-
-		REQUIRES( rangeCheck( authInfo->userNameLength, \
-							  1, CRYPT_MAX_TEXTSIZE ) );
-		memcpy( userNameBuffer, authInfo->userName, 
-				authInfo->userNameLength );
-#endif /* USE_ERRMSGS */
-		retExt( CRYPT_ERROR_PERMISSION,
-				( CRYPT_ERROR_PERMISSION, SESSION_ERRINFO, 
-				  "User '%s' sent unauthorised password-change request", 
-				  sanitiseString( userNameBuffer, CRYPT_MAX_TEXTSIZE,
-								  authInfo->userNameLength ) ) );
+		retExtSan( CRYPT_ERROR_PERMISSION,
+				   ( CRYPT_ERROR_PERMISSION, SESSION_ERRINFO, 
+					 "User '%s' sent unauthorised password-change request", 
+					 authInfo->userName, authInfo->userNameLength,
+					 NULL, 0, NULL, 0 ) );
 		}
 
 	/* Move on to the password associated with the user name */
@@ -614,19 +606,11 @@ static int processPasswordAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		compareDataConstTime( authInfo->password, attributeListPtr->value, 
 							  authInfo->passwordLength ) != TRUE )
 		{
-#ifdef USE_ERRMSGS
-		BYTE userNameBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
-
-		REQUIRES( rangeCheck( authInfo->userNameLength, \
-							  1, CRYPT_MAX_TEXTSIZE ) );
-		memcpy( userNameBuffer, authInfo->userName, 
-				authInfo->userNameLength );
-#endif /* USE_ERRMSGS */
-		retExt( CRYPT_ERROR_WRONGKEY,
-				( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
-				  "Invalid password for user '%s'", 
-				  sanitiseString( userNameBuffer, CRYPT_MAX_TEXTSIZE,
-								  authInfo->userNameLength ) ) );
+		retExtSan( CRYPT_ERROR_WRONGKEY,
+				   ( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
+					 "Invalid password for user '%s'", 
+					 authInfo->userName, authInfo->userNameLength,
+					 NULL, 0, NULL, 0 ) );
 		}
 
 	return( CRYPT_OK );
@@ -679,6 +663,7 @@ static int readPublicKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	
 	/* Read the client's public key */	
 	streamBookmarkSet( stream, keyLength );
+	ENSURES( streamBookmarkOK( keyLength ) );
 	status = checkReadPublicKey( stream, &pubkeyAlgo, &dummy, 
 								 SESSION_ERRINFO );
 	if( cryptStatusOK( status ) )
@@ -879,20 +864,12 @@ static int checkPublicKeySig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusError( status ) )
 		{
-#ifdef USE_ERRMSGS
-		BYTE userNameBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
-
-		REQUIRES( rangeCheck( userNameLength, 1, CRYPT_MAX_TEXTSIZE ) );
-		memcpy( userNameBuffer, userName, userNameLength );
-#endif /* USE_ERRMSGS */
-		retExt( CRYPT_ERROR_INVALID,
-				( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
-				  "Client public key name '%s' doesn't match supplied user "
-				  "name '%s'", 
-				  sanitiseString( holderName, CRYPT_MAX_TEXTSIZE, 
-								  holderNameLen ),
-				  sanitiseString( userNameBuffer, CRYPT_MAX_TEXTSIZE, 
-								  userNameLength ) ) );
+		retExtSan( CRYPT_ERROR_INVALID,
+				   ( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
+					 "Client public key name '%s' doesn't match supplied "
+					 "user name '%s'", 
+					 holderName, holderNameLen, userName, userNameLength,
+					 NULL, 0 ) );
 		}
 
 	/* Get a pointer to the portion of the packet that gets signed */
@@ -1017,10 +994,9 @@ static int processPubkeyAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									  CRYPT_CTXINFO_ALGO );
 			if( cryptStatusOK( status ) )
 				{
-				status = writeAlgoStringEx( &responseStream, pkcAlgo, 
-											handshakeInfo->hashAlgo, 
-											CRYPT_UNUSED,
-											SSH_ALGOSTRINGINFO_NONE );
+				status = writeAlgoString( &responseStream, pkcAlgo, 
+										  handshakeInfo->hashAlgo, 
+										  CRYPT_UNUSED );
 				}
 			if( cryptStatusOK( status ) )
 				{
@@ -1097,7 +1073,7 @@ static int readAuthPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	int stringLength, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
-	assert( isReadPtr( authInfo, sizeof( AUTH_INFO ) ) );
+	assert( isWritePtr( authInfo, sizeof( AUTH_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( authType, sizeof( SSH_AUTHTYPE_TYPE ) ) );
 
@@ -1138,6 +1114,7 @@ static int readAuthPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusError( status ) )
 		{
+		zeroise( authInfo, sizeof( AUTH_INFO ) );
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid user-authentication service or method name" ) );
@@ -1167,11 +1144,12 @@ static int readAuthPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	ENSURES( i < authTypeInfoTblSize );
 	if( authTypeInfoPtr == NULL )
 		{
-		retExt( CRYPT_ERROR_BADDATA,
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Unknown user-authentication method '%s'",
-				  sanitiseString( authInfo->methodName, CRYPT_MAX_TEXTSIZE,
-								  authInfo->methodNameLength ) ) );
+		zeroise( authInfo, sizeof( AUTH_INFO ) );
+		retExtSan( CRYPT_ERROR_BADDATA,
+				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+					 "Unknown user-authentication method '%s'",
+					 authInfo->methodName, authInfo->methodNameLength,
+					 NULL, 0, NULL, 0 ) );
 		}
 	*authType = authTypeInfoPtr->type;
 
@@ -1187,7 +1165,10 @@ static int readAuthPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		status = value = sgetc( stream );
 		if( cryptStatusError( status ) )
+			{
+			zeroise( authInfo, sizeof( AUTH_INFO ) );
 			return( status );
+			}
 		authInfo->kludgeFlag = value ? TRUE : FALSE;
 		}
 
@@ -1383,6 +1364,8 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		{
 		sMemDisconnect( &stream );
+		zeroise( &authInfo, sizeof( AUTH_INFO ) );
+
 		( void ) sendResponseFailure( sessionInfoPtr );
 
 		/* There are two slightly different error conditions that we can 
@@ -1413,6 +1396,8 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		{
 		sMemDisconnect( &stream );
+		zeroise( &authInfo, sizeof( AUTH_INFO ) );
+
 		if( authType == SSH_AUTHTYPE_PUBKEY )
 			{
 			/* The additional checks performed during the public-key read 
@@ -1457,6 +1442,8 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 CRYPT_SESSINFO_USERNAME ) != NULL )
 			{
 			sMemDisconnect( &stream );
+			zeroise( &authInfo, sizeof( AUTH_INFO ) );
+
 			( void ) sendResponseFailure( sessionInfoPtr );
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
@@ -1470,11 +1457,15 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( cryptStatusError( status ) )
 			{
 			sMemDisconnect( &stream );
-			retExt( status,
-					( status, SESSION_ERRINFO, 
-					  "Error recording user name '%s'", 
-					  sanitiseString( authInfo.userName, CRYPT_MAX_TEXTSIZE,
-									  authInfo.userNameLength ) ) );
+			zeroise( &authInfo.password, CRYPT_MAX_TEXTSIZE );
+					 /* Need to keep other fields intact for error 
+					    message */
+
+			retExtSan( status,
+					   ( status, SESSION_ERRINFO, 
+						 "Error recording user name '%s'", 
+						 authInfo.userName, authInfo.userNameLength,
+						 NULL, 0, NULL, 0 ) );
 			}
 		}
 	else
@@ -1487,12 +1478,16 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( attributeListPtr == NULL )
 			{
 			sMemDisconnect( &stream );
+			zeroise( &authInfo.password, CRYPT_MAX_TEXTSIZE );
+					 /* Need to keep other fields intact for error 
+					    message */
+
 			( void ) sendResponseFailure( sessionInfoPtr );
-			retExt( CRYPT_ERROR_WRONGKEY,
-					( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
-					  "Unknown/invalid user name '%s'", 
-					  sanitiseString( authInfo.userName, CRYPT_MAX_TEXTSIZE, 
-									  authInfo.userNameLength ) ) );
+			retExtSan( CRYPT_ERROR_WRONGKEY,
+					   ( CRYPT_ERROR_WRONGKEY, SESSION_ERRINFO, 
+						 "Unknown/invalid user name '%s'", 
+						 authInfo.userName, authInfo.userNameLength,
+						 NULL, 0, NULL, 0 ) );
 			}
 
 		/* We've matched an existing user name, select the attribute that
@@ -1509,6 +1504,7 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( authType == SSH_AUTHTYPE_QUERY )
 		{
 		sMemDisconnect( &stream );
+		zeroise( &authInfo, sizeof( AUTH_INFO ) );
 
 		/* Tell the client which authentication methods can continue */
 		status = sendResponseFailureInfo( sessionInfoPtr, allowPubkeyAuth );
@@ -1537,6 +1533,8 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   continue (C5) */
 		if( authState == AUTHSTATE_IN_PROGRESS_PWONLY )
 			{
+			zeroise( &authInfo, sizeof( AUTH_INFO ) );
+
 			( void ) sendResponseFailure( sessionInfoPtr );
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
@@ -1547,6 +1545,7 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = processPubkeyAuth( sessionInfoPtr, handshakeInfo, 
 									&authInfo, &stream, credentialType );
 		sMemDisconnect( &stream );
+		zeroise( &authInfo, sizeof( AUTH_INFO ) );
 		if( cryptStatusError( status ) )
 			{
 			/* If we got back a status of OK_SPECIAL then it means that this 
@@ -1559,8 +1558,8 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				( void ) sendResponseFailure( sessionInfoPtr );
 			return( status );
 			}
-		( void ) sendResponseSuccess( sessionInfoPtr );
 		CFI_CHECK_UPDATE( "processPubkeyAuth" );
+		( void ) sendResponseSuccess( sessionInfoPtr );
 
 		/* Indicate that the user has successfully authenticated through a 
 		   failsafe two-value return status (see the comment for 
@@ -1587,6 +1586,8 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   they can't continue with password authentication */
 	if( credentialType == CREDENTIAL_USERNAME_PUBKEY_PRESENT )
 		{
+		zeroise( &authInfo, sizeof( AUTH_INFO ) );
+
 		( void ) sendResponseFailure( sessionInfoPtr );
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
@@ -1599,10 +1600,13 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   pairs and we move on to the corresponding password and verify it */
 	if( credentialType == CREDENTIAL_USERNAME_PASSWORD_PRESENT )
 		{
+		REQUIRES( attributeListPtr != NULL );
 		status = processPasswordAuth( sessionInfoPtr, &authInfo, 
 									  attributeListPtr );
 		if( cryptStatusError( status ) )
 			{
+			zeroise( &authInfo, sizeof( AUTH_INFO ) );
+
 			/* If this is the last attempt allowed then the failure is 
 			   fatal, otherwise tell the client to try again */
 			if( authState == AUTHSTATE_FINAL_MESSAGE )
@@ -1614,6 +1618,7 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				}
 			return( status );
 			}
+		zeroise( &authInfo, sizeof( AUTH_INFO ) );
 		( void ) sendResponseSuccess( sessionInfoPtr );
 		CFI_CHECK_UPDATE( "processPasswordAuth" );
 
@@ -1650,14 +1655,15 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								CRYPT_MAX_TEXTSIZE, ATTR_FLAG_EPHEMERAL );
 	if( cryptStatusError( status ) )
 		{
-		retExt( status,
-				( status, SESSION_ERRINFO, 
-				  "Error recording password for user '%s'",
-				  sanitiseString( authInfo.userName, CRYPT_MAX_TEXTSIZE,
-								  authInfo.userNameLength ) ) );
+		zeroise( &authInfo, sizeof( AUTH_INFO ) );
+		retExtSan( status,
+				   ( status, SESSION_ERRINFO, 
+					 "Error recording password for user '%s'",
+					 authInfo.userName, authInfo.userNameLength,
+					 NULL, 0, NULL, 0 ) );
 		}
 	CFI_CHECK_UPDATE( "updateSessionInfo" );
-
+	zeroise( &authInfo, sizeof( AUTH_INFO ) );
 	*userAuthInfo = USERAUTH_CALLERCHECK;
 
 	ENSURES( CFI_CHECK_SEQUENCE_9( "readAuthPacketSSH2", 
@@ -1761,7 +1767,10 @@ static int processFixedAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			/* We can only get a retry on the first read */
 			ENSURES( authState == AUTHSTATE_FIRST_MESSAGE );
 
-			/* It was an initial dummy read, try again */
+			/* It was an initial dummy read, try again.  At this point the
+			   client hasn't tried to perform any kind of authentication but
+			   only performed a no-op query by sending an authentication 
+			   method of "none" */
 			authInfo.status = processUserAuth( sessionInfoPtr, handshakeInfo,
 									&authInfo.userAuthInfo, 
 									CREDENTIAL_USERNAME_PASSWORD_PRESENT, 
@@ -1770,9 +1779,10 @@ static int processFixedAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( authInfo.status == OK_SPECIAL && \
 			authInfo.userAuthInfo == USERAUTH_NOOP_2 )
 			{
-			/* It was yet another a dummy read, try again.  At this point 
-			   it's public-key authentication so we mark it as the final 
-			   allowed attempt */
+			/* It was yet another a dummy read, try again.  This one was 
+			   with method "pubkey" but no actual authentication, so we know
+			   that we're doing public-key authentication so mark it as the 
+			   final allowed attempt */
 			authInfo.status = processUserAuth( sessionInfoPtr, handshakeInfo,
 									&authInfo.userAuthInfo, 
 									CREDENTIAL_USERNAME_PUBKEY_PRESENT, 

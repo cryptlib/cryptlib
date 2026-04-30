@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Certificate Import/Export Routines					*
-*						Copyright Peter Gutmann 1997-2019					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -125,7 +125,10 @@ static int checkTextEncoding( IN_BUFFER( certObjectLength ) const void *certObje
 			return( CRYPT_ERROR_MEMORY );
 		status = ebcdicToAscii( asciiObject, certObject, certObjectLength );
 		if( cryptStatusError( status ) )
+			{
+			clFree( "checkTextEncoding", asciiObject );
 			return( status );
+			}
 		certObject = asciiObject;
 		status = base64checkHeader( certObject, certObjectLength, &format, 
 									&offset );
@@ -142,7 +145,11 @@ static int checkTextEncoding( IN_BUFFER( certObjectLength ) const void *certObje
 
 	/* If it's not encoded in any way, we're done */
 	if( format == CRYPT_CERTFORMAT_NONE )
+		{
+		if( asciiObject != NULL )
+			clFree( "checkTextEncoding", asciiObject );
 		return( CRYPT_OK );
+		}
 
 	/* Make sure that the length after (potentially) skipping the header is 
 	   still valid, since this will now be different from the length that 
@@ -175,6 +182,7 @@ static int checkTextEncoding( IN_BUFFER( certObjectLength ) const void *certObje
 		   required before we can base64-decode it */
 		return( OK_SPECIAL );
 		}
+	ENSURES( asciiObject == NULL );
 
 	/* If it's binary-encoded MIME data then we don't need to decode it but 
 	   still need to skip the MIME header */
@@ -226,13 +234,13 @@ static int checkTextEncoding( IN_BUFFER( certObjectLength ) const void *certObje
 		certObjectLength - offset < MIN_CERTSIZE || \
 		certObjectLength - offset >= MAX_INTLENGTH )
 		return( CRYPT_ERROR_UNDERFLOW );
-	ENSURES( isIntegerRange( offset ) );
+	ENSURES( isIntegerRangeNZ( offset ) );
 	ENSURES( isIntegerRangeMin( certObjectLength - offset, MIN_CERTSIZE ) );
 
 	/* Remember the position of the payload, which may be either binary 
 	   (with a MIME header) or base64-encoded (with or without a header) */
 	*objectData = ( BYTE * ) certObject + offset;
-	*objectDataLength = certObjectLength - offset;
+	*objectDataLength = certObjectLength - offset;	/* Checked earlier */
 	ENSURES( boundsCheckZ( offset, *objectDataLength, certObjectLength ) );
 
 	/* It's base64-encoded, let the caller know that it needs decoding */
@@ -506,26 +514,24 @@ int importCert( IN_BUFFER( certObjectLength ) const void *certObject,
 	REQUIRES_PTR( sanityCheckCert( certInfoPtr ),
 				  certBuffer );
 
-	/* Parse the data into the certificate object.  Note that we have to use 
-	   the copy in the certBuffer rather than the original since the 
-	   readXXX() functions will record pointers to various required encoded 
-	   fields */
-	sMemConnect( &stream, certBuffer, length );
+	/* Parse the data into the certificate object.  This is a long sequence
+	   of 'action; if cSOK -> action; if cSOK -> action' statements because
+	   if we hit an error at any point then we have to destroy a
+	   partially-initialised certificate object, which consists of 
+	   enqueueing a destroy message and then notifying the kernel that we're
+	   done, which is something that's done right at the end of the 
+	   sequence */
+	sMemConnect( &stream, certInfoPtr->certificate, 
+				 certInfoPtr->certificateSize );
 	if( baseType != CRYPT_CERTTYPE_CMS_ATTRIBUTES && \
 		baseType != CRYPT_CERTTYPE_RTCS_REQUEST && \
 		baseType != CRYPT_CERTTYPE_RTCS_RESPONSE )
 		{
 		/* Skip the outer wrapper */
 		status = readLongSequence( &stream, NULL );
-		if( cryptStatusError( status ) )
-			{
-			sMemDisconnect( &stream );
-			if( isDecodedObject )
-				clFree( "importCert", certObjectPtr );
-			return( status );
-			}
 		}
-	status = readCertFunction( &stream, certInfoPtr );
+	if( cryptStatusOK( status ) )
+		status = readCertFunction( &stream, certInfoPtr );
 	if( cryptStatusOK( status ) && \
 		( baseType == CRYPT_CERTTYPE_CERTIFICATE || \
 		  baseType == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
@@ -606,11 +612,11 @@ int importCert( IN_BUFFER( certObjectLength ) const void *certObject,
 		copyErrorInfo( errorInfo, CERTIFICATE_ERRINFO );
 
 		/* The import failed, make sure that the object gets destroyed when 
-		   we notify the kernel that the setup process is complete.  We also
-		   have to explicitly destroy the attached context since at this
-		   point it hasn't been associated with the certificate yet so it
-		   won't be automatically destroyed by the kernel when the 
-		   certificate is destroyed */
+		   we notify the kernel that the setup process is complete by
+		   enqueueing a destroy message for it.  We also have to explicitly 
+		   destroy the attached context since at this point it hasn't been 
+		   associated with the certificate yet so it won't be automatically 
+		   destroyed by the kernel when the certificate is destroyed */
 		krnlSendNotifier( *certificate, IMESSAGE_DESTROY );
 		if( certInfoPtr->iPubkeyContext != CRYPT_ERROR )
 			{
@@ -622,7 +628,9 @@ int importCert( IN_BUFFER( certObjectLength ) const void *certObject,
 		}
 
 	/* We've finished setting up the object-type-specific information, tell 
-	   the kernel that the object is ready for use */
+	   the kernel that the object is ready for use.  If there was an error
+	   before this point then this will trigger the enqueued destroy action,
+	   cleaning up the certificate object */
 	status = krnlSendMessage( *certificate, IMESSAGE_SETATTRIBUTE, 
 							  MESSAGE_VALUE_OK, CRYPT_IATTRIBUTE_STATUS );
 	if( cryptStatusError( initStatus ) || cryptStatusError( status ) )
@@ -843,6 +851,7 @@ int exportCert( OUT_BUFFER_OPT( certObjectMaxLength, *certObjectLength ) \
 	status = writeCertChain( &stream, certInfoPtr );
 	if( cryptStatusOK( status ) )
 		{
+		ENSURES( stell( &stream ) ==  length );
 		status = base64encode( certObject, certObjectMaxLength, 
 							   certObjectLength, buffer, length, 
 							   CRYPT_CERTTYPE_CERTCHAIN );

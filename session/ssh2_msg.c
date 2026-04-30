@@ -86,6 +86,7 @@ static int handleWindowAdjust( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   the handbrake it's not really worth introducing a huge amount of 
 	   extra complexity to manage it */
 	REQUIRES( windowCount > 0 && windowCount <= windowSize );
+	REQUIRES( !checkOverflowSub( windowCount, length ) );
 	windowCount -= length;
 	if( windowCount < windowSize / 2 )
 		{
@@ -111,6 +112,7 @@ static int handleWindowAdjust( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		else
 			{
 			/* Adjust the window back up to it's full size */
+			REQUIRES( !checkOverflowSub( windowSize, windowCount ) );
 			adjustCount = windowSize - windowCount;
 			}
 		ENSURES( adjustCount > windowSize / 2 && \
@@ -127,6 +129,7 @@ static int handleWindowAdjust( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 
 		/* We've reset the window, start again from zero */
+		REQUIRES( !checkOverflowAdd( windowCount, adjustCount ) );
 		windowCount += adjustCount;
 		if( windowCount < windowSize / 2 || windowCount > windowSize )
 			{
@@ -355,14 +358,16 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   "Unexpected control packet %s (%d) received",
 						   getSSHPacketName( sshInfo->packetType ), 
 						   sshInfo->packetType );
-			ENSURES( rangeCheck( totalLength, 40, 256 - 1 ) );
+			ENSURES( rangeCheck( totalLength, 40, 255 ) );
 			if( channelNo != -1 )
 				{
-				REQUIRES( rangeCheck( totalLength, 40, 256 - 1 ) );
+				REQUIRES( rangeCheck( totalLength, 40, 255 ) );
 				length = sprintf_s( stringBuffer + totalLength, 
 									256 - totalLength, ", channel = %lX", 
 									channelNo );
-				ENSURES( rangeCheck( length, 12, 256 - 1 ) );
+				ENSURES( rangeCheck( length, 13, \
+									 256 - ( totalLength + 1 ) ) );
+				REQUIRES( !checkOverflowAdd( totalLength, length ) );
 				totalLength += length;
 				}
 			LOOP_MED( i = 0, i < 16, i++ )
@@ -378,13 +383,17 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					REQUIRES( rangeCheck( totalLength, 1, 256 - 1 ) );
 					length = sprintf_s( stringBuffer + totalLength, 
 										256 - totalLength, ", data begins" );
-					ENSURES( rangeCheck( length, 12, 256 - 1 ) );
+					ENSURES( rangeCheck( length, 13, \
+										 256 - ( totalLength + 1 ) ) );
+					REQUIRES( !checkOverflowAdd( totalLength, length ) );
 					totalLength += length;
 					}
 				REQUIRES( rangeCheck( totalLength, 1, 256 - 1 ) );
 				length = sprintf_s( stringBuffer + totalLength, 
 									256 - totalLength, " %02X", ch );
-				ENSURES( rangeCheck( length, 2, 256 - 1 ) );
+				ENSURES( rangeCheck( length, 3, \
+									 256 - ( totalLength + 1 ) ) );
+				REQUIRES( !checkOverflowAdd( totalLength, length ) );
 				totalLength += length;
 				}
 			ENSURES( LOOP_BOUND_OK );
@@ -699,6 +708,8 @@ int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* If there's not enough room in the receive buffer to read at least 1K
 	   of packet data then we can't try anything further */
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufSize,
+								 sessionInfoPtr->receiveBufEnd ) );
 	if( sessionInfoPtr->receiveBufSize - sessionInfoPtr->receiveBufEnd < \
 		min( sessionInfoPtr->pendingPacketRemaining, 1024 ) )
 		return( CRYPT_OK );
@@ -747,23 +758,30 @@ int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   abort the shutdown because some channel flag is set wrong */
 	LOOP_SMALL_REV_CHECKINC( noChannels > 0, noChannels-- )
 		{
+		int length;
+		
 		ENSURES( LOOP_INVARIANT_MED_REV_XXX( noChannels, 1, 
 											 SSH_MAX_CHANNELS ) );
 
-		status = readHeaderFunction( sessionInfoPtr, &readInfo );
+		status = length = readHeaderFunction( sessionInfoPtr, &readInfo );
 		if( cryptStatusError( status ) )
 			break;
 
 		/* Adjust the packet information for the packet header data that was 
 		   just read */
-		sessionInfoPtr->receiveBufEnd += status;
-		sessionInfoPtr->pendingPacketRemaining -= status;
+		REQUIRES( !checkOverflowAdd( sessionInfoPtr->receiveBufEnd, length ) );
+		sessionInfoPtr->receiveBufEnd += length;
+		REQUIRES( !checkOverflowSub( sessionInfoPtr->pendingPacketRemaining,
+									 length ) );
+		sessionInfoPtr->pendingPacketRemaining -= length;
 		if( sessionInfoPtr->pendingPacketRemaining <= 512 )
 			{
 			const int bytesLeft = sessionInfoPtr->receiveBufSize - \
 								  sessionInfoPtr->receiveBufEnd;
 
-			REQUIRES( isBufsizeRange( bytesLeft ) );
+			REQUIRES( !checkOverflowSub( sessionInfoPtr->receiveBufSize,
+										 sessionInfoPtr->receiveBufEnd ) );
+			ENSURES( isBufsizeRange( bytesLeft ) );
 
 			/* We got a packet and it's probably the channel close ack, read 
 			   it */

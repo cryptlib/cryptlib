@@ -298,6 +298,8 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			memcpy( macInfo->userKey, key, keyLength );
 			if( keyLength < CRYPT_MAX_KEYSIZE )
 				{
+				REQUIRES( !checkOverflowSub( CRYPT_MAX_KEYSIZE, 
+											 keyLength ) );
 				REQUIRES( rangeCheck( keyLength, 1, 
 									  CRYPT_MAX_KEYSIZE - 1 ) );
 				memset( macInfo->userKey + keyLength, 0,
@@ -317,6 +319,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			macInfo->userKeyLength );
 	if( macInfo->userKeyLength < SHA_CBLOCK )
 		{
+		REQUIRES( !checkOverflowSub( SHA_CBLOCK, macInfo->userKeyLength ) );
 		REQUIRES( rangeCheck( macInfo->userKeyLength, 1, SHA_CBLOCK - 1 ) );
 		memset( hashBuffer + macInfo->userKeyLength, 0, 
 				SHA_CBLOCK - macInfo->userKeyLength );

@@ -217,7 +217,7 @@
       <AdditionalDependencies>kernel32.lib;user32.lib;advapi32.lib;netapi32.lib;dnsapi.lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <ManifestFile>$(IntDir)$(TargetName)$(TargetExt).intermediate.manifest</ManifestFile>
-      <ModuleDefinitionFile>.\crypt32.def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>.\cryptlib.def</ModuleDefinitionFile>
       <Profile>false</Profile>
     </Link>
   </ItemDefinitionGroup>
@@ -264,7 +264,7 @@
       <AdditionalDependencies>kernel32.lib;user32.lib;advapi32.lib;netapi32.lib;dnsapi.lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <ManifestFile>$(IntDir)$(TargetName)$(TargetExt).intermediate.manifest</ManifestFile>
-      <ModuleDefinitionFile>.\crypt32_fuzz.def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>.\cryptlib_fuzz.def</ModuleDefinitionFile>
       <Profile>false</Profile>
     </Link>
   </ItemDefinitionGroup>
@@ -367,7 +367,7 @@
       <AdditionalDependencies>kernel32.lib;user32.lib;advapi32.lib;netapi32.lib;dnsapi.lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <ManifestFile>$(IntDir)$(TargetName)$(TargetExt).intermediate.manifest</ManifestFile>
-      <ModuleDefinitionFile>.\crypt32.def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>.\cryptlib.def</ModuleDefinitionFile>
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
@@ -443,15 +443,7 @@
     </Object>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="crypt32.rc" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="crypt32.def">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Fuzz|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </None>
-    <None Include="crypt32.ico" />
+    <None Include="cryptlib.def" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="bindings\java_jni.c" />
@@ -533,6 +525,7 @@
     <ClCompile Include="context\ctx_idea.c" />
     <ClCompile Include="context\ctx_md5.c" />
     <ClCompile Include="context\ctx_misc.c" />
+    <ClCompile Include="context\ctx_mlkem.c" />
     <ClCompile Include="context\ctx_poly1305.c" />
     <ClCompile Include="context\ctx_rc2.c" />
     <ClCompile Include="context\ctx_rc4.c" />
@@ -587,6 +580,7 @@
     <ClCompile Include="crypt\castenc.c" />
     <ClCompile Include="crypt\castskey.c" />
     <ClCompile Include="crypt\chacha20.c" />
+    <ClCompile Include="crypt\compress.c" />
     <ClCompile Include="crypt\curve25519.c" />
     <ClCompile Include="crypt\descbc.c">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
@@ -607,20 +601,29 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="crypt\desskey.c" />
+    <ClCompile Include="crypt\fips202.c" />
+    <ClCompile Include="crypt\fips202x4.c" />
     <ClCompile Include="crypt\gcm.c" />
     <ClCompile Include="crypt\gf128mul.c" />
     <ClCompile Include="crypt\icbc.c" />
     <ClCompile Include="crypt\iecb.c" />
+    <ClCompile Include="crypt\indcpa.c" />
     <ClCompile Include="crypt\iskey.c" />
+    <ClCompile Include="crypt\keccakf1600.c" />
+    <ClCompile Include="crypt\kem.c" />
     <ClCompile Include="crypt\md5dgst.c" />
+    <ClCompile Include="crypt\poly.c" />
     <ClCompile Include="crypt\poly1305.c" />
+    <ClCompile Include="crypt\poly_k.c" />
     <ClCompile Include="crypt\rc2cbc.c" />
     <ClCompile Include="crypt\rc2ecb.c" />
     <ClCompile Include="crypt\rc2skey.c" />
     <ClCompile Include="crypt\rc4enc.c" />
     <ClCompile Include="crypt\rc4skey.c" />
+    <ClCompile Include="crypt\sampling.c" />
     <ClCompile Include="crypt\sha1dgst.c" />
     <ClCompile Include="crypt\sha2.c" />
+    <ClCompile Include="crypt\verify.c" />
     <ClCompile Include="device\dev_attr.c" />
     <ClCompile Include="device\dev_getset.c" />
     <ClCompile Include="device\dev_storage.c" />
@@ -811,6 +814,7 @@
     <ClCompile Include="session\tls_ext_rw.c" />
     <ClCompile Include="session\tls_hello.c" />
     <ClCompile Include="session\tls_hscomplete.c" />
+    <ClCompile Include="session\tls_keyex.c" />
     <ClCompile Include="session\tls_keymgt.c" />
     <ClCompile Include="session\tls_rd.c" />
     <ClCompile Include="session\tls_sign.c" />
@@ -842,8 +846,11 @@
     <ClInclude Include="crypt\aes_ni.h" />
     <ClInclude Include="crypt\brg_endian.h" />
     <ClInclude Include="crypt\brg_types.h" />
+    <ClInclude Include="crypt\common.h" />
     <ClInclude Include="crypt\djb.h" />
     <ClInclude Include="crypt\gcm.h" />
+    <ClInclude Include="crypt\indcpa.h" />
+    <ClInclude Include="crypt\kem.h" />
     <ClInclude Include="crypt\mode_hdr.h" />
     <ClInclude Include="crypt\osconfig.h" />
     <ClInclude Include="crypt\sha2.h" />
@@ -903,6 +910,12 @@
     <ClInclude Include="session\ssh.h" />
     <ClInclude Include="session\tls.h" />
     <ClInclude Include="session\websockets.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="cryptlib.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="cryptlib.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

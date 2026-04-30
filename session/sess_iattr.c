@@ -69,7 +69,7 @@ static BOOLEAN accessFunction( INOUT_PTR ATTRIBUTE_LIST *attributeListPtr,
 		{
 		LOOP_INDEX_ALT i;
 
-		ENSURES( LOOP_INVARIANT_LARGE_GENERIC() );
+		ENSURES_B( LOOP_INVARIANT_LARGE_GENERIC() );
 
 		/* Find the position of the current sub-attribute in the attribute 
 		   order list and use that to get its successor/predecessor sub-

@@ -221,11 +221,18 @@ static const ALGOID_INFO algoIDinfoTbl[] = {
 #endif /* USE_ED25519 */
 
 	/* Curve25519 */
-#ifdef USE_25519
+#ifdef USE_X25519
 	{ CRYPT_ALGO_25519, CRYPT_ALGO_NONE, ALGOID_ENCODING_NONE, ALGOID_CLASS_PKC,
 	  MKOID( "\x06\x03\x2B\x65\x6E" )
 	  MKDESC( "curve25519 (1 3 101 110)" ) },
-#endif /* USE_25519 */
+#endif /* USE_X25519 */
+
+	/* ML-KEM768 */
+#ifdef USE_MLKEM
+	{ CRYPT_ALGO_MLKEM, CRYPT_ALGO_NONE, ALGOID_ENCODING_NONE, ALGOID_CLASS_PKC,
+	  MKOID( "\x06\x09\x60\x86\x48\x01\x65\x03\x04\x04\x02" ) 
+	  MKDESC( "mlkem768 (2 16 840 1 101 3 4 4 2)" ) },
+#endif /* USE_MLKEM */
 
 	/* Hash algorithms */
 #ifdef USE_MD5
@@ -394,7 +401,10 @@ static const ALGOID_INFO algoIDinfoTbl[] = {
 	AuthEnc			0					secret size
 	PKC Sig			hash algorithm		0
 	PKC Sig			0					encoding mech
-	PKC Enc			0					encoding mech (optional) */
+	PKC Enc			0					encoding mech (optional)
+	
+   algorithmToOI() returns a BYTE string with no explicit length 
+   information, the length is obtained using sizeofOID() */
 
 CHECK_RETVAL \
 static int getAlgoIDinfo( const ALGOID_INFO **algoIDinfoPtrPtr,
@@ -467,7 +477,7 @@ const BYTE *algorithmToOID( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 			}
 		}
 	ENSURES_N( LOOP_BOUND_OK );
-	ENSURES_N( i < algoIDinfoSize );
+	ENSURES_N( i < algoIDinfoSize );			/* Ensures oid != NULL */
 
 	/* If there are no further parameters present then we're done */
 	if( algoIDparams == NULL )
@@ -478,6 +488,12 @@ const BYTE *algorithmToOID( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 			return( NULL );
 		retIntError_Null();
 		}
+
+	/* Beyond this point we keep searching past the initial match point 
+	   without resetting i.  This is because the algorithm ID tables are 
+	   ordered by the main algorithm, then sub-algorithms and parameters, so 
+	   once we've matched the main algorithm we check subsequent entries for 
+	   matches for other parameters associated with it */
 
 	/* If it's a PKC and there's a special-case encoding mode present, find 
 	   the entry for the encoding mode and exit.  This is because, unlike 
@@ -532,7 +548,7 @@ const BYTE *algorithmToOID( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 				}
 			}
 		ENSURES_N( LOOP_BOUND_OK );
-		ENSURES_N( i < algoIDinfoSize );
+		ENSURES_N( i < algoIDinfoSize );		/* Ensures oid != NULL */
 		if( algoIDparams->cryptKeySize != 0 )
 			{
 			oid = NULL;
@@ -548,9 +564,9 @@ const BYTE *algorithmToOID( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 					break;
 					}
 				}
+			ENSURES_N( LOOP_BOUND_OK );
+			ENSURES_N( i < algoIDinfoSize );	/* Ensures oid != NULL */
 			}
-		ENSURES_N( LOOP_BOUND_OK );
-		ENSURES_N( i < algoIDinfoSize );
 		}
 
 	/* If it's a hash/MAC algorithm, find the entry for the block size */
@@ -570,7 +586,7 @@ const BYTE *algorithmToOID( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 				}
 			}
 		ENSURES_N( LOOP_BOUND_OK );
-		ENSURES_N( i < algoIDinfoSize );
+		ENSURES_N( i < algoIDinfoSize );		/* Ensures oid != NULL */
 		}
 
 	/* If it's a signature algorithm, find the set of entries for the hash 
@@ -592,7 +608,7 @@ const BYTE *algorithmToOID( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 				}
 			}
 		ENSURES_N( LOOP_BOUND_OK );
-		ENSURES_N( i < algoIDinfoSize );
+		ENSURES_N( i < algoIDinfoSize );		/* Ensures oid != NULL */
 		}
 
 	if( oid != NULL )

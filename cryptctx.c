@@ -63,6 +63,8 @@ static BOOLEAN checkDataItem( IN_BUFFER( dataLen ) const void *data,
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN sanityCheckContext( const CONTEXT_INFO *contextInfoPtr )
 	{
+	int count = 0;
+	
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
 	/* Check general context data */
@@ -73,11 +75,24 @@ BOOLEAN sanityCheckContext( const CONTEXT_INFO *contextInfoPtr )
 		DEBUG_PUTS(( "sanityCheckContext: General info" ));
 		return( FALSE );
 		}
+	if( TEST_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_IV_SET ) )
+		count++;	/* Conv-only flags */
+	if( TEST_FLAG( contextInfoPtr->flags, 
+				   CONTEXT_FLAG_HASH_INITED | CONTEXT_FLAG_HASH_DONE ) )
+		count++;	/* Hash-only flags */
+	if( TEST_FLAG( contextInfoPtr->flags, 
+				   CONTEXT_FLAG_ISPUBLICKEY ) )
+		count++;	/* PKC-only flags */
+	if( count > 1 )
+		{
+		DEBUG_PUTS(( "sanityCheckContext: Inconsistent flags" ));
+		return( FALSE );
+		}
 
 	/* Check safe pointers */
 	if( !DATAPTR_ISVALID( contextInfoPtr->capabilityInfo ) )
 		{
-		DEBUG_PUTS(( "sanityCheckCert: Safe pointers" ));
+		DEBUG_PUTS(( "sanityCheckContext: Safe pointers" ));
 		return( FALSE );
 		}
 
@@ -106,7 +121,7 @@ BOOLEAN sanityCheckContext( const CONTEXT_INFO *contextInfoPtr )
 	if( !isEnumRangeOpt( contextInfoPtr->errorLocus, CRYPT_ATTRIBUTE ) || \
 		!isEnumRangeOpt( contextInfoPtr->errorType, CRYPT_ERRTYPE ) )
 		{
-		DEBUG_PUTS(( "sanityCheckDevice: Error info" ));
+		DEBUG_PUTS(( "sanityCheckContext: Error info" ));
 		return( FALSE );
 		}
 
@@ -344,7 +359,10 @@ BOOLEAN sanityCheckContext( const CONTEXT_INFO *contextInfoPtr )
 			{
 			const GENERIC_INFO *genericInfo;
 
-			/* Check context info storage */
+			/* Check context info storage.  This is just storage for keying 
+			   data so is never statically initialised */
+			ENSURES( !TEST_FLAG( contextInfoPtr->flags, 
+								 CONTEXT_FLAG_STATICCONTEXT ) );
 			if( contextInfoPtr->ctxGeneric != \
 							ALIGN_CONTEXT_PTR( contextInfoPtr, GENERIC_INFO ) )
 				{
@@ -425,7 +443,7 @@ static BOOLEAN checkContextFunctions( IN_PTR const CONTEXT_INFO *contextInfoPtr 
 
 			/* Get the capability info for the context */
 			capabilityInfoPtr = DATAPTR_GET( contextInfoPtr->capabilityInfo );
-			REQUIRES( capabilityInfoPtr != NULL );
+			REQUIRES_B( capabilityInfoPtr != NULL );
 
 			if( !FNPTR_ISSET( contextInfoPtr->loadKeyFunction ) || \
 				!FNPTR_ISSET( contextInfoPtr->generateKeyFunction ) )
@@ -499,7 +517,7 @@ static BOOLEAN checkContextFunctions( IN_PTR const CONTEXT_INFO *contextInfoPtr 
 			break;
 
 		default:
-			retIntError();
+			retIntError_Boolean();
 		}
 
 	return( TRUE );
@@ -679,7 +697,8 @@ static int processCompareMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		case MESSAGE_COMPARE_KEYID:
 			REQUIRES( contextInfoPtr->type == CONTEXT_PKC );
 
-			/* If it's a PKC context, compare the key ID */
+			/* If it's a PKC context, compare the key ID.  This is public
+			   data so we don't need to use a constant-time compare */
 			if( dataLength == KEYID_SIZE && \
 				!memcmp( data, contextInfoPtr->ctxPKC->keyID,
 						 KEYID_SIZE ) )
@@ -690,7 +709,9 @@ static int processCompareMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		case MESSAGE_COMPARE_KEYID_PGP:
 			REQUIRES( contextInfoPtr->type == CONTEXT_PKC );
 
-			/* If it's a PKC context, compare the PGP key ID */
+			/* If it's a PKC context, compare the PGP key ID.  This is 
+			   public data so we don't need to use a constant-time 
+			   compare */
 			if( TEST_FLAG( contextInfoPtr->ctxPKC->flags, 
 						   PKCINFO_FLAG_PGPKEYID_SET ) && \
 				dataLength == PGP_KEYID_SIZE && \
@@ -776,6 +797,7 @@ static int fixupContextStorage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	/* Check whether the keying data offset has changed from the original to
 	   the cloned context */
 	newOffset = ptr_diff( subtypeStorage, typeStorage );
+	ENSURES( !cryptStatusError( newOffset ) );
 	if( newOffset == originalOffset )
 		return( CRYPT_OK );
 
@@ -840,6 +862,7 @@ static int initContextStorage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				{
 				offset = ptr_diff( contextInfoPtr->ctxConv->key, 
 								   contextInfoPtr->ctxConv );
+				ENSURES( !cryptStatusError( offset ) );
 				}
 
 			/* Calculate the offsets of the context storage and keying 
@@ -867,6 +890,7 @@ static int initContextStorage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				{
 				offset = ptr_diff( contextInfoPtr->ctxHash->hashInfo,
 								   contextInfoPtr->ctxHash );
+				ENSURES( !cryptStatusError( offset ) );
 				}
 
 			/* Calculate the offsets of the context storage and hash state 
@@ -894,6 +918,7 @@ static int initContextStorage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				{
 				offset = ptr_diff( contextInfoPtr->ctxMAC->macInfo,
 								   contextInfoPtr->ctxMAC );
+				ENSURES( !cryptStatusError( offset ) );
 				}
 
 			/* Calculate the offsets of the context storage and MAC state 
@@ -1441,6 +1466,9 @@ int createContextFromCapability( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 	   the allocation guarantees that we have enough space, with the key data
 	   starting somewhere in the first 16 bytes of the allocated block.  The 
 	   rest is done by initContextStorage() */
+	REQUIRES( !checkOverflowAdd3( storageSize, stateStorageSize, 
+								  CONTEXT_INFO_ALIGN_SIZE + \
+									stateStorageAlignSize ) );
 	status = krnlCreateObject( iCryptContext, ( void ** ) &contextInfoPtr,
 							   CONTEXT_INFO_ALIGN_SIZE + storageSize + \
 									( stateStorageSize + stateStorageAlignSize ), 
@@ -1618,7 +1646,8 @@ int createContextFromCapability( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int createContext( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
-				   IN_PTR TYPECAST( CAPABILITY_INFO * ) const void *auxDataPtr, 
+				   IN_PTR TYPECAST( CAPABILITY_INFO * ) \
+						const void *auxDataPtr, 
 				   IN_FLAGS_Z( CREATEOBJECT ) const int auxValue )
 	{
 	CRYPT_CONTEXT iCryptContext;

@@ -387,7 +387,7 @@ static int getErrorInfo( INOUT_PTR DBMS_STATE_INFO *dbmsInfo,
 	{
 	ERROR_INFO *errorInfo = &dbmsInfo->errorInfo;
 	SQLCHAR szSqlState[ SQL_SQLSTATE_SIZE + 8 ];
-	SQLCHAR errorString[ MAX_ERRMSG_SIZE + 1 + 8 ];
+	SQLCHAR errorString[ MAX_ERRMSG_SIZE + 8 ];
 	SQLHANDLE handle;
 	SQLINTEGER dwNativeError = 0;
 	SQLSMALLINT handleType, errorStringLength;
@@ -459,11 +459,11 @@ static int getErrorInfo( INOUT_PTR DBMS_STATE_INFO *dbmsInfo,
 	if( errorStringLength > 0 )
 		{
 		/* Since the error string has come from the database source we 
-		   sanitise it before returning it to the caller.  The +1 is for
-		   the '\0' that sanitiseString() adds to the string */
-		sanitiseString( errorString, errorStringLength + 1, 
+		   sanitise it before returning it to the caller */
+		sanitiseString( errorString, MAX_ERRMSG_SIZE, 
 						errorStringLength );
-		setErrorString( errorInfo, errorString, errorStringLength );
+		setErrorString( errorInfo, errorString, 
+						min( errorStringLength, MAX_ERRMSG_SIZE ) );
 		}
 	else
 		clearErrorInfo( errorInfo );
@@ -596,8 +596,10 @@ static int rewriteString( INOUT_BUFFER( stringMaxLength, \
 	REQUIRES( isShortIntegerRangeNZ( origStringLength ) && \
 			  origStringLength <= stringMaxLength );
 	REQUIRES( isShortIntegerRangeNZ( newSubStringLength ) );
-	REQUIRES( isShortIntegerRangeNZ( remainder ) );
-	REQUIRES( isShortIntegerRangeNZ( newStringLength ) );
+	REQUIRES( !checkOverflowSub( origStringLength, subStringLength ) );
+	ENSURES( isShortIntegerRangeNZ( remainder ) );
+	REQUIRES( !checkOverflowAdd( newSubStringLength, remainder ) );
+	ENSURES( isShortIntegerRangeNZ( newStringLength ) );
 
 	/* Clear return value */
 	*stringLength = 0;
@@ -622,6 +624,7 @@ static int rewriteString( INOUT_BUFFER( stringMaxLength, \
 	memmove( string + newSubStringLength, string + subStringLength, 
 			 remainder );
 	memcpy( string, newSubString, newSubStringLength );
+	REQUIRES( !checkOverflowSub( newSubStringLength, subStringLength ) );
 	*stringLength = newSubStringLength - subStringLength;
 
 	return( CRYPT_OK );
@@ -663,12 +666,15 @@ static int convertQuery( INOUT_PTR DBMS_STATE_INFO *dbmsInfo,
 			{
 			offset++;	/* Skip space before blob name */
 
+			REQUIRES( !checkOverflowSub( queryMaxLen, offset ) );
+			REQUIRES( !checkOverflowSub( currentLength, offset ) );
 			status = rewriteString( query + offset, queryMaxLen - offset, 
 									&length, 4, currentLength - offset, 
 									dbmsInfo->blobName, 
 									dbmsInfo->blobNameLength );
 			if( cryptStatusError( status ) )
 				return( status );
+			REQUIRES( !checkOverflowAdd( currentLength, length ) );
 			currentLength += length;
 			}
 		offset = strFindStr( query, currentLength, " DATETIME", 9 );
@@ -677,12 +683,15 @@ static int convertQuery( INOUT_PTR DBMS_STATE_INFO *dbmsInfo,
 			   !strCompare( dbmsInfo->dateTimeName, "DATETIME", 8 ) ) )
 			{
 			offset++;	/* Skip space before date/time name */
+			REQUIRES( !checkOverflowSub( queryMaxLen, offset ) );
+			REQUIRES( !checkOverflowSub( currentLength, offset ) );
 			status = rewriteString( query + offset, queryMaxLen - offset, 
 									&length, 8, currentLength - offset, 
 									dbmsInfo->dateTimeName, 
 									dbmsInfo->dateTimeNameLength );
 			if( cryptStatusError( status ) )
 				return( status );
+			REQUIRES( !checkOverflowAdd( currentLength, length ) );
 			currentLength += length;
 			}
 		}
@@ -758,11 +767,14 @@ static int convertQuery( INOUT_PTR DBMS_STATE_INFO *dbmsInfo,
 		( offset = strFindStr( query, currentLength, " type ", 6 ) ) > 0 )
 		{
 		offset++;	/* Skip space before type name */
+		REQUIRES( !checkOverflowSub( queryMaxLen, offset ) );
+		REQUIRES( !checkOverflowSub( currentLength, offset ) );
 		status = rewriteString( query + offset, queryMaxLen - offset, 
 								&length, 4, currentLength - offset, 
 								"ctype", 5 );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( currentLength, length ) );
 		currentLength += length;
 		}
 

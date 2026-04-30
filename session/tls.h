@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							TLS Definitions Header File						*
-*						Copyright Peter Gutmann 1998-2024					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -27,6 +27,20 @@
 
 #define TLS_PORT					443
 
+/* TLS algorithm-specific constants */
+
+#define MD5MAC_SIZE					16	/* Size of MD5 proto-HMAC/dual hash */
+#define SHA1MAC_SIZE				20	/* Size of SHA-1 proto-HMAC/dual hash */
+#define SHA2MAC_SIZE				32	/* Size of SHA-2 HMAC hash */
+#define GCMICV_SIZE					16	/* Size of GCM (and Poly1305) ICV */
+#define GCM_SALT_SIZE				4	/* Size of implicit portion of 
+										   TLS 1.2 GCM IV */
+#define GCM_IV_SIZE					12	/* Overall size of GCM IV */
+#define BERNSTEIN_IV_SIZE			12	/* Overall size of Bernstein suite IV */
+#define X25519_PUBKEY_SIZE			32	/* Size of 25519 public key */
+#define MLKEM_PUBKEY_SIZE			1184/* From crypt/mlkem_native.h */
+#define MLKEM_WRAPPEDKEY_SIZE		1088/* From crypt/mlkem_native.h */
+
 /* TLS constants */
 
 #define ID_SIZE						1	/* ID byte */
@@ -37,14 +51,6 @@
 #define TLS_HEADER_SIZE				5	/* Type, version, length */
 #define TLS_NONCE_SIZE				32	/* Size of client/svr nonce */
 #define TLS_SECRET_SIZE				48	/* Size of premaster/master secret */
-#define MD5MAC_SIZE					16	/* Size of MD5 proto-HMAC/dual hash */
-#define SHA1MAC_SIZE				20	/* Size of SHA-1 proto-HMAC/dual hash */
-#define SHA2MAC_SIZE				32	/* Size of SHA-2 HMAC hash */
-#define GCMICV_SIZE					16	/* Size of GCM (and Poly1305) ICV */
-#define GCM_SALT_SIZE				4	/* Size of implicit portion of 
-										   TLS 1.2 GCM IV */
-#define GCM_IV_SIZE					12	/* Overall size of GCM IV */
-#define BERNSTEIN_IV_SIZE			12	/* Overall size of Bernstein suite IV */
 #define TLS_HASHEDMAC_SIZE			12	/* Size of TLS PRF( MD5 + SHA1 ) */
 #define SESSIONID_SIZE				16	/* Size of session ID */
 #define MIN_SESSIONID_SIZE			4	/* Min.allowed session ID size */
@@ -69,11 +75,15 @@
 	 effect */
 #define MAX_PACKET_SIZE				16384	/* Maximum TLS packet size */
 #define MAX_CIPHERSUITES			200	/* Max.allowed cipher suites */
-#ifdef USE_DH1024
-  #define TLS_DH_KEYSIZE			128	/* Size of server DH key */
+#define TLS_DH_KEYSIZE				192	/* Size of server DH key */
+#if defined( USE_TLS13 ) && defined( USE_MLKEM )
+  #define KEYEX_SECRET_STORAGE_SIZE \
+		  ( 8 + max( MLKEM_PUBKEY_SIZE, MLKEM_WRAPPEDKEY_SIZE ) + \
+		    X25519_PUBKEY_SIZE )		/* Header + MLKEM-768 + 25519 size */
 #else
-  #define TLS_DH_KEYSIZE			192	/* Size of server DH key */
-#endif /* USE_DH1024 */
+  #define KEYEX_SECRET_STORAGE_SIZE	\
+		  ( CRYPT_MAX_PKCSIZE + CRYPT_MAX_TEXTSIZE )
+#endif /* USE_TLS13 */
 
 /* TLS packet/buffer size information.  The extra packet size is somewhat 
    large because it can contains the packet header (5 bytes), IV 
@@ -83,19 +93,30 @@
 #define EXTRA_PACKET_SIZE			512	
 
 /* By default cryptlib uses DH key agreement, it's also possible to use ECDH 
-   key agreement but we disable ECDH by default in order to stick to the
-   safer DH.  To use ECDH key agreement in preference to DH, uncomment the 
-   following */
+   key agreement but for TLS classic we disable ECDH by default in order to 
+   stick to the safer (less attack surface) DH while for TLS 1.3 where it's
+   required we enable it in the code.  To use ECDH key agreement in 
+   preference to DH for TLS classic, uncomment the following */
 
 /* #define PREFER_ECC */
-#if ( defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ ) ) && \
-	defined( PREFER_ECC ) 
-  #pragma message( "  Building with ECC preferred for TLS." )
-#endif /* Notify preferred ECC use */
 #if defined( PREFER_ECC ) && \
 	!( defined( USE_ECDH ) && defined( USE_ECDSA ) )
   #error PREFER_ECC can only be used with ECDH and ECDSA enabled
 #endif /* PREFER_ECC && !( USE_ECDH && USE_ECDSA ) */
+
+/* For TLS 1.3 we've also got 25519 and ML-KEM.  Define the following to 
+   prefer the 25519 algorithms over the standard ones and the 25519/ML-KEM 
+   hybrid over 25519 and the others */
+
+#if defined( PREFER_X25519 ) && !defined( USE_X25519 )
+  #error PREFER_X25519 can only be used with X25519 enabled
+#endif /* PREFER_X25519 && !USE_X25519 */
+#if defined( PREFER_MLKEM ) && !defined( USE_MLKEM )
+  #error PREFER_MLKEM can only be used with ML-KEM enabled
+#endif /* PREFER_MLKEM && !USE_MLKEM */
+#if defined( USE_MLKEM ) && !defined( USE_X25519 )
+  #error Use of ML-KEM requires that X25519 also be enabled
+#endif /* USE_MLKEM && !USE_X25519 */
 
 /* TLS protocol-specific flags that augment the general session flags:
 
@@ -191,7 +212,6 @@
 									  CRYPT_TLSOPTION_MINVER_TLS11 | \
 									  CRYPT_TLSOPTION_MINVER_TLS12 | \
 									  CRYPT_TLSOPTION_MINVER_TLS13 )
-
 /* TLS message types */
 
 #define TLS_MSG_NONE				0
@@ -232,7 +252,6 @@
 #define TLS_MSG_TLS13_FIRST_ENCRHANDSHAKE	0xFE
 #define TLS_MSG_TLS13_HELLORETRY	0xFF
 #define TLS_MSG_LAST_SPECIAL		TLS_MSG_TLS13_HELLORETRY
-#define TLS_MSG_V2HANDSHAKE			0x80
 
 /* TLS handshake message subtypes */
 
@@ -254,6 +273,16 @@
 
 #define TLS_HAND_FIRST				TLS_HAND_CLIENT_HELLO
 #define TLS_HAND_LAST				TLS_HAND_KEY_UPDATE
+
+/* When wrapping and unwrapping messages, we can be working with either 
+   TLS_MSG types or TLS_HAND types, and the functions that deal with them 
+   have to accept either.  To deal with this we define two additional values
+   that can be used for range-checking.  Note that we can't use
+   max( TLS_MSG_LAST, TLS_HAND_LAST ) in the following because the SAST
+   annotations they're used with don't allow expressions */
+
+#define TLS_PACKETTYPE_FIRST		1
+#define TLS_PACKETTYPE_LAST			TLS_HAND_LAST
 
 /* TLS alert levels and types, from
    https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-6 */
@@ -295,10 +324,12 @@
 #define TLS_ALERT_BAD_CERTIFICATE_HASH_VALUE 114
 #define TLS_ALERT_UNKNOWN_PSK_IDENTITY		115
 #define TLS_ALERT_CERTIFICATE_REQUIRED		116
+#define TLS_ALERT_GENERAL_ERROR				117
 #define TLS_ALERT_NO_APPLICATION_PROTOCOL	120
+#define TLS_ALERT_ECH_REQUIRED				121
 
 #define TLS_ALERT_FIRST						TLS_ALERT_CLOSE_NOTIFY
-#define TLS_ALERT_LAST						TLS_ALERT_UNKNOWN_PSK_IDENTITY
+#define TLS_ALERT_LAST						TLS_ALERT_ECH_REQUIRED
 
 /* TLS supplemental data subtypes */
 
@@ -500,26 +531,24 @@ typedef enum {
 	} TLS_CIPHERSUITE_TYPE;
 
 /* The first cipher suite that we'll even consider.  If RSA + 3DES is enabled
-   (RSA is disabled by default) it's the one and only SSLv3 3DES suite, if
-   only 3DES is enabled it's the last TLS 1.0 suite, and if neither are enabled
-   it's a TLS 1.1 AES suite */
+   (RSA is disabled by default since it's unsafe) it's the one and only SSLv3 
+   3DES suite, if only 3DES is enabled it's the last TLS 1.0 suite, and if 
+   neither are enabled it's a TLS 1.1 AES suite */
 
 #if defined( USE_RSA_SUITES )
   #define TLS_FIRST_VALID_SUITE		SSL_RSA_WITH_3DES_EDE_CBC_SHA
+#elif defined( USE_3DES )
+  #define TLS_FIRST_VALID_SUITE		TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA
 #else
-  #if defined( USE_3DES )
-	#define TLS_FIRST_VALID_SUITE	TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA
-  #else
-	#define TLS_FIRST_VALID_SUITE	TLS_DHE_RSA_WITH_AES_128_CBC_SHA
-  #endif /* USE_3DES */
-#endif /* USE_RSA_SUITES */
+  #define TLS_FIRST_VALID_SUITE		TLS_DHE_RSA_WITH_AES_128_CBC_SHA
+#endif /* Configuration-specific first suite define */
 
 /* TLS extension types, from 
    http://www.iana.org/assignments/tls-extensiontype-values/tls-extensiontype-values.xhtml */
 
 typedef enum {
 	TLS_EXT_SNI,				/* 0: Name of virtual server to contact (SNI) */
-	TLS_EXT_MAX_FRAGMENT_LENTH,	/* 1: Max.fragment length if smaller than 2^14 bytes */
+	TLS_EXT_MAX_FRAGMENT_LENGTH,/* 1: Max.fragment length if smaller than 2^14 bytes */
 	TLS_EXT_CLIENT_CERTIFICATE_URL,	/* 2: Location for server to find client certificate */
 	TLS_EXT_TRUSTED_CA_KEYS,	/* 3: Indication of which CAs clients trust */
 	TLS_EXT_TRUNCATED_HMAC,		/* 4: Use 80-bit truncated HMAC */
@@ -603,7 +632,11 @@ typedef enum {
 	TLS_CERTTYPE_ECDSA = 64, TLS_CERTTYPE_LAST
 	} TLS_CERTTYPE_TYPE;
 
-/* TLS signature and hash algorithm identifiers */
+/* TLS signature and hash algorithm identifiers, from
+   https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-16
+   (for signatures) and 
+   https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-18
+   (for hash values) */
 
 enum {
 	TLS_SIGALGO_NONE, TLS_SIGALGO_RSA, TLS_SIGALGO_DSA, TLS_SIGALGO_ECDSA,
@@ -617,9 +650,10 @@ enum {
 	TLS_HASHALGO_LAST 
 	};
 
-/* TLS 1.3 combined signature+hash identifiers.  See the comment in 
-   session/tls_ext.c for why there are two lots of identifiers for 
-   RSA-PSS */
+/* TLS 1.3 combined signature+hash identifiers, from
+   https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-signaturescheme  
+   See the comment in session/tls_ext.c for why there are two lots of 
+   identifiers for RSA-PSS */
 
 enum {
 	TLS_SIGHASHALGO_NONE,
@@ -642,7 +676,8 @@ enum {
 	TLS_SIGHASHALGO_LAST
 	};
 
-/* TLS group type identifiers */
+/* TLS group type identifiers, from
+   https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-8 */
 
 typedef enum {
 	TLS_GROUP_NONE, 
@@ -661,14 +696,28 @@ typedef enum {
 	TLS_GROUP_SECP521R1 /* P521 */,
 	TLS_GROUP_BRAINPOOLP256R1, TLS_GROUP_BRAINPOOLP384R1, 
 	TLS_GROUP_BRAINPOOLP512R1,
+	
+	/* Bernstein groups */
 	TLS_GROUP_X25519, TLS_GROUP_X448,
+	
+	/* DH groups */
 	TLS_GROUP_FFDHE2048 = 256, TLS_GROUP_FFDHE3072,
 	TLS_GROUP_FFDHE4096, TLS_GROUP_FFDHE6144, TLS_GROUP_FFDHE8192,
+	
+	/* PQC groups */
+	TLS_GROUP_MLKEM512 = 512, TLS_GROUP_MLKEM768, TLS_GROUP_MLKEM1024,
+	TLS_GROUP_P256MLKEM768 = 4587, TLS_GROUP_X25519MLKEM768, 
+	TLS_GROUP_P384MLKEM1024, TLS_GROUP_SM2MLKEM768,
+	
 	TLS_GROUP_LAST
 	} TLS_GROUP_TYPE;
 
 #define isECCGroup( group ) \
-		( ( group ) > TLS_GROUP_NONE && ( group ) < TLS_GROUP_FFDHE2048 )
+		( ( group ) >= TLS_GROUP_SECT163K1 && \
+		  ( group ) <= TLS_GROUP_X448 )
+#define isPQCGroup( group ) \
+		( ( group ) >= TLS_GROUP_MLKEM512 && \
+		  ( group ) <= TLS_GROUP_SM2MLKEM768 )
 
 /* TLS 1.3 PSK modes */
 
@@ -1001,8 +1050,8 @@ typedef struct TH {
 	int helloHashSize, sessionHashSize;
 
 	/* Premaster/master secret */
-	BUFFER( CRYPT_MAX_PKCSIZE + CRYPT_MAX_TEXTSIZE, premasterSecretSize ) \
-	BYTE premasterSecret[ CRYPT_MAX_PKCSIZE + CRYPT_MAX_TEXTSIZE + 8 ];
+	BUFFER( KEYEX_SECRET_STORAGE_SIZE, premasterSecretSize ) \
+	BYTE premasterSecret[ KEYEX_SECRET_STORAGE_SIZE + 8 ];
 	int premasterSecretSize;
 
 #ifdef USE_TLS13
@@ -1026,14 +1075,26 @@ typedef struct TH {
 	#define tls13ClientSecretLen	CRYPT_MAX_HASHSIZE
 	#define tls13ServerSecret		premasterSecret + ( 2 * CRYPT_MAX_HASHSIZE )
 	#define tls13ServerSecretLen	CRYPT_MAX_HASHSIZE
+	#if 3 * CRYPT_MAX_HASHSIZE > KEYEX_SECRET_STORAGE_SIZE
+		#error KEYEX_SECRET_STORAGE_SIZE is too small
+	#endif /* KEYEX_SECRET_STORAGE_SIZE check */
 
-	/* There's even more stuff that needs to be stored for TLS 1.3, for which
-	   we reuse further existing storage locations.  This is safe because the
-	   session hash is only created and used after the certificate verify has
-	   been completed */
-	#define tls13CertContext		sessionHash
-	#define tls13CertContextLen		sessionHashSize
+	/* There's even more stuff that needs to be stored for TLS 1.3, in this 
+	   case a binary-blob certificate context that the server sends in
+	   certificate-request packets that the client has to echo back in its
+	   certificate response, because reasons */
+	BUFFER( CRYPT_MAX_HASHSIZE, tls13CertContextLen ) \
+	BYTE tls13CertContext[ CRYPT_MAX_HASHSIZE + 8 ];
+	int tls13CertContextLen;
 
+	/* PQC needs even more stuff, this time the ML-KEM secret key that's 
+	   generated as part of the key-wrap operation */
+  #ifdef USE_MLKEM
+	BUFFER( CRYPT_MAX_HASHSIZE, tls13PqcSecretValueLen ) \
+	BYTE tls13PqcSecretValue[ CRYPT_MAX_HASHSIZE + 8 ];
+	int tls13PqcSecretValueLen;
+  #endif /* USE_MLKEM */
+  
 	/* Since we don't know at the time that we're reading the cipher suites
 	   whether we'll be doing TLS 1.3 or not, we have to bookmark the 
 	   required TLS 1.3 suite in case we later need to use it */
@@ -1068,7 +1129,7 @@ typedef struct TH {
   #ifdef USE_ED25519
 	const void *transcriptPrefixString;
 	int transcriptPrefixStringLength;
-	BUFFER( 16, CRYPT_MAX_HASHSIZE ) \
+	BUFFER( CRYPT_MAX_HASHSIZE, transcriptHashLength ) \
 	BYTE transcriptHash[ CRYPT_MAX_HASHSIZE + 8 ];
 	int transcriptHashLength;
   #endif /* USE_ED25519 */
@@ -1089,9 +1150,12 @@ typedef struct TH {
 	CRYPT_CONTEXT keyexContext;	/* Keyex context for DH/ECDH/25519 */
 #ifdef USE_TLS13
 	CRYPT_CONTEXT keyexEcdhContext;	/* Alt.ECDH context for TLS 1.3 */
-  #ifdef USE_25519
+  #ifdef USE_X25519
 	CRYPT_CONTEXT keyex25519Context;/* Alt.25519 context for TLS 1.3 */
-  #endif /* USE_25519 */
+  #endif /* USE_X25519 */
+  #ifdef USE_MLKEM
+	CRYPT_CONTEXT keyexAltContext;	/* MLKEM context for 25519MLKEM */
+  #endif /* USE_MLKEM */
 #endif /* USE_TLS13 */
 	int cipherSuite;			/* Selected cipher suite */
 	int cipherSuiteFlags;		/* Flags for selected cipher suite */
@@ -1142,6 +1206,8 @@ typedef struct TH {
 	const TLS_GROUP_INFO *keyexGroupInfo;	/* Further ECC info from supp.groups */
 #ifdef USE_TLS13
 	const TLS_GROUP_INFO *keyexTls13GroupInfo;
+	const TLS_GROUP_INFO *keyexTls13PrefGroupInfo;	
+								/* Preferred TLS 1.2 or 1.3 group */
 	BOOLEAN keyexTls13Preferred;/* Whether to prefer TLS 1.3 keyex or general keyex */
 #endif /* USE_TLS13 */
 	BOOLEAN sendECCPointExtn;	/* Whether svr.has to respond with ECC point ext.*/
@@ -1240,13 +1306,16 @@ int createMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  IN_DATALENGTH const int dataMaxLength, 
 				  OUT_DATALENGTH_Z int *dataLength,
 				  IN_DATALENGTH const int payloadLength, 
-				  IN_BYTE const int type );
+				  IN_RANGE( TLS_PACKETTYPE_FIRST, \
+							TLS_PACKETTYPE_LAST ) const int packetType );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int checkMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 				 IN_BUFFER( dataLength ) const void *data, 
 				 IN_DATALENGTH const int dataLength, 
 				 IN_DATALENGTH_Z const int payloadLength, 
-				 IN_BYTE const int type, 
+				 IN_RANGE( TLS_PACKETTYPE_FIRST, \
+						   TLS_PACKETTYPE_LAST ) \
+						const int packetType,
 				 IN_BOOL const BOOLEAN noReportError );
 #ifdef USE_GCM
 CHECK_RETVAL \
@@ -1255,7 +1324,8 @@ int macDataTLSGCM( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 				   IN_RANGE( TLS_MINOR_VERSION_TLS, \
 							 TLS_MINOR_VERSION_TLS13 ) const int version,
 				   IN_LENGTH_Z const int payloadLength, 
-				   IN_BYTE const int type );
+				   IN_RANGE( TLS_PACKETTYPE_FIRST, \
+							 TLS_PACKETTYPE_LAST ) const int packetType );
 #endif /* USE_GCM */
 #ifdef USE_CHACHA20
 CHECK_RETVAL \
@@ -1268,13 +1338,17 @@ int createMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   IN_DATALENGTH const int dataMaxLength, 
 						   OUT_DATALENGTH_Z int *dataLength,
 						   IN_DATALENGTH const int payloadLength, 
-						   IN_BYTE const int type );
+						   IN_RANGE( TLS_PACKETTYPE_FIRST, \
+									 TLS_PACKETTYPE_LAST ) \
+								const int packetType );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int checkMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 						  IN_BUFFER( dataLength ) const void *data, 
 						  IN_DATALENGTH const int dataLength, 
 						  IN_DATALENGTH_Z const int payloadLength, 
-						  IN_BYTE const int type );
+						  IN_RANGE( TLS_PACKETTYPE_FIRST, \
+									TLS_PACKETTYPE_LAST ) \
+								const int packetType );
 #endif /* USE_CHACHA20 */
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int hashHSPacketRead( IN_PTR const TLS_HANDSHAKE_INFO *handshakeInfo, 
@@ -1328,15 +1402,6 @@ int writeServerExtensions( INOUT_PTR STREAM *stream,
 						   INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo );
 
-/* Prototypes for functions in tls_ext_rw.c */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int getTLSGroupInfo( OUT_PTR_PTR const TLS_GROUP_INFO **groupInfoPtrPtr,
-					 OUT_INT_Z int *noGroupInfoEntries );
-CHECK_RETVAL_PTR \
-const TLS_GROUP_INFO *getTLSGroupInfoEntry( IN_ENUM( TLS_GROUP ) \
-												const TLS_GROUP_TYPE groupType );
-
 /* Prototypes for functions in tls_hello.c */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
@@ -1355,6 +1420,34 @@ int completeHandshakeTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  IN_BOOL const BOOLEAN isClient,
 						  IN_BOOL const BOOLEAN isResumedSession );
 
+/* Prototypes for functions in tls_keyex.c */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int createKeyexContextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
+						   IN_ALGO const CRYPT_ALGO_TYPE dhAlgo );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int initKeyexContextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
+						 IN_BUFFER_OPT( keyDataLength ) const void *keyData, 
+						 IN_LENGTH_SHORT_Z const int keyDataLength,
+						 IN_HANDLE_OPT \
+							const CRYPT_CONTEXT iServerKeyTemplate,
+						 IN_ENUM_OPT( CRYPT_ECCCURVE ) \
+							const CRYPT_ECCCURVE_TYPE eccCurve,
+						 IN_BOOL const BOOLEAN isTLSLTS );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int getTLSGroupInfo( OUT_PTR_PTR const TLS_GROUP_INFO **groupInfoPtrPtr,
+					 OUT_INT_Z int *noGroupInfoEntries );
+CHECK_RETVAL_PTR \
+const TLS_GROUP_INFO *getTLSGroupInfoEntry( IN_ENUM( TLS_GROUP ) \
+												const TLS_GROUP_TYPE groupType );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 6 ) ) \
+int completeTLSKeyex( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
+					  INOUT_PTR STREAM *stream, 
+					  IN_BOOL const BOOLEAN isServer,
+					  IN_BOOL const BOOLEAN isTLSLTS,
+					  IN_BOOL const BOOLEAN isTLS13,
+					  INOUT_PTR ERROR_INFO *errorInfo );
+
 /* Prototypes for functions in tls_keymgmt.c */
 
 STDC_NONNULL_ARG( ( 1 ) ) \
@@ -1369,24 +1462,6 @@ int initSecurityContextsTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int cloneHashContext( IN_HANDLE const CRYPT_CONTEXT hashContext,
 					  OUT_HANDLE_OPT CRYPT_CONTEXT *clonedHashContext );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int createKeyexContextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
-						   IN_ALGO const CRYPT_ALGO_TYPE dhAlgo );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int initKeyexContextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext, 
-						 IN_BUFFER_OPT( keyDataLength ) const void *keyData, 
-						 IN_LENGTH_SHORT_Z const int keyDataLength,
-						 IN_HANDLE_OPT \
-							const CRYPT_CONTEXT iServerKeyTemplate,
-						 IN_ENUM_OPT( CRYPT_ECCCURVE ) \
-							const CRYPT_ECCCURVE_TYPE eccCurve,
-						 IN_BOOL const BOOLEAN isTLSLTS );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5 ) ) \
-int completeTLSKeyex( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
-					  INOUT_PTR STREAM *stream, 
-					  IN_BOOL const BOOLEAN isTLSLTS,
-					  IN_BOOL const BOOLEAN isTLS13,
-					  INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
 int createSharedPremasterSecret( OUT_BUFFER( premasterSecretMaxLength, \
 											 *premasterSecretLength ) \
@@ -1429,7 +1504,7 @@ int loadExplicitIV( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 int addDerivedKeydata( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
-					   IN_BUFFER( masterSecretSize ) void *masterSecret,
+					   IN_BUFFER( masterSecretSize ) const void *masterSecret,
 					   IN_LENGTH_SHORT_MIN( 16 ) const int masterSecretSize,
 					   IN_ENUM( CRYPT_SUBPROTOCOL ) \
 							const CRYPT_SUBPROTOCOL_TYPE type );
@@ -1455,7 +1530,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 int checkPacketHeaderTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 						  INOUT_PTR STREAM *stream, 
 						  OUT_DATALENGTH_Z int *packetLength );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
+CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 int checkHSPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 						 INOUT_PTR STREAM *stream, 
 						 OUT_DATALENGTH_Z int *packetLength, 
@@ -1468,8 +1543,8 @@ int unwrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   *dataLength ) void *data, 
 					 IN_DATALENGTH const int dataMaxLength, 
 					 OUT_DATALENGTH_Z int *dataLength,
-					 IN_RANGE( TLS_HAND_FIRST, \
-							   TLS_HAND_LAST ) const int packetType );
+					 IN_RANGE( TLS_PACKETTYPE_FIRST, \
+							   TLS_PACKETTYPE_LAST ) const int packetType );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int readHSPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 INOUT_PTR_OPT TLS_HANDSHAKE_INFO *handshakeInfo, 
@@ -1564,8 +1639,8 @@ int openPacketStreamTLS( OUT_PTR STREAM *stream,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
 int continuePacketStreamTLS( INOUT_PTR STREAM *stream, 
 							 IN_PTR const SESSION_INFO *sessionInfoPtr, 
-							 IN_RANGE( TLS_HAND_FIRST, \
-									   TLS_HAND_LAST ) const int packetType,
+							 IN_RANGE( TLS_MSG_FIRST, \
+									   TLS_MSG_LAST ) const int packetType,
 							 OUT_LENGTH_SHORT_Z int *packetOffset );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int completePacketStreamTLS( INOUT_PTR STREAM *stream, 
@@ -1627,6 +1702,8 @@ void initProcessingTLS13( TLS_HANDSHAKE_INFO *handshakeInfo,
 
 /* Prototypes for functions in tls13_keyex.c */
 
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int createKeyexContextsTLS13( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
 int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 					INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
@@ -1635,7 +1712,7 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					OUT_BOOL BOOLEAN *extErrorInfoSet );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeKeyexTLS13( INOUT_PTR STREAM *stream,
-					 const TLS_HANDSHAKE_INFO *handshakeInfo,
+					 INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 					 IN_BOOL const BOOLEAN isServer );
 
 /* Prototypes for functions in tls_rd.c */
@@ -1648,7 +1725,8 @@ int unwrapPacketTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   OUT_DATALENGTH_Z int *dataLength,
 					   OUT_RANGE( TLS_HAND_NONE, TLS_HAND_LAST ) \
 							int *actualPacketType,
-					   IN_RANGE( TLS_HAND_FIRST, TLS_HAND_LAST ) \
+					   IN_RANGE( TLS_PACKETTYPE_FIRST, \
+								 TLS_PACKETTYPE_LAST ) \
 							const int packetType );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int processAlertTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr, 

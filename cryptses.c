@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Secure Session Routines					*
-*						Copyright Peter Gutmann 1998-2015					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -103,11 +103,6 @@ BOOLEAN sanityCheckSession( const SESSION_INFO *sessionInfoPtr )
 		!DATAPTR_ISVALID( sessionInfoPtr->attributeListCurrent ) )
 		{
 		DEBUG_PUTS(( "sanityCheckSession: Attribute list" ));
-		return( FALSE );
-		}
-	if( !checkVarStruct( sessionInfoPtr ) )
-		{
-		DEBUG_PUTS(( "sanityCheckSession: VarStruct" ));
 		return( FALSE );
 		}
 
@@ -243,7 +238,8 @@ static BOOLEAN sanityCheckProtocolInfo( const PROTOCOL_INFO *protocolInfo )
 		}
 
 	/* Check network information */
-	if( protocolInfo->port <= 21 || protocolInfo->port > 65534L || \
+	if( protocolInfo->port <= MIN_PORT_NUMBER || \
+		protocolInfo->port > MAX_DEST_PORT_NUMBER || \
 		( ( protocolInfo->flags & SESSION_PROTOCOL_HTTPTRANSPORT ) && \
 			protocolInfo->port != 80 ) || \
 		( !( protocolInfo->flags & SESSION_PROTOCOL_HTTPTRANSPORT ) && \
@@ -314,7 +310,7 @@ static BOOLEAN checkSessionFunctions( IN_PTR const SESSION_INFO *sessionInfoPtr 
 /* Handle a message sent to a session object */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-static int sessionMessageFunction( INOUT_PTR TYPECAST( CONTEXT_INFO * ) \
+static int sessionMessageFunction( INOUT_PTR TYPECAST( SESSION_INFO * ) \
 									void *objectInfoPtr,
 								   IN_MESSAGE const MESSAGE_TYPE message,
 								   void *messageDataPtr,
@@ -895,6 +891,8 @@ static int openSession( OUT_HANDLE_OPT CRYPT_SESSION *iCryptSession,
 		{
 		void *scoreboardInfo = getBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD );
 
+		REQUIRES( checkBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ) );
+
 		DATAPTR_SET( sessionInfoPtr->sessionTLS->scoreboardInfoPtr, 
 					 scoreboardInfo );
 		}
@@ -1010,8 +1008,7 @@ int sessionManagementFunction( IN_ENUM( MANAGEMENT_ACTION ) \
 					/* The kernel is shutting down, exit */
 					return( CRYPT_ERROR_PERMISSION );
 					}
-				status = initScoreboard( \
-							getBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ) );
+				status = initScoreboard();
 				}
 			if( cryptStatusOK( status ) )
 				initLevel++;
@@ -1033,10 +1030,7 @@ int sessionManagementFunction( IN_ENUM( MANAGEMENT_ACTION ) \
 
 		case MANAGEMENT_ACTION_SHUTDOWN:
 			if( initLevel > 1 )
-				{
-				endScoreboard( \
-					getBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ) );
-				}
+				endScoreboard();
 			if( initLevel > 0 )
 				netEndTCP();
 			initLevel = 0;

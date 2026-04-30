@@ -298,6 +298,7 @@ static int encryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		int bytesToUse;
 
 		/* Find out how much material left in the encrypted IV we can use */
+		REQUIRES( !checkOverflowSub( DES_BLOCKSIZE, ivCount ) );
 		bytesToUse = DES_BLOCKSIZE - ivCount;
 		if( noBytes < bytesToUse )
 			bytesToUse = noBytes;
@@ -314,8 +315,10 @@ static int encryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		memcpy( convInfo->currentIV + ivCount, buffer, bytesToUse );
 
 		/* Adjust the byte count and buffer position */
+		REQUIRES( !checkOverflowSub( noBytes, bytesToUse ) );
 		noBytes -= bytesToUse;
 		buffer += bytesToUse;
+		REQUIRES( !checkOverflowAdd( ivCount, bytesToUse ) );
 		ivCount += bytesToUse;
 		}
 
@@ -343,6 +346,7 @@ static int encryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		memcpy( convInfo->currentIV, buffer, ivCount );
 
 		/* Move on to next block of data */
+		REQUIRES( !checkOverflowSub( noBytes, ivCount ) );
 		noBytes -= ivCount;
 		buffer += ivCount;
 		}
@@ -380,6 +384,7 @@ static int decryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		int bytesToUse;
 
 		/* Find out how much material left in the encrypted IV we can use */
+		REQUIRES( !checkOverflowSub( DES_BLOCKSIZE, ivCount ) );
 		bytesToUse = DES_BLOCKSIZE - ivCount;
 		if( noBytes < bytesToUse )
 			bytesToUse = noBytes;
@@ -399,8 +404,10 @@ static int decryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				bytesToUse );
 
 		/* Adjust the byte count and buffer position */
+		REQUIRES( !checkOverflowSub( noBytes, bytesToUse ) );
 		noBytes -= bytesToUse;
 		buffer += bytesToUse;
+		REQUIRES( !checkOverflowAdd( ivCount, bytesToUse ) );
 		ivCount += bytesToUse;
 		}
 
@@ -432,6 +439,7 @@ static int decryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		memcpy( convInfo->currentIV, temp, ivCount );
 
 		/* Move on to next block of data */
+		REQUIRES( !checkOverflowSub( noBytes, ivCount ) );
 		noBytes -= ivCount;
 		buffer += ivCount;
 		}

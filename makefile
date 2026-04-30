@@ -12,15 +12,6 @@
 # redoing the makefile using autoconf, have a look at what it would take to
 # move all of this logic across to another build mechanism.
 #
-# "The makefile is looking really perverse.  You're getting the hang of it"
-#														- Chris Wedgwood.
-# At least it doesn't pipe itself through sed yet.
-#
-# (Note that as of 3.1 beta 3 it does pipe itself through sed on non-Unix
-#  systems to retarget Unix-specific files to OS-specific ones and perform
-#  various other operations that aren't easily possible by adding another
-#  level of recursion).
-#
 # The self-test program pulls in parts of cryptlib to ensure that the self-
 # configuration works.  Because this is handled by the makefile, you can't
 # just 'make testlib' after making changes, you need to use 'make; make
@@ -215,12 +206,15 @@ CERTOBJS	= $(OBJPATH)certrev.o $(OBJPATH)certschk.o $(OBJPATH)certsign.o \
 CRYPTOBJS	= $(OBJPATH)aes_modes.o $(OBJPATH)aes_ni.o $(OBJPATH)aescrypt.o \
 			  $(OBJPATH)aeskey.o $(OBJPATH)aestab.o $(OBJPATH)castecb.o \
 			  $(OBJPATH)castenc.o $(OBJPATH)castskey.o $(OBJPATH)chacha20.o \
-			  $(OBJPATH)curve25519.o $(OBJPATH)descbc.o $(OBJPATH)desecb.o \
-			  $(OBJPATH)desecb3.o $(OBJPATH)desenc.o $(OBJPATH)desskey.o \
+			  $(OBJPATH)compress.o $(OBJPATH)curve25519.o $(OBJPATH)descbc.o \
+			  $(OBJPATH)desecb.o $(OBJPATH)desecb3.o $(OBJPATH)desenc.o \
+			  $(OBJPATH)desskey.o $(OBJPATH)fips202.o $(OBJPATH)fips202x4.o \
 			  $(OBJPATH)gcm.o $(OBJPATH)gf128mul.o $(OBJPATH)icbc.o \
-			  $(OBJPATH)iecb.o $(OBJPATH)iskey.o $(OBJPATH)poly1305.o \
-			  $(OBJPATH)rc2cbc.o $(OBJPATH)rc2ecb.o $(OBJPATH)rc2skey.o \
-			  $(OBJPATH)rc4enc.o $(OBJPATH)rc4skey.o
+			  $(OBJPATH)iecb.o $(OBJPATH)indcpa.o $(OBJPATH)iskey.o \
+			  $(OBJPATH)keccakf1600.o $(OBJPATH)kem.o $(OBJPATH)poly.o \
+			  $(OBJPATH)poly1305.o $(OBJPATH)poly_k.o $(OBJPATH)rc2cbc.o \
+			  $(OBJPATH)rc2ecb.o $(OBJPATH)rc2skey.o $(OBJPATH)rc4enc.o \
+			  $(OBJPATH)rc4skey.o $(OBJPATH)sampling.o $(OBJPATH)verify.o
 
 CONTEXTOBJS	= $(OBJPATH)ctx_3des.o $(OBJPATH)ctx_aes.o $(OBJPATH)ctx_attr.o \
 			  $(OBJPATH)ctx_bn.o $(OBJPATH)ctx_bnmath.o $(OBJPATH)ctx_bnpkc.o \
@@ -231,7 +225,7 @@ CONTEXTOBJS	= $(OBJPATH)ctx_3des.o $(OBJPATH)ctx_aes.o $(OBJPATH)ctx_attr.o \
 			  $(OBJPATH)ctx_ecdh.o $(OBJPATH)ctx_ecdsa.o $(OBJPATH)ctx_ed25519.o \
 			  $(OBJPATH)ctx_elg.o $(OBJPATH)ctx_encr.o $(OBJPATH)ctx_generic.o \
 			  $(OBJPATH)ctx_hsha.o $(OBJPATH)ctx_hsha2.o $(OBJPATH)ctx_idea.o \
-			  $(OBJPATH)ctx_md5.o $(OBJPATH)ctx_misc.o \
+			  $(OBJPATH)ctx_md5.o $(OBJPATH)ctx_misc.o $(OBJPATH)ctx_mlkem.o \
 			  $(OBJPATH)ctx_poly1305.o $(OBJPATH)ctx_rc2.o \
 			  $(OBJPATH)ctx_rc4.o $(OBJPATH)ctx_rsa.o $(OBJPATH)ctx_sha.o \
 			  $(OBJPATH)ctx_sha2.o $(OBJPATH)ctx_x25519.o $(OBJPATH)kg_25519.o \
@@ -327,9 +321,10 @@ SESSIONOBJS	= $(OBJPATH)certstore.o $(OBJPATH)cmp.o $(OBJPATH)cmp_cli.o \
 			  $(OBJPATH)tls13_keyex.o $(OBJPATH)tls_cert.o \
 			  $(OBJPATH)tls_cli.o $(OBJPATH)tls_crypt.o $(OBJPATH)tls_ext.o \
 			  $(OBJPATH)tls_ext_rw.o $(OBJPATH)tls_hello.o \
-			  $(OBJPATH)tls_hscomplete.o $(OBJPATH)tls_keymgt.o \
-			  $(OBJPATH)tls_rd.o $(OBJPATH)tls_sign.o $(OBJPATH)tls_suites.o \
-			  $(OBJPATH)tls_svr.o $(OBJPATH)tls_wr.o $(OBJPATH)tsp.o
+			  $(OBJPATH)tls_hscomplete.o $(OBJPATH)tls_keyex.o \
+			  $(OBJPATH)tls_keymgt.o $(OBJPATH)tls_rd.o $(OBJPATH)tls_sign.o \
+			  $(OBJPATH)tls_suites.o $(OBJPATH)tls_svr.o $(OBJPATH)tls_wr.o \
+			  $(OBJPATH)tsp.o
 
 ZLIBOBJS	= $(OBJPATH)adler32.o $(OBJPATH)deflate.o $(OBJPATH)inffast.o \
 			  $(OBJPATH)inflate.o $(OBJPATH)inftrees.o $(OBJPATH)trees.o \
@@ -903,6 +898,9 @@ $(OBJPATH)ctx_md5.o:	$(CRYPT_DEP) context/context.h crypt/md5.h context/ctx_md5.
 $(OBJPATH)ctx_misc.o:	$(CRYPT_DEP) context/context.h context/ctx_misc.c
 						$(CC) $(CFLAGS) -o $(OBJPATH)ctx_misc.o context/ctx_misc.c
 
+$(OBJPATH)ctx_mlkem.o:	$(CRYPT_DEP) context/context.h context/ctx_mlkem.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)ctx_mlkem.o context/ctx_mlkem.c
+
 $(OBJPATH)ctx_poly1305.o:	$(CRYPT_DEP) context/context.h crypt/djb.h context/ctx_poly1305.c
 						$(CC) $(CFLAGS) -o $(OBJPATH)ctx_poly1305.o context/ctx_poly1305.c
 
@@ -992,9 +990,6 @@ $(OBJPATH)castskey.o:	crypt/osconfig.h crypt/cast.h crypt/castlcl.h crypt/castsb
 $(OBJPATH)chacha20.o:	crypt/djb.h crypt/chacha20.c
 						$(CC) $(CFLAGS) -o $(OBJPATH)chacha20.o crypt/chacha20.c
 
-$(OBJPATH)curve25519.o:	crypt/djb.h crypt/curve25519.c
-						$(CC) $(CFLAGS) -o $(OBJPATH)curve25519.o crypt/curve25519.c
-
 $(OBJPATH)descbc.o:		crypt/osconfig.h crypt/des.h crypt/deslocl.h crypt/descbc.c
 						$(CC) $(CFLAGS) -o $(OBJPATH)descbc.o crypt/descbc.c
 
@@ -1027,9 +1022,6 @@ $(OBJPATH)iecb.o:		$(CRYPT_DEP) crypt/idea.h crypt/idealocl.h crypt/iecb.c
 $(OBJPATH)iskey.o:		$(CRYPT_DEP) crypt/idea.h crypt/idealocl.h crypt/iskey.c
 						$(CC) $(CFLAGS) -o $(OBJPATH)iskey.o crypt/iskey.c
 
-$(OBJPATH)poly1305.o:	crypt/djb.h crypt/poly1305.c
-						$(CC) $(CFLAGS) -o $(OBJPATH)poly1305.o crypt/poly1305.c
-
 $(OBJPATH)rc2cbc.o:		crypt/osconfig.h crypt/rc2.h crypt/rc2locl.h crypt/rc2cbc.c
 						$(CC) $(CFLAGS) -o $(OBJPATH)rc2cbc.o crypt/rc2cbc.c
 
@@ -1045,11 +1037,14 @@ $(OBJPATH)rc4enc.o:		crypt/osconfig.h crypt/rc4.h crypt/rc4locl.h crypt/rc4enc.c
 $(OBJPATH)rc4skey.o:	crypt/osconfig.h crypt/rc4.h crypt/rc4locl.h crypt/rc4skey.c
 						$(CC) $(CFLAGS) -o $(OBJPATH)rc4skey.o crypt/rc4skey.c
 
-# crypt subdirectory - hash algos
+# crypt subdirectory - hash/MAC algos
 
 $(OBJPATH)md5dgst.o:	crypt/osconfig.h crypt/md5.h crypt/md5locl.h \
 						crypt/md32com.h crypt/md5dgst.c
 						$(CC) $(CFLAGS) -o $(OBJPATH)md5dgst.o crypt/md5dgst.c
+
+$(OBJPATH)poly1305.o:	crypt/djb.h crypt/poly1305.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)poly1305.o crypt/poly1305.c
 
 $(OBJPATH)sha1dgst.o:	crypt/osconfig.h crypt/sha.h crypt/sha1locl.h \
 						crypt/md32com.h crypt/sha1dgst.c
@@ -1057,6 +1052,48 @@ $(OBJPATH)sha1dgst.o:	crypt/osconfig.h crypt/sha.h crypt/sha1locl.h \
 
 $(OBJPATH)sha2.o:		crypt/osconfig.h crypt/sha.h crypt/sha1locl.h crypt/sha2.c
 						$(CC) $(CFLAGS) -o $(OBJPATH)sha2.o crypt/sha2.c
+
+# crypt subdirectory - PKC algos
+
+$(OBJPATH)curve25519.o:	crypt/djb.h crypt/curve25519.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)curve25519.o crypt/curve25519.c
+
+# crypt subdirectory - PQC algos
+
+MLKEM_DEP = crypt/common.h crypt/compress.h crypt/debug.h crypt/fips202.h \
+			crypt/fips202x4.h crypt/indcpa.h crypt/kem.h crypt/params.h \
+			crypt/poly.h crypt/poly_k.h crypt/sampling.h crypt/symmetric.h \
+			crypt/verify.h
+
+$(OBJPATH)compress.o:	$(CRYPT_DEP) $(MLKEM_DEP) crypt/compress.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)compress.o crypt/compress.c
+
+$(OBJPATH)fips202.o:	$(CRYPT_DEP) $(MLKEM_DEP) crypt/fips202.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)fips202.o crypt/fips202.c
+
+$(OBJPATH)fips202x4.o:	$(CRYPT_DEP) $(MLKEM_DEP) crypt/fips202x4.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)fips202x4.o crypt/fips202x4.c
+
+$(OBJPATH)indcpa.o:		$(CRYPT_DEP) $(MLKEM_DEP) crypt/indcpa.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)indcpa.o crypt/indcpa.c
+
+$(OBJPATH)keccakf1600.o:	$(CRYPT_DEP) $(MLKEM_DEP) crypt/keccakf1600.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)keccakf1600.o crypt/keccakf1600.c
+
+$(OBJPATH)kem.o:		$(CRYPT_DEP) $(MLKEM_DEP) crypt/kem.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)kem.o crypt/kem.c
+
+$(OBJPATH)poly.o:		$(CRYPT_DEP) $(MLKEM_DEP) crypt/poly.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)poly.o crypt/poly.c
+
+$(OBJPATH)poly_k.o:		$(CRYPT_DEP) $(MLKEM_DEP) crypt/poly_k.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)poly_k.o crypt/poly_k.c
+
+$(OBJPATH)sampling.o:	$(CRYPT_DEP) $(MLKEM_DEP) crypt/sampling.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)sampling.o crypt/sampling.c
+
+$(OBJPATH)verify.o:		$(CRYPT_DEP) $(MLKEM_DEP) crypt/verify.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)verify.o crypt/verify.c
 
 # device subdirectory
 
@@ -1704,6 +1741,10 @@ $(OBJPATH)tls_hello.o:	$(CRYPT_DEP) $(IO_DEP) session/session.h session/tls.h \
 $(OBJPATH)tls_hscomplete.o:	$(CRYPT_DEP) $(IO_DEP) session/session.h session/tls.h \
 						session/tls_hscomplete.c
 						$(CC) $(CFLAGS) -o $(OBJPATH)tls_hscomplete.o session/tls_hscomplete.c
+
+$(OBJPATH)tls_keyex.o:	$(CRYPT_DEP) $(IO_DEP) session/session.h session/tls.h \
+						session/tls_keyex.c
+						$(CC) $(CFLAGS) -o $(OBJPATH)tls_keyex.o session/tls_keyex.c
 
 $(OBJPATH)tls_keymgt.o:	$(CRYPT_DEP) $(IO_DEP) session/session.h session/tls.h \
 						session/tls_keymgt.c
@@ -2541,7 +2582,7 @@ NONSTOP_KERNEL:
 # target-X:
 #	$(MAKE) OSNAME=target-X target-init
 #	$(MAKE) $(DEFINES) OSNAME=target-X CC=target-cc CFLAGS="$(CC_CFLAGS) \
-#		-DCONFIG_DATA_xxxENDIAN -DOSVERSION=major_version -O2 -D_REENTRANT" \
+#		-DCONFIG_DATA_xxxENDIAN -DOSVERSION=major_version -O -D_REENTRANT" \
 #		LDFLAGS="$(CC_LDFLAGS)"
 #
 # Since we're cross-compiling here, we use $(CC_CFLAGS) and $(CC_DEFINES)
@@ -2593,28 +2634,28 @@ linux-target-comments:
 target-amx-arm:
 	@$(MAKE) OSNAME=amx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=AMX CC=$(ARM_CC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__AMX__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__AMX__ -O \
 		`./tools/ccopts-crosscompile.sh $(ARM_CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=AMX embedded-comments
 
 target-amx-mips:
 	@$(MAKE) OSNAME=amx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=AMX CC=$(GCC_MIPS) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__AMX__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__AMX__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_MIPS)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=AMX embedded-comments
 
 target-amx-ppc:
 	@$(MAKE) OSNAME=amx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=AMX CC=$(GCC_PPC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__AMX__ -O2 \
+		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__AMX__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_PPC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=AMX embedded-comments
 
 target-amx-x86:
 	@$(MAKE) OSNAME=amx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=AMX CC=$(GCC_X86) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__AMX__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__AMX__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_X86)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=AMX embedded-comments
 
@@ -2632,7 +2673,7 @@ target-android8-arm:
 	@$(MAKE) target-init-unix
 	$(MAKE) $(CC_DEFINES) OSNAME=Android \
 		CC=$(ANDROID_8D_TOOLCHAIN_PATH)/bin/arm-linux-androideabi-gcc \
-		CFLAGS="$(CC_CFLAGS) -DCONFIG_DATA_LITTLEENDIAN -O2 -D__Android__ \
+		CFLAGS="$(CC_CFLAGS) -DCONFIG_DATA_LITTLEENDIAN -O -D__Android__ \
 		-D_REENTRANT -MMD -MP -MF -D__ARM_ARCH_5__ -D__ARM_ARCH_5T__ \
 		-D__ARM_ARCH_5E__ -D__ARM_ARCH_5TE__ -march=armv7-a -mtune=xscale \
 		-msoft-float -mthumb -g -DNDEBUG -no-canonical-prefixes \
@@ -2652,7 +2693,7 @@ target-android9-arm:
 	@$(MAKE) target-init-unix
 	$(MAKE) $(CC_DEFINES) OSNAME=Android \
 		CC=$(ANDROID_9_TOOLCHAIN_PATH)/bin/arm-linux-androideabi-gcc \
-		CFLAGS="$(CC_LDFLAGS) -DCONFIG_DATA_LITTLEENDIAN -O2 -D__Android__ \
+		CFLAGS="$(CC_LDFLAGS) -DCONFIG_DATA_LITTLEENDIAN -O -D__Android__ \
 		-D_REENTRANT -MMD -MP -MF -D__ARM_ARCH_5__ -D__ARM_ARCH_5T__ \
 		-D__ARM_ARCH_5E__ -D__ARM_ARCH_5TE__ -march=armv7-a -mtune=xscale \
 		-msoft-float -mthumb -g -DNDEBUG -no-canonical-prefixes \
@@ -2666,7 +2707,7 @@ target-android9-arm-shared:
 	@$(MAKE) target-init-unix
 	$(MAKE) $(CC_SDEFINES) OSNAME=Android \
 		CC=$(ANDROID_9_TOOLCHAIN_PATH)/bin/arm-linux-androideabi-gcc \
-		CFLAGS="$(CC_LDFLAGS) -DCONFIG_DATA_LITTLEENDIAN -O2 -D__Android__ \
+		CFLAGS="$(CC_LDFLAGS) -DCONFIG_DATA_LITTLEENDIAN -D__Android__ \
 		-D_REENTRANT -MMD -MP -MF -D__ARM_ARCH_5__ -D__ARM_ARCH_5T__ \
 		-D__ARM_ARCH_5E__ -D__ARM_ARCH_5TE__ -march=armv7-a -mtune=xscale \
 		-msoft-float -mthumb -Os -g -DNDEBUG -no-canonical-prefixes \
@@ -2685,7 +2726,7 @@ target-atmel:
 	@$(MAKE) OSNAME=atmel target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=Atmel CFLAGS="$(CC_CFLAGS) \
 		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_NO_STDIO -DCONFIG_CONSERVE_MEMORY \
-		-DCONFIG_NO_DYNALLOC -DCONFIG_RANDSEED -O2" \
+		-DCONFIG_NO_DYNALLOC -DCONFIG_RANDSEED -O" \
 		LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=Atmel embedded-comments
 
@@ -2694,7 +2735,7 @@ target-atmel:
 target-chorus:
 	@$(MAKE) OSNAME=chorus target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=CHORUS CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -D__CHORUS__ -O3 \
+		-DCONFIG_DATA_LITTLEENDIAN -D__CHORUS__ -O \
 		`./tools/ccopts-crosscompile.sh $(CC)`" \
 		LDFLAGS="$(CC_LDFLAGS)"
 
@@ -2705,28 +2746,28 @@ target-chorus:
 target-ecos-arm:
 	@$(MAKE) OSNAME=ecos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=eCOS CC=$(GCC_ARM_ELF) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -D__ECOS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -D__ECOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_ARM_ELF)`" \
 		LDFLAGS="$(CC_LDFLAGS)"
 
 target-ecos-ppc:
 	@$(MAKE) OSNAME=ecos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=eCOS CC=$(GCC_PPC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_BIGENDIAN -D__ECOS__ -O2 \
+		-DCONFIG_DATA_BIGENDIAN -D__ECOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_PPC)`" \
 		LDFLAGS="$(CC_LDFLAGS)"
 
 target-ecos-sh:
 	@$(MAKE) OSNAME=ecos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=eCOS CC=$(GCC_SH) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -D__ECOS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -D__ECOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_SH)`" \
 		LDFLAGS="$(CC_LDFLAGS)"
 
 target-ecos-x86:
 	@$(MAKE) OSNAME=ecos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=eCOS CC=$(GCC_X86) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -D__ECOS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -D__ECOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_X86)`" \
 		LDFLAGS="$(CC_LDFLAGS)"
 
@@ -2735,7 +2776,7 @@ target-ecos-x86:
 target-embos:
 	@$(MAKE) OSNAME=embos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=embOS CC=$(GCC_ARM_ELF) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -D__embOS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -D__embOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_ARM_ELF)`" \
 		LDFLAGS="$(CC_LDFLAGS)"
 
@@ -2745,7 +2786,7 @@ target-emscripten:
 	@$(MAKE) target-init-unix
 	$(MAKE) $(CC_DEFINES) OSNAME=Emscripten CC=emcc CFLAGS="$(CFLAGS) \
 		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_CONSERVE_MEMORY \
-		-O2 `./tools/ccopts-crosscompile.sh $(CC)`" LDFLAGS="$(CC_LDFLAGS)"
+		-O `./tools/ccopts-crosscompile.sh $(CC)`" LDFLAGS="$(CC_LDFLAGS)"
 
 # FreeRTOS/OpenRTOS: Gnu toolchain under Cygwin or Unix.
 #
@@ -2758,28 +2799,28 @@ target-emscripten:
 target-freertos-arm:
 	@$(MAKE) OSNAME=freertos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=FreeRTOS CC=$(GCC_ARM) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_ARM)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=FreeRTOS embedded-comments
 
 target-freertos-mb:
 	@$(MAKE) OSNAME=freertos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=FreeRTOS CC=$(GCC_MB) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O2 \
+		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_MB)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=FreeRTOS embedded-comments
 
 target-freertos-ppc:
 	@$(MAKE) OSNAME=freertos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=FreeRTOS CC=$(GCC_PPC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O2 \
+		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_PPC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=FreeRTOS embedded-comments
 
 target-freertos-xtensa:
 	@$(MAKE) OSNAME=freertos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=FreeRTOS CC=$(GCC_XTENSA) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_XTENSA)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=FreeRTOS embedded-comments
 
@@ -2788,7 +2829,7 @@ FREERTOS_TEST_OPTS=-D__arm__ -DUSE_FATFS -I./embedded/freertos10 -I./embedded/
 target-freertos-test:
 	@$(MAKE) OSNAME=freertos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=FreeRTOS CC=gcc CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O \
 		$(FREERTOS_TEST_OPTS) -DCONFIG_NO_SESSIONS \
 		`./tools/ccopts-crosscompile.sh gcc`" LDFLAGS="$(CC_LDFLAGS)"
 		@$(MAKE) OSNAME=FreeRTOS embedded-comments
@@ -2796,7 +2837,7 @@ target-freertos-test:
 target-freertos-test-lwip:
 	@$(MAKE) OSNAME=freertos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=FreeRTOS CC=gcc CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__FreeRTOS__ -O \
 		$(FREERTOS_TEST_OPTS) -DUSE_LWIP \
 		`./tools/ccopts-crosscompile.sh gcc`" LDFLAGS="$(CC_LDFLAGS)"
 		@$(MAKE) OSNAME=FreeRTOS embedded-comments
@@ -2817,7 +2858,7 @@ target-ios5:
 	$(MAKE) $(CC_DEFINES) OSNAME=iOS CC=$(IOS5_TOOLS_PATH)/cc LD=$(IOS5_TOOLS_PATH)/ld \
 		AR=$(IOS5_TOOLS_PATH)/ar STRIP=$(IOS5_TOOLS_PATH)/strip \
 		CFLAGS="$(CC_CFLAGS) $(IOS5_CCOPTS) -DCONFIG_DATA_LITTLEENDIAN \
-		-D__UNIX__ -O2 -D_REENTRANT -arch armv7 \
+		-D__UNIX__ -O -D_REENTRANT -arch armv7 \
 		-isysroot $(IOS5_SDK_PATH)/SDKs/iPhoneOS5.0.sdk" LDFLAGS="-arch armv7" \
 		LDFLAGS="$(CC_LDFLAGS)"
 
@@ -2835,7 +2876,7 @@ target-ios:
 		LD=`./tools/xcode.sh ld $(IOS_PLATFORM)` \
 		AR=`./tools/xcode.sh ar $(IOS_PLATFORM)` STRIP=`./tools/xcode.sh cc \
 		$(IOS_PLATFORM)` CFLAGS="$(CC_CFLAGS) -DCONFIG_DATA_LITTLEENDIAN \
-		-D__UNIX__ -O2 -D_REENTRANT -DOSVERSION=`./tools/xcode.sh osversion \
+		-D__UNIX__ -O -D_REENTRANT -DOSVERSION=`./tools/xcode.sh osversion \
 		$(IOS_PLATFORM)` -arch $(IOS_ARCH) -Wno-switch -Wno-pointer-sign \
 		`./tools/xcode.sh bitcode-arg $(IOS_PLATFORM)` \
 		-miphoneos-version-min=`./tools/xcode.sh sdkversion $(IOS_PLATFORM)` \
@@ -2892,7 +2933,7 @@ target-linux-arm:
 		STRIP=arm-linux-gnueabi-strip \
 		CFLAGS="$(CC_CFLAGS) -D__UNIX__ \
 			`./tools/ccopts-crosscompile.sh arm-linux-gnueabi-gcc` \
-			-DCONFIG_DATA_LITTLEENDIAN -O2 -D_REENTRANT" \
+			-DCONFIG_DATA_LITTLEENDIAN -O -D_REENTRANT" \
 		LDFLAGS="$(CC_LDFLAGS)"
 
 target-linux-arm64:
@@ -2903,7 +2944,7 @@ target-linux-arm64:
 		STRIP=aarch64-linux-gnu-strip \
 		CFLAGS="$(CC_CFLAGS) -D__UNIX__ \
 			`./tools/ccopts-crosscompile.sh aarch64-linux-gnu-gcc` \
-			-DCONFIG_DATA_LITTLEENDIAN -O2 -D_REENTRANT -fPIC" \
+			-DCONFIG_DATA_LITTLEENDIAN -O -D_REENTRANT -fPIC" \
 		LDFLAGS="$(CC_LDFLAGS)"
 
 target-linux-sh4:
@@ -2914,7 +2955,7 @@ target-linux-sh4:
 		STRIP=sh4-linux-gnu-strip \
 		CFLAGS="$(CC_CFLAGS) -D__UNIX__ \
 			`./tools/ccopts-crosscompile.sh sh4-linux-gnu-gcc` \
-			-DCONFIG_DATA_LITTLEENDIAN -O2 -D_REENTRANT"
+			-DCONFIG_DATA_LITTLEENDIAN -O -D_REENTRANT"
 		LDFLAGS="$(CC_LDFLAGS)"
 
 target-linux-ppc:
@@ -2925,7 +2966,7 @@ target-linux-ppc:
 		STRIP=powerpc-eabi-strip \
 		CFLAGS="$(CC_CFLAGS) -D__UNIX__ \
 			`./tools/ccopts-crosscompile.sh $(GCC_PPC)` \
-			-DCONFIG_DATA_BIGENDIAN -O2 -D_REENTRANT"
+			-DCONFIG_DATA_BIGENDIAN -O -D_REENTRANT"
 		LDFLAGS="$(CC_LDFLAGS)"
 
 	# For testing the crosscompile build process
@@ -2935,7 +2976,7 @@ target-linux-x86:
 	$(MAKE) $(CC_DEFINES) OSNAME=Linux CC=gcc AR=ar LD=ld STRIP=strip \
 		CFLAGS="$(CC_CFLAGS) -D__UNIX__ \
 			`./tools/ccopts-crosscompile.sh $(CC)` \
-			-DCONFIG_DATA_LITTLEENDIAN -O2 -D_REENTRANT"
+			-DCONFIG_DATA_LITTLEENDIAN -O -D_REENTRANT"
 
 target-linux-x86-shared:
 	@$(MAKE) target-init-unix
@@ -2943,14 +2984,14 @@ target-linux-x86-shared:
 	$(MAKE) $(CC_SDEFINES) OSNAME=Linux CC=gcc LD=ld \
 		CFLAGS="$(CC_CFLAGS) -D__UNIX__ \
 			`./tools/ccopts-crosscompile.sh $(CC)` \
-			-DCONFIG_DATA_LITTLEENDIAN -O2 -D_REENTRANT"
+			-DCONFIG_DATA_LITTLEENDIAN -O -D_REENTRANT"
 
 # mbed/CMSIS RTOS: Gnu toolchain.
 
 target-mbed:
 	@$(MAKE) OSNAME=mbed target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=CMSIS CC=$(GCC_ARM_ELF) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__CMSIS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__CMSIS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_ARM_ELF)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=mbed embedded-comments
 
@@ -2959,7 +3000,7 @@ target-mbed:
 target-mgos:
 	@$(MAKE) OSNAME=mgos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=Mongoose CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__MGOS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__MGOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=Mongoose embedded-comments
 
@@ -2971,7 +3012,7 @@ target-mgos:
 target-mqx:
 	@$(MAKE) OSNAME=mqx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=MQX CC=$(IAR_CC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__MQXRTOS__ -e -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__MQXRTOS__ -e -O \
 		`./tools/ccopts-crosscompile.sh $(IAR_CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=MQX embedded-comments
 
@@ -2980,7 +3021,7 @@ target-mqx:
 target-nucleus:
 	@$(MAKE) OSNAME=nucleus target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=Nucleus CC=$(IAR_CC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__Nucleus__ -e -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__Nucleus__ -e -O \
 		`./tools/ccopts-crosscompile.sh $(IAR_CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=Nucleus embedded-comments
 
@@ -2992,7 +3033,7 @@ target-nucleus:
 target-osek:
 	@$(MAKE) OSNAME=osek target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=OSEK CC=$(IAR_CC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__OSEK__ -e -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__OSEK__ -e -O \
 		`./tools/ccopts-crosscompile.sh $(IAR_CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=OSEK embedded-comments
 
@@ -3049,7 +3090,7 @@ target-palmos-prc:
 	$(MAKE) $(CC_DEFINES) OSNAME=PalmOS-PRC CC=arm-palmos-gcc CFLAGS="$(CC_CFLAGS) \
 		-idirafter /usr/lib/gcc-lib/arm-palmos/3.2.2/include/ \
 		-D__PALMOS_KERNEL__ -D__PALMSOURCE__ -DBUILD_TYPE=BUILD_TYPE_RELEASE \
-		-DCONFIG_DATA_LITTLEENDIAN -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -O \
 		`./tools/ccopts-crosscompile.sh arm-palmos-gcc`" LDFLAGS="$(CC_LDFLAGS)"
 
 # RIOT: Gnu toolchain under Unix or Cygwin.
@@ -3057,7 +3098,7 @@ target-palmos-prc:
 target-riot:
 	@$(MAKE) OSNAME=riot target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=RIOT CC=$(GCC_ARM_ELF) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__RiotOS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__RiotOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_ARM_ELF)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=RIOT embedded-comments
 
@@ -3066,28 +3107,28 @@ target-riot:
 target-rtems-arm:
 	@$(MAKE) OSNAME=rtems target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=RTEMS CC=$(GCC_ARM_ELF) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__RTEMS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__RTEMS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_ARM_ELF)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=RTEMS embedded-comments
 
 target-rtems-mips:
 	@$(MAKE) OSNAME=rtems target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=RTEMS CC=$(GCC_MIPS) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__RTEMS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__RTEMS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_MIPS)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=RTEMS embedded-comments
 
 target-rtems-ppc:
 	@$(MAKE) OSNAME=rtems target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=RTEMS CC=$(GCC_PPC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__RTEMS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__RTEMS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_PPC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=RTEMS embedded-comments
 
 target-rtems-x86:
 	@$(MAKE) OSNAME=rtems target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=RTEMS CC=$(GCC_X86) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__RTEMS__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__RTEMS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_X86)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=RTEMS embedded-comments
 
@@ -3096,7 +3137,7 @@ target-rtems-x86:
 target-quadros:
 	@$(MAKE) OSNAME=quadros target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=Quadros CC=$(IAR_CC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__Quadros__ -e -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__Quadros__ -e -O \
 		`./tools/ccopts-crosscompile.sh $(IAR_CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=Quadros embedded-comments
 
@@ -3105,7 +3146,7 @@ target-quadros:
 target-smx:
 	@$(MAKE) OSNAME=smx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=SMX CC=$(IAR_CC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__SMX__ -e -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__SMX__ -e -O \
 		`./tools/ccopts-crosscompile.sh $(IAR_CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=SMX embedded-comments
 
@@ -3129,19 +3170,19 @@ CARBIDE_INCLUDE_PATH	= "$(CARBIDE_PATH)\x86Build\Symbian_Support\MSL\MSL_C\MSL_C
 target-symbian:
 	@$(MAKE) OSNAME=symbian target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=Symbian CC=arm-none-symbianelf-gcc CFLAGS="$(CC_CFLAGS) \
-		-O2 -I$(CARBIDE_INCLUDE_PATH)" LDFLAGS="$(CC_LDFLAGS)"
+		-O -I$(CARBIDE_INCLUDE_PATH)" LDFLAGS="$(CC_LDFLAGS)"
 
 target-symbian-emulator:
 	@$(MAKE) OSNAME=Symbian target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=Symbian CC=mwccsym2 CFLAGS="$(CC_CFLAGS) \
-		-D__SYMBIAN32__ -O2 -I$(CARBIDE_INCLUDE_PATH)" LDFLAGS="$(CC_LDFLAGS)"
+		-D__SYMBIAN32__ -O -I$(CARBIDE_INCLUDE_PATH)" LDFLAGS="$(CC_LDFLAGS)"
 
 # Telit: Gnu toolchain under Cygwin.
 
 target-telit:
 	@$(MAKE) OSNAME=telit target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=Telit CC=$(ARM_CC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__Telit__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__Telit__ -O \
 		`./tools/ccopts-crosscompile.sh $(ARM_CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=Telit embedded-comments
 
@@ -3157,28 +3198,28 @@ THREADX_INCLUDE_PATH = "../../../uk_smets_integ_01_crypto/projects/threadx"
 target-threadx-arm:
 	@$(MAKE) OSNAME=threadx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=ThreadX CC=$(ARM_CC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__ThreadX__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__ThreadX__ -O \
 		`./tools/ccopts-crosscompile.sh $(ARM_CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=ThreadX embedded-comments
 
 target-threadx-mb:
 	@$(MAKE) OSNAME=threadx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=ThreadX CC=$(GCC_MB) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__ThreadX__ -O2 \
+		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__ThreadX__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_MB)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=ThreadX embedded-comments
 
 target-threadx-mips:
 	@$(MAKE) OSNAME=threadx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=ThreadX CC=$(GCC_MIPS) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__ThreadX__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__ThreadX__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_MIPS)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=ThreadX embedded-comments
 
 target-threadx-ppc:
 	@$(MAKE) OSNAME=threadx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=ThreadX CC=$(GCC_PPC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__ThreadX__ -O2 \
+		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__ThreadX__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_PPC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=ThreadX embedded-comments
 
@@ -3195,7 +3236,7 @@ target-threadx-rx:
 target-threadx-x86:
 	@$(MAKE) OSNAME=threadx target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=ThreadX CC=$(GCC_X86) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__ThreadX__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__ThreadX__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_X86)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=ThreadX embedded-comments
 
@@ -3204,21 +3245,21 @@ target-threadx-x86:
 target-ucos-arm:
 	@$(MAKE) OSNAME=ucos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=UCOS CC=$(ARM_CC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__UCOS__ -O3 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__UCOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(ARM_CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=uC/OS-II embedded-comments
 
 target-ucos-ppc:
 	@$(MAKE) OSNAME=ucos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=UCOS CC=$(GCC_PPC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__UCOS__ -O3 \
+		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__UCOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_PPC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=uC/OS-II embedded-comments
 
 target-ucos-x86:
 	@$(MAKE) OSNAME=ucos target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=UCOS CC=$(GCC_X86) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__UCOS__ -O3 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__UCOS__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_X86)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=uC/OS-II embedded-comments
 
@@ -3230,14 +3271,14 @@ target-uclinux:
 	@$(MAKE) target-init-unix
 	$(MAKE) $(CC_DEFINES) OSNAME=Linux CC=$(GCC_ARM_ELF) CFLAGS="$(CFLAGS) \
 		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_CONSERVE_MEMORY \
-		-O2 `./tools/ccopts-crosscompile.sh $(GCC_ARM_ELF)`" LDFLAGS="$(CC_LDFLAGS)"
+		-O `./tools/ccopts-crosscompile.sh $(GCC_ARM_ELF)`" LDFLAGS="$(CC_LDFLAGS)"
 
 # VDK: AD-provided toolchain under Windows.
 
 target-vdk:
 	@$(MAKE) OSNAME=vdk target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=VDK CC=$(GCC_BLACKFIN) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__VDK__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__VDK__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_BLACKFIN)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=VDK embedded-comments
 
@@ -3266,7 +3307,7 @@ VXWORKS_ARM_PATH	= $(WIND_BASE)/target/h
 target-vxworks-arm-1:
 	@$(MAKE) OSNAME=vxworks target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=VxWorks CC=ccarm AR=ararm CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O3 \
+		-DCONFIG_DATA_LITTLENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O \
 		-I$(VXWORKS_ARM_PATH) -I$(VXWORKS_ARM_PATH)/wrn/coreip \
 		-I$(VXWORKS_ARM_PATH)/types -I$(VXWORKS_ARM_PATH)/wrn/coreip/netinet \
 		-I$(VXWORKS_ARM_PATH)/tool/gnu $(VXWORKS_ARM_1_DEFS) \
@@ -3283,7 +3324,7 @@ VXWORKS_ARM_2_DEFS		= $(VXWORKS_ARM_2_ARCH_DEFS) -DCPU=_VX_ARMARCH7 \
 target-vxworks-arm-2:
 	@$(MAKE) OSNAME=vxworks target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=VxWorks CC=ccarm AR=ararm CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O3 \
+		-DCONFIG_DATA_LITTLENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O \
 		-I$(WIND_BASE)/target/h -I$(WIND_BASE)/target/h/wrn/coreip \
 		-I$(PRJ_ROOT_DIR)/../../../../../platform/dpws/dpwscore/platform/gnu/vxworks_6.9/include \
 		$(VXWORKS_ARM_2_DEFS) \
@@ -3293,21 +3334,21 @@ target-vxworks-arm-2:
 target-vxworks-mb:
 	@$(MAKE) OSNAME=vxworks target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=VxWorks CC=$(GCC_MB) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O3 \
+		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_MB)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=VxWorks embedded-comments
 
 target-vxworks-mips:
 	@$(MAKE) OSNAME=vxworks target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=VxWorks CC=$(GCC_MIPS) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O3 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_MIPS)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=VxWorks embedded-comments
 
 target-vxworks-ppc:
 	@$(MAKE) OSNAME=vxworks target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=VxWorks CC=$(GCC_PPC) CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O3 \
+		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O \
 		`./tools/ccopts-crosscompile.sh $(GCC_PPC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=VxWorks embedded-comments
 
@@ -3323,7 +3364,7 @@ VXWORKS_GCC_PATH	= $(WIND_BASE)/target/h
 target-vxworks-ppc-gnu-1:
 	@$(MAKE) OSNAME=vxworks target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=VxWorks CC=ccppc AR=arppc CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O3 \
+		-DCONFIG_DATA_BIGENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O \
 		-I$(VXWORKS_GCC_PATH) -I$(VXWORKS_GCC_PATH)/wrn/coreip \
 		-I$(VXWORKS_GCC_PATH)/types -I$(VXWORKS_GCC_PATH)/wrn/coreip/netinet \
 		-I$(VXWORKS_GCC_PATH)/tool/gnu $(VXWORKS_GCC_PPC_1_DEFS) \
@@ -3344,7 +3385,7 @@ VXWORKS_GCC_PPC_2_DEFS = $(VXWORKS_GCC_PPC_2_ARCH_DEFS) -DCPU=_VX_PPC32 \
 target-vxworks-ppc-gnu-2:
 	@$(MAKE) OSNAME=vxworks target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=VxWorks CC=ccppc AR=arppc CFLAGS="$(CC_CFLAGS)
-		$(VXWORKS_GCC_PPC_2_DEFS) -O3 -I$(VXWORKS_GCC_PATH)/h \
+		$(VXWORKS_GCC_PPC_2_DEFS) -O -I$(VXWORKS_GCC_PATH)/h \
 		-I$(VXWORKS_GCC_PATH)/h/wrn/coreip -I$(VXWORKS_GCC_PATH)/h/types \
 		-I$(VXWORKS_GCC_PATH)/h/wrn/coreip/netinet -I$(VXWORKS_GCC_PATH)/usr \
 		-I$(VXWORKS_GCC_PATH)/usr/h -I$(VXWORKS_GCC_PATH)/lib/h/config \
@@ -3373,7 +3414,7 @@ VXWORKS_7_PENTIUM_DEFS = $(VXWORKS_7_PENTIUM_ARCH_DEFS) -DCPU=_VX_CORE -DTOOL_FA
 target-vxworks-pentium:
 	@make OSNAME=vxworks target-init
 	make $(CC_DEFINES) OSNAME=VxWorks CC=ccpentium AR=arpentium CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLENDIAN -D__VxWorks__ -O3 -I$(WIND_BASE)/target/h \
+		-DCONFIG_DATA_LITTLENDIAN -D__VxWorks__ -O -I$(WIND_BASE)/target/h \
 		-I$(WIND_BASE)/target/h/wrn/coreip \
 		-I$(PRJ_ROOT_DIR)/../../../../../platform/dpws/dpwscore/platform/gnu/vxworks_6.9/include \
 		$(VXWORKS_PENTIUM_DEFS) -DCONFIG_FILE_PATH='\"$(DEFAULT_CS_PATH)\"' \
@@ -3382,7 +3423,7 @@ target-vxworks-pentium:
 target-vxworks-7-pentium:
 	@make OSNAME=vxworks target-init
 	make $(CC_DEFINES) OSNAME=VxWorks CC=ccpentium AR=arpentium CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLENDIAN -D__VxWorks__ -O3 -I$(VXWORKS_7_VSB_DIR)/share/h \
+		-DCONFIG_DATA_LITTLENDIAN -D__VxWorks__ -O -I$(VXWORKS_7_VSB_DIR)/share/h \
 		-I$(VXWORKS_7_VSB_DIR)/krnl/h/public -I$(VXWORKS_7_VSB_DIR)/krnl/h/system \
 		-I$(VXWORKS_7_VSB_DIR)/../../../../platform/dpws/dpwscore/platform/gnu/vxworks_7/include \
 		$(VXWORKS_7_PENTIUM_DEFS) -DCONFIG_FILE_PATH='\"$(DEFAULT_CS_PATH)\"' \
@@ -3399,7 +3440,7 @@ target-vxworks-test:
 	@echo ""
 	@$(MAKE) OSNAME=vxworks target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=VxWorks CC=gcc CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__VxWorks__ -O \
 		$(VXWORKS_TEST_OPTS) \
 		`./tools/ccopts-crosscompile.sh gcc`" LDFLAGS="$(CC_LDFLAGS)"
 		@$(MAKE) OSNAME=VxWorks embedded-comments
@@ -3432,7 +3473,7 @@ target-xmk-mb:
 	$(MAKE) $(CC_DEFINES) OSNAME=XMK CC=$(GCC_MB) CFLAGS="$(CC_CFLAGS) \
 		-DCONFIG_DATA_BIGENDIAN -DCONFIG_CONSERVE_MEMORY -DCONFIG_RANDSEED \
 		-D__XMK__ -D__mb__ -mno-xl-soft-mul -mxl-barrel-shift \
-		-mno-xl-soft-div -O2 -I../microblaze_0/include \
+		-mno-xl-soft-div -O -I../microblaze_0/include \
 		`./tools/ccopts-crosscompile.sh $(GCC_MB)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=XMK embedded-comments
 
@@ -3440,7 +3481,7 @@ target-xmk-ppc:
 	@$(MAKE) OSNAME=xmk target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=XMK CC=$(GCC_PPC) CFLAGS="$(CC_CFLAGS) \
 		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__XMK__ \
-		-O2 `./tools/ccopts-crosscompile.sh $(GCC_PPC)`" LDFLAGS="$(CC_LDFLAGS)"
+		-O `./tools/ccopts-crosscompile.sh $(GCC_PPC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=XMK embedded-comments
 
 # Zephyr: gcc under Windows or Unix.
@@ -3448,7 +3489,7 @@ target-xmk-ppc:
 target-zephyr:
 	@$(MAKE) OSNAME=zephyr target-init
 	$(MAKE) $(CC_DEFINES) OSNAME=Zephyr CFLAGS="$(CC_CFLAGS) \
-		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__ZEPHYR__ -O2 \
+		-DCONFIG_DATA_LITTLEENDIAN -DCONFIG_RANDSEED -D__ZEPHYR__ -O \
 		`./tools/ccopts-crosscompile.sh $(CC)`" LDFLAGS="$(CC_LDFLAGS)"
 	@$(MAKE) OSNAME=Zephyr embedded-comments
 

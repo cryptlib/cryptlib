@@ -268,6 +268,7 @@
 #define OUT_INT_SHORT_Z			_Deref_out_range_( 0, MAX_INTLENGTH_SHORT - 1 ) 
 #define OUT_OPT_INT_Z			_Deref_out_range_( 0, MAX_INTLENGTH - 1 ) 
 
+#define INOUT_BYTE				_Deref_inout_range_( 0, 255 )
 #define INOUT_INT_Z				_Deref_inout_range_( 0, MAX_INTLENGTH - 1 )
 
 /* Special-case parameter checking:
@@ -936,6 +937,67 @@
    https://research.swtch.com/ub.  For the causes, see "The Scourge of 
    00UB", https://gavinhoward.com/2023/08/the-scourge-of-00ub.
 
+   Another discussion of this is in ACM Queue, Vol.23, No.5 (November 2025),
+   "Safe Coding", which gives various examples of UB such as division by 
+   zero, conversion to or from an integer type producing a value outside 
+   its range, an array subscript out of range, and a great many more, with
+   Annex J.2 of the ISO C standard listing more than 200 items (!!).  Once
+   one of these is triggered, the compiler can do literally anything, 
+   see "A Guide to Undefined Behavior in C and C++", 
+   https://blog.regehr.org/archives/213, including time-travelling, see 
+   https://llvm.org/docs/UndefinedBehavior.html#time-travel.
+   
+   Other comments from the John Regehr's "Embedded in Academia" blog
+   referenced above:
+   
+   https://blog.regehr.org/archives/761
+
+   a majority of the programs in SPEC CINT 2006 execute undefined behavior 
+   during the course of a "reportable" run
+
+   https://blog.regehr.org/archives/1520
+
+   Goal 1: Every UB (all ~200 of them) must either be documented as having 
+   some defined behavior, be diagnosed with a fatal compiler error, or else 
+   - as a last resort - have a sanitizer that detects that UB at runtime.
+
+   https://blog.regehr.org/archives/1559
+
+   By summer 2010 my student Peng Li (now at Baidu USA) had a modified 
+   version of Clang that emitted dynamic checks for integer overflow, divide 
+   by zero, value-losing typecasts, shifts past bitwidth, and that kind of 
+   thing into a compiled C or C++ program.  We used this to test open source 
+   software and it turned out that basically all programs were executing a 
+   constant stream of undefined behavior.
+
+   The ACM Queue article then gives an example of a short program:
+
+	#include <limits.h>
+	#define LEN 42
+	int a[LEN] = {1,2,3};
+
+	int f(int base, int off) {
+		if (base < 0 || off < 0) return -1;
+		int idx = base + off;
+		if (idx < 0) return -2;
+		if (idx >= LEN) return -3;
+		return a[idx];
+	}
+
+	int main() {
+		return f(INT_MAX,2);
+	} 
+
+   that gcc compiles to:
+
+	main:
+		movabs eax, DWORD PTR [a-8589934588]
+		ret 
+
+   by taking advantage of the fact that signed integer overflow is UB.  In 
+   other words it silently emits code that instantly segfaults when run 
+   (clang does the same thing).
+
    The distinct double guard when using __has_attribute() below is 
    necessary here because gcc chokes if it sees the __has_attribute() on 
    the same line as #if defined ... */
@@ -1250,6 +1312,7 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 #define OUT_INT_Z_ERROR
 #define OUT_INT_SHORT_Z
 #define OUT_OPT_INT_Z
+#define INOUT_BYTE
 #define INOUT_INT_Z
 
 #define IN_ALGO

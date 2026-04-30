@@ -244,6 +244,7 @@ static int calculateAttributeSizes( IN_PTR const ATTRIBUTE_LIST *attributeListPt
 		ENSURES( cryptStatusOK( status ) );
 		attributeID = attributeListPtr->attributeID;
 		attributeDataSize = sizeofShortObject( attributeDataSize );
+		ENSURES( isShortIntegerRangeNZ( attributeDataSize ) );
 
 		/* Determine the attribute data size */
 		attributeDataSize += sizeofOID( attributeInfoPtr->oid );
@@ -251,6 +252,7 @@ static int calculateAttributeSizes( IN_PTR const ATTRIBUTE_LIST *attributeListPt
 			TEST_FLAG( attributeListPtr->flags, ATTR_FLAG_CRITICAL ) )
 			attributeDataSize += sizeofBoolean();
 		attributeDataSize = sizeofShortObject( attributeDataSize );
+		ENSURES( isShortIntegerRangeNZ( attributeDataSize ) );
 
 		/* Some certificate objects (and specifically PKCS #10 requests) 
 		   have two classes of extensions, ones that apply to the request 
@@ -261,13 +263,23 @@ static int calculateAttributeSizes( IN_PTR const ATTRIBUTE_LIST *attributeListPt
 		if( hasSpecialEncoding )
 			{
 			if( attributeInfoPtr->encodingFlags & FL_SPECIALENCODING )
+				{
+				REQUIRES( !checkOverflowAdd( *attributeSize, 
+											 attributeDataSize ) );
 				*attributeSize += attributeDataSize;
+				}
 			else
+				{
+				REQUIRES( !checkOverflowAdd( *encapsAttributeSize,
+											 attributeDataSize ) );
 				*encapsAttributeSize += attributeDataSize;
+				}
 			}
 		else
 			{
 			/* It's a standard extension */
+			REQUIRES( !checkOverflowAdd( *attributeSize, 
+										 attributeDataSize ) );
 			*attributeSize += attributeDataSize;
 			}
 
@@ -314,9 +326,17 @@ static int calculateAttributeSizes( IN_PTR const ATTRIBUTE_LIST *attributeListPt
 		if( TEST_FLAG( attributeListPtr->flags, ATTR_FLAG_CRITICAL ) )
 			attributeDataSize += sizeofBoolean();
 		if( hasSpecialEncoding )
+			{
+			REQUIRES( !checkOverflowAdd( *encapsAttributeSize, 
+										 attributeDataSize ) );
 			*encapsAttributeSize += attributeDataSize;
+			}
 		else
+			{
+			REQUIRES( !checkOverflowAdd( *attributeSize,
+										 attributeDataSize ) );
 			*attributeSize += attributeDataSize;
+			}
 		}
 	ENSURES( LOOP_BOUND_OK );
 
@@ -505,6 +525,7 @@ int sizeofAttributeField( INOUT_PTR ATTRIBUTE_LIST *attributeListPtr )
 		{
 #if 0	/* 18/12/17 Never reached in any test code */
 		assert( DEBUG_WARN );
+		REQUIRES( !checkOverflowDec( attributeListPtr->fifoPos ) );
 		attributeListPtr->fifoPos--;	/* Move down to the next entry */
 										// Should we be modifying this?
 		attributeInfoPtr = attributeListPtr->encodingFifo[ attributeListPtr->fifoPos ];
@@ -573,6 +594,7 @@ static int writeAttributeField( INOUT_PTR STREAM *stream,
 		{
 		REQUIRES( attributeListPtr->fifoPos > 0 && \
 				  attributeListPtr->fifoPos < ENCODING_FIFO_SIZE );
+		REQUIRES( !checkOverflowDec( attributeListPtr->fifoPos ) );
 		attributeListPtr->fifoPos--;	/* Move down to the next entry */
 		attributeInfoPtr = attributeListPtr->encodingFifo[ attributeListPtr->fifoPos ];
 		}
@@ -667,6 +689,8 @@ static int writeAttributeField( INOUT_PTR STREAM *stream,
 				if( cryptStatusError( status ) )
 					return( status );
 				sputc( stream, tag );
+				REQUIRES( !checkOverflowSub( \
+									attributeListPtr->dataValueLength, 1 ) );
 				return( swrite( stream, ( ( BYTE * ) dataPtr ) + 1,
 								attributeListPtr->dataValueLength - 1 ) );
 				}
@@ -691,7 +715,7 @@ static int writeAttributeField( INOUT_PTR STREAM *stream,
 				{
 				int newStringLen, dummy;
 
-				status = getAsn1StringInfo( dataPtr, 
+				status = getASN1StringInfo( dataPtr, 
 								attributeListPtr->dataValueLength, 
 								&dummy, &tag, &newStringLen, FALSE );
 				if( cryptStatusError( status ) )
@@ -1074,14 +1098,18 @@ static int writeCertReqWrapper( INOUT_PTR STREAM *stream,
 	/* Determine the overall size of the attributes */
 	if( encapsAttributeSize > 0 )
 		{
-		totalAttributeSize += \
+		totalAttributeSize = \
 					sizeofShortObject( \
 						sizeofOID( OID_PKCS9_EXTREQ ) + \
 						sizeofShortObject( \
 							sizeofShortObject( encapsAttributeSize ) ) );
 		}
 	if( nonEncapsAttributeSize > 0 )
+		{
+		REQUIRES( !checkOverflowAdd( totalAttributeSize, 
+									 nonEncapsAttributeSize ) );
 		totalAttributeSize += nonEncapsAttributeSize;
+		}
 
 	/* Write the overall wrapper for the attributes */
 	status = writeConstructed( stream, totalAttributeSize, 

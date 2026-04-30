@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib SSHv2 Session Write Routines					*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -78,6 +78,8 @@ int openPacketStreamSSH( OUT_PTR STREAM *stream,
 	REQUIRES( packetType >= SSH_MSG_DISCONNECT && \
 			  packetType <= SSH_MSG_CHANNEL_FAILURE );
 
+	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize,
+								 EXTRA_PACKET_SIZE ) );
 	sMemOpen( stream, sessionInfoPtr->sendBuffer, 
 			  sessionInfoPtr->sendBufSize - EXTRA_PACKET_SIZE );
 	swrite( stream, "\x00\x00\x00\x00\x00", SSH2_HEADER_SIZE );
@@ -198,7 +200,7 @@ int wrapPlaintextPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	STREAM metadataStream;
 	BYTE padding[ 128 + 8 ];
 	void *bufStartPtr;
-	int length, padLength, payloadLength, status;
+	int length, paddedLength, padLength, payloadLength, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -212,7 +214,10 @@ int wrapPlaintextPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 	REQUIRES( !checkOverflowAdd( length, SSH2_MIN_PADLENGTH_SIZE ) );
-	padLength = getPaddedSize( length + SSH2_MIN_PADLENGTH_SIZE ) - length;
+	paddedLength = getPaddedSize( length + SSH2_MIN_PADLENGTH_SIZE );
+	ENSURES( !cryptStatusError( paddedLength ) );
+	REQUIRES( !checkOverflowSub( paddedLength, length ) );
+	padLength = paddedLength - length;
 	REQUIRES( !checkOverflowSub( length, SSH2_HEADER_SIZE ) );
 	payloadLength = length - SSH2_HEADER_SIZE;
 
@@ -260,7 +265,18 @@ int wrapPlaintextPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	memset( padding, 0, padLength );
 	status = swrite( stream, padding, padLength );
 	ENSURES( cryptStatusOK( status ) );
-
+	if( checkOverflowInc( sshInfo->writeSeqNo ) )
+		{
+		/* This is a should-never-occur condition so in theory we could just
+		   make it an ENSURES() condition */
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO,
+				  "Packet write sequence number overflow writing %s (%d) "
+				  "packet, length %d",
+				  getSSHPacketName( ( ( BYTE * ) bufStartPtr )[ LENGTH_SIZE + 1 ] ), 
+				  ( ( BYTE * ) bufStartPtr )[ LENGTH_SIZE + 1 ],
+				  length - ( LENGTH_SIZE + 1 + ID_SIZE + padLength ) ) );
+		}
 	sshInfo->writeSeqNo++;
 
 	return( CRYPT_OK );
@@ -342,6 +358,8 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		const int paddedLength = \
 						getPaddedSize( length + SSH2_MIN_PADLENGTH_SIZE );
 		
+		ENSURES( !cryptStatusError( paddedLength ) );
+		REQUIRES( !checkOverflowAdd( length, SSH2_MIN_PADLENGTH_SIZE ) );
 		ENSURES( isBufsizeRangeMin( paddedLength, 16 ) );
 		REQUIRES( !checkOverflowSub( paddedLength, length ) );
 		padLength = paddedLength - length;
@@ -351,7 +369,8 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( useETM )
 		{
 		/* This can't overflow because we're just correcting for the 
-		   adjustment by LENGTH_SIZE that we did earlier */
+		   adjustment by LENGTH_SIZE that we did earlier so there's no need
+		   to use checkOverflowAdd() */
 		length += LENGTH_SIZE;
 		}
 #endif /* USE_SSH_OPENSSH */
@@ -373,6 +392,7 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* The payload is the data without the length value at the start */
 	paddedPayloadStartPtr = ( BYTE * ) bufStartPtr + LENGTH_SIZE;
+	REQUIRES( !checkOverflowSub( length, LENGTH_SIZE ) );
 	paddedPayloadLength = length - LENGTH_SIZE;
 
 	/* Add the SSH packet header, padding, and MAC:
@@ -396,17 +416,19 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 paddedPayloadLength - ( 1 + ID_SIZE + padLength ) );
 
 	/* Append the padding */
-	REQUIRES( !checkOverflowSub( length, padLength ) );
 	setMessageData( &msgData, padding, padLength );
-	krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_GETATTRIBUTE_S,
-					 &msgData, CRYPT_IATTRIBUTE_RANDOM_NONCE );
+	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, 
+							  IMESSAGE_GETATTRIBUTE_S, &msgData, 
+							  CRYPT_IATTRIBUTE_RANDOM_NONCE );
+	ENSURES( cryptStatusOK( status ) );
+	REQUIRES( !checkOverflowSub( length, padLength ) );
 	sMemOpen( &metadataStream, 
 			  ( BYTE * ) bufStartPtr + ( length - padLength ), 
 			  padLength );
 	status = swrite( &metadataStream, padding, padLength );
 	sMemDisconnect( &metadataStream );
 	if( cryptStatusOK( status ) )
-		status = sSkip( stream, padLength, MAX_INTLENGTH_SHORT );
+		status = sExtend( stream, padLength, MAX_INTLENGTH_SHORT );
 	ENSURES( cryptStatusOK( status ) );
 
 	/* Encrypt and MAC the packet.  For EtM we encrypt everything except the 
@@ -470,10 +492,21 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #endif /* USE_SSH_OPENSSH */
 
 	/* Move past the MAC that we've added to the end of data */
-	status = sSkip( stream, sessionInfoPtr->authBlocksize, 
-					MAX_INTLENGTH_SHORT );
+	status = sExtend( stream, sessionInfoPtr->authBlocksize, 
+					  MAX_INTLENGTH_SHORT );
 	ENSURES( cryptStatusOK( status ) );
-
+	if( checkOverflowInc( sshInfo->writeSeqNo ) )
+		{
+		/* This is a should-never-occur condition so in theory we could just
+		   make it an ENSURES() condition */
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO,
+				  "Packet write sequence number overflow writing %s (%d) "
+				  "packet, length %d",
+				  getSSHPacketName( paddedPayloadStartPtr[ 1 ] ), 
+				  paddedPayloadStartPtr[ 1 ],
+				  paddedPayloadLength - ( 1 + ID_SIZE + padLength ) ));
+		}
 	sshInfo->writeSeqNo++;
 
 	return( CRYPT_OK );

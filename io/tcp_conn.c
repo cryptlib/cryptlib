@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TCP/IP Connection Routines					*
-*						Copyright Peter Gutmann 1998-2024					*
+*						Copyright Peter Gutmann 1998-2026					*
 *																			*
 ****************************************************************************/
 
@@ -19,6 +19,10 @@
 #endif /* Compiler-specific includes */
 
 #ifdef USE_TCP
+
+/* Set the following to 1 to add diagnostic tracing to the socket pool */
+
+#define DIAG_SOCKETPOOL		0
 
 /****************************************************************************
 *																			*
@@ -93,7 +97,8 @@ static int my_accept( int socket, struct sockaddr *address,
 	/* Pass the call down to the accept() function, mapping the length 
 	   parameter to the correct type */
 	retVal = accept( socket, address, &length );
-	*address_len = length;
+	if( !isBadSocket( retVal ) )
+		*address_len = length;
 
 	return( retVal );
 	}
@@ -178,6 +183,8 @@ int initSocketPool( void )
 	SOCKET_INFO *socketInfo = getBuiltinStorage( BUILTIN_STORAGE_SOCKET_POOL );
 	LOOP_INDEX i;
 
+	REQUIRES( checkBuiltinStorage( BUILTIN_STORAGE_SOCKET_POOL ) );
+
 	/* Clear the socket pool */
 	LOOP_LARGE( i = 0, i < SOCKETPOOL_SIZE, i++ )
 		{
@@ -186,6 +193,8 @@ int initSocketPool( void )
 		socketInfo[ i ] = SOCKET_INFO_TEMPLATE;
 		}
 	ENSURES( LOOP_BOUND_OK );
+
+	ENSURES( checkBuiltinStorage( BUILTIN_STORAGE_SOCKET_POOL ) );
 
 	return( CRYPT_OK );
 	}
@@ -209,6 +218,7 @@ static int newSocket( OUT_PTR SOCKET *newSocketPtr,
 	assert( isWritePtr( newSocketPtr, sizeof( SOCKET ) ) );
 	assert( isReadPtr( addrInfoPtr, sizeof( struct addrinfo ) ) );
 
+	REQUIRES( checkBuiltinStorage( BUILTIN_STORAGE_SOCKET_POOL ) );
 	REQUIRES( isBooleanValue( isServer ) );
 
 	/* Clear return value */
@@ -265,8 +275,13 @@ static int newSocket( OUT_PTR SOCKET *newSocketPtr,
 								   MUTEX_SOCKETPOOL );
 				ENSURES_KRNLMUTEX( !isBadSocket( socketInfo[ i ].netSocket ), 
 								   MUTEX_SOCKETPOOL );
+				ENSURES_KRNLMUTEX( !checkOverflowInc( socketInfo[ i ].refCount ),
+								   MUTEX_SOCKETPOOL );
 				socketInfo[ i ].refCount++;
 				*newSocketPtr = socketInfo[ i ].netSocket;
+				DEBUG_PRINT_COND( DIAG_SOCKETPOOL, 
+								  ( "Reusing socket entry %d, refCount = %d.\n",
+									i, socketInfo[ i ].refCount ) );
 				krnlExitMutex( MUTEX_SOCKETPOOL );
 
 				/* The socket already exists, don't perform any further
@@ -312,20 +327,15 @@ static int newSocket( OUT_PTR SOCKET *newSocketPtr,
 						addrInfoPtr->ai_socktype, 0 );
 	if( isBadSocket( netSocket ) )
 		{
-		if( isInvalidSocket( netSocket ) )
-			{
-			status = closesocket( netSocket );
-			if( isSocketError( status ) )
-				{
-				DEBUG_DIAG(( "Error closing invalid socket %d", netSocket ));
-				}
-			}
 		krnlExitMutex( MUTEX_SOCKETPOOL );
 		return( CRYPT_ERROR_OPEN );
 		}
 	socketInfo[ i ] = SOCKET_INFO_TEMPLATE;
 	socketInfo[ i ].netSocket = netSocket;
 	socketInfo[ i ].refCount = 1;
+	DEBUG_PRINT_COND( DIAG_SOCKETPOOL, 
+					  ( "Created new socket entry %d, refCount = %d.\n",
+						i, socketInfo[ i ].refCount ) );
 	if( isServer )
 		{
 		/* Remember the details for this socket so that we can detect another
@@ -364,6 +374,7 @@ static int addSocket( const SOCKET netSocket )
 	LOOP_INDEX i;
 	int status;
 
+	REQUIRES( checkBuiltinStorage( BUILTIN_STORAGE_SOCKET_POOL ) );
 	REQUIRES( !isBadSocket( netSocket ) );
 
 	status = krnlEnterMutex( MUTEX_SOCKETPOOL );
@@ -391,6 +402,9 @@ static int addSocket( const SOCKET netSocket )
 	socketInfo[ i ] = SOCKET_INFO_TEMPLATE;
 	socketInfo[ i ].netSocket = netSocket;
 	socketInfo[ i ].refCount = 1;
+	DEBUG_PRINT_COND( DIAG_SOCKETPOOL, 
+					  ( "Added socket entry %d, refCount = %d.\n",
+						i, socketInfo[ i ].refCount ) );
 
 	krnlExitMutex( MUTEX_SOCKETPOOL );
 
@@ -403,6 +417,7 @@ static void deleteSocket( const SOCKET netSocket )
 	LOOP_INDEX i;
 	int status;
 
+	REQUIRES_V( checkBuiltinStorage( BUILTIN_STORAGE_SOCKET_POOL ) );
 	REQUIRES_V( !isBadSocket( netSocket ) );
 
 	status = krnlEnterMutex( MUTEX_SOCKETPOOL );
@@ -431,7 +446,12 @@ static void deleteSocket( const SOCKET netSocket )
 	REQUIRES_KRNLMUTEX_V( socketInfo[ i ].refCount > 0, MUTEX_SOCKETPOOL );
 
 	/* Decrement the socket's reference count */
+	REQUIRES_KRNLMUTEX_V( !checkOverflowDec( socketInfo[ i ].refCount ), 
+						  MUTEX_SOCKETPOOL );
 	socketInfo[ i ].refCount--;
+	DEBUG_PRINT_COND( DIAG_SOCKETPOOL, 
+					  ( "Decremented socket entry %d refCount to %d.\n",
+						i, socketInfo[ i ].refCount ) );
 	if( socketInfo[ i ].refCount <= 0 )
 		{
 		/* If the reference count has reached zero, close the socket
@@ -451,7 +471,11 @@ static void deleteSocket( const SOCKET netSocket )
 			assert( DEBUG_WARN );
 			}
 		else
+			{
 			socketInfo[ i ] = SOCKET_INFO_TEMPLATE;
+			DEBUG_PRINT_COND( DIAG_SOCKETPOOL, 
+							  ( "Deleted socket entry %d.\n", i ) );
+			}
 		}
 
 	krnlExitMutex( MUTEX_SOCKETPOOL );
@@ -481,6 +505,8 @@ void netSignalShutdown( void )
 	LOOP_INDEX i;
 	int status;
 
+	REQUIRES_V( checkBuiltinStorage( BUILTIN_STORAGE_SOCKET_POOL ) );
+
 	/* Exactly what to do if we can't acquire the mutex is a bit complicated
 	   because at this point our primary goal is to force all objects to exit 
 	   rather than worrying about socket-pool consistency.  On the other
@@ -501,16 +527,23 @@ void netSignalShutdown( void )
 		ENSURES_KRNLMUTEX_V( LOOP_INVARIANT_LARGE( i, 0, SOCKETPOOL_SIZE - 1 ),
 							 MUTEX_SOCKETPOOL );
 
-		if( !isBadSocket( socketInfo[ i ].netSocket ) )
+		if( isBadSocket( socketInfo[ i ].netSocket ) )
+			continue;
+
+		/* Close the socket.  What to do if this fails, for example with 
+		   data still queued, is tricky.  Normally we'd leave the socket 
+		   pool entry active so that it would eventually get closed during
+		   scans of the pool, but in this case we're closing down so there's
+		   no possibility of a later cleanup, so all that we can do is clear
+		   the entry and let the OS cleanup on process exit take care of 
+		   it */
+		status = closesocket( socketInfo[ i ].netSocket );
+		if( isSocketError( status ) )
 			{
-			status = closesocket( socketInfo[ i ].netSocket );
-			if( isSocketError( status ) )
-				{
-				DEBUG_DIAG(( "Error closing socket #%d, socket value %d on "
-							 "shutdown", i, socketInfo[ i ].netSocket ));
-				}
-			socketInfo[ i ] = SOCKET_INFO_TEMPLATE;
+			DEBUG_DIAG(( "Error closing socket #%d, socket value %d on "
+						 "shutdown", i, socketInfo[ i ].netSocket ));
 			}
+		socketInfo[ i ] = SOCKET_INFO_TEMPLATE;
 		}
 	ENSURES_KRNLMUTEX_V( LOOP_BOUND_OK, MUTEX_SOCKETPOOL );
 
@@ -626,6 +659,7 @@ static int preOpenSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 		deleteSocket( netSocket );
 		}
 	ENSURES( LOOP_BOUND_OK );
+	freeAddressInfo( addrInfoPtr );
 	if( addressCount >= IP_ADDR_COUNT )
 		{
 		/* We went through a suspiciously large number of remote server 
@@ -636,7 +670,6 @@ static int preOpenSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 		assert( DEBUG_WARN );
 		return( mapNetworkError( netStream, 0, FALSE, CRYPT_ERROR_OPEN ) );
 		}
-	freeAddressInfo( addrInfoPtr );
 	if( status < 0 && !operationInProgress )
 		{
 		/* There was an error condition other than a notification that the
@@ -860,7 +893,28 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 	   we get to an IPv4 interface, or at least one that we can listen on.  
 	   Qui habet aures audiendi audiat (the speaker appears to be speaking 
 	   metaphorically with 'ears' referring to 'network sockets', latin 
-	   having no native term for the latter) */
+	   having no native term for the latter).
+	   
+	   Another problem with IPv6 is that since the address can include an
+	   EUI-64 what OSes will do is create temporary addresses that change
+	   periodically as a privacy measure.  Each one exists for a limited
+	   period of time after which it's marked as deprecated and flagged for
+	   removal.  What we should do is skip over deprecated addresses
+	   because we'll never get any connections on them, however there's no
+	   way to do this via the API so we can neither automatically skip them
+	   nor warn users when they're in use.  The closest that we can get is
+	   RFC 5014's inet6_is_srcaddr() but (a) that only tells us if it's a
+	   temporary address, not a deprecated temporary address, and (b) 
+	   nothing on earth implements it except z/OS despite the RFC being from
+	   2007.  The BSD's have SIOCGIFAFLAG_IN6 for which we can check for the
+	   IN6_IFF_TEMPORARY flag being set in the returned information
+	   
+	   Some server OS distros have temporary addresses disabled but desktop 
+	   or more generic any-use ones typically enable them.  What this means
+	   is that on any system that uses temporary IPv6 addresses we'll 
+	   eventually end up listening on an address that can't accept 
+	   connections once it expires... and there's no way to fix this, or
+	   even detect that it's happened */
 	LOOP_SMALL( ( addrInfoCursor = addrInfoPtr, addressCount = 0 ), 
 				addrInfoCursor != NULL && addressCount < IP_ADDR_COUNT,
 				( addrInfoCursor = addrInfoCursor->ai_next, addressCount++ ) )
@@ -893,6 +947,23 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 		/* At this point we still have the socket pool locked while we 
 		   complete initialisation so we need to call newSocketDone()
 		   before we break out of the loop at any point */
+
+		/* Check whether this is an IPv6 temporary socket.  We can't listen 
+		   on this because it could change at any moment, meaning that we'd 
+		   be listening on an abandoned (in IPv6 terms "deprecated") socket 
+		   that nothing will be connecting on */
+#if 0	/* See comment above */
+		if( isSocketTemporaryAddress( listenSocket ) )
+			{
+			/* Clean up so that we can try again, making sure that we have 
+			   an appropriate error status set when we continue in case this 
+			   was our last iteration through the loop */
+			deleteSocket( listenSocket );
+			newSocketDone();
+			status = CRYPT_ERROR_NOTFOUND;
+			continue;
+			}
+#endif /* 0 */
 
 		/* Now we run into some problems with IPv4/IPv6 dual stacks, see 
 		   the long comment about this in io/dns.c.  In brief what happens 
@@ -1070,7 +1141,7 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 	   with the return value of this function */
 	( void ) getSocketAddress( ( const struct sockaddr * ) &clientAddr, 
 							   clientAddrLen, netStream->clientAddress, 
-							   CRYPT_MAX_TEXTSIZE / 2, 
+							   MAX_TEXT_NETWORKADDRESS, 
 							   &netStream->clientAddressLen, 
 							   &netStream->clientPort );
 	( void ) getSocketAddressBinary( ( const struct sockaddr * ) &clientAddr,

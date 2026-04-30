@@ -1224,6 +1224,8 @@ int copyCertChain( INOUT_PTR CERT_INFO *certInfoPtr,
 		/* Clean up the newly-copied certificates if necessary */
 		if( destCertChainInfo->chainEnd > oldChainEnd )
 			{
+			REQUIRES( !checkOverflowSub( destCertChainInfo->chainEnd, 
+										 oldChainEnd ) );
 			freeCertChain( &destCertChainInfo->chain[ oldChainEnd ],
 						   destCertChainInfo->chainEnd - oldChainEnd );
 			}
@@ -1261,6 +1263,8 @@ int copyCertChain( INOUT_PTR CERT_INFO *certInfoPtr,
 		/* Clean up the newly-copied certificates if necessary */
 		if( destCertChainInfo->chainEnd > oldChainEnd )
 			{
+			REQUIRES( !checkOverflowSub( destCertChainInfo->chainEnd, 
+										 oldChainEnd ) );
 			freeCertChain( &destCertChainInfo->chain[ oldChainEnd ],
 						   destCertChainInfo->chainEnd - oldChainEnd );
 			}
@@ -1499,6 +1503,8 @@ int readCertChain( INOUT_PTR STREAM *stream,
 	/* If it's a definite-length chain, determine where it ends */
 	if( certSequenceLength != CRYPT_UNUSED )
 		{
+		REQUIRES( !checkOverflowAdd( stell( stream ), 
+									 certSequenceLength ) );
 		endPos = stell( stream ) + certSequenceLength;
 		ENSURES( isIntegerRangeMin( endPos, certSequenceLength ) );
 		}
@@ -1782,6 +1788,8 @@ static int sizeofCertPath( const CERT_INFO *certInfoPtr,
 								  CRYPT_CERTFORMAT_CERTIFICATE );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd3( length, msgData.length, 
+									  extraLength ) );
 		length += msgData.length + extraLength;
 		if( certSizeInfo != NULL )
 			certSizeInfo[ i ] = msgData.length;

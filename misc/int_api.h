@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Internal API Header File 					*
-*						Copyright Peter Gutmann 1992-2021					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -534,12 +534,32 @@ typedef struct {
 					 "Error trying to read from keyset: ", args ) );
 
 	retExtErrOpt() is a variant of retExtErr() that uses the first error
-		string to build the message is the lower-level error information is 
+		string to build the message if the lower-level error information is 
 		present and the second error string if it isn't.  Called as:
 
 		retExtErrOpt( status,
 					  ( status, errorInfo, lowerErrorInfo,
-						"Error trying to read from keyset", args ) ); */
+						"Error trying to read from keyset", args ) ); 
+
+	retExtSan() is used with arguments that need to be sanitised using 
+		sanitiseString().  It takes up to three arguments that are passed to
+		sanitiseString() if necessary.  The first argument is always
+		sanitised, the second and third arguments are optional and are
+		sanitised if a length is provided or treated as literal strings if
+		not.  Called as:
+
+		retExtSan( status,
+				   ( status, errorInfo, 
+					 "Invalid host name '%s' in server's certificate for "
+					 "'%s'", certName, originalCertNameLength,
+					 holderName, 0, NULL, 0 ) );
+
+		where the first argument is sanitised, the second is used as-is, and
+		the third is absent.
+		
+		This covers almost all cases where sanitisation is required, the 
+		exceptions are where the arguments are san + %d (3 cases), %d + san
+		(1 case), san + san + %d (1 case), and san + retExtObj (3 cases) */
 
 #define clearErrorInfo( errorInfo ) \
 		memset( ( errorInfo ), 0, sizeof( ERROR_INFO ) )
@@ -559,7 +579,7 @@ void formatHexData( OUT_BUFFER_FIXED( hexTextMaxLen ) char *hexText,
 					IN_LENGTH_SHORT_MIN( 48 ) const int hexTextMaxLen,
 					IN_BUFFER( hexDataLen ) const BYTE *hexData,
 					IN_LENGTH_SHORT_MIN( 4 ) const int hexDataLen );
-STDC_NONNULL_ARG( ( 1 ) ) \
+RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readErrorInfo( OUT_PTR ERROR_INFO *errorInfo, 
 				   IN_HANDLE const CRYPT_HANDLE objectHandle );
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
@@ -593,6 +613,16 @@ int retExtErrOptFn( IN_ERROR const int status,
 					OUT_PTR ERROR_INFO *errorInfo, 
 					IN_PTR const ERROR_INFO *existingErrorInfo, 
 					FORMAT_STRING const char *format, ... );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 2, 3, 4 ) ) \
+int retExtSanFn( IN_ERROR const int status, 
+				 OUT_PTR ERROR_INFO *errorInfo,
+				 FORMAT_STRING const char *formatString,
+				 IN_BUFFER( string1Length ) const BYTE *string1,
+				 IN_LENGTH_SHORT_Z const int string1Length,
+				 IN_BUFFER_OPT( string2Length ) const BYTE *string2,
+				 IN_LENGTH_SHORT_Z const int string2Length,
+				 IN_BUFFER_OPT( string3Length ) const BYTE *string3,
+				 IN_LENGTH_SHORT_Z const int string3Length );
 #else
   #define checkErrorMessage( errorInfo, message, messageLength ) \
 		  FALSE
@@ -616,6 +646,7 @@ void copyErrorInfo( OUT_PTR ERROR_INFO *destErrorInfo,
 																 extErrorObject, "NULL" ) ) 
   #define retExtErr( status, extStatus )	return retExtErrFn extStatus 
   #define retExtErrOpt( status, extStatus )	return retExtErrOptFn extStatus 
+  #define retExtSan( status, extStatus )	return retExtSanFn extStatus
   #define retExt_IntError( status, extStatus ) \
 		{ \
 		assert( INTERNAL_ERROR ); \
@@ -633,6 +664,7 @@ void copyErrorInfo( OUT_PTR ERROR_INFO *destErrorInfo,
 											return( status )
   #define retExtErr( status, extStatus )	return status
   #define retExtErrOpt( status, extStatus )	return status
+  #define retExtSan( status, extStatus )	return status
   #define retExt_IntError( status, extStatus ) \
 		{ \
 		assert( INTERNAL_ERROR ); \
@@ -1020,10 +1052,18 @@ long getTickCount( long startTime );
 *																			*
 ****************************************************************************/
 
-/* Allocate storage from the built-in storage block */
+/* Allocate storage from the built-in storage block.  We use a single enum 
+   for both system storage (kernel-only) and general storage to make sure
+   that enums with identical values can't be passed to the wrong function */
 
 typedef enum {
 	BUILTIN_STORAGE_NONE,
+
+	/* System storage, accessible only to the kernel */
+	SYSTEM_STORAGE_KRNLDATA,
+	SYSTEM_STORAGE_OBJECT_TABLE,
+
+	/* Built-in storage, generally accessible */
 	BUILTIN_STORAGE_RANDOM_INFO,
 #ifdef USE_CERTIFICATES
 	BUILTIN_STORAGE_TRUSTMGR,
@@ -1042,8 +1082,11 @@ void *getBuiltinStorage( IN_ENUM( BUILTIN_STORAGE ) \
 							const BUILTIN_STORAGE_TYPE storageType );
 #ifndef NDEBUG
 int getBuiltinStorageSize( IN_ENUM( BUILTIN_STORAGE ) \
-							const BUILTIN_STORAGE_TYPE storageType );
+								const BUILTIN_STORAGE_TYPE storageType );
 #endif /* !NDEBUG */
+CHECK_RETVAL_BOOL \
+BOOLEAN checkBuiltinStorage( IN_ENUM( BUILTIN_STORAGE ) \
+								const BUILTIN_STORAGE_TYPE storageType );
 
 /* Dynamic buffer management functions.  When reading variable-length
    object data we can usually fit the data into a small fixed-length buffer, 
@@ -1235,7 +1278,7 @@ typedef enum {
 #else
   /* SHA-256: ( 2 + 8 + 16 + 1 ) * sizeof( long ) = 27 * 4 */
   typedef long HASHINFO[ 27 + 2 ];			/* ( 27 * 4 ) + 8 */
-#endif /* SYSTEM_64BIT */
+#endif /* USE_SHA2_EXT */
 
 typedef void ( *HASH_FUNCTION )( OUT_WHEN( hashState == HASH_STATE_START ) \
 								 INOUT_WHEN( hashState != HASH_STATE_START ) \
@@ -1313,24 +1356,17 @@ void hashData( OUT_BUFFER_FIXED( hashMaxLength ) BYTE *hash,
 			   IN_BUFFER( dataLength ) const void *data, 
 			   IN_DATALENGTH const int dataLength );
 
-/* When we're comparing two cryptographic values, for example two MAC 
-   values, and the developer's been careful to implement things really 
-   badly, it may be possible to use a timing attack to guess a MAC value a
-   byte at a time by using a high-resolution timer to check at which byte
-   the memcmp() exits, thus guessing the MAC value a byte at a time in the
-   same way that the old TENEX password-guessing bug worked.  This seems
-   highly unlikely given that cryptlib implementations of protocols won't
-   allow themselves to be used as an oracle in this manner and for someone
-   using cryptlib to implement their own protocol the overhead of a trip
-   through the kernel will mask out a few clock cycles of difference in
-   the memcmp() at the end, but we defend against it anyway because no doubt
-   someone will eventually publish a CERT advisory on it being a problem in
-   some app somewhere */
+/* Data compares that run in a time-independent manner.  This is used to 
+   avoid potential timing attacks on memcmp(), which bails out as soon as
+   it finds a mismatch */
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 BOOLEAN compareDataConstTime( IN_BUFFER( length ) const void *src,
 							  IN_BUFFER( length ) const void *dest,
 							  IN_LENGTH_SHORT const int length );
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN checkZeroConstTime( IN_BUFFER( strLen ) const void *data,
+							IN_LENGTH_SHORT const int length );
 
 /****************************************************************************
 *																			*
@@ -1420,7 +1456,7 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 						   IN_HANDLE const CRYPT_CONTEXT iSignContext,
 						   IN_PTR const SIG_DATA_INFO *sigDataInfo,
 						   IN_PTR_OPT const SIG_PARAMS *sigParams,
-						   INOUT_PTR_OPT ERROR_INFO *errorInfo );
+						   INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5, 7 ) ) \
 int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature, 
 						  IN_LENGTH_SHORT const int signatureLength,
@@ -1429,7 +1465,7 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 						  IN_HANDLE const CRYPT_HANDLE iSigCheckKey,
 						  IN_PTR const SIG_DATA_INFO *sigDataInfo,
 						  OUT_OPT_HANDLE_OPT CRYPT_HANDLE *extraData,
-						  INOUT_PTR_OPT ERROR_INFO *errorInfo );
+						  INOUT_PTR ERROR_INFO *errorInfo );
 #ifdef USE_INT_CMS
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 7 ) ) \
 int iCryptImportKey( IN_BUFFER( encryptedKeyLength ) \
@@ -1468,7 +1504,7 @@ int iCryptExportKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
    protocols */
 
 typedef enum {
-	ENVELOPE_OPTION_NONE,			/* Last no envelope option type */
+	ENVELOPE_OPTION_NONE,			/* No envelope option type */
 	ENVELOPE_OPTION_EMPTYOK,		/* Message body isn't required */
 	ENVELOPE_OPTION_LAST			/* Last valid envelope option type */
 	} ENVELOPE_OPTION_TYPE;
@@ -1552,10 +1588,9 @@ int importBignum( INOUT_PTR TYPECAST( BIGNUM * ) struct BN *bignumPtr,
 				  IN_BUFFER( length ) const void *buffer, 
 				  IN_LENGTH_SHORT const int length,
 				  IN_LENGTH_PKC const int minLength, 
-				  IN_RANGE( 1, CRYPT_MAX_PKCSIZE + bitsToBytes( 64 ) ) \
-					const int maxLength,	
-					/* See DLP_OVERFLOW_SIZE = bitsToBytes( 64 ) in context.h */
-				  IN_PTR_OPT TYPECAST( BIGNUM * ) const struct BN *maxRangePtr,
+				  IN_LENGTH_PKC const int maxLength,	
+				  IN_PTR_OPT TYPECAST( BIGNUM * ) \
+					const struct BN *maxRangePtr,
 				  IN_ENUM_OPT( BIGNUM_CHECK ) \
 					const BIGNUM_CHECK_TYPE checkType );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
@@ -1597,7 +1632,7 @@ int exportECCPoint( OUT_BUFFER_OPT( dataMaxLength, *dataLength ) void *data,
 					IN_PTR TYPECAST( const BIGNUM * ) const struct BN *bignumPtr2,
 					IN_LENGTH_PKC const int fieldSize );
 #endif /* USE_ECDH || USE_ECDSA */
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int import25519ByteString( INOUT_PTR TYPECAST( BIGNUM * ) 
 								struct BN *bignumPtr, 
@@ -1613,7 +1648,7 @@ int export25519ByteString( OUT_BUFFER( dataMaxLength, *dataLength )
 								int *dataLength,
 						   IN_PTR TYPECAST( BIGNUM * ) 
 								const struct BN *bignumPtr );
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 
 /****************************************************************************
 *																			*

@@ -200,6 +200,7 @@ static int bytesToBignum( OUT_PTR BIGNUM *bignum,
 		ENSURES( LOOP_INVARIANT_REV( wordIndex, 0, bignum->top - 1 ) )
 		ENSURES( LOOP_INVARIANT_SECONDARY( byteCount, 1, length ) );
 
+		REQUIRES( !checkOverflowSub( byteCount, noBytes ) );
 		byteCount -= noBytes;
 		LOOP_EXT_REV_CHECKINC_ALT( noBytes > 0, noBytes--, BN_BYTES + 1 )
 			{
@@ -235,8 +236,7 @@ int importBignum( INOUT_PTR TYPECAST( BIGNUM * ) struct BN *bignumPtr,
 				  IN_BUFFER( length ) const void *buffer, 
 				  IN_LENGTH_SHORT const int length,
 				  IN_LENGTH_PKC const int minLength, 
-				  IN_RANGE( 1, CRYPT_MAX_PKCSIZE + DLP_OVERFLOW_SIZE ) \
-					const int maxLength,
+				  IN_LENGTH_PKC const int maxLength,
 				  IN_PTR_OPT TYPECAST( BIGNUM * ) \
 					const struct BN *maxRangePtr,
 				  IN_ENUM_OPT( BIGNUM_CHECK ) \
@@ -347,6 +347,7 @@ BOOLEAN verifyBignumImport( TYPECAST( const BIGNUM * ) \
 		ENSURES_B( LOOP_INVARIANT_REV( wordIndex, 0, bignum->top - 1 ) );
 		ENSURES_B( LOOP_INVARIANT_SECONDARY( byteCount, 1, length ) );
 
+		REQUIRES_B( !checkOverflowSub( byteCount, noBytes ) );
 		byteCount -= noBytes;
 		LOOP_EXT_REV_CHECKINC_ALT( noBytes > 0, noBytes--, BN_BYTES + 1 )
 			{
@@ -478,12 +479,16 @@ BOOLEAN verifyECCPointImport( TYPECAST( const BIGNUM * ) \
 	REQUIRES_B( isShortIntegerRange( length ) );
 	REQUIRES_B( fieldSize >= MIN_PKCSIZE_ECC && \
 				fieldSize <= CRYPT_MAX_PKCSIZE_ECC );
-
+	REQUIRES_B( 1 + fieldSize + fieldSize <= length );
+	
+	/* At this point we're merely verifying data that we've decoded 
+	   previously to catch any TOCTOU problems so we don't need to do all
+	   of the checking that we did when we first decoded it */
 	if( eccPointData[ 0 ] != 0x04 )
 		return( FALSE );
-	if( !verifyBignumImport( bignumPtr1, eccPointData + 1, fieldSize ) )
+	if( !verifyBignumImport( bignum1, eccPointData + 1, fieldSize ) )
 		return( FALSE );
-	if( !verifyBignumImport( bignumPtr2, eccPointData + 1 + fieldSize, 
+	if( !verifyBignumImport( bignum2, eccPointData + 1 + fieldSize, 
 							 fieldSize ) )
 		return( FALSE );
 
@@ -491,7 +496,7 @@ BOOLEAN verifyECCPointImport( TYPECAST( const BIGNUM * ) \
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 /* Store a byte string in a bignum, needed for the Bernstein special-
    snowflake format which uses fixed-length little-endian byte strings 
@@ -540,7 +545,7 @@ int import25519ByteString( INOUT_PTR TYPECAST( BIGNUM * )
 
 	return( CRYPT_OK );
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 
 /****************************************************************************
 *																			*
@@ -592,6 +597,7 @@ static int bignumToBytes( OUT_BUFFER( dataMaxLength, *dataLength ) \
 		ENSURES( LOOP_INVARIANT_REV( wordIndex, 0, bignum->top - 1 ) );
 		ENSURES( LOOP_INVARIANT_SECONDARY( byteCount, 1, length ) );
 
+		REQUIRES( !checkOverflowSub( byteCount, noBytes ) );
 		byteCount -= noBytes;
 		LOOP_EXT_REV_CHECKINC_ALT( noBytes > 0, noBytes--, BN_BYTES + 1 )
 			{
@@ -702,14 +708,28 @@ int exportECCPoint( OUT_BUFFER_OPT( dataMaxLength, *dataLength ) void *data,
 		+---+---------------+---------------+
 		|ID	|		qx		|		qy		|
 		+---+---------------+---------------+
-			|<-- fldSize -> |<- fldSize --> | */
+			|<-- fldSize -> |<- fldSize --> | 
+			
+	   Because the data is encoded in fixed-length form we also need to add
+	   leading-zero padding if required:
+	   
+			|<-- fldSize -->|
+			+---------------+
+			|0000	qx		|
+			+---------------+
+				 |<-- len ->|
+	   
+	   which we do by zeroing the entire data block and then writing
+	   length = BN_num_bytes() of bignum data starting at offset
+	   fieldSize - length */
 	*bufPtr++ = 0x04;
 	REQUIRES( rangeCheck( fieldSize, MIN_PKCSIZE_ECC, 
 						  CRYPT_MAX_PKCSIZE_ECC ) );
 	memset( bufPtr, 0, fieldSize * 2 );
 	length = BN_num_bytes( bignum1 );
 	ENSURES( length > 0 && length <= fieldSize );
-	status = bignumToBytes( bufPtr + ( fieldSize - length ), fieldSize, 
+	REQUIRES( !checkOverflowSub( fieldSize, length ) );
+	status = bignumToBytes( bufPtr + ( fieldSize - length ), length, 
 							&dummy, bignum1 );
 	if( cryptStatusError( status ) )
 		{
@@ -719,7 +739,8 @@ int exportECCPoint( OUT_BUFFER_OPT( dataMaxLength, *dataLength ) void *data,
 	bufPtr += fieldSize;
 	length = BN_num_bytes( bignum2 );
 	ENSURES( length > 0 && length <= fieldSize );
-	status = bignumToBytes( bufPtr + ( fieldSize - length ), fieldSize, 
+	REQUIRES( !checkOverflowSub( fieldSize, length ) );
+	status = bignumToBytes( bufPtr + ( fieldSize - length ), length, 
 							&dummy, bignum2 );
 	if( cryptStatusError( status ) )
 		{
@@ -732,7 +753,7 @@ int exportECCPoint( OUT_BUFFER_OPT( dataMaxLength, *dataLength ) void *data,
 	}
 #endif /* USE_ECDH || USE_ECDSA */
 
-#if defined( USE_25519 ) || defined( USE_ED25519 )
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
 
 /* Extract a byte string from a bignum in the Bernstein special-snowflake 
    format which uses fixed-length little-endian byte strings instead of 
@@ -787,5 +808,5 @@ int export25519ByteString( OUT_BUFFER( dataMaxLength, *dataLength )
 
 	return( CRYPT_OK );
 	}
-#endif /* USE_25519 || USE_ED25519 */
+#endif /* USE_X25519 || USE_ED25519 */
 #endif /* USE_PKC */

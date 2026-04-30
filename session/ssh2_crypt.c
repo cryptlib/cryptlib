@@ -148,6 +148,7 @@ int ctrModeCrypt( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 			}
 		ENSURES( LOOP_BOUND_OK_ALT );
 		dataPtr += ksgLen;
+		REQUIRES( !checkOverflowSub( length, ksgLen ) );
 		length -= ksgLen;
 		}
 	ENSURES( LOOP_BOUND_LARGE_REV_OK );
@@ -217,8 +218,10 @@ static int rewriteRSASignature( const SESSION_INFO *sessionInfoPtr,
 			|						|<------ keySize ------>|
 			|<----------------- sigLength ----------------->|
 			|<------------- sigDataMaxLength --------[...]-------->| */
+	REQUIRES( !checkOverflowSub( keySize, sigSize ) );
 	delta = keySize - sigSize;
 	ENSURES( delta > 0 && delta < 16 );
+	REQUIRES( !checkOverflowAdd( sigLength, delta ) );
 	if( sigLength + delta > sigDataMaxLength )
 		return( CRYPT_ERROR_OVERFLOW );
 	sseek( stream, sigOffset );
@@ -331,7 +334,7 @@ int initDHcontextSSH( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 	return( CRYPT_OK );
 	}
 
-#if defined( USE_ECDH ) || defined( USE_25519 )
+#if defined( USE_ECDH ) || defined( USE_X25519 )
 
 /* Load one of the fixed SSH ECDH/25519 keys into a context */
 
@@ -456,6 +459,7 @@ static int loadCryptovariable( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 		   where the shared secret and exchange hash are present as the
 		   precomputed data in the initial hash information and the data 
 		   part is the output of the hash step above */
+		REQUIRES( !checkOverflowSub( CRYPT_MAX_HASHSIZE, hashSize ) );
 		memcpy( hashInfo, initialHashInfo, sizeof( HASHINFO ) );
 		hashFunction( hashInfo, buffer + hashSize, 
 					  CRYPT_MAX_HASHSIZE - hashSize, buffer, hashSize, 
@@ -730,6 +734,8 @@ int initSecurityInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								handshakeInfo->secretValueLength;
 		int headerLength DUMMY_INIT;
 
+		REQUIRES( !checkOverflowAdd( handshakeInfo->secretValueLength, 1 ) );
+
 		/* Hash the shared secret as an MPI.  We can't use hashAsMPI() for
 		   this because it works with hash contexts rather than the 
 		   HASH_FUNCTION interface used here */
@@ -927,6 +933,7 @@ int hashAsMPI( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 
 	REQUIRES( isHandleRangeValid( iHashContext ) );
 	REQUIRES( isShortIntegerRangeNZ( dataLength ) );
+	REQUIRES( !checkOverflowAdd( dataLength, 1 ) );
 
 	/* Prepend the MPI length to the data and hash it.  Since this is often
 	   sensitive data we don't take a local copy but hash it in two parts */
@@ -975,12 +982,11 @@ static int macDataSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 			isReadPtrDynamic( data, dataLength ) );
 
 	REQUIRES( isHandleRangeValid( iMacContext ) );
-	REQUIRES( ( macType == MAC_END && seqNo == 0 ) || \
-			  ( macType != MAC_END && \
-				seqNo >= 2 && seqNo < INT_MAX ) );
-			  /* Since SSH starts counting packets from the first one but 
-				 unlike TLS doesn't MAC them, the seqNo is already nonzero 
-				 when we start */
+	REQUIRES( isIntegerRange( seqNo ) );
+			  /* For standard SSH, which counts packets from the first one 
+			     but unlike TLS doesn't MAC them, the seqNo starts at 2, 
+			     however strict KEX restarts the count so we can have a
+			     seqNo of zero when this in in effect */
 	REQUIRES( ( data == NULL && dataLength == 0 ) || \
 			  ( data != NULL && \
 				isBufsizeRangeNZ( dataLength ) ) );
@@ -1069,12 +1075,11 @@ int checkMacSSHIncremental( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 	assert( isReadPtrDynamic( data, dataMaxLength ) );
 
 	REQUIRES( isHandleRangeValid( iMacContext ) );
-	REQUIRES( ( macType == MAC_END && seqNo == 0 ) || \
-			  ( macType != MAC_END && \
-				seqNo >= 2 && seqNo < INT_MAX ) );
-			  /* Since SSH starts counting packets from the first one but 
-				 unlike TLS doesn't MAC them, the seqNo is already nonzero 
-				 when we start */
+	REQUIRES( isIntegerRange( seqNo ) );
+			  /* For standard SSH, which counts packets from the first one 
+			     but unlike TLS doesn't MAC them, the seqNo starts at 2, 
+			     however strict KEX restarts the count so we can have a
+			     seqNo of zero when this in in effect */
 	REQUIRES( isBufsizeRangeNZ( dataMaxLength ) );
 	REQUIRES( ( macType == MAC_END && dataLength == 0 ) || \
 			  isBufsizeRangeNZ( dataLength ) );
@@ -1132,10 +1137,11 @@ int checkMacSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 	assert( isReadPtrDynamic( data, dataMaxLength ) );
 
 	REQUIRES( isHandleRangeValid( iMacContext ) );
-	REQUIRES( seqNo >= 2 && seqNo < INT_MAX );
-			  /* Since SSH starts counting packets from the first one but 
-				 unlike TLS doesn't MAC them, the seqNo is already nonzero 
-				 when we start */
+	REQUIRES( isIntegerRange( seqNo ) );
+			  /* For standard SSH, which counts packets from the first one 
+			     but unlike TLS doesn't MAC them, the seqNo starts at 2, 
+			     however strict KEX restarts the count so we can have a
+			     seqNo of zero when this in in effect */
 	REQUIRES( isBufsizeRangeNZ( dataMaxLength ) );
 	REQUIRES( isBufsizeRange( dataLength ) );
 	REQUIRES( macLength >= MIN_HASHSIZE && \
@@ -1149,7 +1155,10 @@ int checkMacSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 	if( dataLength <= 0 )
 		status = macDataSSH( iMacContext, seqNo, NULL, 0, 0, MAC_NONE );
 	else
-		status = macDataSSH( iMacContext, seqNo, data, dataLength, 0, MAC_NONE );
+		{
+		status = macDataSSH( iMacContext, seqNo, data, dataLength, 0, 
+							 MAC_NONE );
+		}
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -1173,10 +1182,11 @@ int createMacSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 	assert( isWritePtrDynamic( data, dataLength ) );
 
 	REQUIRES( isHandleRangeValid( iMacContext ) );
-	REQUIRES( seqNo >= 2 && seqNo < INT_MAX );
-			  /* Since SSH starts counting packets from the first one but 
-				 unlike TLS doesn't MAC them, the seqNo is already nonzero 
-				 when we start */
+	REQUIRES( isIntegerRange( seqNo ) );
+			  /* For standard SSH, which counts packets from the first one 
+			     but unlike TLS doesn't MAC them, the seqNo starts at 2, 
+			     however strict KEX restarts the count so we can have a
+			     seqNo of zero when this in in effect */
 	REQUIRES( isBufsizeRangeNZ( dataMaxLength ) );
 	REQUIRES( isBufsizeRangeNZ( dataLength ) && dataLength < dataMaxLength );
 
@@ -1456,7 +1466,7 @@ int processAuthDataSig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											   MAX_INTLENGTH_SHORT - 1 ) );
 			}
 		else
-			status = sSkip( stream, sigLength, MAX_INTLENGTH_SHORT );
+			status = sExtend( stream, sigLength, MAX_INTLENGTH_SHORT );
 		}
 
 	return( status );
@@ -1523,7 +1533,7 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			break;
 #endif /* USE_ECDH */
 
-#ifdef USE_25519
+#ifdef USE_X25519
 		case CRYPT_ALGO_25519:
 			/* The 25519 data must be exactly 32 bytes */
 			status = readString32( &stream, keyAgreeParams.publicValue,
@@ -1532,7 +1542,7 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				keyAgreeParams.publicValueLen != 32 )
 				status = CRYPT_ERROR_BADDATA;
 			break;
-#endif /* USE_25519 */
+#endif /* USE_X25519 */
 	
 		default:
 			retIntError();		
@@ -1561,6 +1571,8 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		!isBernsteinAlgo( handshakeInfo->keyexAlgo ) )
 		{
 		const int xCoordLen = ( keyAgreeParams.wrappedKeyLen - 1 ) / 2;
+
+		REQUIRES( !checkOverflowSub( keyAgreeParams.wrappedKeyLen, 1 ) );
 
 		/* The output of the ECDH operation is an ECC point, but for some
 		   unknown reason SSH only uses the x coordinate and not the full
@@ -1616,6 +1628,7 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								  CRYPT_IATTRIBUTE_KEY_SSH );
 		if( cryptStatusOK( status ) )
 			{
+			REQUIRES( !checkOverflowSub( msgData.length, extraLength ) );
 			status = krnlSendMessage( handshakeInfo->iExchangeHashContext,
 									  IMESSAGE_CTX_HASH, 
 									  keyexBuffer + extraLength,

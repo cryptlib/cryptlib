@@ -1,12 +1,15 @@
 /****************************************************************************
 *																			*
 *						 cryptlib External API Interface					*
-*						Copyright Peter Gutmann 1997-2018					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
-/* NSA motto: In God we trust... all others we monitor.
-														-- Stanley Miller */
+/* This is a very large file, being simply a mapping of the external API to
+   the internal one with parameter checks for each function.  There's no
+   obvious way to break it up into individual files, which would just end up
+   spraying the functions across a range of files */
+
 #include "crypt.h"
 #if defined( INC_ALL )
   #include "rpc.h"
@@ -20,19 +23,24 @@
 *																			*
 ****************************************************************************/
 
-/* Checks for algorithms that are present but not usable externally because 
-   they don't work like any mormal algorithm.  These are essentially the 
-   Bernstein special-snowflake ones, which require such complex calisthenics 
-   for key and other cryptovariable setup that we can't safely allow 
-   external access.
+/* Checks for algorithms that are present but not usable externally either 
+   because they don't work like any normal algorithm or because they're only 
+   present to support old protocols.
    
-   However since ChaCha20 at least is run by the external test suite we need 
-   to allow this, but Poly1305 is too complex to test via external code */
+   The former are essentially the Bernstein special-snowflake ones, which 
+   require such complex calisthenics for key and other cryptovariable setup 
+   that we can't safely allow external access.  However since ChaCha20 at 
+   least is run by the external test suite we need to allow this, but 
+   Poly1305 is too complex to test via external code.
+   
+   The latter are MD5 for TLS < 1.2 and RC2 for Microsoft PKCS #12 */
 
 CHECK_RETVAL_BOOL \
 static BOOLEAN isInternalOnlyAlgo( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	return( ( cryptAlgo == CRYPT_ALGO_POLY1305 ) ? TRUE : FALSE );
+	return( ( cryptAlgo == CRYPT_ALGO_RC2 || \
+			  cryptAlgo == CRYPT_ALGO_MD5 || \
+			  cryptAlgo == CRYPT_ALGO_POLY1305 ) ? TRUE : FALSE );
 	}
 
 /****************************************************************************
@@ -156,10 +164,18 @@ static int cmdCreateObject( COMMAND_INFO *cmd )
 				return( CRYPT_ARGERROR_NUM1 );
 
 			/* Checks for algorithms that are present but not usable 
-			   externally because they don't work like any mormal 
-			   algorithm */
+			   externally either because they don't work like any 
+			   normal algorithm or because they're only present to
+			   support old protocols */
 			if( isInternalOnlyAlgo( cmd->arg[ 2 ] ) )
 				return( CRYPT_ERROR_NOTAVAIL );
+
+			/* Checks for algorithms that will be removed in the 3.5
+			   release */
+			if( cmd->arg[ 2 ] == CRYPT_ALGO_DES || \
+				cmd->arg[ 2 ] == CRYPT_ALGO_IDEA || \
+				cmd->arg[ 2 ] == CRYPT_ALGO_RC4 )
+				return( CRYPT_ARGERROR_NUM1 );
 			break;
 
 		case OBJECT_TYPE_CERTIFICATE:
@@ -383,32 +399,15 @@ static int cmdDecrypt( COMMAND_INFO *cmd )
 							  &algorithm, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( algorithm <= CRYPT_ALGO_LAST_CONVENTIONAL )
+	if( !isConvAlgo( algorithm ) )
 		{
-		status = krnlSendMessage( cmd->arg[ 0 ], MESSAGE_GETATTRIBUTE,
-								  &mode, CRYPT_CTXINFO_MODE );
-		if( cryptStatusError( status ) )
-			return( status );
+		/* We can only decrypt using a conventional algorithm */
+		return( CRYPT_ERROR_NOTAVAIL );
 		}
-	else
-		{
-		if( algorithm <= CRYPT_ALGO_LAST_PKC )
-			{
-			int blockSize;
-
-			status = krnlSendMessage( cmd->arg[ 0 ], MESSAGE_GETATTRIBUTE,
-									  &blockSize, CRYPT_CTXINFO_KEYSIZE );
-			if( cryptStatusOK( status ) && cmd->strArgLen[ 0 ] != blockSize )
-				status = CRYPT_ARGERROR_NUM1;
-			if( cryptStatusError( status ) )
-				return( status );
-			}
-		else
-			{
-			/* We shouldn't be invoking decrypt on a hash or MAC object */
-			return( CRYPT_ARGERROR_OBJECT );
-			}
-		}
+	status = krnlSendMessage( cmd->arg[ 0 ], MESSAGE_GETATTRIBUTE,
+							  &mode, CRYPT_CTXINFO_MODE );
+	if( cryptStatusError( status ) )
+		return( status );
 	if( cmd->strArgLen[ 0 ] <= 0 )
 		return( CRYPT_ARGERROR_NUM1 );
 	if( mode == CRYPT_MODE_ECB || mode == CRYPT_MODE_CBC )
@@ -554,49 +553,41 @@ static int cmdEncrypt( COMMAND_INFO *cmd )
 							  &algorithm, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( algorithm <= CRYPT_ALGO_LAST_CONVENTIONAL )
+	if( isConvAlgo( algorithm ) )
 		{
 		status = krnlSendMessage( cmd->arg[ 0 ], MESSAGE_GETATTRIBUTE,
 								  &mode, CRYPT_CTXINFO_MODE );
 		if( cryptStatusError( status ) )
 			return( status );
-		}
-	else
-		{
-		if( algorithm <= CRYPT_ALGO_LAST_PKC )
+		if( cmd->strArgLen[ 0 ] <= 0 )
+			return( CRYPT_ARGERROR_NUM1 );
+		if( mode == CRYPT_MODE_ECB || mode == CRYPT_MODE_CBC )
 			{
 			int blockSize;
 
 			status = krnlSendMessage( cmd->arg[ 0 ], MESSAGE_GETATTRIBUTE,
-									  &blockSize, CRYPT_CTXINFO_KEYSIZE );
-			if( cryptStatusOK( status ) && cmd->strArgLen[ 0 ] != blockSize )
+									  &blockSize, CRYPT_CTXINFO_BLOCKSIZE );
+			if( cryptStatusOK( status ) && cmd->strArgLen[ 0 ] % blockSize )
 				status = CRYPT_ARGERROR_NUM1;
 			if( cryptStatusError( status ) )
 				return( status );
 			}
 		}
-	if( isHashAlgo( algorithm ) || isMacAlgo( algorithm ) )
-		{
-		/* For hash and MAC operations a length of zero is valid since this
-		   is an indication to wrap up the hash operation */
-		if( cmd->strArgLen[ 0 ] < 0 )
-			return( CRYPT_ARGERROR_NUM1 );
-		}
 	else
 		{
-		if( cmd->strArgLen[ 0 ] <= 0 )
-			return( CRYPT_ARGERROR_NUM1 );
-		}
-	if( mode == CRYPT_MODE_ECB || mode == CRYPT_MODE_CBC )
-		{
-		int blockSize;
-
-		status = krnlSendMessage( cmd->arg[ 0 ], MESSAGE_GETATTRIBUTE,
-								  &blockSize, CRYPT_CTXINFO_BLOCKSIZE );
-		if( cryptStatusOK( status ) && cmd->strArgLen[ 0 ] % blockSize )
-			status = CRYPT_ARGERROR_NUM1;
-		if( cryptStatusError( status ) )
-			return( status );
+		if( isHashAlgo( algorithm ) || isMacAlgo( algorithm ) )
+			{
+			/* For hash and MAC operations a length of zero is valid since 
+			   this is an indication to wrap up the hash operation */
+			if( cmd->strArgLen[ 0 ] < 0 )
+				return( CRYPT_ARGERROR_NUM1 );
+			}
+		else
+			{
+			/* We can only encrypt/decrypt using a conventional, hash, or 
+			   MAC algorithm */
+			return( CRYPT_ERROR_NOTAVAIL );
+			}
 		}
 
 	/* If there's no IV set, generate one ourselves */
@@ -999,6 +990,12 @@ static int cmdQueryCapability( COMMAND_INFO *cmd )
 	if( isInternalOnlyAlgo( cmd->arg[ 1 ] ) )
 		return( CRYPT_ERROR_NOTAVAIL );
 
+	/* Checks for algorithms that will be removed in the 3.5 release */
+	if( cmd->arg[ 1 ] == CRYPT_ALGO_DES || \
+		cmd->arg[ 1 ] == CRYPT_ALGO_IDEA || \
+		cmd->arg[ 1 ] == CRYPT_ALGO_RC4 )
+		return( CRYPT_ARGERROR_NUM1 );
+
 	/* Query the device for information on the given algorithm and mode.
 	   Since we're usually doing this via the system object (or crypto 
 	   object if this is in use) which is invisible to the user, we have to 
@@ -1086,12 +1083,31 @@ static int cmdSetAttribute( COMMAND_INFO *cmd )
 		{
 		if( cmd->arg[ 1 ] == CRYPT_CTXINFO_KEY_COMPONENTS )
 			{
+			static const MAP_TABLE sizeCheckMapTable[] = {
+					{ sizeof( CRYPT_PKCINFO_RSA ), TRUE },
+					{ sizeof( CRYPT_PKCINFO_DLP ), TRUE },
+#if defined( USE_ECDH ) || defined( USE_ECDSA )
+					{ sizeof( CRYPT_PKCINFO_ECC ), TRUE },
+#endif /* USE_ECDH || USE_ECDSA */
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
+					{ sizeof( CRYPT_PKCINFO_DJB ), TRUE },
+#endif /* USE_X25519 || USE_ED25519 */
+#ifdef USE_MLKEM
+					{ sizeof( CRYPT_PKCINFO_PQC ), TRUE },
+#endif /* USE_MLKEM */
+					{ CRYPT_ERROR, 0 }, { CRYPT_ERROR, 0 }
+					};
+			int dummy, status;
+
 			/* Public key components constitute a special case since the
-			   composite structures used are quite large */
-			if( cmd->strArgLen[ 0 ] != sizeof( CRYPT_PKCINFO_RSA ) && \
-				cmd->strArgLen[ 0 ] != sizeof( CRYPT_PKCINFO_DLP ) && \
-				cmd->strArgLen[ 0 ] != sizeof( CRYPT_PKCINFO_ECC ) && \
-				cmd->strArgLen[ 0 ] != sizeof( CRYPT_PKCINFO_DJB ) )
+			   composite structures used are quite large.  In this case we're
+			   using mapValue() purely as a presence check so we don't care
+			   about the output from the function */
+			status = mapValue( cmd->strArgLen[ 0 ], &dummy, 
+							   sizeCheckMapTable,
+							   FAILSAFE_ARRAYSIZE( sizeCheckMapTable, \
+												   MAP_TABLE ) );
+			if( cryptStatusError( status ) )
 				return( CRYPT_ARGERROR_NUM2 );
 			}
 		else
@@ -2205,7 +2221,7 @@ C_RET cryptDeviceOpen( C_OUT CRYPT_DEVICE C_PTR device,
 	int nameLen = 0, status;
 
 	/* Perform basic error checking */
-	if( !isReadPtr( device, sizeof( CRYPT_DEVICE ) ) )
+	if( !isWritePtr( device, sizeof( CRYPT_DEVICE ) ) )
 		return( CRYPT_ERROR_PARAM1 );
 	*device = CRYPT_ERROR;
 	if( cryptUser != CRYPT_UNUSED && !isHandleRangeValid( cryptUser ) )
@@ -2334,7 +2350,7 @@ C_RET cryptKeysetOpen( C_OUT CRYPT_KEYSET C_PTR keyset,
 	int nameLen, status;
 
 	/* Perform basic error checking */
-	if( !isReadPtr( keyset, sizeof( CRYPT_KEYSET ) ) )
+	if( !isWritePtr( keyset, sizeof( CRYPT_KEYSET ) ) )
 		return( CRYPT_ERROR_PARAM1 );
 	*keyset = CRYPT_ERROR;
 	if( cryptUser != CRYPT_UNUSED && !isHandleRangeValid( cryptUser ) )
@@ -2751,12 +2767,30 @@ C_RET cryptSetAttributeString( C_IN CRYPT_HANDLE cryptHandle,
 		return( CRYPT_ERROR_PARAM3 );
 	if( attributeType == CRYPT_CTXINFO_KEY_COMPONENTS )
 		{
+		static const MAP_TABLE sizeCheckMapTable[] = {
+					{ sizeof( CRYPT_PKCINFO_RSA ), TRUE },
+					{ sizeof( CRYPT_PKCINFO_DLP ), TRUE },
+#if defined( USE_ECDH ) || defined( USE_ECDSA )
+					{ sizeof( CRYPT_PKCINFO_ECC ), TRUE },
+#endif /* USE_ECDH || USE_ECDSA */
+#if defined( USE_X25519 ) || defined( USE_ED25519 )
+					{ sizeof( CRYPT_PKCINFO_DJB ), TRUE },
+#endif /* USE_X25519 || USE_ED25519 */
+#ifdef USE_MLKEM
+					{ sizeof( CRYPT_PKCINFO_PQC ), TRUE },
+#endif /* USE_MLKEM */
+					{ CRYPT_ERROR, 0 }, { CRYPT_ERROR, 0 }
+					};
+		int dummy;
+
 		/* Public key components constitute a special case since the
-		   composite structures used are quite large */
-		if( valueLength != sizeof( CRYPT_PKCINFO_RSA ) && \
-			valueLength != sizeof( CRYPT_PKCINFO_DLP ) && \
-			valueLength != sizeof( CRYPT_PKCINFO_ECC ) && \
-			valueLength != sizeof( CRYPT_PKCINFO_DJB ) )
+		   composite structures used are quite large.  In this case we're
+		   using mapValue() purely as a presence check so we don't care
+		   about the output from the function */
+		status = mapValue( valueLength, &dummy, sizeCheckMapTable,
+						   FAILSAFE_ARRAYSIZE( sizeCheckMapTable, \
+											   MAP_TABLE ) );
+		if( cryptStatusError( status ) )
 			return( CRYPT_ERROR_PARAM4 );
 		}
 	else
@@ -3465,9 +3499,10 @@ C_RET cryptCACertManagement( C_OUT_OPT CRYPT_CERTIFICATE C_PTR certificate,
 	cmd.arg[ 2 ] = caKey;
 	cmd.arg[ 3 ] = certRequest;
 	status = DISPATCH_COMMAND( cmdCertMgmt, cmd );
-	if( cryptStatusOK( status ) && certificate != NULL )
+	if( cryptStatusOK( status ) )
 		{
-		*certificate = cmd.arg[ 0 ];
+		if( certificate != NULL )
+			*certificate = cmd.arg[ 0 ];
 		return( CRYPT_OK );
 		}
 	return( mapError( errorMap, FAILSAFE_ARRAYSIZE( errorMap, ERRORMAP ), 
@@ -4156,6 +4191,7 @@ C_RET cryptDeviceQueryCapability( C_IN CRYPT_DEVICE device,
    by some sort of device control mechanism, the problem with doing this is
    that it's handled by the system device which isn't visible to the user */
 
+C_CHECK_RETVAL \
 C_RET cryptAddRandom( C_IN void C_PTR randomData, C_IN int randomDataLength )
 	{
 	/* Perform basic error checking */
@@ -4188,7 +4224,7 @@ C_RET cryptAddRandom( C_IN void C_PTR randomData, C_IN int randomDataLength )
 #if !defined( NDEBUG ) && \
 	( defined( CONFIG_FUZZ ) || \
 	  ( defined( _MSC_VER ) && \
-		( ( _MSC_VER == 1200 ) || \
+		( ( _MSC_VER == 1500 ) || \
 		  ( _MSC_VER == VS_LATEST_VERSION && defined( CRYPTLIB_BUILD ) ) ) ) )
 #pragma message( "  Building with entropy-defeat facility enabled (debug build only)." )
 if( randomDataLength == 5 && !memcmp( randomData, "xyzzy", 5 ) )
@@ -4356,6 +4392,7 @@ C_RET cryptCreateAttachedCert( C_IN CRYPT_CONTEXT cryptContext,
 							   C_IN int certObjectLength )
 	{
 	MESSAGE_CREATEOBJECT_INFO createInfo;
+	ERROR_INFO localErrorInfo;
 	int status;
 
 	/* Perform basic error checking */
@@ -4368,9 +4405,11 @@ C_RET cryptCreateAttachedCert( C_IN CRYPT_CONTEXT cryptContext,
 		return( CRYPT_ERROR_PARAM2 );
 
 	/* Create the pseudo-certificate object */
+	clearErrorInfo( &localErrorInfo );
 	setMessageCreateObjectIndirectInfo( &createInfo, certObject,
 										certObjectLength, 
-										CRYPT_CERTTYPE_NONE );
+										CRYPT_CERTTYPE_NONE, 
+										&localErrorInfo );
 	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE,
 							  IMESSAGE_DEV_CREATEOBJECT_INDIRECT,
 							  &createInfo, OBJECT_TYPE_CERTIFICATE );
@@ -4770,6 +4809,12 @@ static int transportReadFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 	assert( isWritePtr( netStream, sizeof( NET_STREAM_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, maxLength ) );
 	assert( isWritePtr( length, sizeof( int ) ) );
+	
+	REQUIRES( isShortIntegerRangeNZ( maxLength ) );
+	ENSURES( isShortIntegerRange( bytesToRead ) );
+
+	if( bytesToRead <= 0 )
+		return( CRYPT_ERROR_READ );
 
 	memcpy( buffer, networkData + networkDataPos, bytesToRead );
 	networkDataPos += bytesToRead;
@@ -4816,7 +4861,7 @@ static int transportWriteFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 	return( CRYPT_OK );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int transportDummyFunction( INOUT_PTR NET_STREAM_INFO *netStream )
 	{
 	assert( isWritePtr( netStream, sizeof( NET_STREAM_INFO ) ) );
@@ -4922,7 +4967,7 @@ C_RET cryptFuzzNetworkSpecial( C_IN CRYPT_CONTEXT cryptContext,
 		}
 	else
 		{
-		BYTE eapBuffer[ 1024 ];
+		BYTE eapBuffer[ 1024 + 8 ];
 
 		/* Set up the EAP_INFO structure as per initEAPInfo() in io/eap.c */
 #ifdef USE_EAP

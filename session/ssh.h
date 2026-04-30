@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  SSH Definitions Header File						*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -51,14 +51,18 @@
   #define SSH2_DEFAULT_KEYSIZE	192	/* Size of SSHv2 default DH key */
 #endif /* USE_DH1024 */
 
-/* SSH packet/buffer size information.  The extra packet data is for
+/* Constants related to packet handling.  The extra packet data is for
    additional non-payload information including the header, MAC, and up to
-   256 bytes of padding */
+   256 bytes of padding, the packet trace length is the maximum number of
+   read packets that we trace during the handshake */
 
-#define MAX_PACKET_SIZE			262144L
 #define EXTRA_PACKET_SIZE		512
 #define DEFAULT_PACKET_SIZE		16384
 #define MAX_WINDOW_SIZE			( MAX_INTLENGTH - 8192 )
+#define MAX_PACKET_TRACE_LENGTH	( 4 + 4 )
+#if MAX_PACKET_TRACE_LENGTH != SSH_PACKET_TRACE_LENGTH
+  #error Discrepancy between packet trace lengths in session.h and ssh.h
+#endif /* MAX_PACKET_TRACE_LENGTH check */
 
 /* By default cryptlib uses DH key agreement, which is supported by all 
    servers.  It's also possible to use ECDH key agreement, however due to
@@ -78,7 +82,7 @@
 #endif /* PREFER_ECC && !( USE_ECDH && USE_ECDSA ) */
 
 /* SSH protocol-specific flags that encode details of implementation bugs 
-   that we need to work around */
+   that we need to work around, and protocol-specific variations */
 
 #define SSH_PFLAG_NONE			0x000000/* No protocol-specific flags */
 #define SSH_PFLAG_HMACKEYSIZE	0x000001/* Peer uses short HMAC keys */
@@ -101,15 +105,21 @@
 #define SSH_PFLAG_CUTEFTP		0x020000/* CuteFTP, drops conn.during handshake */
 #define SSH_PFLAG_CTR			0x040000/* Use CTR mode synthesised from ECB */
 #define SSH_PFLAG_ETM			0x080000/* Use encrypt-them-MAC rather than MtE */
-#define SSH_PFLAG_MAX			0x0FFFFF/* Maximum possible flag value */
+#define SSH_PFLAG_STRICT_KEX	0x100000/* Use strict keyex */
+#define SSH_PFLAG_MAX			0x1FFFFF/* Maximum possible flag value */
+
+/* Symbolic defines for static analysis checking */
+
+#define SSH_FLAG_NONE			SSH_PFLAG_NONE
+#define SSH_FLAG_MAX			SSH_PFLAG_MAX
 
 /* Various data sizes used for read-ahead and buffering.  The minimum SSH
    packet size is used to determine how much data we can read when reading
    a packet header, the SSH header remainder size is how much data we've
    got left once we've extracted just the length but no other data */
 
-#define MIN_PACKET_SIZE			16
-#define SSH_HEADER_REMAINDER_SIZE ( MIN_PACKET_SIZE - LENGTH_SIZE )
+#define SSH_MIN_PACKET_SIZE		16
+#define SSH_HEADER_REMAINDER_SIZE ( SSH_MIN_PACKET_SIZE - LENGTH_SIZE )
 
 /* SSH ID information */
 
@@ -143,6 +153,8 @@
 #define SSH_MSG_KEX_DH_GEX_REQUEST 34 /* Ephem.DH key request */
 #define SSH_MSG_KEX_ECDH_INIT	30	/* ECDH, phase 1 */
 #define SSH_MSG_KEX_ECDH_REPLY	31	/* ECDH, phase 2 */
+#define SSH_MSG_KEX_HYBRID_INIT	30	/* ECDH + ML-KEM, phase 1 */
+#define SSH_MSG_KEX_HYBRID_REPLY 31	/* ECDH + ML-KEM, phase 2 */
 #define SSH_MSG_USERAUTH_REQUEST 50 /* Request authentication */
 #define SSH_MSG_USERAUTH_FAILURE 51 /* Authentication failed */
 #define SSH_MSG_USERAUTH_SUCCESS 52 /* Authentication succeeded */
@@ -222,20 +234,11 @@ enum { SSH_DISCONNECT_NONE, SSH_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT,
 typedef enum {
 	SSH_PROTOSTATE_NONE,	/* No protocol state */
 	SSH_PROTOSTATE_HANDSHAKE, /* Handshake */
+	SSH_PROTOSTATE_POSTHANDSHAKE,	/* Post-handshake channel negotiation */
 	SSH_PROTOSTATE_AUTH,	/* Authentication */
 	SSH_PROTOSTATE_DATA,	/* Data transfer */
 	SSH_PROTOSTATE_LAST		/* Last possible protocol state */
 	} SSH_PROTOSTATE_TYPE;
-
-/* An indicator of any additional information that we may need to stuff into
-   the SSH handshake when we write algorithm ID information */
-
-typedef enum {
-	SSH_ALGOSTRINGINFO_NONE,/* No addition information */
-	SSH_ALGOSTRINGINFO_EXTINFO,	/* Client extension-neg.indicator */
-	SSH_ALGOSTRINGINFO_EXTINFO_ALTDHALGOS,	/* EXTINFO + alt.DH algos */
-	SSH_ALGOSTRINGINFO_LAST	/* Last possible protocol state */
-	} SSH_ALGOSTRINGINFO_TYPE;
 
 /* SSH requires the use of a number of additional (pseudo)-algorithm
    types that don't correspond to normal cryptlib algorithms but to SSH
@@ -265,7 +268,7 @@ typedef enum {
 /* SSH pre-authentication information */
 
 #define SSH_PREAUTH_NONCE_SIZE		8	/* 64 bits */
-#define SSH_PREAUTH_NONCE_ENCODEDSIZE	11
+#define SSH_PREAUTH_NONCE_ENCODEDSIZE 11
 #define SSH_PREAUTH_MAX_SIZE		32
 
 /* The size of the encoded DH keyex value and the requested DHE key size, 
@@ -525,13 +528,41 @@ typedef struct SH {
 
    When we create or continue a packet stream, the packet type is written
    before we can set the bookmark.  To handle this, we also provide a macro
-   that sets the bookmark for a full packet by adjusting for the packet type
-   that's already been written */
+   streamBookmarkSetFullPacket() that sets the bookmark for a full packet by 
+   adjusting for the packet type that's already been written.
+   
+   We also provide a means to explicitly bookmark the start of the stream,
+   streamBookmarkStreamStart(), which doesn't use stell() or have the 
+   bookmark-OK check associated with it.  This is required because stell() 
+   always returns a value within the stream buffer, returning zero on error 
+   which is the same as the position of the bookmark at the start of the 
+   stream that we're setting.
+   
+   To use the bookmarking functions:
+   
+	streamBookmarkStreamStart( offset );
+	...
+	streamBookmarkComplete( stream, &dataPtr, &dataLength, offset );
+   
+	streamBookmarkSet( stream, offset );
+	ENSURES( streamBookmarkOK( offset ) );
+	...
+	streamBookmarkComplete( stream, &dataPtr, &dataLength, offset );
+   
+	streamBookmarkSetFullPacket( stream, offset );
+	ENSURES( streamBookmarkOK( offset ) );
+	...
+	streamBookmarkComplete( stream, &dataPtr, &dataLength, offset );
 
+   At the end of each of these, { dataPtr, dataLength } are the location in
+   the stream buffer for the data */
+
+#define streamBookmarkStreamStart( offset )	offset = 0
 #define streamBookmarkSet( stream, offset ) \
 		offset = stell( stream )
 #define streamBookmarkSetFullPacket( stream, offset ) \
 		offset = stell( stream ) - ID_SIZE
+#define streamBookmarkOK( offset )		isIntegerRangeNZ( offset )
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 int streamBookmarkComplete( INOUT_PTR STREAM *stream, 
 							OUT_OPT_PTR void **dataPtrPtr, 
@@ -566,6 +597,10 @@ int checkKeyexValueLength( const SSH_HANDSHAKE_INFO *handshakeInfo,
 						   IN_ENUM( KEYEX_CHECK ) \
 								const KEYEX_CHECK_TYPE checkType,
 						   INOUT_PTR ERROR_INFO *errorInfo );
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN checkStrictKEX( IN_BUFFER( packetTraceLen ) BYTE *packetTrace,
+						IN_LENGTH_SHORT const int packetTraceLen,
+						IN_BOOL const BOOLEAN isServer );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readExtensionsSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   INOUT_PTR STREAM *stream );
@@ -593,14 +628,16 @@ int readAlgoString( INOUT_PTR STREAM *stream,
 					INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeAlgoString( INOUT_PTR STREAM *stream, 
-					 IN_ALGO const CRYPT_ALGO_TYPE algo );
+					 IN_ALGO const CRYPT_ALGO_TYPE algo,
+					 IN_INT_SHORT_Z const int subAlgo,
+					 IN_INT_SHORT_OPT const int parameter );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeAlgoStringEx( INOUT_PTR STREAM *stream, 
 					   IN_ALGO const CRYPT_ALGO_TYPE algo,
 					   IN_INT_SHORT_Z const int subAlgo,
 					   IN_INT_SHORT_OPT const int parameter,
-					   IN_ENUM_OPT( SSH_ALGOSTRINGINFO ) \
-							const SSH_ALGOSTRINGINFO_TYPE algoStringInfo );
+					   IN_BOOL const BOOLEAN useAltDH,
+					   IN_FLAGS_Z( SSH ) const int algoStringFlags );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeAlgoList( INOUT_PTR STREAM *stream, 
 				   IN_ARRAY( noAlgoStringInfoEntries ) \
@@ -864,6 +901,12 @@ int readHSPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								SSH_MSG_SPECIAL_LAST - 1 ) \
 							int expectedType,
 					  IN_RANGE( 1, 1024 ) const int minPacketSize );
+CHECK_RETVAL_LENGTH_SHORT STDC_NONNULL_ARG( ( 1 ) ) \
+int readPostHSPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
+						  IN_RANGE( SSH_MSG_DISCONNECT, \
+									SSH_MSG_SPECIAL_LAST - 1 ) \
+							int expectedType,
+						  IN_RANGE( 1, 1024 ) const int minPacketSize );
 CHECK_RETVAL_LENGTH_SHORT STDC_NONNULL_ARG( ( 1 ) ) \
 int readAuthPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 						IN_RANGE( SSH_MSG_DISCONNECT, \

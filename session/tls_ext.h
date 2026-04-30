@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						TLS Extension Definitions Header File				*
-*						Copyright Peter Gutmann 1998-2024					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -33,17 +33,29 @@ int readSNI( INOUT_PTR STREAM *stream,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeSNI( INOUT_PTR STREAM *stream,
 			  const SESSION_INFO *sessionInfoPtr );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
 int readSupportedVersions( INOUT_PTR STREAM *stream,
 						   INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
-						   IN_LENGTH_SHORT_Z const int extLength );
+						   IN_LENGTH_SHORT_Z const int extLength,
+						   OUT_BOOL BOOLEAN *extErrorInfoSet );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeSupportedVersions( INOUT_PTR STREAM *stream,
 							const SESSION_INFO *sessionInfoPtr,
 							IN_RANGE( TLS_MINOR_VERSION_TLS, \
 									  TLS_MINOR_VERSION_TLS13 ) \
 								const int minVersion );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
+int readSignatureAlgos( INOUT_PTR STREAM *stream, 
+						INOUT_PTR SESSION_INFO *sessionInfoPtr, 
+						INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
+						IN_LENGTH_SHORT_Z const int extLength,
+						OUT_BOOL BOOLEAN *extErrorInfoSet );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int writeSignatureAlgos( INOUT_PTR STREAM *stream );
+
+/* Prototypes for functions in tls_keyex.c */
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
 int readSupportedGroups( INOUT_PTR STREAM *stream, 
 						 INOUT_PTR SESSION_INFO *sessionInfoPtr, 
@@ -53,14 +65,6 @@ int readSupportedGroups( INOUT_PTR STREAM *stream,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeSupportedGroups( INOUT_PTR STREAM *stream,
 						  const SESSION_INFO *sessionInfoPtr );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
-int readSignatureAlgos( INOUT_PTR STREAM *stream, 
-						INOUT_PTR SESSION_INFO *sessionInfoPtr, 
-						INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
-						IN_LENGTH_SHORT_Z const int extLength,
-						OUT_BOOL BOOLEAN *extErrorInfoSet );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int writeSignatureAlgos( STREAM *stream );
 
 #endif /* USE_TLS */
 

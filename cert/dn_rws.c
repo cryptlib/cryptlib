@@ -145,7 +145,9 @@ static BOOLEAN parseDNString( OUT_ARRAY( MAX_DNSTRING_COMPONENTS ) \
 			}
 		ENSURES_B( boundsCheckZ( stringPos, i - stringPos, stringLength ) );
 		dnStringInfoPtr->label = string + stringPos;
+		REQUIRES_B( !checkOverflowSub( i, stringPos ) );
 		dnStringInfoPtr->labelLen = i - stringPos;
+		REQUIRES_B( !checkOverflowAdd( stringPos, i + 1 ) );
 		stringPos = i + 1;		/* Skip text + '=' */
 
 		/* Check for ... text { EOT | ',' ... | '+' ... } */
@@ -193,6 +195,7 @@ static BOOLEAN parseDNString( OUT_ARRAY( MAX_DNSTRING_COMPONENTS ) \
 		ENSURES_B( LOOP_BOUND_OK );
 		ENSURES_B( boundsCheck( stringPos, i - stringPos, stringLength ) );
 		dnStringInfoPtr->text = string + stringPos;
+		REQUIRES_B( !checkOverflowSub( i, stringPos ) );
 		dnStringInfoPtr->textLen = i - stringPos;
 		if( string[ i ] == ',' || string[ i ] == '+' )
 			{
@@ -260,6 +263,7 @@ int readDNstring( INOUT_PTR_DATAPTR DATAPTR_DN *dnPtr,
 	/* parseDNString() returns the number of entries parsed, since we're
 	   using zero-based indexing we have to decrement the value returned to
 	   provide the actual index into the dnStringInfo[] array */
+	REQUIRES( !checkOverflowDec( stringInfoIndex ) );
 	stringInfoIndex--;
 
 	DATAPTR_SET( dn, NULL );
@@ -341,7 +345,7 @@ int readDNstring( INOUT_PTR_DATAPTR DATAPTR_DN *dnPtr,
 			   it's representable as a certificate string type.  All that 
 			   we care about here is the validity so we ignore the returned 
 			   encoding information */
-			status = getAsn1StringInfo( textBuffer, textIndex, 
+			status = getASN1StringInfo( textBuffer, textIndex, 
 										&valueStringType, &dummy1, &dummy2, 
 										FALSE );
 			if( cryptStatusError( status ) )

@@ -200,12 +200,15 @@ static int copyFromAuxBuffer( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 
 	/* Copy as much of the signature data as we can across */
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize, 
+								 envelopeInfoPtr->bufPos ) );
 	bytesCopied = min( envelopeInfoPtr->bufSize - envelopeInfoPtr->bufPos,
 					   envelopeInfoPtr->auxBufPos );
 	REQUIRES( boundsCheckZ( envelopeInfoPtr->bufPos, bytesCopied, 
 							envelopeInfoPtr->bufSize ) );
 	memcpy( envelopeInfoPtr->buffer + envelopeInfoPtr->bufPos,
 			envelopeInfoPtr->auxBuffer, bytesCopied );
+	REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, bytesCopied ) );
 	envelopeInfoPtr->bufPos += bytesCopied;
 
 	/* Since we're in the post-data state any necessary payload data 
@@ -217,6 +220,7 @@ static int copyFromAuxBuffer( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	envelopeInfoPtr->segmentDataEnd = envelopeInfoPtr->bufPos;
 
 	/* If there's anything left, move it down in the buffer */
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->auxBufPos, bytesCopied ) );
 	dataLeft = envelopeInfoPtr->auxBufPos - bytesCopied;
 	if( dataLeft > 0 )
 		{
@@ -251,6 +255,8 @@ static int writeEOCs( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	REQUIRES( count >= 1 && count <= 8 );
 	REQUIRES( eocLength >= sizeofEOC() && \
 			  eocLength <= ( 8 * sizeofEOC() ) );	/* Count = 1...8 */
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize,
+								 envelopeInfoPtr->bufPos ) );
 
 	if( dataLeft < eocLength )
 		return( CRYPT_ERROR_OVERFLOW );
@@ -258,6 +264,7 @@ static int writeEOCs( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							envelopeInfoPtr->bufSize ) );
 	memcpy( envelopeInfoPtr->buffer + envelopeInfoPtr->bufPos, indefEOC,
 			eocLength );
+	REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, eocLength ) );
 	envelopeInfoPtr->bufPos += eocLength;
 
 	return( CRYPT_OK );
@@ -311,6 +318,7 @@ static int writeSignedDataHeader( INOUT_PTR STREAM *stream,
 			}
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( hashActionSize, actionSize ) );
 		hashActionSize += actionSize;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -322,16 +330,33 @@ static int writeSignedDataHeader( INOUT_PTR STREAM *stream,
 		dataSize = CRYPT_UNUSED;
 	else
 		{
+		long metaDataSize;
+		
 		/* Determine the size of the content OID + content */
-		dataSize = ( envelopeInfoPtr->payloadSize > 0 ) ? \
-			sizeofObject( sizeofObject( envelopeInfoPtr->payloadSize ) ) : 0;
+		if( envelopeInfoPtr->payloadSize > 0 )
+			{
+			ENSURES( !checkEncodeOverflow( envelopeInfoPtr->payloadSize, 2, 
+										   0, 0 ) );
+			dataSize = sizeofObject( \
+							sizeofObject( envelopeInfoPtr->payloadSize ) );
+			}
+		else
+			dataSize = 0;
+		ENSURES( !checkEncodeOverflow( sizeofOID( contentOID ), 0, 
+									   dataSize, 1 ) );
 		dataSize = sizeofObject( sizeofOID( contentOID ) + dataSize );
 
 		/* Determine the size of the version, hash algoID, content, 
 		   certificate chain, and signatures */
-		dataSize = sizeofShortInteger( 1 ) + sizeofObject( hashActionSize ) + \
-				   dataSize + envelopeInfoPtr->extraDataSize + \
-				   sizeofObject( envelopeInfoPtr->signActionSize );
+		REQUIRES( !checkOverflowAdd3( sizeofShortInteger( 1 ), 
+									  sizeofShortObject( hashActionSize ),
+									  sizeofObject( envelopeInfoPtr->signActionSize ) ) );
+		metaDataSize =  sizeofShortInteger( 1 ) + \
+						sizeofShortObject( hashActionSize ) + \
+						sizeofObject( envelopeInfoPtr->signActionSize );
+		REQUIRES( !checkOverflowAdd3( metaDataSize, dataSize, 
+									  envelopeInfoPtr->extraDataSize ) );
+		dataSize = metaDataSize + dataSize + envelopeInfoPtr->extraDataSize;
 		}
 	ENSURES( dataSize == CRYPT_UNUSED || \
 			 isBufsizeRangeMin( dataSize, MIN_CRYPT_OBJECTSIZE ) );
@@ -427,7 +452,8 @@ static int getBlockedPayloadSize( IN_LENGTH_INDEF const long payloadSize,
 	   size since if the size is already a multiple of the block size it 
 	   expands by another block, so we make the payload look one byte longer 
 	   before rounding to the block size to ensure the one-block expansion */
-	ENSURES( !checkOverflowAddLong( payloadSize + 1, blockSize ) );
+	REQUIRES( !checkOverflowAddLong( payloadSize, 1 ) );
+	REQUIRES( !checkOverflowRoundup( payloadSize + 1, blockSize ) );
 	*blockedPayloadSize = roundUp( payloadSize + 1, blockSize );
 
 	ENSURES( *blockedPayloadSize >= MIN_IVSIZE && \
@@ -531,6 +557,10 @@ static int writeEncryptionHeader( INOUT_PTR STREAM *stream,
 	REQUIRES( extraSize == CRYPT_UNUSED || \
 			  isBufsizeRangeNZ( extraSize ) );
 
+	REQUIRES( blockedPayloadSize == CRYPT_UNUSED || \
+			  extraSize == CRYPT_UNUSED || \
+			  !checkOverflowAddLong3( sizeofShortInteger( 0 ), extraSize, \
+									  blockedPayloadSize ) );
 	status = writeCMSheader( stream, oid, oidLength,
 							 ( blockedPayloadSize == CRYPT_UNUSED || \
 							   extraSize == CRYPT_UNUSED ) ? \
@@ -604,12 +634,15 @@ static int writeEnvelopedDataHeader( INOUT_PTR STREAM *stream,
 	   through all sorts of hoops based on the contents and versions of 
 	   encapsulated RecipientInfo structures but nothing seems to care about 
 	   this so we just use a version of 0 */
+	REQUIRES( envelopeInfoPtr->cryptActionSize == CRYPT_UNUSED || \
+			  !checkEncodeOverflow( envelopeInfoPtr->cryptActionSize, 1, \
+									encrContentInfoSize, 0 ) );
 	status = writeEncryptionHeader( stream, OID_CMS_ENVELOPEDDATA, 
 						sizeofOID( OID_CMS_ENVELOPEDDATA ), 0, 
 						blockedPayloadSize,
 						( envelopeInfoPtr->cryptActionSize == CRYPT_UNUSED ) ? \
 							CRYPT_UNUSED : \
-							sizeofObject( envelopeInfoPtr->cryptActionSize ) + \
+							sizeofShortObject( envelopeInfoPtr->cryptActionSize ) + \
 								encrContentInfoSize );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -670,22 +703,35 @@ static int writeAuthenticatedDataHeader( INOUT_PTR STREAM *stream,
 								  CRYPT_CTXINFO_BLOCKSIZE );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkEncodeOverflow( envelopeInfoPtr->payloadSize, 2, 0, 0 ) );
 		contentInfoSize = sizeofObject( \
 							sizeofObject( envelopeInfoPtr->payloadSize ) );
-		contentInfoSize = sizeofObject( sizeofOID( contentOID ) + \
-										contentInfoSize ) - \
-						  envelopeInfoPtr->payloadSize;
+		REQUIRES( !checkEncodeOverflow( sizeofOID( contentOID ), 0, 
+										contentInfoSize, 1 ) );
+		contentInfoSize = sizeofObject( \
+								sizeofOID( contentOID ) + contentInfoSize );
+		REQUIRES( !checkOverflowSub( contentInfoSize, 
+									 envelopeInfoPtr->payloadSize ) );
+		contentInfoSize -= envelopeInfoPtr->payloadSize;
 		REQUIRES( isIntegerRangeMin( contentInfoSize, 16 ) );
 
 		/* Write the data header */
+		if( envelopeInfoPtr->cryptActionSize != CRYPT_UNUSED ) 
+			{
+			REQUIRES( !checkOverflowAdd3( macActionSize, contentInfoSize, 
+										  sizeofShortObject( macSize ) ) );
+			REQUIRES( !checkEncodeOverflow( envelopeInfoPtr->cryptActionSize, 1, 
+											macActionSize + contentInfoSize + \
+												sizeofShortObject( macSize ), 0 ) );
+			}
 		status = writeEncryptionHeader( stream, OID_CMS_AUTHDATA, 
 					sizeofOID( OID_CMS_AUTHDATA ), 0, 
 					envelopeInfoPtr->payloadSize,
 					( envelopeInfoPtr->cryptActionSize == CRYPT_UNUSED ) ? \
 						CRYPT_UNUSED : \
-						sizeofObject( envelopeInfoPtr->cryptActionSize ) + \
+						sizeofShortObject( envelopeInfoPtr->cryptActionSize ) + \
 							macActionSize + contentInfoSize + \
-							sizeofObject( macSize ) );
+							sizeofShortObject( macSize ) );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -756,14 +802,22 @@ static int writeAuthEncDataHeader( INOUT_PTR STREAM *stream,
 
 	/* Write the EnvelopedData header and version number and start of the 
 	   SET OF RecipientInfo/EncryptionKeyInfo */
+	if( envelopeInfoPtr->cryptActionSize != CRYPT_UNUSED ) 
+		{
+			REQUIRES( !checkOverflowAdd( encrContentInfoSize, \
+										 sizeofShortObject( macSize ) ) );
+			REQUIRES( !checkEncodeOverflow( envelopeInfoPtr->cryptActionSize, 1, 
+											encrContentInfoSize + \
+												sizeofShortObject( macSize ), 0 ) );
+		}
 	status = writeEncryptionHeader( stream, OID_CMS_AUTHENVDATA, 
 						sizeofOID( OID_CMS_AUTHENVDATA ), 0, 
 						blockedPayloadSize,
 						( envelopeInfoPtr->cryptActionSize == CRYPT_UNUSED ) ? \
 							CRYPT_UNUSED : \
-							sizeofObject( envelopeInfoPtr->cryptActionSize ) + \
+							sizeofShortObject( envelopeInfoPtr->cryptActionSize ) + \
 								encrContentInfoSize + \
-								sizeofObject( macSize ) );
+								sizeofShortObject( macSize ) );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -964,6 +1018,8 @@ static int writeKeyex( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 								  MAX_INTLENGTH_SHORT - 1 );
 		int keyexSize;
 
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize, \
+									 envelopeInfoPtr->bufPos ) );
 		ENSURES( isShortIntegerRange( dataLeft ) );
 		REQUIRES( sanityCheckActionList( actionListPtr ) );
 
@@ -971,6 +1027,7 @@ static int writeKeyex( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 		/* Make sure that there's enough room to emit this key exchange 
 		   action */
+		REQUIRES( !checkOverflowAdd( actionListPtr->encodedSize, 128 ) );
 		if( actionListPtr->encodedSize + 128 > dataLeft )
 			{
 			status = CRYPT_ERROR_OVERFLOW;
@@ -986,6 +1043,7 @@ static int writeKeyex( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 						errorInfo );
 		if( cryptStatusError( status ) )
 			break;
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, keyexSize ) );
 		envelopeInfoPtr->bufPos += keyexSize;
 		ENSURES( ( envelopeInfoPtr->cryptActionSize == CRYPT_UNUSED ) || \
 				 ( actionListPtr->encodedSize == keyexSize ) );
@@ -1029,6 +1087,8 @@ static int writeCertchainTrailer( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize, 
+								 envelopeInfoPtr->bufPos ) );
 	ENSURES( isShortIntegerRange( dataLeft ) );
 
 	/* Check whether there's enough room left in the buffer to emit the 
@@ -1053,6 +1113,7 @@ static int writeCertchainTrailer( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		   allocate an auxiliary buffer for them and from there copy them 
 		   into the main buffer */
 		REQUIRES( envelopeInfoPtr->auxBuffer == NULL );
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->extraDataSize, 64 ) );
 		REQUIRES( isIntegerRangeNZ( envelopeInfoPtr->extraDataSize + 64 ) );
 		if( ( envelopeInfoPtr->auxBuffer = \
 				clDynAlloc( "emitPostamble",
@@ -1126,6 +1187,7 @@ static int writeCertchainTrailer( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	   any post-payload data because it's past the end-of-segment position.  
 	   In order to allow the buffer to be emptied to make room for signature 
 	   data we set the end-of-segment position to the end of the new data */
+	REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, certChainSize ) );
 	envelopeInfoPtr->bufPos += certChainSize;
 	envelopeInfoPtr->segmentDataEnd = envelopeInfoPtr->bufPos;
 
@@ -1159,19 +1221,48 @@ static int writeSignatures( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 
 		REQUIRES( sanityCheckActionList( actionListPtr ) );
 		REQUIRES( actionListPtr->action == ACTION_SIGN );
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize, \
+									 envelopeInfoPtr->bufPos ) );
 		ENSURES( isShortIntegerRange( sigBufSize ) );
 
 		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
 
 		/* Check whether there's enough room left in the buffer to emit the
 		   signature directly into it.  Since signatures are fairly small (a
-		   few hundred bytes) we always require enough room in the buffer
-		   and don't bother with any overflow handling via the auxBuffer */
-		if( actionListPtr->encodedSize + 64 > sigBufSize )
+		   few hundred bytes for cryptlib sigs, a kB or two for S/MIME ones) 
+		   we always require enough room in the buffer and don't bother with 
+		   any overflow handling via the auxBuffer.
+		   
+		   This is complicated by the fact that (EC)DLP signatures and 
+		   timestamped signatures are of unknown length until they're 
+		   actually created.  To deal with this we require at least 2kB of
+		   space for non-timestamped signatures and an even larger amount
+		   in the presence of timestamps */
+		if( actionListPtr->encodedSize == CRYPT_UNUSED )
 			{
-			status = CRYPT_ERROR_OVERFLOW;
-			break;
+			/* If we're using timestamps we require at least 4kB of space */
+			if( actionListPtr->iTspSession != CRYPT_ERROR )
+				{
+				REQUIRES( !checkOverflowDiv( envelopeInfoPtr->bufSize, 2 ) );
+				if( sigBufSize < min( envelopeInfoPtr->bufSize / 2, 4096 ) )
+					status = CRYPT_ERROR_OVERFLOW;
+				}
+			else
+				{
+				/* It's a standard signature, we require at least 2kB of 
+				   space */
+				if( sigBufSize < 2048 )
+					status = CRYPT_ERROR_OVERFLOW;
+				}
 			}
+		else
+			{
+			REQUIRES( !checkOverflowAdd( actionListPtr->encodedSize, 64 ) );
+			if( actionListPtr->encodedSize + 64 > sigBufSize )
+				status = CRYPT_ERROR_OVERFLOW;
+			}
+		if( cryptStatusError( status ) )
+			break;
 
 		/* Set up any necessary signature parameters such as signature 
 		   attributes and timestamps if necessary */
@@ -1200,6 +1291,7 @@ static int writeSignatures( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 				  ( sanityCheckEnvCMSEnv( envelopeInfoPtr ) && \
 					sanityCheckActionList( actionListPtr ) ) );
 
+		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, sigSize ) );
 		envelopeInfoPtr->bufPos += sigSize;
 		noSigs++;
 		}
@@ -1254,10 +1346,12 @@ static int writeMAC( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 
+	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize, \
+								 envelopeInfoPtr->bufPos ) );
 	REQUIRES( isShortIntegerRange( dataLeft ) );
 
 	/* Make sure that there's room for the MAC data in the buffer */
-	if( dataLeft < eocSize + sizeofObject( CRYPT_MAX_HASHSIZE ) )
+	if( dataLeft < eocSize + sizeofShortObject( CRYPT_MAX_HASHSIZE ) )
 		return( CRYPT_ERROR_OVERFLOW );
 	INJECT_FAULT( ENVELOPE_CMS_CORRUPT_AUTH_DATA, 
 				  ENVELOPE_CMS_CORRUPT_AUTH_DATA_1 );
@@ -1292,6 +1386,7 @@ static int writeMAC( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	if( cryptStatusError( status ) )
 		return( status );
 	ENSURES( isBufsizeRangeNZ( length ) );
+	REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, length ) );
 	envelopeInfoPtr->bufPos += length;
 
 	return( CRYPT_OK );
@@ -1430,6 +1525,8 @@ static int emitPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 								  MAX_INTLENGTH_SHORT - 1 );
 
 		REQUIRES( contentOID != NULL );
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize, \
+									 envelopeInfoPtr->bufPos ) );
 		REQUIRES( isShortIntegerRangeNZ( dataLeft ) );
 
 		/* Make sure that there's enough room to emit the data header.  The
@@ -1482,7 +1579,11 @@ static int emitPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 									envelopeInfoPtr->blockSize );
 			}
 		if( cryptStatusOK( status ) )
+			{
+			REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos,
+										 stell( &stream ) ) );
 			envelopeInfoPtr->bufPos += stell( &stream );
+			}
 		sMemDisconnect( &stream );
 		if( cryptStatusOK( status ) && \
 			TEST_FLAG( envelopeInfoPtr->flags, ENVELOPE_FLAG_AUTHENC ) )
@@ -1503,6 +1604,8 @@ static int emitPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			   corruption that won't be detected by the MAC on the payload 
 			   data.  This requires digging down into the encrypted content
 			   header to locate the AlgoID data and MACing that */
+			REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufPos, 
+										 originalBufPos ) );
 			sMemConnect( &stream, envelopeInfoPtr->buffer + originalBufPos,
 						 envelopeInfoPtr->bufPos - originalBufPos );
 			readLongSequence( &stream, NULL );	/* Outer encapsulation */

@@ -359,8 +359,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 	pkcInfo->checksum = 0L;
-	status = checksumContextData( contextInfoPtr->ctxPKC, CRYPT_ALGO_DH, 
-								  TRUE );
+	status = checksumContextData( contextInfoPtr->ctxPKC, TRUE );
 	ENSURES( cryptStatusOK( status ) );
 	ENSURES( verifyBignumImport( &pkcInfo->dhParam_yPrime,
 								 keyAgreeParams->publicValue, 
@@ -376,6 +375,8 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Check that the result looks OK, not too small and not == p-1 (when p 
 	   is a safe prime) */
+	REQUIRES( !checkOverflowSub( bitsToBytes( pkcInfo->keySizeBits ),
+								 BN_num_bytes( z ) ) );
 	offset = bitsToBytes( pkcInfo->keySizeBits ) - BN_num_bytes( z );
 	ENSURES( offset >= 0 && offset <= bitsToBytes( pkcInfo->keySizeBits ) );
 	if( offset > 16 )
@@ -446,7 +447,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		if( dhKey->isPublicKey )
 			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPUBLICKEY );
 		else
-			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPRIVATEKEY );
+			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		status = importBignum( &pkcInfo->dlpParam_p, dhKey->p, 
 							   bitsToBytes( dhKey->pLen ),
 							   DLPPARAM_MIN_P, DLPPARAM_MAX_P, NULL, 

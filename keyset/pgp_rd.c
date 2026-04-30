@@ -311,12 +311,14 @@ static int readRSAKeyComponents( INOUT_PTR STREAM *stream,
 						 &length );			/* n */
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( totalLength, length ) );
 	totalLength += length;
 	
 #ifdef USE_PGP2
 	/* Move back and copy out the last PGP_KEYID_SIZE bytes of n as the PGP 
 	   2.x key ID */
 	static_assert( PGP_KEYID_SIZE < MIN_PKCSIZE, "PGP keyID size" );
+	REQUIRES( !checkOverflowSub( stell( stream ), PGP_KEYID_SIZE ) );
 	status = sseek( stream, stell( stream ) - PGP_KEYID_SIZE );
 	if( cryptStatusOK( status ) )
 		{
@@ -329,6 +331,7 @@ static int readRSAKeyComponents( INOUT_PTR STREAM *stream,
 	status = getMPIsize( stream, 1, CRYPT_MAX_PKCSIZE, &length );
 	if( cryptStatusError( status ) )		/* e */
 		return( status );
+	REQUIRES( !checkOverflowAdd( totalLength, length ) );
 	*pubKeyComponentLength = totalLength + length;
 
 	return( CRYPT_OK );
@@ -353,17 +356,20 @@ static int readDLPKeyComponents( INOUT_PTR STREAM *stream,
 	status = getMPIsize( stream, MIN_PKCSIZE, CRYPT_MAX_PKCSIZE, &length );	
 	if( cryptStatusOK( status ) )				/* p */
 		{
+		REQUIRES( !checkOverflowAdd( totalLength, length ) );
 		totalLength += length;
 		status = getMPIsize( stream, 1, CRYPT_MAX_PKCSIZE, &length );
 		}										/* g */
 	if( cryptStatusOK( status ) )
 		{
+		REQUIRES( !checkOverflowAdd( totalLength, length ) );
 		totalLength += length;
 		status = getMPIsize( stream, MIN_PKCSIZE, CRYPT_MAX_PKCSIZE, 
 							 &length );			/* y */
 		}
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( totalLength, length ) );
 	totalLength += length;
 	if( keyInfo->pkcAlgo ==  CRYPT_ALGO_DSA )
 		{
@@ -372,6 +378,7 @@ static int readDLPKeyComponents( INOUT_PTR STREAM *stream,
 							 &length );			/* q */
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowAdd( totalLength, length ) );
 		totalLength += length;
 		}
 	*pubKeyComponentLength = totalLength;
@@ -403,6 +410,7 @@ static int readECCKeyComponents( INOUT_PTR STREAM *stream,
 	status = sSkip( stream, length, MAX_OID_SIZE );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( totalLength, length ) );
 	totalLength += length;
 
 	/* ECC: qx/qy as an ECC point */
@@ -410,6 +418,7 @@ static int readECCKeyComponents( INOUT_PTR STREAM *stream,
 						 CRYPT_MAX_PKCSIZE_ECC, &length );	
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( totalLength, length ) );
 	totalLength += length;
 
 	/* If we're reading an ECDSA key, we're done */
@@ -429,6 +438,7 @@ static int readECCKeyComponents( INOUT_PTR STREAM *stream,
 	status = sSkip( stream, 3, 3 );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowAdd( totalLength, 1 + length ) );
 	*pubKeyComponentLength = totalLength + 1 + length;
 
 	return( CRYPT_OK );
@@ -800,6 +810,7 @@ static int readKey( INOUT_PTR STREAM *stream,
 			|<----------------- packetLength ---------------------->| */
 	pubKeyPos = stell( stream );
 	REQUIRES( isIntegerRangeNZ( pubKeyPos ) );
+	REQUIRES( !checkOverflowAdd( pubKeyPos, packetLength ) );
 	endPos = pubKeyPos + packetLength;
 	ENSURES( endPos > pubKeyPos && endPos < MAX_BUFFER_SIZE );
 	status = value = sgetc( stream );
@@ -930,9 +941,16 @@ static int readKey( INOUT_PTR STREAM *stream,
 			}
 
 		/* What's left is the private-key data */
-		keyInfo->privKeyDataLen = endPos - stell( stream );
-		if( !isShortIntegerRangeMin( keyInfo->privKeyDataLen, 16 ) )
+		if( endPos < stell( stream ) )
+			length = UNDERFLOW_MARKER;
+		else
+			{
+			REQUIRES( !checkOverflowSub( endPos, stell( stream ) ) );
+			length = endPos - stell( stream );
+			}
+		if( !isShortIntegerRangeMin( length, 16 ) )
 			return( CRYPT_ERROR_BADDATA );
+		keyInfo->privKeyDataLen = length;
 		status = sMemGetDataBlock( stream, &keyInfo->privKeyData, 
 								   keyInfo->privKeyDataLen );
 		if( cryptStatusOK( status ) )
@@ -1135,6 +1153,7 @@ static int processKeyringPackets( INOUT_PTR STREAM *stream,
 			{
 			REQUIRES( bufEnd >= 0 && bufEnd < bufSize );
 
+			REQUIRES( !checkOverflowSub( bufSize, bufEnd ) );
 			REQUIRES( boundsCheckZ( bufEnd, bufSize - bufEnd, bufSize ) );
 			status = length = sread( stream, buffer + bufEnd,
 									 bufSize - bufEnd );
@@ -1166,9 +1185,10 @@ static int processKeyringPackets( INOUT_PTR STREAM *stream,
 				{
 				/* If we didn't get as much as we requested then there's 
 				   nothing left to read */
-				if( length < bufSize - bufEnd )
+				if( length < bufSize - bufEnd )	/* Checked earlier */
 					moreData = FALSE;
 				}
+			REQUIRES( !checkOverflowAdd( bufEnd, length ) );
 			bufEnd += length;
 
 			ENSURES( bufEnd > 0 && bufEnd <= bufSize );
@@ -1220,9 +1240,11 @@ static int processKeyringPackets( INOUT_PTR STREAM *stream,
 			 remove	  move */
 		if( length < bufEnd )
 			{
+			REQUIRES( !checkOverflowSub( bufEnd, length ) );
 			REQUIRES( boundsCheck( length, bufEnd - length, bufSize ) );
 			memmove( buffer, buffer + length, bufEnd - length );
 			}
+		REQUIRES( !checkOverflowSub( bufEnd, length ) );
 		bufEnd -= length;
 		ENSURES( bufEnd >= 0 && bufEnd < bufSize );
 
@@ -1265,6 +1287,7 @@ static int processKeyringPackets( INOUT_PTR STREAM *stream,
 		   that we only get to this point if we've been able to do something 
 		   with the key, if not then the unhandledDataPresent flag will be 
 		   set without moving on to the next key group */
+		REQUIRES( !checkOverflowInc( keyGroupNo ) );
 		keyGroupNo++;
 		if( keyGroupNo >= maxNoPgpObjects )
 			{
