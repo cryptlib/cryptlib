@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  Win32 Randomness-Gathering Code					*
-*	Copyright Peter Gutmann, Matt Thomlinson and Blake Coverett 1996-2017	*
+*	Copyright Peter Gutmann, Matt Thomlinson and Blake Coverett 1996-2024	*
 *																			*
 ****************************************************************************/
 
@@ -27,7 +27,7 @@
 #pragma warning( pop )
 #include <process.h>
 
-/* If we're using a TPM as a random mumber source we need to include 
+/* If we're using a TPM as a random number source we need to include 
    additional headers and libraries */
 
 #ifdef USE_TPM_RNG
@@ -253,7 +253,7 @@ static void initSystemRNG( void )
 	   the 760 MP chipset) also has a hardware RNG, but there doesn't appear 
 	   to be any driver support for this as there is for the Intel RNG so we 
 	   can't do much with it.  OTOH the Intel RNG is also effectively dead, 
-	   mostly due to virtually nonexistant support/marketing by Intel, it's 
+	   mostly due to virtually nonexistent support/marketing by Intel, it's 
 	   included here mostly for form's sake */
 	if( ( pCryptAcquireContext == NULL || \
 		  pCryptGenRandom == NULL || pCryptReleaseContext == NULL || \
@@ -607,7 +607,7 @@ typedef struct {
 	__int64 /*double*/ ssHigh;	/* Highest readout */
 	long ssCount;				/* Total number of readout */
 	char sspadding2[ 4 ];		/* Padding of 4 bytes */
-	BYTE /*long double*/ ssTotal[ 8 ];	/* Total amout of all readouts */
+	BYTE /*long double*/ ssTotal[ 8 ];	/* Total amount of all readouts */
 	char sspadding3[ 6 ];		/* Padding of 6 bytes */
 	__int64 /*double*/ ssAlarm1;/* Temp & fan: high alarm; voltage: % off */
 	__int64 /*double*/ ssAlarm2;/* Temp: low alarm */
@@ -966,9 +966,9 @@ static void readATITrayToolsData( void )
 	CloseHandle( hTrayToolsData );
 	}
 
-/* CoreTemp data structure, from www.alcpu.com/CoreTemp.   The DWORD values 
-   below are actually (32-bit) floats but we overlay them with DWORDs since 
-   we don't care about the values */
+/* CoreTemp data structure, from www.alcpu.com/CoreTemp/developers.html.   
+   The DWORD values below are actually 32-bit floats but we overlay them 
+   with DWORDs since we don't care about the values */
 
 typedef struct 
 	{
@@ -981,20 +981,50 @@ typedef struct
 	DWORD /*float*/ fCPUSpeed;
 	DWORD /*float*/ fFSBSpeed;
 	DWORD /*float*/ fMultipier;	
-	DWORD /*float*/ sCPUName[ 100 ];
-	unsigned char ucFahrenheit;
-	unsigned char ucDeltaToTjMax;
+	char sCPUName[ 100 ];
+	unsigned char ucFahrenheit;		/* Boolean, temp in Fahrenheit */
+	unsigned char ucDeltaToTjMax;	/* Boolean, temp is delta from TjMax */
 	} CORE_TEMP_SHARED_DATA;
+
+typedef struct 
+	{
+	unsigned int uiLoad[ 256 ];
+	unsigned int uiTjMax[ 128 ];
+	unsigned int uiCoreCnt;
+	unsigned int uiCPUCnt;
+	DWORD /*float*/ fTemp[ 256 ];
+	DWORD /*float*/ fVID;
+	DWORD /*float*/ fCPUSpeed;
+	DWORD /*float*/ fFSBSpeed;
+	DWORD /*float*/ fMultipier;	
+	char sCPUName[ 100 ];
+	unsigned char ucFahrenheit;		/* Boolean, temp in Fahrenheit */
+	unsigned char ucDeltaToTjMax;	/* Boolean, temp is delta from TjMax */
+	/* Version 2 extended information */
+	unsigned char ucTdpSupported;	/* Boolean, uiTdp is valid */
+	unsigned char ucPowerSupported;	/* Boolean, fPower is valid */
+	unsigned int uiStructVersion;	/* 2 = version 2 */
+	unsigned int uiTdp[ 128 ];
+	DWORD /* float */ fPower[ 128 ];
+	DWORD /* float */ fMultipliers[ 256 ];
+	} CORE_TEMP_SHARED_DATA_V2;
 
 static void readCoreTempData( void )
 	{
 	HANDLE hCoreTempData;
-	CORE_TEMP_SHARED_DATA *coreTempDataPtr;
+	CORE_TEMP_SHARED_DATA_V2 *coreTempDataPtr;
+	BOOLEAN isV2 = FALSE;
 
 	if( ( hCoreTempData = OpenFileMapping( FILE_MAP_READ, FALSE,
-										   "CoreTempMappingObject" ) ) == NULL )
-		return;
-	if( ( coreTempDataPtr = ( CORE_TEMP_SHARED_DATA * ) \
+									"CoreTempMappingObjectEx" ) ) != NULL )
+		isV2 = TRUE;
+	else
+		{
+		if( ( hCoreTempData = OpenFileMapping( FILE_MAP_READ, FALSE,
+									"CoreTempMappingObject" ) ) == NULL )
+			return;
+		}
+	if( ( coreTempDataPtr = ( CORE_TEMP_SHARED_DATA_V2 * ) \
 			MapViewOfFile( hCoreTempData, FILE_MAP_READ, 0, 0, 0 ) ) != NULL )
 		{
 		MESSAGE_DATA msgData;
@@ -1002,7 +1032,8 @@ static void readCoreTempData( void )
 		int status;
 
 		setMessageData( &msgData, coreTempDataPtr,
-						sizeof( CORE_TEMP_SHARED_DATA ) );
+						isV2 ? sizeof( CORE_TEMP_SHARED_DATA_V2 ) : \
+							   sizeof( CORE_TEMP_SHARED_DATA ) );
 		status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, 
 								  IMESSAGE_SETATTRIBUTE_S, &msgData, 
 								  CRYPT_IATTRIBUTE_ENTROPY );

@@ -23,7 +23,7 @@
 
 #if ( defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ ) ) && \
 	defined( USE_RSA_SUITES )
-  #pragma message( "  Warning: RSA keyex is insecure, this should not be used in a production environment." )
+  #pragma message( "  Warning: RSA keyex is insecure and present for testing only, this should not be used in a production environment." )
 #endif /* Notify insecure keyex use */
 
 /****************************************************************************
@@ -64,8 +64,8 @@ BOOLEAN sanityCheckSessionTLS( IN_PTR const SESSION_INFO *sessionInfoPtr )
 		tlsInfo->maxVersion > TLS_MINOR_VERSION_TLS13 || \
 		( tlsInfo->ivSize != 0 && tlsInfo->ivSize != 8 && \
 		  tlsInfo->ivSize != 16 ) || \
-		tlsInfo->readSeqNo < 0 || tlsInfo->readSeqNo > LONG_MAX / 2 || \
-		tlsInfo->writeSeqNo < 0 || tlsInfo->writeSeqNo > LONG_MAX / 2 
+		!isIntegerRange( tlsInfo->readSeqNo ) || \
+		!isIntegerRange( tlsInfo->writeSeqNo )
 #if defined( USE_GCM ) || defined( USE_CHACHA20 )
 		|| tlsInfo->aeadSaltSize < 0 || \
 		tlsInfo->aeadSaltSize > CRYPT_MAX_IVSIZE 
@@ -550,7 +550,8 @@ static int checkSuiteBKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* In addition if a specific crypto strength has been configured then 
 	   the key size has to correspond to that strength.  At 128 bits we can
 	   use both P256 and P384, but at 256 bits we have to use P384 */
-	if( ( ( sessionInfoPtr->flags & TLS_PFLAG_SUITEB ) == TLS_PFLAG_SUITEB_256 ) && \
+	if( ( GET_FLAGS( sessionInfoPtr->protocolFlags, \
+					 TLS_PFLAG_SUITEB ) == TLS_PFLAG_SUITEB_256 ) && \
 		keySize != bitsToBytes( 384 ) )
 		{
 		setObjectErrorInfo( sessionInfoPtr, CRYPT_CTXINFO_KEYSIZE, 
@@ -715,8 +716,7 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			{
 			/* A certificate context value is only valid if it's coming from
 			   the client */
-			if( !isServer( sessionInfoPtr ) || \
-				certContextLength > CRYPT_MAX_HASHSIZE )
+			if( isServer || certContextLength > CRYPT_MAX_HASHSIZE )
 				status = CRYPT_ERROR_BADDATA;
 			else
 				{
@@ -868,7 +868,10 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = krnlSendMessage( iLocalCertChain, IMESSAGE_GETATTRIBUTE,
 							  &length, CRYPT_CTXINFO_KEYSIZE );
 	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( iLocalCertChain, IMESSAGE_DECREFCOUNT );
 		return( status );
+		}
 	switch( sessionInfoPtr->protocolFlags & TLS_PFLAG_SUITEB )
 		{
 		case 0:
@@ -1048,8 +1051,9 @@ static int commonStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   at runtime without creating an AES context each time we check so we 
 	   rely on USE_GCM being defined to tell us whether it's available */
 #ifdef USE_TLS13
-	if( !algoAvailable( CRYPT_ALGO_ECDH ) || \
-		!algoAvailable( CRYPT_ALGO_ECDSA ) )
+	if( sessionInfoPtr->sessionTLS->maxVersion >= TLS_MINOR_VERSION_TLS13 && \
+		( !algoAvailable( CRYPT_ALGO_ECDH ) || \
+		  !algoAvailable( CRYPT_ALGO_ECDSA ) ) )
 		{
 		retExt( CRYPT_ERROR_NOTAVAIL,
 				( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
@@ -1090,11 +1094,14 @@ static int commonStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				resumedSession = TRUE;
 			else
 				{
+				ENSURES( handshakeInfo.completedHSstate != \
+											HANDSHAKE_STATE_BEGIN );
 				delayRandom();	/* Dither error timing info */				
 				return( abortStartup( sessionInfoPtr, &handshakeInfo, 
 									  TRUE, status ) );
 				}
 			}
+		ENSURES( handshakeInfo.completedHSstate == HANDSHAKE_STATE_BEGIN );
 
 		/* If w're continuing with TLS 1.3, switch to the TLS 1.3 protocol 
 		   stack */
@@ -1115,6 +1122,10 @@ static int commonStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			status = handshakeFunction( sessionInfoPtr, &handshakeInfo );
 			if( cryptStatusError( status ) )
 				{
+				ENSURES( handshakeInfo.completedHSstate != \
+											HANDSHAKE_STATE_KEYEX && \
+						 handshakeInfo.completedHSstate != \
+											HANDSHAKE_STATE_COMPLETE );
 				delayRandom();	/* Dither error timing info */				
 				return( abortStartup( sessionInfoPtr, &handshakeInfo, TRUE,
 									  status ) );
@@ -1123,8 +1134,13 @@ static int commonStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		else
 			{
 			/* Remember that we've resumed the session from cached data and
-			   that some handshake-related information won't be avaiable */
+			   that some handshake-related information won't be available */
 			SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_CACHEDINFO );
+
+			/* We've bypassed the keyex state via the resume.  Note that TLS 
+			   1.3 doesn't do session resumption so we can unconditionally 
+			   set the state to the TLS classic value */
+			handshakeInfo.completedHSstate = HANDSHAKE_STATE_KEYEX;
 			}
 
 		/* TLS 1.3 completely changes the TLS protocol flow in order to 
@@ -1133,10 +1149,13 @@ static int commonStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_TLS13
 		if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
 			{
+			ENSURES( handshakeInfo.completedHSstate == \
+										HANDSHAKE_STATE_COMPLETE );
 			destroyHandshakeInfo( &handshakeInfo );
 			return( CRYPT_OK );
 			}
 #endif /* USE_TLS13 */
+		ENSURES( handshakeInfo.completedHSstate == HANDSHAKE_STATE_KEYEX );
 
 		/* If we're performing manual verification of the peer's 
 		   certificate, let the caller know that they have to check it,
@@ -1172,12 +1191,15 @@ static int commonStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Complete the handshake */
 	status = completeHandshakeTLS( sessionInfoPtr, &handshakeInfo, 
 								   isServer ? FALSE : TRUE, resumedSession );
-	destroyHandshakeInfo( &handshakeInfo );
 	if( cryptStatusError( status ) )
 		{
+		ENSURES( handshakeInfo.completedHSstate != HANDSHAKE_STATE_COMPLETE );
+		destroyHandshakeInfo( &handshakeInfo );
 		delayRandom();	/* Dither error timing info */				
 		return( abortStartup( sessionInfoPtr, NULL, TRUE, status ) );
 		}
+	ENSURES( handshakeInfo.completedHSstate == HANDSHAKE_STATE_COMPLETE );
+	destroyHandshakeInfo( &handshakeInfo );
 
 	return( CRYPT_OK );
 	}
@@ -1523,7 +1545,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		const int suiteBvalue = value & ( CRYPT_TLSOPTION_SUITEB_128 | \
 										  CRYPT_TLSOPTION_SUITEB_256 );
 
-		if( sessionInfoPtr->protocolFlags & TLS_PFLAG_SUITEB )
+		if( TEST_FLAG( sessionInfoPtr->protocolFlags, TLS_PFLAG_SUITEB ) )
 			{
 			/* If a Suite B configuration option is already set then we 
 			   can't set another one on top of it */
@@ -1539,9 +1561,9 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( CRYPT_ARGERROR_NUM1 );
 			}
 		if( suiteBvalue == CRYPT_TLSOPTION_SUITEB_128 )
-			sessionInfoPtr->protocolFlags |= TLS_PFLAG_SUITEB_128;
+			SET_FLAG( sessionInfoPtr->protocolFlags, TLS_PFLAG_SUITEB_128 );
 		else
-			sessionInfoPtr->protocolFlags |= TLS_PFLAG_SUITEB_256;
+			SET_FLAG( sessionInfoPtr->protocolFlags, TLS_PFLAG_SUITEB_256 );
 		}
 #endif /* CONFIG_SUITEB */
 

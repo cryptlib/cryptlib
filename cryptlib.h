@@ -9,7 +9,7 @@
 
 #define _CRYPTLIB_DEFINED
 
-/* The current cryptlib version: 3.4.9.1 */
+/* The current cryptlib version: 3.4.9.2 */
 
 #define CRYPTLIB_VERSION	349
 
@@ -26,7 +26,7 @@
    wincrypt.h can be pulled in indirectly and unconditionally, for example
    via winldap.h -> schnlsp.h -> schannel.h -> wincrypt.h.  To fix this, we
    create a redundant define for CRYPT_MODE_ECB that produces a compile
-   error if wincrypt.h is included after cryptlib.h.  Since thie will
+   error if wincrypt.h is included after cryptlib.h.  Since this will
    conflict with the enum, we have to place it after the CRYPT_MODE_xxx
    enums */
 
@@ -1310,7 +1310,7 @@ typedef enum {
 	   initialisation process for system objects like the default user 
 	   object, these are created early on in the boot process but their
 	   initialisation can't be completed at that point because higher-level
-	   functionality that's required to complete the intialisation isn't
+	   functionality that's required to complete the initialisation isn't
 	   available yet, see cryptlib.c for details.
 
 	   The two attributes CRYPT_IATTRIBUTE_KEY_SPKI and CRYPT_IATTRIBUTE_SPKI 

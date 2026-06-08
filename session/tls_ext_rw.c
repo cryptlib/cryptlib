@@ -126,7 +126,7 @@ static const EXT_CHECK_INFO extCheckInfoTbl[] = {
 	{ TLS_EXT_USER_MAPPING, DESCRIPTION( "user-mapping" )
 	  1 + 1, CRYPT_ERROR, 1 + 255 },
 
-	/* Authorisation extenions.  From an experimental RFC for adding 
+	/* Authorisation extensions.  From an experimental RFC for adding 
 	   additional authorisation data to the TLS handshake, RFC 5878:
 
 		byte		authzFormatsList
@@ -525,7 +525,7 @@ static const EXT_CHECK_INFO extCheckInfoTbl[] = {
    validity checking */
 
 CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 3, 4, 5 ) ) \
-int getExtensionInfo( IN_RANGE( 0, 65536 ) const int type,
+int getExtensionInfo( IN_RANGE( 0, 65535 ) const int type,
 					  IN_BOOL const BOOLEAN isServer,
 					  OUT_LENGTH_SHORT_Z int *minLength,
 					  OUT_LENGTH_SHORT_Z int *maxLength,
@@ -534,7 +534,7 @@ int getExtensionInfo( IN_RANGE( 0, 65536 ) const int type,
 	const EXT_CHECK_INFO *extCheckInfoPtr = NULL;
 	LOOP_INDEX i;
 
-	REQUIRES( type >= 0 && type <= 65536 );
+	REQUIRES( type >= 0 && type <= 65535 );
 	REQUIRES( isBooleanValue( isServer ) );
 
 	assert( isWritePtr( minLength, sizeof( int ) ) );
@@ -664,7 +664,7 @@ int readSNI( INOUT_PTR STREAM *stream,
 	status = sread( stream, nameBuffer, nameLen );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( nameLen == 3 && !memcmp( nameBuffer, "::1", 3 ) )
+	if( nameLen == 3 && memcmp( nameBuffer, "::1", 3 ) )
 		{
 		/* If the name length is less than MIN_DNS_SIZE then the only 
 		   allowed value is "::1" */
@@ -854,7 +854,7 @@ int writeSupportedVersions( INOUT_PTR STREAM *stream,
 	{
 	STREAM localStream;
 	BYTE buffer[ 16 + 8 ];
-	int endPos, status DUMMY_INIT;
+	int endPos, status = CRYPT_ERROR;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -862,7 +862,9 @@ int writeSupportedVersions( INOUT_PTR STREAM *stream,
 	REQUIRES( minVersion >= TLS_MINOR_VERSION_TLS && \
 			  minVersion <= TLS_MINOR_VERSION_TLS13 );
 
-	/* Assemble the version information in a local buffer */
+	/* Assemble the version information in a local buffer.  One or more
+	   of these should be written, which is why we initialise status to
+	   CRYPT_ERROR rather than CRYPT_OK to catch this */
 	sMemOpen( &localStream, buffer, 16 );
 #ifdef USE_TLS13
 	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 )
@@ -908,7 +910,7 @@ int writeSupportedVersions( INOUT_PTR STREAM *stream,
    the TLS 1.2 / 1.3 signature format.
 
    The background for the chaos described below is that TLS 1.2 and even 
-   more so TLS 1.3 started the move from a straighforward cipher-suite 
+   more so TLS 1.3 started the move from a straightforward cipher-suite 
    system with a few cipher suites that everyone used and many more that 
    everyone ignored, which told you exactly what you were getting at every 
    point in the process, to an IPsec-style a la carte mess where every 
@@ -1213,8 +1215,8 @@ int readSignatureAlgos( INOUT_PTR STREAM *stream,
 		ENSURES( LOOP_BOUND_OK_ALT );
 		if( sigHashInfoPtr == NULL )
 			{
-			DEBUG_PRINT(( "Offered unsupported signature/hash algorithm %X, "
-						  "continuing.\n", value, value ));
+			DEBUG_PRINT(( "Offered unsupported signature/hash algorithm "
+						  "%X, continuing.\n", value ));
 			continue;
 			}
 		DEBUG_PRINT(( "Offered signature/hash algorithm %X (%s).\n", 
@@ -1340,7 +1342,7 @@ int readSignatureAlgos( INOUT_PTR STREAM *stream,
 		*extErrorInfoSet = TRUE;
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
-				  "Signature algortithms extension should have contained "
+				  "Signature algorithms extension should have contained "
 				  "both P256/SHA256 and P384/SHA384 but didn't" ) );
 		}
 #endif /* CONFIG_SUITEB_TESTS */

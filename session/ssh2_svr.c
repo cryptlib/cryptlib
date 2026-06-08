@@ -97,7 +97,7 @@ static int initPubkeyAlgo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_ECDSA
 		case CRYPT_ALGO_ECDSA:
 			/* ECDSA gets more complicated because there are multiple fixed 
-			   key sizes possible so we have to vary the algrithm table 
+			   key sizes possible so we have to vary the algorithm table 
 			   based on our key size */
 			status = krnlSendMessage( sessionInfoPtr->privateKey, 
 									  IMESSAGE_GETATTRIBUTE, &keySize, 
@@ -112,7 +112,7 @@ static int initPubkeyAlgo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					handshakeInfo->algoStringPubkeyTblNoEntries = \
 						FAILSAFE_ARRAYSIZE( algoStringPubkeyECDSATbl, \
 											ALGO_STRING_INFO );
-				break;
+					break;
 
 				case bitsToBytes( 384 ):
 					handshakeInfo->algoStringPubkeyTbl = \
@@ -223,7 +223,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			{
 			DEBUG_PRINT(( "Client requested excessive key size %d bits but "
 						  "specified %d...%d bits, using %d bits.\n", 
-						  keySize, minKeySize, status, 3072 ));
+						  keySize, minKeySize, maxKeySize, 3072 ));
 			keySize = 3072;
 			}
 		}
@@ -256,7 +256,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  bytesToBits( MIN_PKCSIZE ), 
 				  bytesToBits( CRYPT_MAX_PKCSIZE ) ) );
 		}
-	REQUIRES( rangeCheck( keyexInfoLength, 1, MAX_ENCODED_KEYEXSIZE ) );
+	REQUIRES( rangeCheck( keyexInfoLength, 1, ENCODED_REQKEYSIZE ) );
 	memcpy( handshakeInfo->encodedReqKeySizes, keyexInfoPtr,
 			keyexInfoLength );
 	handshakeInfo->encodedReqKeySizesLength = keyexInfoLength;
@@ -459,8 +459,8 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = openPacketStreamSSH( &stream, sessionInfoPtr, SSH_MSG_KEXINIT );
 	if( cryptStatusError( status ) )
 		return( status );
-	streamBookmarkSetFullPacket( &stream, serverHelloLength );
-	ENSURES( streamBookmarkOK( serverHelloLength ) );
+	status = streamBookmarkSetFullPacket( &stream, &serverHelloLength );
+	ENSURES( cryptStatusOK( status ) );
 	status = exportVarsizeAttributeToStream( &stream, SYSTEM_OBJECT_HANDLE,
 											 CRYPT_IATTRIBUTE_RANDOM_NONCE,
 											 SSH2_COOKIE_SIZE );
@@ -663,6 +663,8 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	ENSURES( CFI_CHECK_SEQUENCE_6( "initPubkeyAlgo", "hashHandshakeStrings", 
 								   "sendServerHello", "processHelloSSH", 
 								   "processDHE", "SSH_MSG_KEXDH_INIT" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_BEGIN;
+
 	return( CRYPT_OK );
 	}
 
@@ -771,8 +773,8 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									SSH_MSG_KEX_DH_GEX_REPLY );
 	if( cryptStatusError( status ) )
 		return( status );
-	streamBookmarkSet( &stream, keyLength );
-	ENSURES( streamBookmarkOK( keyLength ) );
+	status = streamBookmarkSet( &stream, &keyLength );
+	ENSURES( cryptStatusOK( status ) );
 	INJECT_FAULT( SESSION_WRONGCERT, SESSION_WRONGCERT_SSH_1 );
 	status = exportAttributeToStream( &stream, sessionInfoPtr->privateKey,
 									  CRYPT_IATTRIBUTE_KEY_SSH );
@@ -810,6 +812,7 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = completeSSHKeyex( sessionInfoPtr, handshakeInfo, TRUE );
 	if( cryptStatusError( status ) )
 		{
+		sMemDisconnect( &stream );
 		retExt( status,
 				( status, SESSION_ERRINFO,
 				  "Couldn't complete %s keyex to create shared secret", 
@@ -953,6 +956,8 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	ENSURES( CFI_CHECK_SEQUENCE_6( "IMESSAGE_CTX_ENCRYPT", "SSH_MSG_KEXDH_REPLY", 
 								   "completeKeyex", "iCryptCreateSignature", 
 								   "initSecurityInfo", "SSH_MSG_NEWKEYS" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_KEYEX;
+
 	return( CRYPT_OK );
 	}
 
@@ -1087,6 +1092,8 @@ static int completeServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	ENSURES( CFI_CHECK_SEQUENCE_3( "SSH_MSG_NEWKEYS", "processServerAuth", 
 								   "processChannelOpen" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_COMPLETE;
+
 	return( CRYPT_OK );
 	}
 

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Internal Enveloping API						*
-*					Copyright Peter Gutmann 1992-2021						*
+*					Copyright Peter Gutmann 1992-2025						*
 *																			*
 ****************************************************************************/
 
@@ -255,7 +255,7 @@ int envelopeUnwrap( IN_BUFFER( inDataLength ) const void *inData,
 		}
 	REQUIRES( isIntegerRangeNZ( outDataMaxLength ) ); 
 	memset( outData, 0, min( 16, outDataMaxLength ) );
-	if( status == CRYPT_ENVELOPE_RESOURCE )
+	if( cryptStatusError( status ) && status == CRYPT_ENVELOPE_RESOURCE )
 		{
 		if( iPrivKey != CRYPT_UNUSED )
 			{
@@ -450,7 +450,7 @@ int envelopeSign( IN_BUFFER_OPT( inDataLength ) const void *inData,
 		if( cryptStatusOK( status ) )
 			{
 			ENSURES( msgData.length > inDataLength && \
-					 msgData.length < outDataMaxLength );
+					 msgData.length <= outDataMaxLength );
 			*outDataLength = msgData.length;
 			}
 		}

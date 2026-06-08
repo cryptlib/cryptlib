@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  Certificate Checking Routines						*
-*						Copyright Peter Gutmann 1997-2015					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -127,21 +127,16 @@ static BOOLEAN isPathKludge( IN_PTR const CERT_INFO *certInfoPtr )
 
 /* Check the certificate version number */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int checkVersion( INOUT_PTR CERT_INFO *certInfoPtr,
-						 IN_BOOL const BOOLEAN subjectSelfSigned,
-						 OUT_ENUM_OPT( CRYPT_ATTRIBUTE ) \
-							CRYPT_ATTRIBUTE_TYPE *errorLocus,
-						 OUT_ENUM_OPT( CRYPT_ERRTYPE ) \
-							CRYPT_ERRTYPE_TYPE *errorType )
+						 IN_BOOL const BOOLEAN subjectSelfSigned )
 	{
-	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
-	assert( isWritePtr( errorLocus, sizeof( CRYPT_ATTRIBUTE_TYPE  ) ) );
-	assert( isWritePtr( errorType, sizeof( CRYPT_ERRTYPE_TYPE ) ) );
+	CRYPT_ATTRIBUTE_TYPE *errorLocus = &certInfoPtr->errorLocus;
+	CRYPT_ERRTYPE_TYPE *errorType = &certInfoPtr->errorType;
 
-	/* Clear return values */
-	*errorLocus = CRYPT_ATTRIBUTE_NONE;
-	*errorType = CRYPT_ERRTYPE_NONE;
+	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
+
+	REQUIRES( isBooleanValue( subjectSelfSigned ) );
 
 	/* Attribute certificates must be v2 */
 	if( certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT )
@@ -179,8 +174,8 @@ static int checkVersion( INOUT_PTR CERT_INFO *certInfoPtr,
 							CRYPT_ERRTYPE_CONSTRAINT );
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO, 
-					  "An X.509v1 certificates can only be a self-signed "
-					  "CA root certificate" ) );
+					  "An X.509v1 certificate can only be a self-signed CA "
+					  "root certificate" ) );
 			}
 		}
 
@@ -190,22 +185,15 @@ static int checkVersion( INOUT_PTR CERT_INFO *certInfoPtr,
 /* Check that the subject issuer name and issuer subject name chain 
    properly */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int checkNameChaining( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
-							  const CERT_INFO *issuerCertInfoPtr,
-							  OUT_ENUM_OPT( CRYPT_ATTRIBUTE ) \
-								CRYPT_ATTRIBUTE_TYPE *errorLocus,
-							  OUT_ENUM_OPT( CRYPT_ERRTYPE ) \
-								CRYPT_ERRTYPE_TYPE *errorType )
+							  const CERT_INFO *issuerCertInfoPtr )
 	{
+	CRYPT_ATTRIBUTE_TYPE *errorLocus = &subjectCertInfoPtr->errorLocus;
+	CRYPT_ERRTYPE_TYPE *errorType = &subjectCertInfoPtr->errorType;
+
 	assert( isWritePtr( subjectCertInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isReadPtr( issuerCertInfoPtr, sizeof( CERT_INFO ) ) );
-	assert( isWritePtr( errorLocus, sizeof( CRYPT_ATTRIBUTE_TYPE  ) ) );
-	assert( isWritePtr( errorType, sizeof( CRYPT_ERRTYPE_TYPE ) ) );
-
-	/* Clear return values */
-	*errorLocus = CRYPT_ATTRIBUTE_NONE;
-	*errorType = CRYPT_ERRTYPE_NONE;
 
 	/* Check that the subject issuer name and issuer subject name chain.  If 
 	   the DNs are present in pre-encoded form we do a binary comparison, 
@@ -238,23 +226,15 @@ static int checkNameChaining( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 /* Check all the blob (unrecognised) attributes to see if any are marked 
    critical */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
-static int checkUnrecognisedExtension( INOUT_PTR CERT_INFO *certInfoPtr,
-									   OUT_ENUM_OPT( CRYPT_ATTRIBUTE ) \
-											CRYPT_ATTRIBUTE_TYPE *errorLocus,
-									   OUT_ENUM_OPT( CRYPT_ERRTYPE ) \
-											CRYPT_ERRTYPE_TYPE *errorType )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int checkUnrecognisedExtension( INOUT_PTR CERT_INFO *certInfoPtr )
 	{
+	CRYPT_ATTRIBUTE_TYPE *errorLocus = &certInfoPtr->errorLocus;
+	CRYPT_ERRTYPE_TYPE *errorType = &certInfoPtr->errorType;
 	LOOP_INDEX_PTR DATAPTR_ATTRIBUTE attributePtr;
 	ATTRIBUTE_ENUM_INFO attrEnumInfo;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
-	assert( isWritePtr( errorLocus, sizeof( CRYPT_ATTRIBUTE_TYPE  ) ) );
-	assert( isWritePtr( errorType, sizeof( CRYPT_ERRTYPE_TYPE ) ) );
-
-	/* Clear return values */
-	*errorLocus = CRYPT_ATTRIBUTE_NONE;
-	*errorType = CRYPT_ERRTYPE_NONE;
 
 	LOOP_LARGE( attributePtr = \
 						getFirstAttribute( &attrEnumInfo, 
@@ -299,22 +279,16 @@ static int checkUnrecognisedExtension( INOUT_PTR CERT_INFO *certInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int checkExtKeyUsageNesting( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 									IN_DATAPTR \
-										const DATAPTR_ATTRIBUTE issuerAttributes,
-									OUT_ENUM_OPT( CRYPT_ATTRIBUTE ) \
-										CRYPT_ATTRIBUTE_TYPE *errorLocus,
-									OUT_ENUM_OPT( CRYPT_ERRTYPE ) \
-										CRYPT_ERRTYPE_TYPE *errorType )
+										const DATAPTR_ATTRIBUTE issuerAttributes )
 	{
+	CRYPT_ATTRIBUTE_TYPE *errorLocus = &subjectCertInfoPtr->errorLocus;
+	CRYPT_ERRTYPE_TYPE *errorType = &subjectCertInfoPtr->errorType;
 	DATAPTR_ATTRIBUTE attributePtr;
 	LOOP_INDEX attributeID;
 
 	assert( isWritePtr( subjectCertInfoPtr, sizeof( CERT_INFO ) ) );
-	assert( isWritePtr( errorLocus, sizeof( CRYPT_ATTRIBUTE_TYPE  ) ) );
-	assert( isWritePtr( errorType, sizeof( CRYPT_ERRTYPE_TYPE ) ) );
 
-	/* Clear return values */
-	*errorLocus = CRYPT_ATTRIBUTE_NONE;
-	*errorType = CRYPT_ERRTYPE_NONE;
+	REQUIRES( DATAPTR_ISVALID( issuerAttributes ) );
 
 	/* Check each extKeyUsage to make sure it's present in the issuer if 
 	   present in the subject */
@@ -322,6 +296,10 @@ static int checkExtKeyUsageNesting( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 			  attributeID <= CRYPT_CERTINFO_EXTKEYUSAGE_LAST, 
 			  attributeID++ )
 		{
+		ENSURES( LOOP_INVARIANT_MED( attributeID, 
+									 CRYPT_CERTINFO_EXTKEYUSAGE, 
+									 CRYPT_CERTINFO_EXTKEYUSAGE_LAST ) );
+		
 		/* Check whether this extKeyUsage is present in the subject */
 		attributePtr = findAttributeField( subjectCertInfoPtr->attributes, 
 										   attributeID, 
@@ -337,6 +315,8 @@ static int checkExtKeyUsageNesting( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 			continue;
 
 		/* The subject contains an extKeyUsage not present in the issuer */
+		setErrorValues( CRYPT_CERTINFO_EXTKEYUSAGE, 
+						CRYPT_ERRTYPE_ISSUERCONSTRAINT );
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, SUBJECTCERT_ERRINFO, 
 				  "Subject %s contains extendedKeyUsage attribute %d not "
@@ -461,7 +441,7 @@ static BOOLEAN wildcardMatch( IN_DATAPTR const DATAPTR constrainedAttribute,
 				   matched which will reject the certificate for permitted-
 				   subtrees (who in their right mind would trust something as 
 				   flaky as PKI software to reliably apply an excluded-
-				   subtrees blacklist?  Even something as trivial as 
+				   subtrees blocklist?  Even something as trivial as 
 				   "ex%41mple.com", let alone "ex%u0041mple.com", 
 				   "ex&#x41;mple.com", or "ex%EF%BC%A1mple.com", is likely 
 				   to trivially fool all certificate software in existence, 
@@ -634,6 +614,7 @@ int checkNameConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 
 	REQUIRES( sanityCheckCert( subjectCertInfoPtr ) );
 	REQUIRES( DATAPTR_ISVALID( issuerAttributes ) );
+	REQUIRES( isBooleanValue( isExcluded ) );
 
 	/* Get references to the certificate's error information */
 	errorLocus = &subjectCertInfoPtr->errorLocus;
@@ -1075,7 +1056,7 @@ int checkPathConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	CRYPT_ERRTYPE_TYPE *errorType;
 	int value, status;
 
-	assert( isReadPtr( subjectCertInfoPtr, sizeof( CERT_INFO ) ) );
+	assert( isWritePtr( subjectCertInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( subjectCertInfoPtr ) );
 	REQUIRES( isShortIntegerRange( pathLength ) );
@@ -1131,30 +1112,25 @@ int checkPathConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 *																			*
 ****************************************************************************/
 
-/* If there's a clearance attribute present, make sure that the subject only 
-   has clearances that are present in the issuer.  Conversely, if the issuer 
-   has a clearance attribute then the subject must have one too */
+/* If there's an RFC 5755 clearance attribute present, make sure that the 
+   subject only has clearances that are present in the issuer.  Conversely, 
+   if the issuer has a clearance attribute then the subject must have one 
+   too */
 
 #ifdef USE_CUSTOM_CONFIG_1
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int checkClearanceConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 									  IN_DATAPTR \
-										const DATAPTR_ATTRIBUTE issuerAttributes,
-									  OUT_ENUM_OPT( CRYPT_ATTRIBUTE ) \
-										CRYPT_ATTRIBUTE_TYPE *errorLocus,
-									  OUT_ENUM_OPT( CRYPT_ERRTYPE ) \
-										CRYPT_ERRTYPE_TYPE *errorType )
+										const DATAPTR_ATTRIBUTE issuerAttributes )
 	{
+	CRYPT_ATTRIBUTE_TYPE *errorLocus = &subjectCertInfoPtr->errorLocus;
+	CRYPT_ERRTYPE_TYPE *errorType = &subjectCertInfoPtr->errorType;
 	int value, status;
 
 	assert( isWritePtr( subjectCertInfoPtr, sizeof( CERT_INFO ) ) );
-	assert( isWritePtr( errorLocus, sizeof( CRYPT_ATTRIBUTE_TYPE  ) ) );
-	assert( isWritePtr( errorType, sizeof( CRYPT_ERRTYPE_TYPE ) ) );
 
-	/* Clear return values */
-	*errorLocus = CRYPT_ATTRIBUTE_NONE;
-	*errorType = CRYPT_ERRTYPE_NONE;
+	REQUIRES( DATAPTR_ISVALID( issuerAttributes ) );
 
 	/* If the subject has a clearance attribute, make sure that the issuer 
 	   does too and that the subject is a subset of the issuer's ones */
@@ -1170,6 +1146,8 @@ static int checkClearanceConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 							CRYPT_ATTRIBUTE_NONE, &value );
 		if( cryptStatusError( status ) )
 			{
+			setErrorValues( CRYPT_CERTINFO_SUBJECTDIR_CLEARANCE_CLASSLIST, 
+							CRYPT_ERRTYPE_ISSUERCONSTRAINT );
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, SUBJECTCERT_ERRINFO, 
 					  "Subject %s contains Clearance attribute value %X but "
@@ -1179,6 +1157,8 @@ static int checkClearanceConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 			}
 		if( ( subjectClearance & ~value ) != 0 )
 			{
+			setErrorValues( CRYPT_CERTINFO_SUBJECTDIR_CLEARANCE_CLASSLIST, 
+							CRYPT_ERRTYPE_ISSUERCONSTRAINT );
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, SUBJECTCERT_ERRINFO, 
 					  "Subject %s contains Clearance value %X not present "
@@ -1192,11 +1172,13 @@ static int checkClearanceConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 
 	/* The subject doesn't have a clearance attribute so the issuer 
 	   shouldn't have one either */
-	status = getAttributeFieldValue( subjectCertInfoPtr->attributes, 
+	status = getAttributeFieldValue( issuerAttributes, 
 							CRYPT_CERTINFO_SUBJECTDIR_CLEARANCE_CLASSLIST, 
 							CRYPT_ATTRIBUTE_NONE, &value );
 	if( cryptStatusOK( status ) )
 		{
+		setErrorValues( CRYPT_CERTINFO_SUBJECTDIR_CLEARANCE_CLASSLIST, 
+						CRYPT_ERRTYPE_ISSUERCONSTRAINT );
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, SUBJECTCERT_ERRINFO, 
 				  "Issuer contains Clearance attribute value %X but "
@@ -1224,35 +1206,28 @@ static int checkClearanceConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
    is specified for all certificates while these are only for RPKI
    certificates */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 4, 5 ) ) \
-static int checkRPKIAttributes( IN_DATAPTR const DATAPTR_ATTRIBUTE subjectAttributes,
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int checkRPKIAttributes( INOUT_PTR CERT_INFO *certInfoPtr,
 								IN_BOOL const BOOLEAN isCA,
-								IN_BOOL const BOOLEAN isSelfSigned,
-								OUT_ENUM_OPT( CRYPT_ATTRIBUTE ) \
-									CRYPT_ATTRIBUTE_TYPE *errorLocus,
-								OUT_ENUM_OPT( CRYPT_ERRTYPE ) \
-									CRYPT_ERRTYPE_TYPE *errorType )
+								IN_BOOL const BOOLEAN isSelfSigned )
+
 	{
+	CRYPT_ATTRIBUTE_TYPE *errorLocus = &certInfoPtr->errorLocus;
+	CRYPT_ERRTYPE_TYPE *errorType = &certInfoPtr->errorType;
 	DATAPTR_ATTRIBUTE attributePtr;
 	void *policyOidPtr;
-	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT( "checkRPKIAttributes" );
+	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 	int policyOidLength, value, status;
 
-	assert( isWritePtr( errorLocus, sizeof( CRYPT_ATTRIBUTE_TYPE  ) ) );
-	assert( isWritePtr( errorType, sizeof( CRYPT_ERRTYPE_TYPE ) ) );
+	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
-	REQUIRES( DATAPTR_ISVALID( subjectAttributes ) );
 	REQUIRES( isBooleanValue( isCA ) );
 	REQUIRES( isBooleanValue( isSelfSigned ) );
-
-	/* Clear return values */
-	*errorLocus = CRYPT_ATTRIBUTE_NONE;
-	*errorType = CRYPT_ERRTYPE_NONE;
 
 	/* Check that there's a keyUsage present, and that for CA certificates 
 	   it's the CA usages and for EE certificates it's digital signature 
 	   (RPKI section 3.9.4) */
-	status = getAttributeFieldValue( subjectAttributes,
+	status = getAttributeFieldValue( certInfoPtr->attributes,
 									 CRYPT_CERTINFO_KEYUSAGE, 
 									 CRYPT_ATTRIBUTE_NONE, &value );
 	if( cryptStatusError( status ) )
@@ -1261,7 +1236,7 @@ static int checkRPKIAttributes( IN_DATAPTR const DATAPTR_ATTRIBUTE subjectAttrib
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO,
 				  "RPKI %s doesn't contain a keyUsage attribute",
-				  getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
+				  getCertTypeNameLC( certInfoPtr->type ) ) );
 		}
 	if( isCA )
 		{
@@ -1280,7 +1255,7 @@ static int checkRPKIAttributes( IN_DATAPTR const DATAPTR_ATTRIBUTE subjectAttrib
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO,
 				  "RPKI %s contains an invalid keyUsage",
-				  getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
+				  getCertTypeNameLC( certInfoPtr->type ) ) );
 		}
 	CFI_CHECK_UPDATE( "getAttributeFieldValue" );
 
@@ -1288,7 +1263,7 @@ static int checkRPKIAttributes( IN_DATAPTR const DATAPTR_ATTRIBUTE subjectAttrib
 	   3.9.5) and there's a caRepository SIA (RPKI section 3.9.8) */
 	if( isCA )
 		{
-		if( checkAttributePresent( subjectAttributes, 
+		if( checkAttributePresent( certInfoPtr->attributes, 
 								   CRYPT_CERTINFO_EXTKEYUSAGE ) )
 			{
 			setErrorValues( CRYPT_CERTINFO_EXTKEYUSAGE, 
@@ -1296,9 +1271,9 @@ static int checkRPKIAttributes( IN_DATAPTR const DATAPTR_ATTRIBUTE subjectAttrib
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO,
 					  "RPKI CA %s contains extKeyUsage attribute",
-					  getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
+					  getCertTypeNameLC( certInfoPtr->type ) ) );
 			}
-		if( !checkAttributeFieldPresent( subjectAttributes,
+		if( !checkAttributeFieldPresent( certInfoPtr->attributes,
 								CRYPT_CERTINFO_SUBJECTINFO_CAREPOSITORY ) )
 			{
 			setErrorValues( CRYPT_CERTINFO_SUBJECTINFO_CAREPOSITORY, 
@@ -1306,7 +1281,7 @@ static int checkRPKIAttributes( IN_DATAPTR const DATAPTR_ATTRIBUTE subjectAttrib
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO,
 					  "RPKI CA %s doesn't contain caRepository attribute",
-					  getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
+					  getCertTypeNameLC( certInfoPtr->type ) ) );
 			}
 		}
 	CFI_CHECK_UPDATE( "checkAttributePresent" );
@@ -1315,31 +1290,31 @@ static int checkRPKIAttributes( IN_DATAPTR const DATAPTR_ATTRIBUTE subjectAttrib
 	   there's a caIssuers AIA (RPKI section 3.9.7) */
 	if( !isSelfSigned )
 		{
-		if( !checkAttributeFieldPresent( subjectAttributes,
+		if( !checkAttributeFieldPresent( certInfoPtr->attributes,
 								CRYPT_CERTINFO_AUTHORITYINFO_CAISSUERS ) )
 			{
 			setErrorValues( CRYPT_CERTINFO_AUTHORITYINFO_CAISSUERS, 
 							CRYPT_ERRTYPE_ATTR_ABSENT );
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO,
-					  "RPKI %s doesn't caIssuers attribute",
-					  getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
+					  "RPKI %s doesn't contain caIssuers attribute",
+					  getCertTypeNameLC( certInfoPtr->type ) ) );
 			}
 		}
 	CFI_CHECK_UPDATE( "checkAttributeFieldPresent" );
 
 	/* Check that there's an RPKI policy present (RPKI section 3.9.9) */
-	attributePtr = findAttributeField( subjectAttributes,
+	attributePtr = findAttributeField( certInfoPtr->attributes,
 									   CRYPT_CERTINFO_CERTPOLICYID,
 									   CRYPT_ATTRIBUTE_NONE );
-	if( attributePtr == NULL )
+	if( DATAPTR_ISNULL( attributePtr ) )
 		{
 		setErrorValues( CRYPT_CERTINFO_CERTPOLICYID, 
 						CRYPT_ERRTYPE_ATTR_ABSENT );
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO,
-				  "RPKI %s doesn't contains a policy attribute",
-				  getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
+				  "RPKI %s doesn't contain a policy attribute",
+				  getCertTypeNameLC( certInfoPtr->type) ) );
 		}
 	status = getAttributeDataPtr( attributePtr, &policyOidPtr, 
 								  &policyOidLength );
@@ -1350,18 +1325,15 @@ static int checkRPKIAttributes( IN_DATAPTR const DATAPTR_ATTRIBUTE subjectAttrib
 						CRYPT_ERRTYPE_ATTR_VALUE );
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO,
-				  "RPKI %s doesn't contains a policy attribute",
-				  getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
+				  "RPKI %s's policy attribute isn't for the RPKI policy",
+				  getCertTypeNameLC( certInfoPtr->type ) ) );
 		}
 	CFI_CHECK_UPDATE( "findAttributeField" );
 
-	ENSURES( CFI_CHECK_SEQUENCE_4( "checkRPKIAttributes", 
-								   "getAttributeFieldValue", 
+	ENSURES( CFI_CHECK_SEQUENCE_4( "getAttributeFieldValue", 
 								   "checkAttributePresent", 
 								   "checkAttributeFieldPresent", 
 								   "findAttributeField" ) );
-
-
 	return( CRYPT_OK );
 	}
 #endif /* USE_RPKI */
@@ -1395,7 +1367,7 @@ static int checkCrlConsistency( INOUT_PTR CERT_INFO *crlInfoPtr,
 	int deltaCRLindicator, status;
 #endif /* CONFIG_CUSTOM_1 */
 
-	assert( isReadPtr( crlInfoPtr, sizeof( CERT_INFO ) ) );
+	assert( isWritePtr( crlInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( issuerCertInfoPtr == NULL || \
 			isReadPtr( issuerCertInfoPtr, sizeof( CERT_INFO ) ) );
 
@@ -1752,17 +1724,18 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 								CRYPT_KEYUSAGE_KEYCERTSIGN,
 								CRYPT_COMPLIANCELEVEL_OBLIVIOUS,
 								subjectCertInfoPtr );
-		if( cryptStatusOK( status ) )
-			return( CRYPT_OK );
-
-		/* There's a problem with the issuer certificate, set a general
-		   error status indicating this for the subject certificate */
-		setErrorValues( CRYPT_CERTINFO_KEYUSAGE,
-						CRYPT_ERRTYPE_ISSUERCONSTRAINT );
-		retExt( status,
-				( status, SUBJECTCERT_ERRINFO,
-				  "Issuer certificate isn't trusted to sign this %s",
-				  getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
+		if( cryptStatusError( status ) )
+			{
+			/* There's a problem with the issuer certificate, set a 
+			   general error status indicating this for the subject 
+			   certificate */
+			setErrorValues( CRYPT_CERTINFO_KEYUSAGE,
+							CRYPT_ERRTYPE_ISSUERCONSTRAINT );
+			retExt( status,
+					( status, SUBJECTCERT_ERRINFO,
+					  "Issuer certificate isn't trusted to sign this %s",
+					  getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
+			}
 		}
 	CFI_CHECK_UPDATE( "checkKeyUsage" );
 
@@ -1789,8 +1762,7 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 		}
 
 	/* Perform certificate object-type-specific version checks */
-	status = checkVersion( subjectCertInfoPtr, subjectSelfSigned, 
-						   errorLocus, errorType );
+	status = checkVersion( subjectCertInfoPtr, subjectSelfSigned );
 	if( cryptStatusError( status ) )
 		return( status );
 	CFI_CHECK_UPDATE( "checkVersion" );
@@ -1798,8 +1770,7 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	/* If the certificate isn't self-signed, check name chaining */
 	if( !subjectSelfSigned )
 		{
-		status = checkNameChaining( subjectCertInfoPtr, issuerCertInfoPtr,
-									errorLocus, errorType );
+		status = checkNameChaining( subjectCertInfoPtr, issuerCertInfoPtr );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
@@ -1830,7 +1801,7 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 								subjectCertInfoPtr );
 		if( cryptStatusError( status ) )
 			return( status );
-        }
+		}
 	CFI_CHECK_UPDATE( "checkKeyUsage" );
 
 	/* If the certificate isn't self-signed check that the issuer is a CA */
@@ -1860,8 +1831,7 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	   with unrecognised critical extensions */
 	if( subjectCertInfoPtr->certificate != NULL )
 		{
-		status = checkUnrecognisedExtension( subjectCertInfoPtr, 
-											 errorLocus, errorType );
+		status = checkUnrecognisedExtension( subjectCertInfoPtr );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
@@ -1912,6 +1882,10 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 			}
 		if( !issuerIsCA && !invalidAttributes )
 			{
+			/* A self-signed or X509v1 certificate isn't a CA but is a
+			   certificate that's issued itself, so we check for CA 
+			   attributes and also report it (via invalidAttributesPresent()
+			   as an issuer constraint since the subject is the issuer */
 			invalidAttributes = \
 					invalidAttributesPresent( subjectAttributes, TRUE, 
 											  errorLocus, errorType );
@@ -1988,16 +1962,10 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 		{
 		ANALYSER_HINT( subjectAttributes != NULL );
 
-		status = checkRPKIAttributes( subjectAttributes, subjectIsCA,
-									  subjectSelfSigned, errorLocus,
-									  errorType );
+		status = checkRPKIAttributes( subjectCertInfoPtr, subjectIsCA,
+									  subjectSelfSigned );
 		if( cryptStatusError( status ) )
-			{
-			retExt( status,
-					( status, CERTIFICATE_ERRINFO, 
-					  "%s contains invalid RPKI attributes",
-					  getCertTypeName( subjectCertInfoPtr->type ) ) );
-			}
+			return( status );
 		}
 #endif /* USE_RPKI */
 	CFI_CHECK_UPDATE( "rpkiAttributes" );
@@ -2091,8 +2059,7 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	   applies to the CA's certificates or the certificates that it issues, 
 	   this is disabled unless requested for a custom configuration */
 #ifdef USE_CUSTOM_CONFIG_1
-	status = checkExtKeyUsageNesting( subjectCertInfoPtr, issuerAttributes, 
-									  errorLocus, errorType );
+	status = checkExtKeyUsageNesting( subjectCertInfoPtr, issuerAttributes );
 	if( cryptStatusError( status ) )
 		return( status );
 #endif /* USE_CUSTOM_CONFIG_1 */
@@ -2103,8 +2070,8 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	   the issuer has a clearance attribute then the subject must have one 
 	   too */
 #ifdef USE_CUSTOM_CONFIG_1
-	status = checkClearanceConstraints( subjectCertInfoPtr, issuerAttributes, 
-										errorLocus, errorType );
+	status = checkClearanceConstraints( subjectCertInfoPtr, 
+										issuerAttributes );
 	if( cryptStatusError( status ) )
 		return( status );
 #endif /* USE_CUSTOM_CONFIG_1 */

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib Encryption Context Attribute Routines				*
-*						Copyright Peter Gutmann 1992-2015					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -326,16 +326,16 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				{
 				if( contextInfoPtr->ctxConv->saltLength <= 0 )
 					{
-					return( exitErrorInited( contextInfoPtr,
-											 CRYPT_CTXINFO_KEYING_SALT ) );
+					return( exitErrorNotInited( contextInfoPtr,
+												CRYPT_CTXINFO_KEYING_SALT ) );
 					}
 				return( attributeCopy( msgData, contextInfoPtr->ctxConv->salt,
 									   contextInfoPtr->ctxConv->saltLength ) );
 				}
 			if( contextInfoPtr->ctxMAC->saltLength <= 0 )
 				{
-				return( exitErrorInited( contextInfoPtr,
-										 CRYPT_CTXINFO_KEYING_SALT ) );
+				return( exitErrorNotInited( contextInfoPtr,
+											CRYPT_CTXINFO_KEYING_SALT ) );
 				}
 			return( attributeCopy( msgData, contextInfoPtr->ctxMAC->salt,
 								   contextInfoPtr->ctxMAC->saltLength ) );
@@ -646,8 +646,17 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				{
 				/* If this is a no-op add that doesn't change anything then
 				   it's not a problem */
-				if( *valuePtr == value )
-					return( CRYPT_OK );
+				if( contextType == CONTEXT_PKC )
+					{
+					/* PKC key lengths are recorded in bits, not bytes */
+					if( *valuePtr == bytesToBits( value ) )
+						return( CRYPT_OK );
+					}
+				else
+					{
+					if( *valuePtr == value )
+						return( CRYPT_OK );
+					}
 
 				/* We can't change the key size once it's already 
 				   initialised */
@@ -677,7 +686,10 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			   working key length to a sane size since the other side may 
 			   not be able to handle stupidly large keys */
 			if( contextType == CONTEXT_PKC )
+				{
+				/* PKC key lengths are recorded in bits, not bytes */
 				*valuePtr = bytesToBits( value );
+				}
 			else
 				*valuePtr = min( value, MAX_WORKING_KEYSIZE );
 			return( CRYPT_OK );

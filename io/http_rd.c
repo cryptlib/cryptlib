@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  cryptlib HTTP Read Routines						*
-*						Copyright Peter Gutmann 1998-2024					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -23,7 +23,7 @@
    the input stream after a problem reading the HTTP header in order to 
    continue.  In theory this allows us to skip minor problems like a 
    misconfigured or broken peer sending us a problematic header line, 
-   without immediately closing the connection, but like a comiler trying
+   without immediately closing the connection, but like a compiler trying
    to recover from an error it can end up producing more errors, and also
    leave us in a problematic state, so we disable it by default */
 
@@ -616,7 +616,8 @@ static int readResponseHeader( INOUT_PTR STREAM *stream,
 	/* We used up our maximum number of retries, bail out */
 	retExt( CRYPT_ERROR_READ,
 			( CRYPT_ERROR_READ, NETSTREAM_ERRINFO, 
-			  "Encountered more than %d HTTP retry/redirect requests", 5 ) );
+			  "Encountered more than %d HTTP retry/redirect requests", 
+			  repeatCount ) );
 	}
 
 /****************************************************************************
@@ -705,7 +706,8 @@ static int readFunction( INOUT_PTR STREAM *stream,
 			}
 		else
 			{
-			/* We didn't dynically resize the buffer, let the caller know */
+			/* We didn't dynamically resize the buffer, let the caller 
+			   know */
 			httpDataInfo->bufferResize = FALSE;
 			}
 		}

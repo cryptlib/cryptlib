@@ -335,7 +335,7 @@ static int initKeysetUpdate( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		   of the iAndS wrapper (for example encoding the length as 
 		   '82 00 nn' instead of 'nn').  To handle this we read the wrapper
 		   and then write our own correctly-encoded version to a buffer
-		   that we hash seperately from the iAndS payload */
+		   that we hash separately from the iAndS payload */
 		sMemConnect( &stream, keyIDinfo->keyID, keyIDinfo->keyIDlength );
 		status = readSequence( &stream, &length );
 		if( cryptStatusOK( status ) )
@@ -408,7 +408,7 @@ static void resetErrorInfo( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	}
 
 /* Report additional information for a CRYPT_ERROR_NOTFOUND error.  This can
-   be redundant when the caller is direcctly calling cryptGetPublicKey() or
+   be redundant when the caller is directly calling cryptGetPublicKey() or
    similar but can be useful when the fetch is indirect, for example through
    the use of CRYPT_ENVINFO_RECIPIENT or background fetches of private keys
    for decryption purposes */
@@ -490,8 +490,7 @@ static int getKeysetType( INOUT_PTR STREAM *stream,
 						  OUT_ENUM_OPT( KEYSET_SUBTYPE ) \
 								KEYSET_SUBTYPE_TYPE *subType )
 	{
-	long length;
-	int value, status;
+	int value, length, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( subType, sizeof( KEYSET_SUBTYPE_TYPE ) ) );

@@ -54,18 +54,6 @@ int readSignatureAlgos( INOUT_PTR STREAM *stream,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeSignatureAlgos( INOUT_PTR STREAM *stream );
 
-/* Prototypes for functions in tls_keyex.c */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
-int readSupportedGroups( INOUT_PTR STREAM *stream, 
-						 INOUT_PTR SESSION_INFO *sessionInfoPtr, 
-						 INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo, 
-						 IN_LENGTH_SHORT_Z const int extLength,
-						 OUT_BOOL BOOLEAN *extErrorInfoSet );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int writeSupportedGroups( INOUT_PTR STREAM *stream,
-						  const SESSION_INFO *sessionInfoPtr );
-
 #endif /* USE_TLS */
 
 #endif /* _TLS_EXT_DEFINED */

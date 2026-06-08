@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib SCEP Server Management					*
-*						Copyright Peter Gutmann 1999-2022					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -111,7 +111,7 @@ static void sendErrorResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	sioctlSet( &sessionInfoPtr->stream, STREAM_IOCTL_LASTMESSAGE, TRUE );
 	( void ) writePkiDatagram( sessionInfoPtr, SCEP_CONTENTTYPE, 
 							   SCEP_CONTENTTYPE_LEN,
-							   MK_ERRTEXT( "Couldnt send error response to "
+							   MK_ERRTEXT( "Couldn't send error response to "
 										   "client" ) );
 	}
 
@@ -294,7 +294,7 @@ static int processAdditionalScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		ENSURES( isShortIntegerRangeNZ( sessionInfoPtr->receiveBufEnd ) );
 		return( writePkiDatagram( sessionInfoPtr, SCEP_CONTENTTYPE, 
 								  SCEP_CONTENTTYPE_LEN,
-								  MK_ERRTEXT( "Couldnt send SCEP CA "
+								  MK_ERRTEXT( "Couldn't send SCEP CA "
 											  "capabilities list to client "
 											  "in response to 'GetCACaps' "
 											  "request" ) ) );
@@ -330,13 +330,13 @@ static int processAdditionalScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( writePkiDatagram( sessionInfoPtr, 
 								  SCEP_CONTENTTYPE_GETCACERT,
 								  SCEP_CONTENTTYPE_GETCACERT_LEN,
-								  MK_ERRTEXT( "Couldnt send SCEP CA "
+								  MK_ERRTEXT( "Couldn't send SCEP CA "
 											  "certificate to client" ) ) );
 		}
 	return( writePkiDatagram( sessionInfoPtr,  
 							  SCEP_CONTENTTYPE_GETCACERTCHAIN,
 							  SCEP_CONTENTTYPE_GETCACERTCHAIN_LEN,
-							  MK_ERRTEXT( "Couldnt send SCEP CA certificate "
+							  MK_ERRTEXT( "Couldn't send SCEP CA certificate "
 										  "chain to client" ) ) );
 	}
 
@@ -1127,7 +1127,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		}
 	status = writePkiDatagram( sessionInfoPtr, SCEP_CONTENTTYPE, 
 							   SCEP_CONTENTTYPE_LEN,
-							   MK_ERRTEXT( "Couldnt send SCEP response to "
+							   MK_ERRTEXT( "Couldn't send SCEP response to "
 										   "client" ) );
 	destroySCEPprotocolInfo( &protocolInfo );
 	if( cryptStatusError( status ) )

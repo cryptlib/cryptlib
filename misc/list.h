@@ -65,7 +65,7 @@
 		{ \
 		ELEMENT_TYPE *_listHeadPtr = DATAPTR_GET( listHead ); \
 		\
-		/* Make sure that the preconditions for safe delection are met */ \
+		/* Make sure that the preconditions for safe deletion are met */ \
 		REQUIRES( _listHeadPtr != NULL && element != NULL ); \
 		REQUIRES( element == _listHeadPtr || listPrev != NULL ); \
 		\
@@ -199,7 +199,7 @@
 		ELEMENT_TYPE *_listHeadPtr = DATAPTR_GET( _listHead ); \
 		ELEMENT_TYPE *_elementPrev, *_elementNext; \
 		\
-		/* Make sure that the preconditions for safe delection are met */ \
+		/* Make sure that the preconditions for safe deletion are met */ \
 		REQUIRES( _listHeadPtr != NULL && element != NULL ); \
 		\
 		_elementPrev = DATAPTR_GET( element->prev ); \

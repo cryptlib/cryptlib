@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Enveloping Information Management				*
-*						Copyright Peter Gutmann 1996-2016					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -263,8 +263,8 @@ static int checkSignatureActionFunction( IN_PTR const ACTION_LIST *actionListPtr
 
 	/* If there are no signature-related auxiliary options present, there's
 	   nothing to check */
-	if( actionListPtr->iExtraData != CRYPT_ERROR || \
-		actionListPtr->iTspSession != CRYPT_ERROR )
+	if( actionListPtr->iExtraData == CRYPT_ERROR && \
+		actionListPtr->iTspSession == CRYPT_ERROR )
 		return( CRYPT_OK );
 
 	/* There must be a signing key present to handle the signature options */
@@ -368,6 +368,7 @@ static int checkMissingInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 					return( CRYPT_ERROR_NOTINITED );
 					}
 				}
+			break;
 		}
 
 	REQUIRES( signingKeyPresent || \
@@ -462,7 +463,7 @@ int addKeysetInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 /* Add an encryption password */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int addPasswordInfo( ENVELOPE_INFO *envelopeInfoPtr,
+static int addPasswordInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							IN_BUFFER( passwordLength ) const void *password, 
 							IN_LENGTH_TEXT const int passwordLength )
 	{
@@ -546,7 +547,7 @@ static int addPasswordInfo( ENVELOPE_INFO *envelopeInfoPtr,
 #ifdef USE_PGP
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int addPgpPasswordInfo( ENVELOPE_INFO *envelopeInfoPtr,
+static int addPgpPasswordInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							   IN_BUFFER( passwordLength ) const void *password, 
 							   IN_LENGTH_TEXT const int passwordLength )
 	{
@@ -604,7 +605,10 @@ static int addPgpPasswordInfo( ENVELOPE_INFO *envelopeInfoPtr,
 	status = krnlSendMessage( iCryptContext, IMESSAGE_SETATTRIBUTE, 
 							  ( MESSAGE_CAST ) &mode, CRYPT_CTXINFO_MODE );
 	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( iCryptContext, IMESSAGE_DECREFCOUNT );
 		return( status );
+		}
 
 	/* Generate a salt and derive the key into the context */
 	setMessageData( &msgData, salt, PGP_SALTSIZE );

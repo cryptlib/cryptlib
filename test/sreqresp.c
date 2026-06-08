@@ -1101,7 +1101,7 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 	const void *fileNamePtr = filenameBuffer;
 #if OCSP_SERVER_NO == 7
 	int complianceValue;
-#endif /* OCSP servers that return broken resposnes */
+#endif /* OCSP servers that return broken responses */
 	const BOOLEAN isServer = ( sessionType == CRYPT_SESSION_OCSP_SERVER ) ? \
 							   TRUE : FALSE;
 	int status;
@@ -1301,7 +1301,7 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 						   &complianceValue );
 		cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CERT_COMPLIANCELEVEL,
 						   CRYPT_COMPLIANCELEVEL_OBLIVIOUS );
-#endif /* OCSP servers that return broken resposnes */
+#endif /* OCSP servers that return broken responses */
 
 		/* Wait for the server to finish initialising */
 		if( localSession && waitMutex() == CRYPT_ERROR_TIMEOUT )
@@ -1319,7 +1319,7 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 		cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_CERT_COMPLIANCELEVEL,
 						   complianceValue );
 		}
-#endif /* OCSP servers that return broken resposnes */
+#endif /* OCSP servers that return broken responses */
 	if( isServer )
 		printConnectInfo( cryptSession );
 	if( cryptStatusError( status ) )
@@ -1413,7 +1413,7 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 
 	/* There are so many weird ways to delegate trust and signing authority
 	   mentioned in the OCSP RFC without any indication of which one
-	   implementors will follow that we can't really perform any sort of
+	   implementers will follow that we can't really perform any sort of
 	   automated check since every responder seems to interpret this
 	   differently, and many require manual installation of responder certs
 	   in order to function */
@@ -1477,7 +1477,7 @@ static int connectOCSPDirect( void )
 	/* Check the certificate directly against the server.  This check 
 	   quantises the result into a basic pass/fail that doesn't provide as 
 	   much detail as the low-level OCSP check, so it's not unusual to get
-	   CRYPT_ERROR_INVALID whent he low-level check returns
+	   CRYPT_ERROR_INVALID when the low-level check returns
 	   CRYPT_OCSPSTATUS_UNKNOWN */
 	status = cryptCheckCert( cryptCert, cryptSession );
 	printf( "Certificate status check returned %d.\n", status );

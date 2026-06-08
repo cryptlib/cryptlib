@@ -483,7 +483,7 @@ int copyPublicKeyInfo( INOUT_PTR CERT_INFO *certInfoPtr,
    request is processed.  
    
    There are two ways to do this, either with a whitelist or with a 
-   blacklist.  Obviously the preferred option is the whitelist one, but the
+   blocklist.  Obviously the preferred option is the whitelist one, but the
    problem with this is that without any knowledge of the environment into
    which it's being deployed we have no idea what should be permitted.  For
    example an RA, which acts as a trusted agent for the CA, probably wants
@@ -493,7 +493,7 @@ int copyPublicKeyInfo( INOUT_PTR CERT_INFO *certInfoPtr,
    firewall configuration problem, lock it down by default and users will 
    complain, leave it open by default and users are happy but it's not secure.
 
-   What we use here is in effect a blend of whitelist and blacklist.  On
+   What we use here is in effect a blend of whitelist and blocklist.  On
    the whitelist side the only attributes that are permitted in certificate 
    requests are:
 
@@ -518,7 +518,7 @@ int copyPublicKeyInfo( INOUT_PTR CERT_INFO *certInfoPtr,
    Everything else, including the all-important basicConstraints, has to be 
    set explicitly by the CA and can't be specified in a request.
 
-   On the blacklist side, multi-AVA RDNs are disallowed in order to prevent
+   On the blocklist side, multi-AVA RDNs are disallowed in order to prevent
    an attacker from playing games with DN forms.  This should be safe 
    because the only things that create such weird DNs tend to be European
    in-house CAs following (or justifying their bugs through) peculiar 
@@ -957,7 +957,7 @@ static int copyCertToRevRequest( INOUT_PTR CERT_INFO *crmfRevRequestInfoPtr,
 
 	/* Copy the certificate's subject DN for use in CMP.  This isn't used in 
 	   the CRMF/certificate code itself, but it's required by the CMP 
-	   protocol to fill a message header field thay requires a DN.  Since 
+	   protocol to fill a message header field that requires a DN.  Since 
 	   the CMP client that's sending the CRMF request only has access to the 
 	   revocation request but not the original certificate that was used to 
 	   create it, we have to save this metadata in the request so that it 

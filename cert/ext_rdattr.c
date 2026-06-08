@@ -169,7 +169,7 @@ static int readExplicitTag( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* We've processed the explicit wrappper, we're now on the actual tag */
+	/* We've processed the explicit wrapper, we're now on the actual tag */
 	*tag = attributeInfoPtr->fieldType;
 
 	return( CRYPT_OK );
@@ -902,6 +902,16 @@ static int readAttributeField( INOUT_PTR STREAM *stream,
 				dataLength > 200 )
 				dataLength = 200;
 
+			/* Unicode strings shouldn't have an odd length, this avoids 
+			   potential problems later with code that processes two bytes 
+			   at a time */
+			if( attributeInfoPtr->fieldType == BER_STRING_BMP && \
+				( dataLength & 1 ) )
+				{
+				status = CRYPT_ERROR_BADDATA;
+				break;
+				}
+
 			/* We set the payload-blob flag when adding the data even for
 			   string data because users typically cram any old rubbish into 
 			   the strings and not setting the blob flag would cause them to
@@ -1218,7 +1228,7 @@ int readAttribute( INOUT_PTR STREAM *stream,
 						{
 						/* We've switched to a new encoding table, continue
 						   from there.  As before, we reset the status even
-						   though it's techically not necessary */
+						   though it's technically not necessary */
 						status = CRYPT_OK;
 						ANALYSER_HINT_DEADSTORE_OK( status );
 						continue;

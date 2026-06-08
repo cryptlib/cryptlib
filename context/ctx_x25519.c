@@ -97,7 +97,7 @@
    In theory this check isn't necessary because ossl_x25519() produces an 
    all-zero output if fed a point with small order, but by then it's too 
    late because it can leak timing information about the multiplication by 
-   the secret scalar.  Because of this we blacklist the small-order points 
+   the secret scalar.  Because of this we blocklist the small-order points 
    here */
 
 typedef BYTE POINT_DATA[ CURVE25519_SIZE ];
@@ -164,7 +164,7 @@ static const POINT_DATA invalidPointData[] = {
 	  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 
 	  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
 	/* End-of-list marker */
-	{ 0xFF }, { 0xFF }
+	{ 0xFF, 0x00 }, { 0xFF, 0x00 }
 	};
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -175,7 +175,8 @@ BOOLEAN is25519SmallOrder( IN_BUFFER( CURVE25519_SIZE ) \
 
 	LOOP_MED( i = 0, 
 			  i < FAILSAFE_ARRAYSIZE( invalidPointData, POINT_DATA ) && \
-					invalidPointData[ i ][ 0 ] != 0xFF,
+					!( invalidPointData[ i ][ 0 ] == 0xFF && \
+					   invalidPointData[ i ][ 1 ] == 0x00 ),
 			  i++ )
 		{
 		ENSURES_EXT( LOOP_INVARIANT_MED( i, 0, 
@@ -313,6 +314,8 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 		status = CRYPT_ERROR_FAILED;
 
 	/* Clean up */
+	zeroise( &keyAgreeParams1, sizeof( KEYAGREE_PARAMS ) );
+	zeroise( &keyAgreeParams2, sizeof( KEYAGREE_PARAMS ) );
 	staticDestroyContext( &checkContextInfo );
 
 	return( cryptStatusOK( status ) ? TRUE : FALSE );
@@ -502,6 +505,10 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( !osslStatus || \
 		!checkEntropy( keyAgreeParams->wrappedKey, CURVE25519_SIZE ) )
 		{
+		/* ossl_x25519() can only return a true/false status, but the only
+		   reason to return a false status is if the result is an insecure
+		   value, so both conditions checked for here convert to a 
+		   CRYPT_ERROR_NOSECURE */
 		zeroise( keyAgreeParams->wrappedKey, CURVE25519_SIZE );
 		return( CRYPT_ERROR_NOSECURE );
 		}
@@ -556,7 +563,6 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 											x25519Key->priv, 
 											CURVE25519_SIZE );
 			}
-		SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		if( cryptStatusError( status ) )
 			return( status );
 

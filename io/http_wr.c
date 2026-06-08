@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  cryptlib HTTP Write Routines						*
-*						Copyright Peter Gutmann 1998-2017					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -87,7 +87,9 @@ static int encodeRFC1866( INOUT_PTR STREAM *headerStream,
 		if( allowedChars[ i ] != '\0' )
 			{
 			/* It's in the allowed-chars list, output it verbatim */
-			sputc( headerStream, ch );
+			status = sputc( headerStream, ch );
+			if( cryptStatusError( status ) )
+				return( status );
 			}
 		else
 			{
@@ -230,7 +232,7 @@ static int writeReqURI( INOUT_PTR STREAM *stream,
 	int status = CRYPT_OK;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isReadPtr( httpReqInfo, sizeof( HTTP_REQ_INFO * ) ) );
+	assert( isReadPtr( httpReqInfo, sizeof( HTTP_REQ_INFO ) ) );
 
 	/* If there's no additional URI data present then we're done */
 	if( httpReqInfo->attributeLen == 0 && httpReqInfo->valueLen == 0 && \
@@ -299,7 +301,7 @@ static int writeReqUpgradeHeaders( INOUT_PTR STREAM *stream,
 								   IN_PTR const HTTP_REQ_INFO *httpReqInfo )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isReadPtr( httpReqInfo, sizeof( HTTP_REQ_INFO * ) ) );
+	assert( isReadPtr( httpReqInfo, sizeof( HTTP_REQ_INFO ) ) );
 
 	REQUIRES( isShortIntegerRangeNZ( httpReqInfo->authLen ) );
 
@@ -337,7 +339,7 @@ static int writeContentHeaders( INOUT_PTR STREAM *stream,
 	REQUIRES( isShortIntegerRangeNZ( contentTypeLen ) );
 	REQUIRES( isBufsizeRangeNZ( contentLength ) );
 
-	/* In terms of cacheing, there are two control directives that we're
+	/* In terms of caching, there are two control directives that we're
 	   interested in, no-cache and no-store.  The HTTP 1.0 no-cache doesn't 
 	   mean that the data won't be cached, merely that it has to be re-
 	   validated on each fetch, while the HTTP 1.1 no-store actually means
@@ -381,7 +383,7 @@ int writeRequestHeader( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( ( httpReqInfo == NULL ) || \
-			isReadPtr( httpReqInfo, sizeof( HTTP_REQ_INFO * ) ) );
+			isReadPtr( httpReqInfo, sizeof( HTTP_REQ_INFO ) ) );
 	assert( ( contentLength == 0 && contentType == NULL && \
 			  contentTypeLen == 0 ) || \
 			( contentLength >= 1 && \
@@ -501,7 +503,7 @@ static int writeRespUpgradeHeaders( INOUT_PTR STREAM *stream,
 									IN_PTR const HTTP_REQ_INFO *httpReqInfo )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isReadPtr( httpReqInfo, sizeof( HTTP_REQ_INFO * ) ) );
+	assert( isReadPtr( httpReqInfo, sizeof( HTTP_REQ_INFO ) ) );
 
 	REQUIRES( isShortIntegerRangeNZ( httpReqInfo->authLen ) );
 

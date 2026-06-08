@@ -91,10 +91,10 @@
    if it's "same as previous" then no new MAC context will be created.
 
    (An alternative option would be to disable the user ID and MAC context
-   cacheing, but the main case where MAC authentication is used is in 
-   PnPPKI where a PKIBoot is always followed by an ir, so it saves CMP 
-   messaging, certificate store lookup, and context setup overhead by 
-   cacheing the credentials across transactions).
+   caching, but the main case where MAC authentication is used is in PnPPKI 
+   where a PKIBoot is always followed by an ir, so it saves CMP messaging, 
+   certificate store lookup, and context setup overhead by caching the 
+   credentials across transactions).
    
    The certificate ID and MAC parameters are also sent once and if absent 
    they're similarly assumed to be "same as previous" (in the case of the 
@@ -422,7 +422,7 @@ typedef struct {
 	   status value we encountered and the last CMP extended failure value so
 	   that we can send it to the remote client/server in an error response */
 	int status;								/* Last error status */
-	long pkiFailInfo;						/* Last extended failure status */
+	int pkiFailInfo;						/* Last extended failure status */
 
 	/* The information needed to verify message integrity.  Typically we
 	   use a MAC, however in some cases the data isn't MAC'd but signed by
@@ -619,11 +619,11 @@ int readPkiStatusInfo( INOUT_PTR STREAM *stream,
 					   INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL_LENGTH_SHORT_NOERROR \
 int sizeofPkiStatusInfo( IN_STATUS const int pkiStatus,
-						 IN_ENUM_OPT( CMPFAILINFO ) const long pkiFailureInfo );
+						 IN_ENUM_OPT( CMPFAILINFO ) const int pkiFailureInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writePkiStatusInfo( INOUT_PTR STREAM *stream, 
 						IN_STATUS const int pkiStatus,
-						IN_ENUM_OPT( CMPFAILINFO ) const long pkiFailureInfo );
+						IN_ENUM_OPT( CMPFAILINFO ) const int pkiFailureInfo );
 
 /* Prototypes for functions in cmp_rd.c */
 

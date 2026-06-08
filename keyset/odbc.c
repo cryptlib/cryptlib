@@ -77,7 +77,7 @@ typedef struct {
 
    MSDN updates from late 2000 defined SQLROWCOUNT themselves (which could be
    fixed by undefining it), however after late 2002 the value was typedef'd,
-   requring all sorts of extra trickery to handle the different cases.
+   requiring all sorts of extra trickery to handle the different cases.
    Because of this issue, this particular function is typedef'd with a _FN 
    suffix.
    

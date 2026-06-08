@@ -93,7 +93,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
 static int checkTextEncoding( IN_BUFFER( certObjectLength ) const void *certObject, 
 							  IN_DATALENGTH const int certObjectLength,
 							  OUT_PTR_PTR void **newObject, 
-							  OUT_DATALENGTH_Z int *newObjectLength )
+							  OUT_DATALENGTH int *newObjectLength )
 	{
 	CRYPT_CERTFORMAT_TYPE format;
 	void *asciiObject = NULL;
@@ -132,15 +132,17 @@ static int checkTextEncoding( IN_BUFFER( certObjectLength ) const void *certObje
 		certObject = asciiObject;
 		status = base64checkHeader( certObject, certObjectLength, &format, 
 									&offset );
-		if( cryptStatusOK( status ) && \
-			( format != CRYPT_ICERTFORMAT_SMIME_CERTIFICATE && \
-			  format != CRYPT_CERTFORMAT_TEXT_CERTIFICATE ) )
+		if( cryptStatusError( status ) )
+			{
+			clFree( "checkTextEncoding", asciiObject );
+			return( status );
+			}
+		if( format != CRYPT_ICERTFORMAT_SMIME_CERTIFICATE && \
+			format != CRYPT_CERTFORMAT_TEXT_CERTIFICATE ) 
 			{
 			clFree( "checkTextEncoding", asciiObject );
 			asciiObject = NULL;
 			}
-		if( cryptStatusError( status ) )
-			return( status );
 		}
 
 	/* If it's not encoded in any way, we're done */
@@ -217,11 +219,13 @@ static int checkTextEncoding( IN_BUFFER( certObjectLength ) const void *certObje
 	*objectData = ( void * ) certObject;
 	*objectDataLength = certObjectLength;
 
-	/* Check for a header that identifies some form of encoded object */
+	/* Check for a header that identifies some form of encoded object.  The
+	   offset can start at zero for raw base64-encoded data */
 	status = base64checkHeader( certObject, certObjectLength, &format, 
 								&offset );
 	if( cryptStatusError( status ) )
 		return( status );
+	ENSURES( isIntegerRange( offset ) );
 
 	/* If it's not encoded in any way, we're done */
 	if( format == CRYPT_CERTFORMAT_NONE )
@@ -234,7 +238,6 @@ static int checkTextEncoding( IN_BUFFER( certObjectLength ) const void *certObje
 		certObjectLength - offset < MIN_CERTSIZE || \
 		certObjectLength - offset >= MAX_INTLENGTH )
 		return( CRYPT_ERROR_UNDERFLOW );
-	ENSURES( isIntegerRangeNZ( offset ) );
 	ENSURES( isIntegerRangeMin( certObjectLength - offset, MIN_CERTSIZE ) );
 
 	/* Remember the position of the payload, which may be either binary 
@@ -472,7 +475,7 @@ int importCert( IN_BUFFER( certObjectLength ) const void *certObject,
 	   certificate objects need to be kept around anyway for signature 
 	   checks and possible re-export */
 	REQUIRES( rangeCheck( length, 1, MAX_BUFFER_SIZE ) );
-	if( ( certBuffer = clAlloc( "importCert", length ) ) == NULL )
+	if( ( certBuffer = clAlloc( "importCert", length + 8 ) ) == NULL )
 		{
 		if( isDecodedObject )
 			clFree( "importCert", certObjectPtr );
@@ -587,7 +590,7 @@ int importCert( IN_BUFFER( certObjectLength ) const void *certObject,
 				&certInfoPtr->cCertCert->hashParam;
 
 			/* Make sure that the hash algorithm that's indicated inside the
-			   signed data matches what's specified in the unauthenticed 
+			   signed data matches what's specified in the unauthenticated 
 			   signature metadata.  See the comment in cert.h for why we do
 			   this.  We report a mismatch as a signature-check failure, 
 			   since it's an indication of someone messing with the 
@@ -645,10 +648,7 @@ int importCert( IN_BUFFER( certObjectLength ) const void *certObject,
 	   certificate object can't receive general messages until its status is 
 	   set to OK.  In addition since this is an internal object used only by 
 	   the certificate we tell the kernel not to increment its reference 
-	   count when it attaches it to the certificate object.  Finally, we're 
-	   ready to go so we mark the object as initialised (we can't do this 
-	   before the initialisation is complete because the kernel won't 
-	   forward the message to a not-ready-for-use object)*/
+	   count when it attaches it to the certificate object */
 	if( certInfoPtr->iPubkeyContext != CRYPT_ERROR )
 		{
 		status = krnlSendMessage( *certificate, IMESSAGE_SETDEPENDENT,
@@ -658,9 +658,16 @@ int importCert( IN_BUFFER( certObjectLength ) const void *certObject,
 			{
 			krnlSendNotifier( certInfoPtr->iPubkeyContext, 
 							  IMESSAGE_DECREFCOUNT );
+			krnlSendNotifier( *certificate, IMESSAGE_DESTROY );
+			*certificate = CRYPT_ERROR;
 			return( status );
 			}
 		}
+
+	/* We're ready to go, mark the object as initialised with content, in 
+	   other words move it onto the high state.  We can't do this before the 
+	   setup is complete (done above by setting its status to OK) because 
+	   the kernel won't forward the message to a not-ready-for-use object */
 	return( krnlSendMessage( *certificate, IMESSAGE_SETATTRIBUTE,
 							 MESSAGE_VALUE_UNUSED, 
 							 CRYPT_IATTRIBUTE_INITIALISED ) );
@@ -717,6 +724,11 @@ int exportCert( OUT_BUFFER_OPT( certObjectMaxLength, *certObjectLength ) \
 				isBufsizeRangeMin( certObjectMaxLength, MIN_CERTSIZE ) ) );
 	REQUIRES( isEnumRange( certFormatType, CRYPT_CERTFORMAT ) );
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
+
+	/* Clear return values */
+	if( certObject != NULL )
+		memset( certObject, 0, min( 16, certObjectMaxLength ) );
+	*certObjectLength = 0;
 
 	/* If it's an internal format, write it and exit */
 	if( certFormatType == CRYPT_ICERTFORMAT_CERTSET || \
@@ -845,7 +857,7 @@ int exportCert( OUT_BUFFER_OPT( certObjectMaxLength, *certObjectLength ) \
 	ENSURES( certFormatType == CRYPT_CERTFORMAT_TEXT_CERTCHAIN || \
 			 certFormatType == CRYPT_CERTFORMAT_XML_CERTCHAIN );
 	REQUIRES( rangeCheck( length, 1, MAX_BUFFER_SIZE ) );
-	if( ( buffer = clAlloc( "exportCert", length ) ) == NULL )
+	if( ( buffer = clAlloc( "exportCert", length + 8 ) ) == NULL )
 		return( CRYPT_ERROR_MEMORY );
 	sMemOpen( &stream, buffer, length );
 	status = writeCertChain( &stream, certInfoPtr );

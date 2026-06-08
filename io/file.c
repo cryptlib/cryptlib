@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							File Stream I/O Functions						*
-*						Copyright Peter Gutmann 1993-2018					*
+*						Copyright Peter Gutmann 1993-2025					*
 *																			*
 ****************************************************************************/
 
@@ -184,7 +184,7 @@ static int appendFilename( INOUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	/* During testing we can end up with zero-length files if we interrupt
 	   the run partway through.  To deal with this the following code will
 	   identify a zero-length file and clear it before continuing.  We use
-	   stdio functions rather than built-in ones because theres no 
+	   stdio functions rather than built-in ones because there's no 
 	   fileTell() available */
 #if !defined( NDEBUG ) && !defined( CONFIG_NO_STDIO )
 	if( option == BUILDPATH_GETPATH && !fileReadonly( path ) )
@@ -256,10 +256,10 @@ static int appendFilenameEBCDIC( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	/* User-defined filenames are a bit more complex because we have to
 	   safely append a variable-length quantity to the path (the +1 is for
 	   the null terminator) */
-	if( checkOverflowAdd( partialPathLen, fileNameLen + 4 + 1 ) \
+	if( checkOverflowAdd( partialPathLen, fileNameLen + 4 + 1 ) || \
 		partialPathLen + fileNameLen + 4 + 1 > pathMaxLen )
 		return( CRYPT_ERROR_OVERFLOW );
-	REQUIRES( boundsCheck( partialPathLen + fileNameLen, fileNameLen, 
+	REQUIRES( boundsCheck( partialPathLen, fileNameLen + 4 + 1, 
 						   pathMaxLen ) );
 	memcpy( path + partialPathLen, fileName, fileNameLen );
 	memcpy( path + partialPathLen + fileNameLen, ".p15", 4 + 1 );
@@ -281,7 +281,7 @@ static int appendFilenameEBCDIC( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	#define ERASE_BUFFER_SIZE	1024
 #endif /* BUFSIZ */
 
-static void eraseFile( STREAM *stream, long position, long length )
+static void eraseFile( STREAM *stream, int position, int length )
 	{
 	int LOOP_ITERATOR;
 
@@ -453,13 +453,14 @@ int fileFlush( INOUT_PTR STREAM *stream )
 	REQUIRES( stream->type == STREAM_TYPE_FILE );
 
 	fjflush( stream->fd );
+	return( CRYPT_OK );
 	}
 
 /* Change the read/write position in a file */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream,	
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -747,7 +748,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -798,7 +799,7 @@ void fileClearToEOF( STREAM *stream )
 	if( length <= 0 )
 		return;	/* Nothing to do, exit */
 	eraseFile( stream, position, length );
-	FS_Truncate( stream->pFile, 0 );
+	FS_Truncate( stream->pFile, position );
 	}
 
 STDC_NONNULL_ARG( ( 1 ) ) \
@@ -1035,7 +1036,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -1068,16 +1069,16 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
 	FSIZE_t position, fileSize;
-	long length;
+	int length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
 	REQUIRES_V( stream->type == STREAM_TYPE_FILE );
 
-	/* Wipe everything past the current position in the file */
+	/* Wipe everything past the current position in the file.  Neither 
+	   f_tell() nor f_size() have any kind of error return mechanism so we
+	   don't check for any error in their results */
 	position = f_tell( &stream->fileInfo );
-	if( position < 0 )
-		return;
 	fileSize = f_size( &stream->fileInfo );
 	REQUIRES_V( !checkOverflowSub( fileSize, position ) );
 	length = fileSize - position;
@@ -1287,7 +1288,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -1434,7 +1435,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 	if( mode & FILE_FLAG_WRITE )
 		{
 		/* Try and create the file, specifying its type and creator.  The
-		   wierd string-looking constants are Mac compiler-specific and
+		   weird string-looking constants are Mac compiler-specific and
 		   evaluate to 32-bit unsigned type and creator IDs.  Unfortunately
 		   the type value, which should be '????', triggers warnings about
 		   trigraphs in unnecessarily pedantic compilers so we have to use
@@ -1481,7 +1482,7 @@ int fileRead( INOUT_PTR STREAM *stream,
 			  IN_DATALENGTH const int length, 
 			  OUT_DATALENGTH_Z int *bytesRead )
 	{
-    long byteCount = length;
+    int byteCount = length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtrDynamic( buffer, length ) );
@@ -1505,7 +1506,7 @@ int fileWrite( INOUT_PTR STREAM *stream,
 			   IN_BUFFER( length ) const void *buffer, 
 			   IN_DATALENGTH const int length )
 	{
-	long bytesWritten = length;
+	int bytesWritten = length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtrDynamic( buffer, length ) );
@@ -1540,7 +1541,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -1725,8 +1726,7 @@ int sFileOpen( OUT_PTR STREAM *stream,
 #if defined( __MVS__ ) || defined( __VMCMS__ ) || defined( __TESTIO__ )
 	const char *openMode;
 #endif /* __MVS__ || __VMCMS__ || __TESTIO__ */
-	long length;
-	int status;
+	int length, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( fileName, 2 ) );
@@ -2012,7 +2012,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -2043,7 +2043,7 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 	defined( __VMCMS__ ) || defined( __TESTIO__ )
 	/* Since there's no filesystem or no real access control (even under MVS 
 	   et al it'll be handled at a much higher level like RACF or a SAF-
-	   compatable product), there's no concept of a read-only file, at least 
+	   compatible product), there's no concept of a read-only file, at least 
 	   at a level that we can easily determine programmatically */
 	return( FALSE );
 #else
@@ -2134,7 +2134,7 @@ void fileErase( IN_STRING const char *fileName )
 		MESSAGE_DATA msgData;
 		BYTE buffer[ STREAM_VFILE_BUFSIZE + 8 ];
 
-		length = max( length, STREAM_VFILE_BUFSIZE );
+		length = min( length, STREAM_VFILE_BUFSIZE );
 		setMessageData( &msgData, buffer, length );
 		krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_GETATTRIBUTE_S,
 						 &msgData, CRYPT_IATTRIBUTE_RANDOM_NONCE );
@@ -2183,21 +2183,33 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	if( option == BUILDPATH_RNDSEEDFILE )
 		{
 		/* Unlikely to really be necessary since we have a hardware RNG */
-		strlcpy_s( path, pathMaxLen, "RANDSEED" );
+		memcpy( path, "RANDSEED", 8 + 1 );
+		*pathLen = 8 + 1;
 		}
 	else
-		strlcpy_s( path, pathMaxLen, fileName );
+		{
+		REQUIRES( boundsCheck( fileNameLen, 1, pathMaxLen ) );
+		memcpy( path, fileName, fileNameLen );
+		path[ fileNameLen ] = '\0';
+		*pathLen = fileNameLen + 1;
+		}
 	return( CRYPT_OK );
 #elif defined( __MVS__ ) || defined( __VMCMS__ ) || defined( __TESTIO__ )
   #if defined( DDNAME_IO )
 	/* MVS dataset name userid.CRYPTLIB.filename.  We can't use a PDS since
 	   multiple members have to be opened in write mode simultaneously */
 	if( option == BUILDPATH_RNDSEEDFILE )
-		strlcpy_s( path, pathMaxLen, "//RANDSEED" );
+		{
+		memcpy( path, "//RANDSEED", 10 + 1 );
+		*pathLen = 10 + 1;
+		}
 	else
 		{
-		strlcpy_s( path, pathMaxLen, "//CRYPTLIB." );
-		strlcat_s( path, pathMaxLen, fileName );
+		REQUIRES( boundsCheck( fileNameLen, 11 + 1, pathMaxLen ) );
+		memcpy( path, "//CRYPTLIB.", 11 );
+		memcpy( path + 11, fileName, fileNameLen );
+		path[ 11 + fileNameLen ] = '\0';
+		*pathLen = 11 + fileNameLen + 1;
 		}
 
 	return( CRYPT_OK );
@@ -2349,7 +2361,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -2665,7 +2677,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -2958,7 +2970,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -2990,7 +3002,7 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
-	long length, fileSize, position;
+	int length, fileSize, position;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -3256,7 +3268,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	UINT32 result;
 
@@ -3291,7 +3303,7 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
-	long length, position;
+	int length, position;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -3585,7 +3597,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -3803,7 +3815,7 @@ int ftruncate( const int fd, const int offset )
 	}
 
 /* Some functions don't make any sense on Mongoose OS, e.g. lstat() when 
-   there are no symlinks or flush() when there's no cacheing, so we 
+   there are no symlinks or flush() when there's no caching, so we 
    map them to equivalents or no-op them out */
 
 #define lstat			stat
@@ -4197,8 +4209,8 @@ int sFileOpen( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 		  the the system file table with per-thread mutexes, mess around with
 		  an fstat() on each file access to determine if we're accessing an
 		  already-open file, wrap all that up in more mutexes, etc etc, as
-		  well as being something that's symtomatic of a user application bug
-		  rather than normal behaviour that we can defend against.
+		  well as being something that's symptomatic of a user application 
+		  bug rather than normal behaviour that we can defend against.
 
 	   2. Closing *any* descriptor for an fcntl()-locked file releases *all*
 		  locks on the file (!!) (one manpage appropriately describes this
@@ -4248,7 +4260,7 @@ int sFileOpen( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 	   rpc.lockd to handle, but this is its own type of mess since it's
 	   often unreliable, so it's really not much worse than flock().  In
 	   addition locking support under filesystems like AFS is often
-	   nonexistant, with the lock apparently succeeding but no lock actually
+	   nonexistent, with the lock apparently succeeding but no lock actually
 	   being applied, or the lock applying only to the locally buffered
 	   copy.  Even under local Linux filesystems, mandatory locking is only 
 	   enabled if the filesystem is mounted with the "-o mand" option is 
@@ -4273,7 +4285,7 @@ int sFileOpen( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 	   locking.  In addition since NFS ignores sgid, mandatory locking 
 	   doesn't work there (see also the above comment about NFS).
 
-	   Finally, mandatory locking is wierd in that an open for write (or 
+	   Finally, mandatory locking is weird in that an open for write (or 
 	   read, on a write-locked file) will succeed, it's only a later attempt 
 	   to read/write that will fail.  In addition major implementations like
 	   Linux and Slowaris diverge from the SysV specs for mandatory
@@ -4308,7 +4320,7 @@ int sFileOpen( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 		   on this utter braindamage above).  OTOH if we don't close the 
 		   file we'll leak the file handle, which is bad for long-running
 		   processes.  Feedback from users indicates that leaking file
-		   handles is less desirable than the possiblity of having the file
+		   handles is less desirable than the possibility of having the file
 		   unlocked during an update (the former is a situation that occurs
 		   far more frequently than the latter), so we close the handle and
 		   hope that the update by the other process completes quickly */
@@ -4424,7 +4436,7 @@ int fileWrite( INOUT_PTR STREAM *stream,
    drives behind a glue layer like Firewire, USB, or RAID controllers often
    ignore the SCSI SYNCHRONIZE CACHE / ATA FLUSH CACHE / FLUSH CACHE EXT /
    FLUSH TRACK CACHE commands (that is, the glue layer discards them before
-   they get to the drive).  To get around this problem, Apple introducted
+   they get to the drive).  To get around this problem, Apple introduced
    the FS_FULLFSYNC fcntl in OS X, but even this only works if the glue
    layer doesn't discard cache flush commands that it generates.
 
@@ -4462,7 +4474,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -4501,7 +4513,7 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
 	struct stat fstatInfo;
-	long position, length;
+	int position, length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -4722,9 +4734,10 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	/* If we're fuzzing the configuration file, it's a fixed path supplied 
 	   by the caller */
 #ifdef CONFIG_FUZZ
-	REQUIRES( rangeCheck( fileNameLen, 1, pathMaxLen ) );
+	REQUIRES( boundsCheck( fileNameLen, 1, pathMaxLen ) );
 	memcpy( path, fileName, fileNameLen );
-	*pathLen = fileNameLen;
+	path[ fileNameLen ] = '\0';
+	*pathLen = fileNameLen + 1;
 
 	return( CRYPT_OK );
 #endif /* CONFIG_FUZZ */
@@ -4785,12 +4798,12 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	/* Set up the path to the cryptlib directory */
 #if defined( __APPLE__ )
 	if( length + 32 >= pathMaxLen )
-		return( CRYPT_ERROR_OVERFLOW );	/* OS X uses slighly longer paths */
+		return( CRYPT_ERROR_OVERFLOW );	/* OS X uses slightly longer paths */
 #else
 	if( length + 16 >= pathMaxLen )
 		return( CRYPT_ERROR_OVERFLOW );
 #endif /* OS X */
-	REQUIRES( rangeCheck( length, 1, pathMaxLen ) );
+	REQUIRES( boundsCheck( length, 1, pathMaxLen ) );
 	memcpy( path, passwd->pw_dir, length );
 	if( path[ length - 1 ] != '/' )
 		path[ length++ ] = '/';
@@ -5127,7 +5140,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -5168,7 +5181,7 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
 	struct stat statStruct;
-	long position, length;
+	int position, length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -5193,7 +5206,7 @@ void fileClearToEOF( STREAM *stream )
 		}
 	else
 		{
-		long endPos;
+		int endPos;
 		
 		/* No stat support, do it via lseek() instead */
 		lseek( stream->fd, 0, SEEK_END );
@@ -5362,7 +5375,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 #endif /* INVALID_SET_FILE_POINTER */
 
 /* Older versions of the Windows SDK don't include the defines for system
-   directories so we define them ourselves if necesary.  Note that we use
+   directories so we define them ourselves if necessary.  Note that we use
    CSIDL_APPDATA, which expands to 'Application Data', rather than
    CSIDL_LOCAL_APPDATA, which expands to 'Local Settings/Application Data',
    because although the latter is technically safer (it's not part of the
@@ -6094,7 +6107,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -6154,7 +6167,7 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
-	long position, length;
+	int position, length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -6186,8 +6199,7 @@ void fileErase( IN_STRING const char *fileName )
 #else
 	const char *fileNamePtr = fileName;
 #endif /* __WINCE__ */
-	long fileLength;
-	int status;
+	int fileLength, status;
 
 	assert( isReadPtr( fileName, 2 ) );
 
@@ -6479,9 +6491,10 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	/* If we're fuzzing the configuration file, it's a fixed path supplied 
 	   by the caller */
 #ifdef CONFIG_FUZZ
-	REQUIRES( rangeCheck( fileNameLen, 1, pathMaxLen ) );
+	REQUIRES( boundsCheck( fileNameLen, 1, pathMaxLen ) );
 	memcpy( path, fileName, fileNameLen );
-	*pathLen = fileNameLen;
+	path[ fileNameLen ] = '\0';
+	*pathLen = fileNameLen + 1;
 
 	return( CRYPT_OK );
 #endif /* CONFIG_FUZZ */
@@ -6665,7 +6678,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -6920,7 +6933,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 	
 	REQUIRES( stream->type == STREAM_TYPE_FILE );
 
-	return( ( fs_sync( &stream->fileInfo ) != 0 ) ? \
+	return( ( fs_sync( &stream->fileInfo ) == 0 ) ? \
 			CRYPT_OK : CRYPT_ERROR_WRITE );
 	}
 
@@ -6928,7 +6941,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -6964,7 +6977,7 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
 	off_t position, fileSize;
-	long length;
+	int length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -6974,10 +6987,11 @@ void fileClearToEOF( STREAM *stream )
 	position = fs_tell( &stream->fileInfo );
 	if( position < 0 )
 		return;
-	if( fs_seek( &stream->fileInfo, position, FS_SEEK_END ) != 0 )
+	if( fs_seek( &stream->fileInfo, 0, FS_SEEK_END ) != 0 )
 		return;
 	if( ( fileSize = fs_tell( &stream->fileInfo ) ) < 0 )
 		return;
+	fs_seek( &stream->fileInfo, position, FS_SEEK_SET );
 	if( fileSize < position )
 		length = UNDERFLOW_MARKER;
 	else
@@ -6998,15 +7012,23 @@ void fileErase( IN_STRING const char *fileName )
 	{
 	STREAM stream;
 	struct fs_dirent fileInfo;
+	int fsStatus;
 
 	assert( isReadPtr( fileName, 2 ) );
 
 	ANALYSER_HINT_STRING( fileName );
 
 	/* Find out how big the file is and try and open it.  If this fails, the 
-	   best that we can do is a straight unlink */
-	if( fs_stat( fileName, &fileInfo ) != 0 || \
-		cryptStatusError( \
+	   best that we can do is a straight unlink.  We can make the delete 
+	   unconditional if the sFileOpen() fails because the fs_stat() has told
+	   use that it exists */
+	if( ( fsStatus = fs_stat( fileName, &fileInfo ) ) != 0 )
+		{
+		if( fsStatus != -EINVAL && fsStatus != -ENOENT )
+			fs_unlink( fileName );
+		return;
+		}		
+	if( cryptStatusError( \
 			sFileOpen( &stream, fileName,
 					   FILE_FLAG_READ | FILE_FLAG_WRITE | \
 					   FILE_FLAG_EXCLUSIVE_ACCESS ) ) )
@@ -7097,7 +7119,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 
 /* When checking whether a file is read-only we also have to check (via
    errno) to make sure that the file actually exists since the access check
-   will return a false positive for a nonexistant file */
+   will return a false positive for a nonexistent file */
 
 #if defined( __MSDOS16__ ) || defined( __OS2__ ) || defined( __WIN16__ )
   #include <errno.h>
@@ -7317,7 +7339,7 @@ int fileFlush( INOUT_PTR STREAM *stream )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream, 
-			  IN_DATALENGTH_Z const long position )
+			  IN_DATALENGTH_Z const int position )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -7385,7 +7407,7 @@ BOOLEAN fileReadonly( IN_STRING const char *fileName )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void fileClearToEOF( STREAM *stream )
 	{
-	long position, fileSize, length;
+	int position, fileSize, length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -7567,7 +7589,7 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	   existence in advance, so we try and create it unconditionally but
 	   ignore EACCESS errors */
 	if( ( option == BUILDPATH_CREATEPATH ) && \
-		!_mkdir( path ) && ( errno != EACCES ) )
+		( _mkdir( path ) == -1 ) && ( errno != EACCES ) )
 		return( CRYPT_ERROR_OPEN );
 
 	/* Add the filename to the path */
@@ -7609,11 +7631,19 @@ int fileBuildCryptlibPath( OUT_BUFFER( pathMaxLen, *pathLen ) char *path,
 	return( appendFilename( path, pathMaxLen, pathLen, fileName, 
 							fileNameLen, option ) );
 #elif defined( __TANDEMNSK__ )
-	strlcpy_s( path, pathMaxLen, "$system.system." );
 	if( option == BUILDPATH_RNDSEEDFILE )
-		strlcat_s( path, pathMaxLen, "randseed" );
+		{
+		memcpy( path, "$system.system.randseed", 23 + 1 );
+		*pathLen = 23 + 1;
+		}
 	else
-		strlcat_s( path, pathMaxLen, fileName );
+		{
+		REQUIRES( boundsCheck( fileNameLen, 15 + 1, pathMaxLen ) );
+		memcpy( path, "$system.system.", 15 );
+		memcpy( path + 15, fileName, fileNameLen );
+		path[ 15 + fileNameLen ] = '\0';
+		*pathLen = 15 + fileNameLen + 1;
+		}
 	return( CRYPT_OK );
 #elif defined( __SYMBIAN32__ )
 	strlcpy_s( path, pathMaxLen, "C:\\SYSTEM\\DATA\\" );

@@ -82,21 +82,8 @@ typedef enum {
 	SSH_TEST_CONFIRMAUTH,		/* Test manual server confirmation of auth.*/
 	SSH_TEST_DUALTHREAD,
 	SSH_TEST_DUALTHREAD2,		/* Two-phase connect via different threads */
-	SSH_TEST_CORRUPT_HANDSHAKE,	/* Detect corruption of handshake data */
-	SSH_TEST_CORRUPT_KEYEX_CLIENT, /* Detect corruption of client keyex */
-	SSH_TEST_CORRUPT_KEYEX_SERVER, /* Detect corruption of server keyex */
-	SSH_TEST_CORRUPT_EXCHANGE_HASH, /* Detect corruption of exchange hash */
-	SSH_TEST_BADSIG_HASH,		/* Detect corruption of hash for signature */
-	SSH_TEST_BADSIG_SIG,		/* Detect corruption of signature data */
-	SSH_TEST_WRONG_CERT,		/* Detect wrong key for server */
-	SSH_TEST_CORRUPT_USERNAME,	/* Detect wrong username */
-	SSH_TEST_CORRUPT_PASSWORD,	/* Detect wrong password */
-	SSH_TEST_CORRUPT_CHANNEL_OPEN,	/* Detect various types of channel corruption */
-	SSH_TEST_CORRUPT_CHANNEL_DATA,
 	SSH_TEST_CORRUPT_CHANNEL_CLOSE,
-	SSH_TEST_CORRUPT_CHANNEL_REQUEST,
-	SSH_TEST_CORRUPT_DATA,		/* Detect corruption of payload data */
-	SSH_TEST_CORRUPT_MAC,		/* Detect corruption of payload MAC */
+	SSH_TEST_CORRUPT_CHANNEL_REQUEST,/* Detect corruption of channel messages */
 	SSH_TEST_LAST				/* Last possible SSHv2 test type */
 	} SSH_TEST_TYPE;
 
@@ -652,7 +639,7 @@ static const struct {
 #ifdef TEST_SESSION_LOOPBACK
 
 /* Test the ability to have multiple server threads waiting on a session.
-   Since this requries (OS-specific) threading, we just use two sample
+   Since this requires (OS-specific) threading, we just use two sample
    systems, Win32 (Windows threads) and Linux (pthreads).  Since Linux's
    somewhat strange not-quite-a-thread/not-quite-a-process implementation
    can be a bit buggy, we also use another sample pthreads implementation
@@ -922,8 +909,7 @@ static BOOLEAN printChannelInfo( const CRYPT_SESSION cryptSession,
 
 static int printDataInfo( CRYPT_SESSION cryptSession,
 						  char *buffer, const int bufSize,
-						  int *bytesCopied, const BOOLEAN isServer, 
-						  const BOOLEAN isErrorTest )
+						  int *bytesCopied, const BOOLEAN isServer )
 	{
 	int channel = 0, status;
 
@@ -949,25 +935,21 @@ static int printDataInfo( CRYPT_SESSION cryptSession,
 					   isServer ? "SVR: Client data read failed" : \
 								  "Server data read failed", 
 					   status, __LINE__ );
-#ifndef NDEBUG
-		if( isErrorTest )
+#if defined( CONFIG_FAULTS ) 
+		if( !isServer && status != expectedFaultStatus && \
+			expectedFaultStatus != CRYPT_OK )
 			{
-			if( !isServer && status != CRYPT_ERROR_SIGNATURE && \
-							 status != CRYPT_ERROR_BADDATA )
-				{
-				fprintf( outputStream, "Test returned status %d, should "
-						 "have been %d or %d.\n", status, 
-						 CRYPT_ERROR_SIGNATURE, CRYPT_ERROR_BADDATA );
-				return( status );
-				}
-
-			/* These tests are supposed to fail, so if this happens then the 
-			   overall test has succeeded */
-			fputs( "  (This test checks error handling, so the failure "
-				   "response is correct).\n", outputStream );
-			return( SENTINEL );
+			printf( "Expected fault error %d, got %d.\nHit a key...", 
+					expectedFaultStatus, status );
+			( void ) getchar();
 			}
-#endif /* !NDEBUG */
+
+		/* These tests are supposed to fail, so if this happens then the 
+		   overall test has succeeded */
+		fputs( "  (This test checks error handling, so the failure "
+			   "response is correct).\n", outputStream );
+		return( SENTINEL );
+#endif /* CONFIG_FAULTS */
 		return( status );
 		}
 	buffer[ *bytesCopied ] = '\0';
@@ -983,6 +965,14 @@ static int printDataInfo( CRYPT_SESSION cryptSession,
 	fprintf( outputStream, "%s---- End of output ----\n", 
 			 isServer ? "SVR: " : "" );
 	fflush( outputStream );
+#if defined( CONFIG_FAULTS ) 
+	if( expectedFaultType != FAULT_NONE )
+		{
+		printf( "Expected fault error %d but got success.\nHit a key...", 
+				expectedFaultStatus );
+		( void ) getchar();
+		}
+#endif /* CONFIG_FAULTS */
 
 	return( CRYPT_OK );
 	}
@@ -1069,9 +1059,11 @@ static int connectSSH( const CRYPT_SESSION_TYPE sessionType,
 #endif /* SSH2_SERVER_NAME */
 	const BOOLEAN isServer = ( sessionType == CRYPT_SESSION_SSH_SERVER ) ? \
 							   TRUE : FALSE;
-	const BOOLEAN isErrorTest = ( testType >= SSH_TEST_CORRUPT_HANDSHAKE && \
-								  testType < SSH_TEST_LAST ) ? \
-								  TRUE : FALSE;
+#if defined( CONFIG_FAULTS )
+	const BOOLEAN isErrorTest = TRUE;
+#else
+	const BOOLEAN isErrorTest = FALSE;
+#endif /* CONFIG_FAULTS */
 	const BOOLEAN useDualAuth = !isServer && \
 								sshInfo[ SSH2_SERVER_NO ].useDualAuth;
 	char buffer[ BUFFER_SIZE ];
@@ -1126,8 +1118,7 @@ static int connectSSH( const CRYPT_SESSION_TYPE sessionType,
 			 ( testType == SSH_TEST_TOTPAUTH ) ? " TOTP auth" : \
 			 ( testType == SSH_TEST_PREAUTH ) ? " pre-authentication" : \
 			 ( testType == SSH_TEST_PREAUTH_MISSING ) ? " pre-authentication absent" : \
-			 ( testType == SSH_TEST_PREAUTH_WRONG ) ? " pre-authentication with incorrect value" : \
-			 isErrorTest ? " with checking for error handling" : "" );
+			 ( testType == SSH_TEST_PREAUTH_WRONG ) ? " pre-authentication with incorrect value" : "" );
 	if( !isServer && !localSession )
 		{
 #ifdef UNICODE_STRINGS
@@ -1154,55 +1145,6 @@ static int connectSSH( const CRYPT_SESSION_TYPE sessionType,
 			releaseMutex();	/* Make sure client doesn't hang */
 		return( FALSE );
 		}
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
-	if( isErrorTest )
-		{
-		int testFaultType;
-
-		if( isServer )
-			{
-			testFaultType = \
-					( testType == SSH_TEST_CORRUPT_HANDSHAKE ) ? \
-					  FAULT_SESSION_CORRUPT_HANDSHAKE : \
-					( testType == SSH_TEST_CORRUPT_KEYEX_SERVER ) ? \
-					  FAULT_SESSION_CORRUPT_KEYEX_SERVER : \
-					( testType == SSH_TEST_CORRUPT_EXCHANGE_HASH ) ? \
-					  FAULT_SESSION_SSH_CORRUPT_EXCHANGE_HASH : \
-					( testType == SSH_TEST_BADSIG_HASH ) ? \
-					  FAULT_BADSIG_HASH : \
-					( testType == SSH_TEST_BADSIG_SIG ) ? \
-					  FAULT_BADSIG_SIG : \
-					( testType == SSH_TEST_WRONG_CERT ) ? \
-					  FAULT_SESSION_WRONGCERT : \
-					( testType == SSH_TEST_CORRUPT_USERNAME ) ? \
-					  FAULT_CORRUPT_ID : \
-					( testType == SSH_TEST_CORRUPT_PASSWORD ) ? \
-					  FAULT_CORRUPT_AUTHENTICATOR : \
-					( testType == SSH_TEST_CORRUPT_CHANNEL_OPEN ) ? \
-					  FAULT_SESSION_SSH_CORRUPT_CHANNEL_OPEN : \
-					( testType == SSH_TEST_CORRUPT_CHANNEL_DATA ) ? \
-					  FAULT_SESSION_SSH_CORRUPT_CHANNEL_DATA : \
-					( testType == SSH_TEST_CORRUPT_CHANNEL_CLOSE ) ? \
-					  FAULT_SESSION_SSH_CORRUPT_CHANNEL_CLOSE : \
-					( testType == SSH_TEST_CORRUPT_CHANNEL_REQUEST ) ? \
-					  FAULT_SESSION_SSH_CORRUPT_CHANNEL_REQUEST : \
-					( testType == SSH_TEST_CORRUPT_DATA ) ? \
-					  FAULT_SESSION_CORRUPT_DATA : \
-					( testType == SSH_TEST_CORRUPT_MAC ) ? \
-					  FAULT_SESSION_CORRUPT_MAC : \
-					  FAULT_NONE;
-			}
-		else
-			{
-			testFaultType = \
-					( testType == SSH_TEST_CORRUPT_KEYEX_CLIENT ) ? \
-					  FAULT_SESSION_CORRUPT_KEYEX_CLIENT : \
-					  FAULT_NONE;
-			}
-		if( testFaultType != FAULT_NONE )
-			cryptSetFaultType( testFaultType );
-		}
-#endif /* CONFIG_FAULTS && Debug */
 
 	/* Set up the server and user information and activate the session */
 	if( isServer )
@@ -1645,6 +1587,15 @@ dualThreadContinue:
 					   "SVR: Attempt to activate SSH server session" : \
 					   "Attempt to activate SSH client session", status,
 					   __LINE__ );
+#if defined( CONFIG_FAULTS ) 
+		if( !isServer && status != expectedFaultStatus && \
+			expectedFaultStatus != CRYPT_OK )
+			{
+			printf( "Expected fault error %d, got %d.\nHit a key...", 
+					expectedFaultStatus, status );
+			( void ) getchar();
+			}
+#endif /* CONFIG_FAULTS */
 		if( isErrorTest || testType == SSH_TEST_PUBKEYAUTH_WRONGKEY || \
 						   testType == SSH_TEST_PUBKEYAUTH_WRONGNAME || \
 						   testType == SSH_TEST_PUBKEYAUTH_PASSWORD || \
@@ -1655,23 +1606,6 @@ dualThreadContinue:
 			/* These tests are supposed to fail, so if this happens then the 
 			   overall test has succeeded */
 			cryptDestroySession( cryptSession );
-			if( !isServer && \
-				( testType != SSH_TEST_CORRUPT_MAC && \
-				  testType != SSH_TEST_PUBKEYAUTH_WRONGKEY && \
-				  testType != SSH_TEST_PUBKEYAUTH_WRONGNAME && \
-				  testType != SSH_TEST_PUBKEYAUTH_PASSWORD && \
-				  testType != SSH_TEST_PUBKEYAUTH_NOPUBKEY && \
-				  testType != SSH_TEST_PREAUTH_MISSING && \
-				  testType != SSH_TEST_PREAUTH_WRONG ) && \
-				( status != CRYPT_ERROR_SIGNATURE && \
-				  status != CRYPT_ERROR_BADDATA && \
-				  status != CRYPT_ERROR_PERMISSION ) )
-				{
-				fprintf( outputStream, "Test returned status %d, should "
-						 "have been %d or %d.\n", status, 
-						 CRYPT_ERROR_SIGNATURE, CRYPT_ERROR_BADDATA );
-				return( FALSE );
-				}
 			fputs( "  (This test checks error handling, so the failure "
 				   "response is correct).\n\n", outputStream );
 			return( TRUE );
@@ -1730,6 +1664,17 @@ dualThreadContinue:
 		cryptDestroySession( cryptSession );
 		return( FALSE );
 		}
+#if defined( CONFIG_FAULTS ) 
+	if( expectedFaultType != FAULT_NONE && \
+		expectedFaultType != FAULT_SESSION_CORRUPT_DATA && \
+		expectedFaultType != FAULT_SESSION_SSH_CORRUPT_CHANNEL_OPEN && \
+		expectedFaultType != FAULT_SESSION_SSH_CORRUPT_CHANNEL_DATA )
+		{
+		printf( "Expected fault error %d but got success.\nHit a key...", 
+				expectedFaultStatus );
+		( void ) getchar();
+		}
+#endif /* CONFIG_FAULTS */
 	if( testType == SSH_TEST_FINGERPRINT )
 		{
 		cryptDestroySession( cryptSession );
@@ -1755,20 +1700,6 @@ dualThreadContinue:
 		fprintf( outputStream, "Attempt to connect with absent or invalid "
 				 "pre-authentication succeeded when it\nshould have failed, "
 				 "line %d.\n", __LINE__ );
-		return( FALSE );
-		}
-
-	/* The error tests should cause handshake failures, so getting to this 
-	   point is an error */
-	if( isErrorTest && \
-		( testType != SSH_TEST_CORRUPT_DATA && \
-		  testType != SSH_TEST_CORRUPT_CHANNEL_DATA && \
-		  testType != SSH_TEST_CORRUPT_CHANNEL_CLOSE && \
-		  testType != SSH_TEST_CORRUPT_CHANNEL_REQUEST ) )
-		{
-		cryptDestroySession( cryptSession );
-		fputs( "  (This test should have led to a handshake failure but "
-			   "didn't, test has\n   failed).\n", outputStream );
 		return( FALSE );
 		}
 
@@ -1904,7 +1835,7 @@ dualThreadContinue:
 		if( cryptStatusError( status ) )
 			{
 			cryptDestroySession( cryptSession );
-			fprintf( outputStream, "Couldn't open second SSH chanel, "
+			fprintf( outputStream, "Couldn't open second SSH channel, "
 					 "status %d, line %d.\n", status, __LINE__ );
 			return( FALSE );
 			}
@@ -1940,7 +1871,7 @@ dualThreadContinue:
 
 	/* Print the first lot of output from the other side */
 	status = printDataInfo( cryptSession, buffer, BUFFER_SIZE, &bytesCopied, 
-							isServer, isErrorTest );
+							isServer );
 	if( cryptStatusError( status ) )
 		{
 		cryptDestroySession( cryptSession );
@@ -2039,7 +1970,7 @@ dualThreadContinue:
 			fputs( "Sent 'ls -l | head -25'", outputStream );
 			delayThread( 3 );
 			status = printDataInfo( cryptSession, buffer, BUFFER_SIZE, 
-									&bytesCopied, isServer, isErrorTest );
+									&bytesCopied, isServer );
 			if( cryptStatusError( status ) )
 				{
 				cryptDestroySession( cryptSession );
@@ -2073,7 +2004,7 @@ dualThreadContinue:
 
 			/* Print the server's response */
 			status = printDataInfo( cryptSession, buffer, BUFFER_SIZE, 
-									&bytesCopied, isServer, isErrorTest );
+									&bytesCopied, isServer );
 			if( cryptStatusError( status ) )
 				{
 				cryptDestroySession( cryptSession );
@@ -2435,44 +2366,64 @@ int testSessionSSHClientServerDualThread( void )
 	}
 int testSessionSSHClientServerDebugCheck( void )
 	{
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
-	cryptSetFaultType( FAULT_NONE );
-	if( !sshClientServer( SSH_TEST_CORRUPT_HANDSHAKE ) )
+#if defined( CONFIG_FAULTS ) 
+	fputs( "Testing SSH error handling...\n", outputStream );
+	setFaultInfo( FAULT_SESSION_CORRUPT_HANDSHAKE, CRYPT_ERROR_SIGNATURE );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of handshake data */
-	if( !sshClientServer( SSH_TEST_CORRUPT_KEYEX_CLIENT ) )
+	/* This one causes a failure in the client because we're corrupting the 
+	   client's keyex value used to compute the exchange hash, which means
+	   that the signed exchange hash returned from the server is what 
+	   detects the corruption */
+	setFaultInfo( FAULT_SESSION_CORRUPT_KEYEX_CLIENT, CRYPT_ERROR_SIGNATURE );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of client keyex */
-	if( !sshClientServer( SSH_TEST_CORRUPT_KEYEX_SERVER ) )
+	setFaultInfo( FAULT_SESSION_CORRUPT_KEYEX_SERVER, CRYPT_ERROR_SIGNATURE );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of server keyex */
-	if( !sshClientServer( SSH_TEST_CORRUPT_EXCHANGE_HASH ) )
+	setFaultInfo( FAULT_SESSION_SSH_CORRUPT_EXCHANGE_HASH, CRYPT_ERROR_SIGNATURE );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of exchange hash */
-	if( !sshClientServer( SSH_TEST_BADSIG_HASH ) )
+	setFaultInfo( FAULT_BADSIG_HASH, CRYPT_ERROR_SIGNATURE );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of hash for signature */
-	if( !sshClientServer( SSH_TEST_BADSIG_SIG ) )
+	setFaultInfo( FAULT_BADSIG_SIG, CRYPT_ERROR_SIGNATURE );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of signature data */
-	if( !sshClientServer( SSH_TEST_WRONG_CERT ) )
-		return( FALSE );	/* Detect wrong key for server */
+	setFaultInfo( FAULT_SESSION_WRONGCERT, CRYPT_ERROR_SIGNATURE );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
+		return( FALSE );	/* Detect wrong signing key for server */
 #if 0	/* See comments in fault.h */
-	if( !sshClientServer( SSH_TEST_CORRUPT_USERNAME ) )
+	setFaultInfo( FAULT_CORRUPT_ID, CRYPT_ERROR_NOTFOUND );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect wrong username */
-	if( !sshClientServer( SSH_TEST_CORRUPT_PASSWORD ) )
+	setFaultInfo( FAULT_CORRUPT_AUTHENTICATOR, CRYPT_ERROR_WRONGKEY );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect wrong username */
 #endif /* 0 */
-	if( !sshClientServer( SSH_TEST_CORRUPT_DATA ) )
+	setFaultInfo( FAULT_SESSION_CORRUPT_DATA, CRYPT_ERROR_SIGNATURE );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of payload data */
-	if( !sshClientServer( SSH_TEST_CORRUPT_MAC ) )
+	setFaultInfo( FAULT_SESSION_CORRUPT_MAC, CRYPT_ERROR_WRONGKEY );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of payload MAC */
-	if( !sshClientServer( SSH_TEST_CORRUPT_CHANNEL_OPEN ) )
-		return( FALSE );	/* Detect corruption of payload data */
-	if( !sshClientServer( SSH_TEST_CORRUPT_CHANNEL_DATA ) )
-		return( FALSE );	/* Detect corruption of payload data */
+	setFaultInfo( FAULT_SESSION_SSH_CORRUPT_CHANNEL_OPEN, CRYPT_ERROR_BADDATA );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
+		return( FALSE );	/* Detect corruption of channel info */
+	setFaultInfo( FAULT_SESSION_SSH_CORRUPT_CHANNEL_DATA, CRYPT_ERROR_BADDATA );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
+		return( FALSE );	/* Detect corruption of channel info */
 #if 0	/* See comments in fault.h */
-	if( !sshClientServer( SSH_TEST_CORRUPT_CHANNEL_CLOSE ) )
+	setFaultInfo( FAULT_SESSION_SSH_CORRUPT_CHANNEL_CLOSE, CRYPT_ERROR_BADDATA );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of payload data */
-	if( !sshClientServer( SSH_TEST_CORRUPT_CHANNEL_REQUEST ) )
+	setFaultInfo( FAULT_SESSION_SSH_CORRUPT_CHANNEL_REQUEST, CRYPT_ERROR_BADDATA );
+	if( !sshClientServer( SSH_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of payload data */
 #endif /* 0 */
 	cryptSetFaultType( FAULT_NONE );
-#endif /* CONFIG_FAULTS && Debug */
+	fputs( "SSH error handling self-test succeeded.\n\n", outputStream );
+#endif /* CONFIG_FAULTS */
 	return( TRUE );
 	}
 #endif /* TEST_SESSION_LOOPBACK */

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib ECDSA Encryption Routines					*
-*			Copyright Matthias Bruestle and Peter Gutmann 2006-2018			*
+*			Copyright Matthias Bruestle and Peter Gutmann 2006-2025			*
 *																			*
 ****************************************************************************/
 
@@ -25,10 +25,10 @@
    encoded forms that will both verify as a signature.  It's not clear that 
    this is a vulnerability in any protocol used by cryptlib, although it's 
    quite possible to design one where it causes problems.  For example 
-   PKIX's braindamaged preference for blacklist-based "validation" means 
-   that the blacklist can be bypassed by encoding the ECDSA signature into 
+   PKIX's braindamaged preference for blocklist-based "validation" means 
+   that the blocklist can be bypassed by encoding the ECDSA signature into 
    its alternate form, so the signature is still valid but the item that 
-   contains it is no longer on the blacklist.
+   contains it is no longer on the blocklist.
    
    To try and not make the problem worse, we make sure that our signatures 
    are always in a particular form, although it's not clear which one is the 
@@ -179,9 +179,8 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	DLP_PARAMS dlpParams;
-	BYTE buffer[ 8 + ( 2 * CRYPT_MAX_PKCSIZE_ECC ) + 8 ];
-	int sigSize, status;
+	DLP_PARAMS dlpParamsSign, dlpParamsSigCheck;
+	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -189,21 +188,19 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
 	REQUIRES_B( capabilityInfoPtr != NULL );
 
 	/* Generate a signature with the private key */
-	setDLPParams( &dlpParams, shaM, 32, buffer, 
-				  8 + ( 2 * CRYPT_MAX_PKCSIZE_ECC ) );
-	dlpParams.inLen2 = -999;
+	initDLPParamsSign( &dlpParamsSign, shaM, 32 );
+	dlpParamsSign.inLen2 = -999;
 	status = capabilityInfoPtr->signFunction( contextInfoPtr,
-						( BYTE * ) &dlpParams, sizeof( DLP_PARAMS ) );
+						( BYTE * ) &dlpParamsSign, sizeof( DLP_PARAMS ) );
 	if( cryptStatusError( status ) )
 		return( FALSE );
 
 	/* Verify the signature with the public key */
-	sigSize = dlpParams.outLen;
-	setDLPParams( &dlpParams, shaM, 32, NULL, 0 );
-	dlpParams.inParam2 = buffer;
-	dlpParams.inLen2 = sigSize;
+	initDLPParamsSigCheck( &dlpParamsSigCheck, shaM, 32, 
+						   dlpParamsSign.outParam, 
+						   dlpParamsSign.outLen );
 	status = capabilityInfoPtr->sigCheckFunction( contextInfoPtr,
-						( BYTE * ) &dlpParams, sizeof( DLP_PARAMS ) );
+						( BYTE * ) &dlpParamsSigCheck, sizeof( DLP_PARAMS ) );
 	return( cryptStatusOK( status ) ? TRUE : FALSE );
 	}
 
@@ -389,8 +386,8 @@ static int selfTest( void )
    through the use of isPointOnCurve() in kg_ecc.c, but a much simpler 
    solution is just to verify the private-key operation with the matching 
    public-key operation after we perform it.  This operation is handled at a 
-   higher level (to accomodate algorithms like RSA for which the private-key 
-   operation could be a sign or a decrypt and we only need to check the 
+   higher level (to accommodate algorithms like RSA for which the private-
+   key operation could be a sign or a decrypt and we only need to check the 
    sign), performing a signature verify after each signature generation at 
    the crypto mechanism level.
    
@@ -437,27 +434,24 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	BIGNUM *s = &pkcInfo->eccParam_tmp5;
 	const EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	EC_POINT *kg = pkcInfo->tmpPoint;
-	const int nLen = BN_num_bytes( n ), outLen = eccParams->outLen;
+	const int nLen = BN_num_bytes( n );
 	int bnStatus = BN_STATUS, status = CRYPT_OK;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( eccParams, sizeof( DLP_PARAMS ) ) );
-	assert( isReadPtrDynamic( eccParams->inParam1, eccParams->inLen1 ) );
-	assert( isWritePtrDynamic( eccParams->outParam, eccParams->outLen ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( pkcInfo->domainParams != NULL );
 	REQUIRES( noBytes == sizeof( DLP_PARAMS ) );
-	REQUIRES( eccParams->inParam2 == NULL && \
-			  ( eccParams->inLen2 == 0 || eccParams->inLen2 == -999 ) );
-	REQUIRES( isShortIntegerRangeMin( eccParams->outLen, 
-									  MIN_CRYPT_OBJECTSIZE ) );
+	REQUIRES( eccParams->inLen1 >= max( 20, MIN_HASHSIZE ) && \
+			  eccParams->inLen1 <= CRYPT_MAX_HASHSIZE );
+	REQUIRES( eccParams->inLen2 == 0 || eccParams->inLen2 == -999 );
 	REQUIRES( capabilityInfoPtr != NULL );
 	REQUIRES( nLen >= ECCPARAM_MIN_N && nLen <= ECCPARAM_MAX_N );
 
 	/* Clear return values */
-	REQUIRES( isShortIntegerRangeNZ( eccParams->outLen ) ); 
-	memset( eccParams->outParam, 0, min( 16, eccParams->outLen ) );
+	REQUIRES( rangeCheck( DLP_DATA_SIZE, 1, DLP_DATA_SIZE ) ); 
+	memset( eccParams->outParam, 0, min( 16, DLP_DATA_SIZE ) );
 	eccParams->outLen = 0;
 
 	/* Generate the secret random value k.  During the initial self-test the 
@@ -514,13 +508,20 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( bnStatusError( bnStatus ) )
 		return( getBnStatus( bnStatus ) );
 
+	/* Make sure that the result isn't zero (or more generally less than 64
+	   bits).  Admittedly the chances of this are infinitesimally small 
+	   (2^-256, the size of the smallest curve, or less for a value of zero, 
+	   2^-128 for 64 bits) but someone's bound to complain if we don't 
+	   check */
+	ENSURES( BN_num_bytes( k ) > 8 );
+
 	/* Make k fixed-length to try and close one of Schnorr signature's infinite
 	   collection of side-channels, see "Remote Timing Attacks are Still 
 	   Pracical" by Brumley and Tuveri, ESORICS'11, for details.  And then ten 
 	   years later it came up again in "Minerva: The curse of ECDSA nonces" by 
 	   Jancar, Sedlacek, Svenda and Sys, CHES 2020.
 	   
-	   An altenative fix, suggested in the MINERVA paper, is to make k much 
+	   An alternative fix, suggested in the MINERVA paper, is to make k much 
 	   bigger than n since learning the MSBs of such a large k provides 
 	   little to no information about k mod n.  This is used in EdDSA, with a
 	   512-bit nonce for a 255-bit key, but this seems a bit overkill given 
@@ -539,13 +540,6 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		}
 	if( bnStatusError( bnStatus ) )
 		return( getBnStatus( bnStatus ) );
-
-	/* Make sure that the result isn't zero (or more generally less than 64
-	   bits).  Admittedly the chances of this are infinitesimally small 
-	   (2^-256, the size of the smallest curve, or less for a value of zero, 
-	   2^-128 for 64 bits) but someone's bound to complain if we don't 
-	   check */
-	ENSURES( BN_num_bytes( k ) > 8 );
 
 	/* Convert the hash value to an integer in the proper range */
 	status = hashToBignum( hash, eccParams->inParam1, eccParams->inLen1, n );
@@ -603,13 +597,15 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   practice the pairwise consistency test (performed by the higher-level
 	   code) does this for us when it recovers the signing point as part of
 	   the verification operation */
-	if( BN_num_bytes( r ) < nLen - 16 || BN_num_bytes( s ) < nLen - 16 )
+	if( checkOverflowSub( nLen, bitsToBytes( 80 ) ) || \
+		BN_num_bytes( r ) < nLen - bitsToBytes( 80 ) || \
+		BN_num_bytes( s ) < nLen - bitsToBytes( 80 ) )
 		return( CRYPT_ERROR_BADDATA );
 
 	/* Encode the result as a DL data block */
 	status = capabilityInfoPtr->encodeDLValuesFunction( eccParams->outParam, 
-										outLen, &eccParams->outLen, r, s, 
-										eccParams->formatType );
+										DLP_DATA_SIZE, &eccParams->outLen, 
+										r, s, eccParams->formatType );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -640,13 +636,10 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( eccParams, sizeof( DLP_PARAMS ) ) );
-	assert( isReadPtrDynamic( eccParams->inParam1, eccParams->inLen1 ) );
-	assert( isReadPtrDynamic( eccParams->inParam2, eccParams->inLen2 ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( pkcInfo->domainParams != NULL );
 	REQUIRES( noBytes == sizeof( DLP_PARAMS ) );
-	REQUIRES( eccParams->outParam == NULL && eccParams->outLen == 0 );
 	REQUIRES( capabilityInfoPtr != NULL );
 
 	/* Decode the values from a DL data block and make sure that r and s are
@@ -729,7 +722,7 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	ENSURES( sanityCheckPKCInfo( pkcInfo ) );
 
-	return( status );
+	return( CRYPT_OK );
 	}
 
 /****************************************************************************
@@ -838,7 +831,6 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								   ECCPARAM_MIN_D, ECCPARAM_MAX_D,
 								   NULL, BIGNUM_CHECK_VALUE_ECC );
 			}
-		SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		if( cryptStatusError( status ) )
 			return( status );
 

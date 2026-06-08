@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					   cryptlib TCP/IP Read/Write Routines					*
-*						Copyright Peter Gutmann 1998-2022					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -61,21 +61,27 @@ static BOOLEAN isSameAddress( const struct sockaddr *addr1,
 		{
 		if( addr1->sa_family == AF_INET6 )
 			{
-			struct sockaddr_in6 *addr1in6 = ( const struct sockaddr_in6 * ) addr1;
-			struct sockaddr_in6 *addr2in6 = ( const struct sockaddr_in6 * ) addr2;
+			const struct sockaddr_in6 *addr1in6 = ( const struct sockaddr_in6 * ) addr1;
+			const struct sockaddr_in6 *addr2in6 = ( const struct sockaddr_in6 * ) addr2;
 
-			if( memcmp( addr1in6->sin6_addr.s6_addr, addr2in6->sin6_addr.s6_addr,
+			/* IPv6, going with its second-system design, adds a lot of 
+			   complexity to what should be just an address-and-port 
+			   comparison.  In particular there are flow labels, a field with
+			   ambiguous semantics with a vague intention for use with real-
+			   time traffic that never really got used as such (see RFC 6294),
+			   and the even more vague scope ID which is "an ID depending on 
+			   the scope of the address", whatever that means.  Since neither 
+			   of these are likely to produce much except false positives and
+			   seem to be set to zero in any case, we skip them */
+			if( memcmp( addr1in6->sin6_addr.s6_addr, 
+						addr2in6->sin6_addr.s6_addr,
 						sizeof( addr1in6->sin6_addr.s6_addr ) ) )
 				return( FALSE );
 			if( addr1in6->sin6_port != addr2in6->sin6_port )
 				return( FALSE );
+#if 0
 			if( addr1in6->sin6_flowinfo != addr2in6->sin6_flowinfo )
 				return( FALSE );
-#if 0		/* The scope ID is "an ID depending on the scope of the address",
-			   whatever that means.  Since it's not supported by all 
-			   implementations, several that do support it mark it as unused, 
-			   and where it is supported it always seems to be zero, we skip 
-			   it */
 			if( addr1in6->sin6_scope_id != addr2in6->sin6_scope_id )
 				return( FALSE );
 #endif /* 0 */
@@ -150,7 +156,7 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 	fd_set *writeFDPtr = ( type == IOWAIT_WRITE || \
 						   type == IOWAIT_CONNECT ) ? &writefds : NULL;
 	LOOP_INDEX selectIterations;
-	int status;
+	int socketStatus, status;
 
 	assert( isWritePtr( netStream, sizeof( NET_STREAM_INFO ) ) );
 
@@ -208,7 +214,7 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 	   the safe side.  It would actually be nice if the tv value were 
 	   updated reliably to reflect how long the select() had to wait since 
 	   it'd provide a nice source of entropy for the randomness pool (we 
-	   could simulate this by readig a high-res timer before and after the
+	   could simulate this by reading a high-res timer before and after the
 	   select() but that would add a pile of highly system-dependent code
 	   and defeat the intent of using the "free" entropy that's provided as 
 	   a side-effect of the select()).
@@ -221,8 +227,8 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 	status = setMonoTimer( &timerInfo, timeout );
 	if( cryptStatusError( status ) )
 		return( status );
-	LOOP_MED( ( selectIterations = 0, status = SOCKET_ERROR ), \
-			  isSocketError( status ) && \
+	LOOP_MED( ( selectIterations = 0, socketStatus = SOCKET_ERROR ), \
+			  isSocketError( socketStatus ) && \
 				( selectIterations <= 0 || \
 				  !checkMonoTimerExpired( &timerInfo ) ) && \
 				selectIterations < 20, 
@@ -255,13 +261,13 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 		   just cast whatever the value ends up as to an int to fit the 
 		   function prototype */
 		clearErrorState();
-		status = select( ( int ) netStream->netSocket + 1, readFDPtr, 
-						 writeFDPtr, &exceptfds, &tv );
+		socketStatus = select( ( int ) netStream->netSocket + 1, readFDPtr, 
+							   writeFDPtr, &exceptfds, &tv );
 
 		/* If there's a problem and it's not something transient like an
 		   interrupted system call, exit.  For a transient problem, we just
 		   retry the select until the overall timeout expires */
-		if( isSocketError( status ) && \
+		if( isSocketError( socketStatus ) && \
 			!isRestartableError( netStream->netSocket ) )
 			{
 			int dummy;
@@ -298,18 +304,18 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 								CRYPT_ERROR_TIMEOUT, FALSE ) );
 		}
 
-	/* If the wait timed out, either explicitly in the select (status == 0)
-	   or implicitly in the wait loop (isSocketError()), report it as a
-	   select() timeout error */
-	if( status == 0 || isSocketError( status ) )
+	/* If the wait timed out, either explicitly in the select (return 
+	   value == 0) or implicitly in the wait loop (isSocketError()), report 
+	   it as a select() timeout error */
+	if( socketStatus == 0 || isSocketError( socketStatus ) )
 		{
 		char errorMessage[ 128 + 8 ];
 		int errorMessageLength;
 
-		DEBUG_PRINT_COND( DIAG_SELECT && status == 0, 
-						  ( "ioWait(): Wait timed out (status == 0), "
+		DEBUG_PRINT_COND( DIAG_SELECT && socketStatus == 0, 
+						  ( "ioWait(): Wait timed out (return value == 0), "
 						    "entering handler.\n" ) );
-		DEBUG_PRINT_COND( DIAG_SELECT && status != 0, 
+		DEBUG_PRINT_COND( DIAG_SELECT && socketStatus != 0, 
 						  ( "ioWait(): Wait timed out (isSocketError()), "
 						    "entering handler.\n" ) );
 
@@ -391,16 +397,10 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 		   have been caught by the "wait timed out" code above).  Another
 		   option is to retry the connect as a blocking one to get a genuine
 		   error code, but that defeats the point of using a nonblocking 
-		   connect to deal with problem conditions.
-
-		   The conflict here is between an honest but rather useless 
-		   CRYPT_ERROR_OPEN and a guessed and far more useful, but 
-		   potentially misleading, ECONNREFUSED.  Given that this is an
-		   oddball condition to begin with it's unclear how far we should
-		   go down this rathole, for now we assume an ECONNREFUSED */
+		   connect to deal with problem conditions */
 		if( type == IOWAIT_CONNECT )
 			{
-			( void ) mapNetworkError( netStream, NONBLOCKCONNECT_ERROR, 
+			status = mapNetworkError( netStream, NONBLOCKCONNECT_ERROR, 
 									  FALSE, CRYPT_ERROR_OPEN );
 			DEBUG_PRINT_COND( DIAG_SELECT, 
 							  ( "  No-error socket error code on connect "
@@ -415,12 +415,8 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 		   same time as we do the select() wait.  Non-Winsock cases can occur 
 		   because some implementations don't treat a soft timeout as an 
 		   error, and at least one (Tandem) returns EINPROGRESS rather than 
-		   ETIMEDOUT, so we insert a timeout error code ourselves.  
-			   
-		   Since we're merely updating the extended internal error 
-		   information (we already know what the actual error status is) we 
-		   don't need to do anything with the mapError() return value */
-		( void ) mapNetworkError( netStream, TIMEOUT_ERROR, FALSE, 
+		   ETIMEDOUT, so we insert a timeout error code ourselves */
+		status = mapNetworkError( netStream, TIMEOUT_ERROR, FALSE, 
 								  CRYPT_ERROR_TIMEOUT );
 		DEBUG_PRINT_COND( DIAG_SELECT, 
 						  ( "  Catch-all handler for no-error socket "
@@ -429,8 +425,8 @@ int ioWait( INOUT_PTR NET_STREAM_INFO *netStream,
 		return( status );
 		}
 
-	/* The socket is read for reading or writing */
-	ENSURES( status > 0 );
+	/* The socket is ready for reading or writing */
+	ENSURES( socketStatus > 0 );
 	ENSURES( ( type == IOWAIT_READ && \
 			   FD_ISSET( netStream->netSocket, &readfds ) ) || \
 			 ( type == IOWAIT_WRITE && \

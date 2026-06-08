@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					Certificate Signature Checking Routines					*
-*						Copyright Peter Gutmann 1997-2019					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -23,7 +23,7 @@
 
 /* Generate an issuerID, a SHA-1 hash of the issuerAndSerialNumber needed 
    when storing/retrieving a certificate to/from a database keyset, which 
-   can't handle the awkward heirarchical IDs usually used in certificates.  
+   can't handle the awkward hierarchical IDs usually used in certificates.  
    This is created by encoding the DN and serial number and hashing it */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 5 ) ) \
@@ -39,7 +39,7 @@ static int generateCertID( IN_BUFFER( dnLength ) const void *dn,
 	HASHINFO hashInfo;
 	STREAM stream;
 	BYTE buffer[ MAX_SERIALNO_SIZE + 8 + 8 ];
-	int status;
+	int offset, status;
 
 	assert( isReadPtrDynamic( dn, dnLength ) );
 	assert( isReadPtrDynamic( serialNumber, serialNumberLength ) );
@@ -72,18 +72,22 @@ static int generateCertID( IN_BUFFER( dnLength ) const void *dn,
 		sMemClose( &stream );
 		return( status );
 		}
-	hashFunction( hashInfo, NULL, 0, buffer, stell( &stream ), 
-				  HASH_STATE_START );
+	offset = stell( &stream );
+	ENSURES( !cryptStatusError( offset ) );
+	hashFunction( hashInfo, NULL, 0, buffer, offset, HASH_STATE_START );
 	hashFunction( hashInfo, NULL, 0, dn, dnLength, HASH_STATE_CONTINUE );
 	sseek( &stream, 0 );
 	status = writeInteger( &stream, serialNumber, serialNumberLength,
 						   DEFAULT_TAG );
 	if( cryptStatusOK( status ) )
 		{
-		hashFunction( hashInfo, certID, certIdLength, buffer, 
-					  stell( &stream ), HASH_STATE_END );
+		offset = stell( &stream );
+		ENSURES( !cryptStatusError( offset ) );
+		hashFunction( hashInfo, certID, certIdLength, buffer, offset, 
+					  HASH_STATE_END );
 		}
 	sMemClose( &stream );
+	zeroise( hashInfo, sizeof( HASHINFO ) );
 
 	return( status );
 	}
@@ -110,7 +114,7 @@ static int checkResponder( INOUT_PTR CERT_INFO *certInfoPtr,
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
-	REQUIRES( isHandleRangeValid( iCryptSession) );
+	REQUIRES( isHandleRangeValid( iCryptSession ) );
 
 	status = krnlSendMessage( iCryptSession, IMESSAGE_GETATTRIBUTE, 
 							  &sessionType, CRYPT_IATTRIBUTE_SUBTYPE );
@@ -203,7 +207,7 @@ static int checkResponder( INOUT_PTR CERT_INFO *certInfoPtr,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int checkKeyset( INOUT_PTR CERT_INFO *certInfoPtr,
-						IN_HANDLE const CRYPT_SESSION iCryptKeyset )
+						IN_HANDLE const CRYPT_KEYSET iCryptKeyset )
 	{
 	MESSAGE_KEYMGMT_INFO getkeyInfo;
 	BYTE issuerID[ KEYID_SIZE + 8 ];
@@ -236,17 +240,17 @@ static int checkKeyset( INOUT_PTR CERT_INFO *certInfoPtr,
 							  &getkeyInfo, KEYMGMT_ITEM_REVOCATIONINFO );
 	if( cryptStatusOK( status ) )
 		{
-		/* The certificate is present in the blacklist so it's an invalid
+		/* The certificate is present in the blocklist so it's an invalid
 		   certificate */
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO, 
 				  "Certificate is present in revoked-certificate "
-				  "blacklist" ) );
+				  "blocklist" ) );
 		}
 	if( status != CRYPT_ERROR_NOTFOUND )
 		{
 		/* Some type of error other than the certificate not being present 
-		   in the blacklist occurred */
+		   in the blocklist occurred */
 		retExtObj( status,
 				   ( status, CERTIFICATE_ERRINFO, iCryptKeyset,
 					 "Certificate database query failed" ) );
@@ -255,7 +259,7 @@ static int checkKeyset( INOUT_PTR CERT_INFO *certInfoPtr,
 
 	ENSURES( CFI_CHECK_SEQUENCE_2( "generateCertID", "IMESSAGE_KEY_GETKEY" ) );
 
-	/* The certificate isn't present in the blacklist so it's not revoked 
+	/* The certificate isn't present in the blocklist so it's not revoked 
 	   (although not necessarily valid either) */
 	return( CRYPT_OK );
 	}
@@ -351,10 +355,11 @@ int checkCertDetails( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	CFI_CHECK_UPDATE( "checkCert" );
 
 	/* If the signature has already been checked or there's no signature-
-	   check key present then we're done.  The latter can occur when we're 
-	   checking a data-only certificate in a certificate chain.  This is 
-	   safe because these certificates can only occur when we're reading 
-	   them from an (implicitly trusted) private key store */
+	   check key present then we're done.  For the former, see the long 
+	   comment at the end of this function.  For the latter, this can occur 
+	   when we're checking a data-only certificate in a certificate chain, 
+	   this is safe because these certificates can only occur when we're 
+	   reading them from an (implicitly trusted) private key store */
 	if( TEST_FLAG( subjectCertInfoPtr->flags, CERT_FLAG_SIGCHECKED ) || \
 		iIssuerPubKey == CRYPT_UNUSED )
 		{
@@ -377,7 +382,7 @@ int checkCertDetails( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	   certificate then we're done.  If we're performing a check of a 
 	   certificate chain then the chain-handling code will have performed 
 	   its own handling of trusted certificates/trust anchors so we don't 
-	   peform a second check here */
+	   perform a second check here */
 	if( !shortCircuitCheck )
 		{
 		status = krnlSendMessage( subjectCertInfoPtr->ownerHandle, 
@@ -385,7 +390,12 @@ int checkCertDetails( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 								  &subjectCertInfoPtr->objectHandle,
 								  MESSAGE_TRUSTMGMT_CHECK );
 		if( cryptStatusOK( status ) )
+			{
+			ENSURES( CFI_CHECK_SEQUENCE_2( "checkCertBasic", 
+										   "checkCert" ) );
+
 			return( CRYPT_OK );
+			}
 		}
 	CFI_CHECK_UPDATE( "IMESSAGE_USER_TRUSTMGMT" );
 
@@ -438,7 +448,7 @@ int checkCertDetails( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 		   anything else so that the certificates chain but the signature 
 		   check produces garbage as output due to the use of the incorrect 
 		   key.  Although it could be argued that a CA that does this is 
-		   broken, we try and accomodate it by performing a backup check 
+		   broken, we try and accommodate it by performing a backup check 
 		   using keyIDs if the signature check produces garbled output.  
 		   Because of the complete chaos present in keyIDs we can't do this 
 		   by default (it would result in far too many false positives) but 
@@ -625,7 +635,9 @@ static int checkSelfSignedCert( INOUT_PTR CERT_INFO *certInfoPtr,
 		}
 	CFI_CHECK_UPDATE( "IMESSAGE_USER_TRUSTMGMT" );
 
-	/* Check the certificate against the issuing certificate */
+	/* Check the certificate against the issuing certificate.  We set the
+	   basicCheckDone flag to TRUE since we've already done this check 
+	   earlier for the certificate object types where this applies */
 	status = checkCertDetails( certInfoPtr, issuerCertInfoPtr, 
 							   iCryptContext, formatInfo, FALSE, FALSE, 
 							   TRUE );
@@ -957,7 +969,8 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 
 	/* Perform a basic check for obvious invalidity issues */
 	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
-		certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT )
+		certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
+		certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 		{
 		status = checkCertBasic( certInfoPtr );
 		if( cryptStatusError( status ) )
@@ -1036,7 +1049,7 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 			return( CRYPT_OK );
 			}
 
-		/* It's a keyset, check the certificate against the CRL blacklist in 
+		/* It's a keyset, check the certificate against the CRL blocklist in 
 		   the keyset */
 		status = checkKeyset( certInfoPtr, iSigCheckObject );
 		if( cryptStatusError( status ) )
@@ -1072,7 +1085,7 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 	   CRL, or signed RTCS or OCSP response with either another certificate 
 	   or a raw public key.  Certificate chains have been checked above and 
 	   PKCS #10/CRMF requests are self-signed so typically they're checked 
-	   via the iSigCheckObject == CRYPT_UNUSED option aboave, however they 
+	   via the iSigCheckObject == CRYPT_UNUSED option above, however they 
 	   can also be checked by explicitly supplying a check object */
 	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \

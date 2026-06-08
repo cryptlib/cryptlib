@@ -781,7 +781,7 @@ static int getPubkeyComponents( CRYPTOAPI_INFO *cryptoapiInfo,
 	length = ( exponent <= 0xFF ) ? 1 : \
 			 ( exponent <= 0xFFFF ) ? 2 : \
 			 ( exponent <= 0xFFFFFFL ) ? 3 : 4;
-	mputLong( bufPtr, exponent );
+	mput32( bufPtr, exponent );
 	memcpy( e, buffer + ( 4 - length ), length );
 	*eLen = length;
 

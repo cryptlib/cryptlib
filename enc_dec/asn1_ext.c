@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					ASN.1 Supplemental Read/Write Routines					*
-*						Copyright Peter Gutmann 1992-2022					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -132,19 +132,18 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 				   IN_ARRAY( noOidInfoEntries ) const OID_INFO *oidInfo, 
 				   IN_RANGE( 1, 50 ) const int noOidInfoEntries, 
 				   OUT_OPT_INT_Z int *selectionID,
-				   OUT_OPT_LENGTH_INDEF long *dataSize, 
+				   OUT_OPT_LENGTH_INDEF int *dataSize, 
 				   IN_FLAGS_Z( READCMS ) const int flags )
 	{
 	const OID_INFO *oidInfoPtr;
 	BOOLEAN isData = FALSE, isDetachedSig = FALSE;
-	long savedLength = CRYPT_UNUSED, savedLengthDataStart = 0;
-	long length, value;
-	int tag, objectSize, status;
+	int savedLength = CRYPT_UNUSED, savedLengthDataStart = 0;
+	int length, tag, objectSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtrDynamic( oidInfo, \
 							  sizeof( OID_INFO ) * noOidInfoEntries ) );
-	assert( dataSize == NULL || isWritePtr( dataSize, sizeof( long ) ) );
+	assert( dataSize == NULL || isWritePtr( dataSize, sizeof( int ) ) );
 
 	REQUIRES_S( noOidInfoEntries > 0 && noOidInfoEntries <= 50 );
 	REQUIRES_S( isFlagRangeZ( flags, READCMS ) );
@@ -235,7 +234,7 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 		}
 	if( flags & READCMS_FLAG_WRAPPERONLY )
 		{
-		/* We're only reading the outer wrapper in order to accomodate
+		/* We're only reading the outer wrapper in order to accommodate
 		   redundantly nested CMS content types, don't try and read
 		   any further */
 		ENSURES_S( !( flags & ( READCMS_FLAG_DEFINITELENGTH | \
@@ -304,9 +303,9 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 			   data read since that point.  This can't overflow because
 			   objectSize, the data that we've read since 
 			   savedLengthDataStart, is only a dozen bytes or so */
-			status = calculateStreamObjectLength( stream, 
-												  savedLengthDataStart, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, 
+											   savedLengthDataStart, 
+											   &objectSize );
 			if( cryptStatusError( status ) )
 				return( sSetError( stream, status ) );
 			if( savedLength < objectSize )
@@ -327,6 +326,7 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 		{
 		const CMS_CONTENT_INFO *contentInfoPtr = oidInfoPtr->extraInfo;
 		const int startPos = stell( stream );
+		long value;
 
 		REQUIRES_S( isIntegerRangeNZ( startPos ) );
 
@@ -344,8 +344,8 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 		   only a few bytes */
 		if( length != CRYPT_UNUSED )
 			{
-			status = calculateStreamObjectLength( stream, startPos, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, startPos, 
+											   &objectSize );
 			if( cryptStatusError( status ) )
 				return( sSetError( stream, status ) );
 			if( objectSize > length )
@@ -391,7 +391,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeCMSheader( INOUT_PTR STREAM *stream, 
 					IN_BUFFER( contentOIDlength ) const BYTE *contentOID, 
 					IN_LENGTH_OID const int contentOIDlength,
-					IN_LENGTH_INDEF const long dataSize, 
+					IN_LENGTH_INDEF const int dataSize, 
 					IN_BOOL const BOOLEAN isInnerHeader )
 	{
 	BOOLEAN isOctetString = ( isInnerHeader || \
@@ -432,7 +432,8 @@ int writeCMSheader( INOUT_PTR STREAM *stream,
 
 	/* If a size is given, write the definite form.  The overflow check is
 	   unnecessary because dataSize < MAX_INTLENGTH so we never get close
-	   to INT_MAX, but  */
+	   to INT_MAX, but we perform it anyway to document that it's been 
+	   done */
 	if( dataSize != CRYPT_UNUSED )
 		{
 		int status;
@@ -464,7 +465,7 @@ int writeCMSheader( INOUT_PTR STREAM *stream,
 CHECK_RETVAL_LENGTH STDC_NONNULL_ARG( ( 1 ) ) \
 int sizeofCMSencrHeader( IN_BUFFER( contentOIDlength ) const BYTE *contentOID, 
 						 IN_LENGTH_OID const int contentOIDlength,
-						 IN_LENGTH_INDEF const long dataSize, 
+						 IN_LENGTH_INDEF const int dataSize, 
 						 IN_HANDLE const CRYPT_CONTEXT iCryptContext )
 	{
 	STREAM nullStream;
@@ -516,8 +517,7 @@ int readCMSencrHeader( INOUT_PTR STREAM *stream,
 	{
 	QUERY_INFO localQueryInfo, *queryInfoPtr = ( queryInfo == NULL ) ? \
 											   &localQueryInfo : queryInfo;
-	long length;
-	int tag, selectionValue, status;
+	int tag, length, selectionValue, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtrDynamic( oidInfo, \
@@ -606,7 +606,7 @@ RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeCMSencrHeader( INOUT_PTR STREAM *stream, 
 						IN_BUFFER( contentOIDlength ) const BYTE *contentOID, 
 						IN_LENGTH_OID const int contentOIDlength,
-						IN_LENGTH_INDEF const long dataSize,
+						IN_LENGTH_INDEF const int dataSize,
 						IN_HANDLE const CRYPT_CONTEXT iCryptContext )
 	{
 	STREAM nullStream;

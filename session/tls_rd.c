@@ -284,7 +284,10 @@ int processVersionInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* If there's a requirement for a minimum version, make sure that it's
 	   been met.  See the comment at the start for the mess created by
 	   TLS 1.3 pretending to be TLS 1.2, which means that if the minimum
-	   version is 1.3 then we have to accept 1.2 as if it was 1.3 */
+	   version is 1.3 then we have to accept 1.2 as if it was 1.3.  This
+	   also means that a TLS 1.3-only peer has to accept a connection from
+	   a TLS 1.2 peer because it can't tell at this point whether it's
+	   TLS 1.3 or not */
 	if( sessionInfoPtr->sessionTLS->minVersion > 0 )
 		{
 #ifdef USE_TLS13
@@ -933,7 +936,7 @@ static int unwrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtrDynamic( data, dataMaxLength ) );
 	assert( isWritePtr( dataLength, sizeof( int ) ) );
 
-	REQUIRES( dataMaxLength >= sessionInfoPtr->authBlocksize && \
+	REQUIRES( dataMaxLength >= sessionInfoPtr->authBlocksize + 1 && \
 			  dataMaxLength <= MAX_PACKET_SIZE + \
 							   sessionInfoPtr->authBlocksize + 256 && \
 			  dataMaxLength < MAX_BUFFER_SIZE );
@@ -957,8 +960,8 @@ static int unwrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		REQUIRES( !checkOverflowSub( length, 
 									 sessionInfoPtr->authBlocksize ) );
 		status = checkMacTLSBernstein( sessionInfoPtr, data, length, 
-									  length - sessionInfoPtr->authBlocksize, 
-									  packetType);
+									   length - sessionInfoPtr->authBlocksize, 
+									   packetType);
 		if( cryptStatusError( status ) )
 			return( status );
 		}
@@ -1004,14 +1007,14 @@ static int unwrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									const int packetType )
 	{
 	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
-	int length = dataMaxLength, status;
+	int length = dataMaxLength, totalLength = length, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) && \
 			TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_READ ) );
 	assert( isWritePtrDynamic( data, dataMaxLength ) );
 	assert( isWritePtr( dataLength, sizeof( int ) ) );
 
-	REQUIRES( dataMaxLength >= sessionInfoPtr->authBlocksize && \
+	REQUIRES( dataMaxLength >= sessionInfoPtr->authBlocksize + 1 && \
 			  dataMaxLength <= MAX_PACKET_SIZE + \
 							   sessionInfoPtr->authBlocksize + 256 && \
 			  dataMaxLength < MAX_BUFFER_SIZE );
@@ -1037,8 +1040,8 @@ static int unwrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   actual packet type (see tls_rd.c:recoverPacketDataTLS13()) at the end 
 	   of the data */
 	REQUIRES( !checkOverflowSub( length, sessionInfoPtr->authBlocksize ) );
-	length -= sessionInfoPtr->authBlocksize;	/* Checked for overflow above */
-	if( length < 0 || \
+	length -= sessionInfoPtr->authBlocksize;
+	if( length < 1 || \
 		length > MAX_PACKET_SIZE + \
 			( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 ? 1 : 0 ) )
 		{
@@ -1057,7 +1060,7 @@ static int unwrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( checkOverflowInc( tlsInfo->readSeqNo ) )
 		{
 		/* This is a should-never-occur condition so in theory we could just
-		   make it an ENSURES() condition */
+		   make it an ENSURES() */
 		retExt( CRYPT_ERROR_OVERFLOW,
 				( CRYPT_ERROR_OVERFLOW, SESSION_ERRINFO,
 				  "Packet read sequence number overflow reading %s (%d) "
@@ -1066,8 +1069,11 @@ static int unwrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	tlsInfo->readSeqNo++;
 
-	/* Decrypt the packet in the buffer */
-	status = decryptData( sessionInfoPtr, data, length, &length );
+	/* Decrypt the packet in the buffer.  Because GCM makes the ICV part of 
+	   the encrypted data, the length value that we pass in isn't the 
+	   payload length but the length of the data + ICV, with decryptData()
+	   picking the two apart */
+	status = decryptData( sessionInfoPtr, data, totalLength, &length );
 	if( cryptStatusError( status ) )
 		{
 		/* The ICV check has been performed as part of the decryption, so 
@@ -1138,6 +1144,22 @@ int unwrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  sessionInfoPtr->cryptBlocksize, 
 					  getTLSPacketName( packetType ), packetType ) );
 			}
+		}
+
+	/* Make sure that we have at least one byte of payload present once the 
+	   MAC/ICV data is removed.  We don't do this for MtE for the reason
+	   given in unwrapPacketTLSStd(), but require it for all other wrapping
+	   mechanisms.  The zero length will be caught further down but if we
+	   catch it here we can provide a more useful error message */
+	if( TEST_FLAG( sessionInfoPtr->protocolFlags, \
+				   TLS_PFLAG_ENCTHENMAC | TLS_PFLAG_BERNSTEIN | \
+				   TLS_PFLAG_GCM ) && \
+		dataMaxLength <= sessionInfoPtr->authBlocksize )
+		{
+		retExt( CRYPT_ERROR_BADDATA,
+				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+				  "Invalid zero-length encrypted payload in %s (%d) packet", 
+				  getTLSPacketName( packetType ), packetType ) );
 		}
 
 	/* Unwrap the data based on the type of processing that we're using */
@@ -1688,7 +1710,7 @@ int processAlert( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	{
 	STREAM stream;
 	BYTE buffer[ 256 + 8 ];
-	int length, status;
+	int length, payloadLength, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtrDynamic( header, headerLength ) );
@@ -1732,14 +1754,14 @@ int processAlert( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Read and process the alert packet */
 	REQUIRES( rangeCheck( length, 1, 256 ) );
-	status = sread( &sessionInfoPtr->stream, buffer, length );
+	status = payloadLength = sread( &sessionInfoPtr->stream, buffer, length );
 	if( cryptStatusError( status ) )
 		{
 		sNetGetErrorInfo( &sessionInfoPtr->stream,
 						  &sessionInfoPtr->errorInfo );
 		return( status );
 		}
-	if( status != length )
+	if( payloadLength != length )
 		{
 		/* If we timed out before we could get all of the alert data, bail
 		   out without trying to perform any further processing.  We're 
@@ -1750,7 +1772,7 @@ int processAlert( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		retExt( CRYPT_ERROR_TIMEOUT, 
 				( CRYPT_ERROR_TIMEOUT, SESSION_ERRINFO, 
 				  "Timed out reading alert message, only got %d of %d "
-				  "bytes", status, length ) );
+				  "bytes", payloadLength, length ) );
 		}
 	if( TEST_FLAG( sessionInfoPtr->flags, 
 				   SESSION_FLAG_ISSECURE_READ ) && \

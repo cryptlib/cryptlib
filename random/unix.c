@@ -9,7 +9,7 @@
 /* This module is part of the cryptlib continuously seeded pseudorandom
    number generator.  For usage conditions, see random.c */
 
-/* Define the following to a nonzero value to print diagnostic information 
+/* Define the following to a nonzero value to print diagnostic information
    on where randomness is coming from */
 
 #ifndef NDEBUG
@@ -59,9 +59,9 @@
   #error For the Xilinx XMK build you need to edit $MISCOBJS in the makefile to use 'xmk' and not 'unix'
 #endif /* XMK has its own randomness-gathering file */
 
-/* Some systems built on top of Unix kernels and/or Unix-like systems don't 
-   support certain functionality like the SYSV shared memory that's used for 
-   last-line-of-defence entropy polling, or only support it in an erratic 
+/* Some systems built on top of Unix kernels and/or Unix-like systems don't
+   support certain functionality like the SYSV shared memory that's used for
+   last-line-of-defence entropy polling, or only support it in an erratic
    manner that we can't rely on.  For these systems we replace the shared-
    memory-based polling with a stub the prints an error message for the
    caller */
@@ -104,10 +104,10 @@
 	#undef MPRAS_XOPEN_DEFINES
   #endif /* MP-RAS */
 #endif /* QNX */
-#ifdef __linux__ 
+#ifdef __linux__
   #include <linux/random.h>
 #endif /* Linux */
-#ifdef __iOS__ 
+#ifdef __iOS__
   #include <Security/SecRandom.h>
 #endif /* __iOS__  */
 #if defined( _AIX ) || defined( __QNX__ )
@@ -134,14 +134,14 @@
 #endif /* Linux */
 #if defined( __FreeBSD__ ) || defined( __NetBSD__ ) || \
 	defined( __OpenBSD__ ) || defined( __APPLE__ )
-  /* Get BSD version macros.  This is less useful, or at least portable, 
-     than it seems because the recommended 'BSD' macro is frozen in time in 
+  /* Get BSD version macros.  This is less useful, or at least portable,
+     than it seems because the recommended 'BSD' macro is frozen in time in
 	 the 1990s, and so each BSD variant has defined its own replacement, or
-	 in some cases several for good measures.  FreeBSD has 
+	 in some cases several for good measures.  FreeBSD has
 	 '__FreeBSD_version' as a 7-digit decimal with the MSB being the major
-	 version, NetBSD has 'NetBSD' but this is frozen in 1999, the current 
-	 form is '__NetBSD_Version__' as an 8-digit decimal with the MSB being 
-	 the major version, OpenBSD has 'OpenBSD' in the BSD-standard YYYYMM 
+	 version, NetBSD has 'NetBSD' but this is frozen in 1999, the current
+	 form is '__NetBSD_Version__' as an 8-digit decimal with the MSB being
+	 the major version, OpenBSD has 'OpenBSD' in the BSD-standard YYYYMM
 	 format, and Apple has a 'NeXTBSD' frozen in 1995 but otherwise only
 	 '__APPLE_CC__' for the compiler version, otherwise all we have is
 	 <TargetConditionals.h> to tell us whether we're building for OS X vs.
@@ -167,7 +167,7 @@
 #endif /* Systems without rlimit/rusage */
 
 /* If we're using threads, we have to protect the entropy gatherer with
-   a mutex to prevent multiple threads from trying to initate polls at the
+   a mutex to prevent multiple threads from trying to initiate polls at the
    same time.  Unlike the kernel mutexes, we don't have to worry about
    being called recursively, so there's no need for special-case handling
    for Posix' nasty non-reentrant mutexes */
@@ -183,9 +183,9 @@
 #endif /* USE_THREADS */
 
 /* glibc, in line with its general policy of insanity, caches the pid so
-   that changes aren't visible (see 
-   http://yarchive.net/comp/linux/getpid_caching.html).  Because of this, 
-   we have to bypass the braindamage by invoking the pid syscall directly 
+   that changes aren't visible (see
+   http://yarchive.net/comp/linux/getpid_caching.html).  Because of this,
+   we have to bypass the braindamage by invoking the pid syscall directly
    in order to get the actual pid */
 
 #if defined( __GNUC__ ) && defined( SYS_getpid )
@@ -272,7 +272,7 @@ void fastPoll( void )
 	ENSURES_V( cryptStatusOK( status ) );
 
 	/* Mix in the process ID.  This doesn't change per process but will
-	   change if the process forks, ensuring that the child data differs 
+	   change if the process forks, ensuring that the child data differs
 	   from the parent */
 	addRandomValue( randomState, getpid() );
 
@@ -321,18 +321,18 @@ void fastPoll( void )
 	!( defined( __arm ) || defined( __arm__ ) || \
 	   defined( __aarch64__ ) || defined( __arm64 ) || \
 	   defined( __riscv ) )
-  /* ARM systems have a cycle-counter that's accessed via 
+  /* ARM systems have a cycle-counter that's accessed via
      "mrs reg, PMCCNTR_EL0", but access from user-space to this, and the
-	 Performance Monitoring Unit (PMU) that it's part of, is usually 
-	 disabled by default.  What this means is that the compiler will emit 
+	 Performance Monitoring Unit (PMU) that it's part of, is usually
+	 disabled by default.  What this means is that the compiler will emit
 	 an instruction that faults when executed, see e.g.
 	 http://neocontra.blogspot.com/2013/05/user-mode-performance-counters-for.html
-	 http://zhiyisun.github.io/2016/03/02/How-to-Use-Performance-Monitor-Unit-(PMU)-of-64-bit-ARMv8-A-in-Linux.html  
+	 http://zhiyisun.github.io/2016/03/02/How-to-Use-Performance-Monitor-Unit-(PMU)-of-64-bit-ARMv8-A-in-Linux.html
 	 Because it's unlikely to work in practice, we disable it for ARM
-	 systems even if the compiler would otherwise give us the intrinsic 
+	 systems even if the compiler would otherwise give us the intrinsic
 	 needed to access it.
-	 
-	 We also have to disable it for RISC-V for the same reason, see the note 
+
+	 We also have to disable it for RISC-V for the same reason, see the note
 	 below in the RISC-V section */
   #if __has_builtin( __builtin_readcyclecounter )
 	cycleCounterValue = __builtin_readcyclecounter();
@@ -342,18 +342,18 @@ void fastPoll( void )
 #endif /* __clang__ */
 #if ( defined( __GNUC__ ) || defined( __clang__ ) ) && defined( __riscv )
 	{
-	/* RISC-V MSR read code, from "The RISC-V Instruction Set Manual, 
-	   Volume II: Privileged Architecture", section "Control and Status 
-	   Registers", read the cycle count (rdcycle), timer (rdtime), and 
+	/* RISC-V MSR read code, from "The RISC-V Instruction Set Manual,
+	   Volume II: Privileged Architecture", section "Control and Status
+	   Registers", read the cycle count (rdcycle), timer (rdtime), and
 	   instructions-retired count (rdinstret).
 
-	   Starting with Linux 6.6 it hasn't been possible to read cycle count 
-	   and instructions-retired values from userspace because of "security 
+	   Starting with Linux 6.6 it hasn't been possible to read cycle count
+	   and instructions-retired values from userspace because of "security
 	   concerns", see
 	   https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=cc4c07c89aada16229084eeb93895c95b7eabaa3,
 	   https://groups.google.com/a/groups.riscv.org/g/sw-dev/c/REWcwYnzsKE
 	   so we can only use the value from the timer register */
-  #ifdef __linux__ 
+  #ifdef __linux__
 	long timer;
 
 	asm volatile( "csrr %[timer], time\n\n"
@@ -389,13 +389,13 @@ void fastPoll( void )
 	clockCycles = ClockCycles();
 	addRandomData( randomState, &clockCycles, sizeof( uint64_t ) );
 #endif /* QNX */
-	/* Get real-time (or as close to it as possible) clock information if 
-	   it's available.  These values are platform-specific, but typically use 
+	/* Get real-time (or as close to it as possible) clock information if
+	   it's available.  These values are platform-specific, but typically use
 	   a high-resolution source like the Pentium TSC.
-	   
-	   (Unfortunately we can't safely use this function because it's often 
-	   not present in libc but needs to be pulled in via the real-time 
-	   extensions library librt instead, which causes all sorts of 
+
+	   (Unfortunately we can't safely use this function because it's often
+	   not present in libc but needs to be pulled in via the real-time
+	   extensions library librt instead, which causes all sorts of
 	   portability problems) */
 #if defined( _POSIX_TIMERS ) && ( _POSIX_TIMERS > 0 ) && 0
 	if( clock_gettime( CLOCK_REALTIME, &timeSpec ) == 0 )
@@ -426,14 +426,14 @@ void fastPoll( void )
 #include <netinet/in.h>				/* For CTL_NET identifiers */
 #if defined( __APPLE__ )
   /* The iPhone native SDK (but not the emulator) gets the paths for some of
-	 the include files wrong, so we have to use absolute paths.  To make 
-	 things even crazier, starting with XCode 10 Apple decided that 
+	 the include files wrong, so we have to use absolute paths.  To make
+	 things even crazier, starting with XCode 10 Apple decided that
 	 /usr/include wasn't where include files should go (see
 	 https://apple.stackexchange.com/questions/337940/why-is-usr-include-missing-i-have-xcode-and-command-line-tools-installed-moja)
 	 so we have to hardcode bizarro SDK paths for newer versions.  This is
-	 made even more complicated by the fact that there's no compile-time 
+	 made even more complicated by the fact that there's no compile-time
 	 mechanism for checking which version of XCode is being used, so we have
-	 to use the badly-misnamed __IPHONE_OS_VERSION_MAX_ALLOWED define for 
+	 to use the badly-misnamed __IPHONE_OS_VERSION_MAX_ALLOWED define for
 	 the purpose */
   #if TARGET_OS_IPHONE || TARGET_OS_WATCH
 	#if ( __IPHONE_OS_VERSION_MAX_ALLOWED >= 100000 )
@@ -473,8 +473,8 @@ static const SYSCTL_INFO sysctlInfo[] = {
 #endif /* HW_MACHINE_ARCH */
 	{ 2, { CTL_HW, HW_MODEL } },	/* Machine model */
 #ifdef HW_IOSTATS
-	{ 2, { CTL_HW, HW_IOSTATS } },	/* struct io_sysctl for each device 
-									   containing microsecond times and byte 
+	{ 2, { CTL_HW, HW_IOSTATS } },	/* struct io_sysctl for each device
+									   containing microsecond times and byte
 									   counts */
 #endif /* HW_IOSTATS */
 	{ 2, { CTL_HW, HW_PHYSMEM } },	/* Physical memory */
@@ -488,10 +488,10 @@ static const SYSCTL_INFO sysctlInfo[] = {
 #endif /* HW_DISKSTATS */
 
 	/* Kernel info */
-	{ 2, { CTL_KERN, KERN_BOOTTIME }, 1 }, 
+	{ 2, { CTL_KERN, KERN_BOOTTIME }, 1 },
 									/* Time system was booted */
 	{ 2, { CTL_KERN, KERN_CLOCKRATE } },
-									/* struct clockinfo of clock frequecies */
+									/* struct clockinfo of clock frequencies */
 #ifdef KERN_CP_TIME
 	{ 2, { CTL_KERN, KERN_CP_TIME }, 1 },
 									/* Number of clock ticks in different CPU
@@ -502,20 +502,20 @@ static const SYSCTL_INFO sysctlInfo[] = {
 									   ID and name for all drivers */
 #endif /* KERN_DRIVERS */
 #ifdef KERN_EVCNT
-	{ 2, { CTL_KERN, KERN_EVCNT } },/* struct evcnts for all active event 
+	{ 2, { CTL_KERN, KERN_EVCNT } },/* struct evcnts for all active event
 									   counters.  There usually won't be any
 									   set so this won't produce a result from
 									   sysctl() */
 #endif /* KERN_EVCNT */
-	{ 2, { CTL_KERN, KERN_FILE }, 5 }, 
-									/* struct xfile for each file in the system, 
-									   containing process IDs, fd no., ref.count, 
+	{ 2, { CTL_KERN, KERN_FILE }, 5 },
+									/* struct xfile for each file in the system,
+									   containing process IDs, fd no., ref.count,
 									   file offset, vnode, and flags.  Produces a
 									   huge amount of output so typically gets
 									   truncated at SYSCTL_BUFFER_SIZE */
 #ifdef KERN_HARDCLOCK_TICKS
 	{ 2, { CTL_KERN, KERN_HARDCLOCK_TICKS } },
-									/* Number of hardclock (hard real-time timer) 
+									/* Number of hardclock (hard real-time timer)
 									   ticks */
 #endif /* KERN_HARDCLOCK_TICKS */
 	{ 2, { CTL_KERN, KERN_HOSTID } }, /* Host ID */
@@ -527,10 +527,10 @@ static const SYSCTL_INFO sysctlInfo[] = {
 	{ 2, { CTL_KERN, KERN_NTPTIME }, 1 },
 									/* struct ntptimeval with NTP accuracy
 									   information */
-	{ 2, { CTL_KERN, KERN_TIMEX }, 3 }, 
+	{ 2, { CTL_KERN, KERN_TIMEX }, 3 },
 									/* struct timex containing detailed NTP
 									   statistics.  This is a useful source
-									   but typically isn't available so won't 
+									   but typically isn't available so won't
 									   produce a result from sysctl() */
 #endif /* KERN_NTPTIME */
 #ifdef KERN_OSRELDATE
@@ -539,30 +539,30 @@ static const SYSCTL_INFO sysctlInfo[] = {
 	{ 2, { CTL_KERN, KERN_OSRELEASE } }, /* OS release string */
 	{ 2, { CTL_KERN, KERN_OSREV } }, /* System revision string */
 	{ 2, { CTL_KERN, KERN_OSTYPE } }, /* System type string */
-	{ 3, { CTL_KERN, KERN_PROC, KERN_PROC_ALL }, 20, }, 
-									/* struct kinfo_proc for each process 
-									   containing a struct proc and a struct 
-									   eproc which contain everything you 
+	{ 3, { CTL_KERN, KERN_PROC, KERN_PROC_ALL }, 20, },
+									/* struct kinfo_proc for each process
+									   containing a struct proc and a struct
+									   eproc which contain everything you
 									   could want to know about a process,
-									   see /sys/sys/proc.h and 
+									   see /sys/sys/proc.h and
 									   /sys/sys/kinfo_proc.h.  Produces a
-									   huge amount of output so typically 
+									   huge amount of output so typically
 									   gets truncated at SYSCTL_BUFFER_SIZE */
 #ifdef KERN_PROC2
-	{ 6, { CTL_KERN, KERN_PROC2, KERN_PROC_ALL, 0, sizeof( struct kinfo_proc2 ), 20 }, 10, }, 
-									/* struct kinfo_proc2 containing a 
-									   superset of struct kinfo_proc.  We 
-									   give this a lower weight than it 
-									   actually contains because a of the 
+	{ 6, { CTL_KERN, KERN_PROC2, KERN_PROC_ALL, 0, sizeof( struct kinfo_proc2 ), 20 }, 10, },
+									/* struct kinfo_proc2 containing a
+									   superset of struct kinfo_proc.  We
+									   give this a lower weight than it
+									   actually contains because a of the
 									   contents have already been obtained
-									   via KERN_PROC.  Produces a huge 
+									   via KERN_PROC.  Produces a huge
 									   amount of output so typically gets
 									   truncated at SYSCTL_BUFFER_SIZE */
 #endif /* KERN_PROC2 */
 #ifdef GPROF_COUNT
 	{ 3, { CTL_KERN, KERN_PROF, GPROF_COUNT }, 10 },
-									/* If kernel is compiled for profiling, 
-									   an array of statistical program 
+									/* If kernel is compiled for profiling,
+									   an array of statistical program
 									   counter counts.  This typically isn't
 									   enabled so won't produce a result from
 									   sysctl() */
@@ -576,9 +576,9 @@ static const SYSCTL_INFO sysctlInfo[] = {
 #endif /* KERN_TKSTAT */
 	{ 2, { CTL_KERN, KERN_VERSION } }, /* System version string  */
 #ifdef KERN_VNODE
-	{ 2, { CTL_KERN, KERN_VNODE }, 15 }, 
-									/* struct xvnode for each vnode, see 
-									   /sys/sys/vnode.h.  Produces a huge 
+	{ 2, { CTL_KERN, KERN_VNODE }, 15 },
+									/* struct xvnode for each vnode, see
+									   /sys/sys/vnode.h.  Produces a huge
 									   amount of output so typically gets
 									   truncated at SYSCTL_BUFFER_SIZE */
 #endif /* KERN_VNODE */
@@ -592,7 +592,7 @@ static const SYSCTL_INFO sysctlInfo[] = {
 									/* ARP cache */
 
 	/* VM info */
-#ifdef VM_LOADAVG 
+#ifdef VM_LOADAVG
 	{ 2, { CTL_VM, VM_LOADAVG } },	/* Load average */
 #endif /* VM_LOADAVG */
 #ifdef VM_TOTAL
@@ -604,8 +604,8 @@ static const SYSCTL_INFO sysctlInfo[] = {
 	{ 2, { CTL_VM, VM_METER }, 5 },	/* Another name for VM_TOTAL */
 #endif /* VM_METER */
 #ifdef VM_UVMEXP
-	{ 2, { CTL_VM, VM_UVMEXP }, 10 },	
-									/* struct uvmexp containing global state 
+	{ 2, { CTL_VM, VM_UVMEXP }, 10 },
+									/* struct uvmexp containing global state
 									   of the UVM system */
 #endif /* VM_UVMEXP */
 	{ 0, { 0 } }, { 0, { 0 } }
@@ -624,27 +624,27 @@ static int getSysctlData( void )
 	status = initRandomData( randomState, buffer, BIG_RANDOM_BUFSIZE );
 	ENSURES_EXT( cryptStatusOK( status ), 0 );
 
-	/* Get each set of sysctl() information.  Since some of the information 
-	   returned can be rather lengthy, we optionally send it directly to the 
+	/* Get each set of sysctl() information.  Since some of the information
+	   returned can be rather lengthy, we optionally send it directly to the
 	   randomness pool rather than using the accumulator */
 	for( i = 0; sysctlInfo[ i ].mibCount != 0; i++ )
 		{
 		size_t size = SYSCTL_BUFFER_SIZE;
 
-		/* Since we only care about the information that's returned as an 
+		/* Since we only care about the information that's returned as an
 		   entropy source, we treat a buffer-not-large-enough error (errno
-		   = ENOMEM) as an OK status for the purpose of providing entropy.  
-		   Since ENOMEM can be returned for reasons other than the buffer 
+		   = ENOMEM) as an OK status for the purpose of providing entropy.
+		   Since ENOMEM can be returned for reasons other than the buffer
 		   not being large enough, we sanity-check the result by requiring
 		   that at least half of the buffer was filled with information */
 		clearErrno();
- 		status = sysctl( ( int * ) sysctlInfo[ i ].mib, 
-						 sysctlInfo[ i ].mibCount, 
+ 		status = sysctl( ( int * ) sysctlInfo[ i ].mib,
+						 sysctlInfo[ i ].mibCount,
 						 sysctlBuffer, &size, NULL, 0 );
 		if( status == -1 && errno == ENOMEM )
 			{
-			DEBUG_DIAG(( "Overflow in sysctl %d:%d, using %d bytes", 
-						 sysctlInfo[ i ].mib[ 0 ], sysctlInfo[ i ].mib[ 1 ], 
+			DEBUG_DIAG(( "Overflow in sysctl %d:%d, using %d bytes",
+						 sysctlInfo[ i ].mib[ 0 ], sysctlInfo[ i ].mib[ 1 ],
 						 size ));
 			if( size >= SYSCTL_BUFFER_SIZE / 2 )
 				status = 0;
@@ -652,11 +652,11 @@ static int getSysctlData( void )
 		if( status )
 			continue;
 		DEBUG_PRINT_COND( debugRandom,
-						  ( "Got %d bytes data from sysctl %d:%d.\n", 
-							size, sysctlInfo[ i ].mib[ 0 ], 
+						  ( "Got %d bytes data from sysctl %d:%d.\n",
+							size, sysctlInfo[ i ].mib[ 0 ],
 							sysctlInfo[ i ].mib[ 1 ] ));
 
-		/* Some sysctl() calls can successfully return zero bytes, so we 
+		/* Some sysctl() calls can successfully return zero bytes, so we
 		   check for this special case and continue */
 		if( size <= 0 )
 			continue;
@@ -676,7 +676,7 @@ static int getSysctlData( void )
 		}
 
 	/* Flush any remaining data through and provide an estimate of its
-	   value.  We cap it at 80 to ensure that some data is still coming 
+	   value.  We cap it at 80 to ensure that some data is still coming
 	   from other sources */
 	if( quality > 80 )
 		quality = 80;
@@ -714,16 +714,16 @@ static int getIfaddrsData( void )
 	ENSURES_EXT( cryptStatusOK( status ), 0 );
 
 	/* Walk through all interfaces getting statistics for them.  The only
-	   really interesting one is AF_PACKET, which gives us packet 
+	   really interesting one is AF_PACKET, which gives us packet
 	   statistics */
 	if( getifaddrs( &ifAddr ) < 0 )
-		return( 0 );	
-	for( ifAddrPtr = ifAddr; ifAddrPtr != NULL; 
+		return( 0 );
+	for( ifAddrPtr = ifAddr; ifAddrPtr != NULL;
 		 ifAddrPtr = ifAddrPtr->ifa_next )
 		{
 		const void *infoPtr = NULL;
 		int infoSize = 0;
-		
+
 		if( ifAddrPtr->ifa_addr == NULL )
 			continue;
 
@@ -733,7 +733,7 @@ static int getIfaddrsData( void )
 				infoPtr = ifAddrPtr->ifa_addr;
 				infoSize = sizeof( struct sockaddr_in );
 				break;
-				
+
 			case AF_INET6:
 				infoPtr = ifAddrPtr->ifa_addr;
 				infoSize = sizeof( struct sockaddr_in6 );
@@ -748,7 +748,7 @@ static int getIfaddrsData( void )
 				quality += 2;
 				break;
 #endif /* AF_PACKET */
-			
+
 			default:
 				break;
 			}
@@ -759,14 +759,14 @@ static int getIfaddrsData( void )
 	freeifaddrs( ifAddr );
 
 	/* Flush any remaining data through and provide an estimate of its
-	   value.  We cap it at 80 to ensure that some data is still coming 
+	   value.  We cap it at 80 to ensure that some data is still coming
 	   from other sources */
 	if( quality > 15 )
 		quality = 15;
 	endRandomData( randomState, quality );
 
-	DEBUG_PRINT_COND( debugRandom, 
-					  ( "getifaddrs contributed %d entropy quality.\n", 
+	DEBUG_PRINT_COND( debugRandom,
+					  ( "getifaddrs contributed %d entropy quality.\n",
 					    quality ));
 
 	return( quality );
@@ -794,24 +794,24 @@ static int getFsstatData( void )
 	status = initRandomData( randomState, buffer, BIG_RANDOM_BUFSIZE );
 	ENSURES_EXT( cryptStatusOK( status ), 0 );
 
-	/* Get statistics for all mounted filesystems, both standard static 
-	   information and dynamic data like free space, free file inodes, 
+	/* Get statistics for all mounted filesystems, both standard static
+	   information and dynamic data like free space, free file inodes,
 	   and read/write statistics */
 	count = getfsstat( NULL, 0, MNT_NOWAIT );
 	if( count <= 0 || count * sizeof( struct statfs ) > FSSTAT_BUFFER_SIZE )
 		return( 0 );
-	count = getfsstat( ( struct statfs * ) fsstatBuffer, FSSTAT_BUFFER_SIZE, 
+	count = getfsstat( ( struct statfs * ) fsstatBuffer, FSSTAT_BUFFER_SIZE,
 					   MNT_NOWAIT );
 	if( count > 0 )
 		{
-		addRandomData( randomState, fsstatBuffer, 
+		addRandomData( randomState, fsstatBuffer,
 					   count * sizeof( struct statfs ) );
 		quality = 3;
 		}
 
 	endRandomData( randomState, quality );
 
-	DEBUG_PRINT_COND( debugRandom, 
+	DEBUG_PRINT_COND( debugRandom,
 					  ( "getfsstat contributed %d value.\n", quality ));
 
 	return( quality );
@@ -821,7 +821,7 @@ static int getFsstatData( void )
 /* Slowaris-specific slow poll using kstat, which provides kernel statistics.
    Since there can be a hundred or more of these, we use a larger-than-usual
    intermediate buffer to cut down on kernel traffic.
-   
+
    Unfortunately Slowaris is the only OS that provides this interface, some
    of the *BSDs have kenv, but this just returns fixed information like PCI
    bus device addresses and so on, and isn't useful for providing entropy */
@@ -862,7 +862,7 @@ static int getKstatData( void )
 			{
 			MESSAGE_DATA msgData;
 
-			setMessageData( &msgData, ksp->ks_data, 
+			setMessageData( &msgData, ksp->ks_data,
 							min( ksp->ks_data_size, MAX_INTLENGTH_SHORT - 1 ) );
 			krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_SETATTRIBUTE_S,
 							 &msgData, CRYPT_IATTRIBUTE_ENTROPY );
@@ -881,7 +881,7 @@ static int getKstatData( void )
 	quality = ( noEntries > 50 ) ? 35 : 0;
 	endRandomData( randomState, quality );
 
-	DEBUG_PRINT_COND( debugRandom, 
+	DEBUG_PRINT_COND( debugRandom,
 					  ( "kstat contributed %d value.\n", quality ));
 
 	return( quality );
@@ -924,9 +924,9 @@ static int getProcData( void )
 	char fileName[ 128 + 8 ];
 	int fd, noEntries = 0, quality, result, status;
 
-	/* Try and open the process info for this process.  We don't use 
-	   O_NOFOLLOW because on some Unixen special files can be symlinks and 
-	   in any case a system that allows attackers to mess with privileged 
+	/* Try and open the process info for this process.  We don't use
+	   O_NOFOLLOW because on some Unixen special files can be symlinks and
+	   in any case a system that allows attackers to mess with privileged
 	   filesystems like this is presumably a goner anyway */
 	result = sprintf_s( fileName, 128, "/proc/%d", getpid() );
 	ENSURES( rangeCheck( result, 7, 127 ) );
@@ -938,7 +938,7 @@ static int getProcData( void )
 		close( fd );
 		return( 0 );
 		}
-	DEBUG_PRINT_COND( debugRandom, 
+	DEBUG_PRINT_COND( debugRandom,
 					  ( "Reading /proc data via ioctls...\n" ));
 
 	status = initRandomData( randomState, buffer, RANDOM_BUFSIZE );
@@ -949,8 +949,8 @@ static int getProcData( void )
 #ifdef PIOCSTATUS
 	if( ioctl( fd, PIOCSTATUS, &prStatus ) != -1 )
 		{
-		DEBUG_PRINT_COND( debugRandom, 
-						  ( "PIOCSTATUS contributed %d bytes.\n", 
+		DEBUG_PRINT_COND( debugRandom,
+						  ( "PIOCSTATUS contributed %d bytes.\n",
 							sizeof( prstatus_t ) ));
 		addRandomData( randomState, &prStatus, sizeof( prstatus_t ) );
 		REQUIRES_EXT( !checkOverflowInc( noEntries ), 0 );
@@ -971,7 +971,7 @@ static int getProcData( void )
 #ifdef PIOCUSAGE
 	if( ioctl( fd, PIOCUSAGE, &prUsage ) != -1 )
 		{
-		DEBUG_PRINT_COND( debugRandom, 
+		DEBUG_PRINT_COND( debugRandom,
 						  ( "PIOCUSAGE contributed %d bytes.\n",
 							sizeof( prusage_t ) ));
 		addRandomData( randomState, &prUsage, sizeof( prusage_t ) );
@@ -983,7 +983,7 @@ static int getProcData( void )
 #ifdef PIOCACINFO
 	if( ioctl( fd, PIOCACINFO, &pracInfo ) != -1 )
 		{
-		DEBUG_PRINT_COND( debugRandom, 
+		DEBUG_PRINT_COND( debugRandom,
 						  ( "PIOCACINFO contributed %d bytes.\n",
 							sizeof( struct pracinfo ) ));
 		addRandomData( randomState, &pracInfo, sizeof( struct pracinfo ) );
@@ -999,20 +999,20 @@ static int getProcData( void )
 	quality = ( noEntries > 2 ) ? 5 : 0;
 	endRandomData( randomState, quality );
 
-	DEBUG_PRINT_COND( debugRandom, 
-					  ( "proc (via ioctls) contributed %d value.\n", 
+	DEBUG_PRINT_COND( debugRandom,
+					  ( "proc (via ioctls) contributed %d value.\n",
 					    quality ));
 
 	return( quality );
 	}
 #endif /* Slowaris || OSF/1 */
 
-/* Linux-specific polling using perf_event.  This is different to the 
+/* Linux-specific polling using perf_event.  This is different to the
    standard polling mechanisms in that it's called twice, once at the start
    of the slow poll and a second time at the end, since it's being used
    to collect event data over the process of the slow poll */
 
-#if defined( __linux__ ) 
+#if defined( __linux__ )
 
 #define USE_PERFEVENT
 #include <asm/unistd.h>
@@ -1044,15 +1044,15 @@ static BOOLEAN getPerfEventBegin( int *pervEventFDs )
 	const PERF_TYPE perfType[ PERF_EVENT_MAX ] = {
 		/* Hardware perf types.  These typically aren't available from user
 		   space, producing ENOENT */
-		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES }, 
-		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_INSTRUCTIONS }, 
-		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_REFERENCES }, 
-		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_MISSES }, 
-		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_BRANCH_INSTRUCTIONS }, 
-		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_BRANCH_MISSES }, 
+		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES },
+		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_INSTRUCTIONS },
+		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_REFERENCES },
+		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_MISSES },
+		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_BRANCH_INSTRUCTIONS },
+		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_BRANCH_MISSES },
 		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_BUS_CYCLES },
   #if OSVERSION >= 3
-		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_STALLED_CYCLES_FRONTEND }, 
+		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_STALLED_CYCLES_FRONTEND },
 		{ PERF_TYPE_HARDWARE, PERF_COUNT_HW_STALLED_CYCLES_BACKEND },
   #endif /* OSVERSION >= 3 */
   #if OSVERSION >= 4	/* Actually 3.3 but we don't do minor versions */
@@ -1092,11 +1092,11 @@ static BOOLEAN getPerfEventBegin( int *pervEventFDs )
 									PERF_FORMAT_TOTAL_TIME_RUNNING | \
 									PERF_FORMAT_ID;
 		clearErrno();
-		pervEventFDs[ i ] = perf_event_open( &pervEventInfo, 0, -1, -1, 
+		pervEventFDs[ i ] = perf_event_open( &pervEventInfo, 0, -1, -1,
 											 PERF_FLAG_FD_CLOEXEC );
 		if( pervEventFDs[ i ] == -1 )
 			{
-			DEBUG_PRINT_COND( debugRandom && i == 0, 
+			DEBUG_PRINT_COND( debugRandom && i == 0,
 							  ( "perf_event_open() for PERF_TYPE_HARDWARE "
 							    "got errno %d.\n", errno ) );
 			continue;
@@ -1104,7 +1104,7 @@ static BOOLEAN getPerfEventBegin( int *pervEventFDs )
 		eventAvailable = TRUE;
 		}
 
-	DEBUG_PRINT_COND( debugRandom && !eventAvailable , 
+	DEBUG_PRINT_COND( debugRandom && !eventAvailable ,
 					  ( "No perf_event data available.\n" ) );
 
 	return( eventAvailable );
@@ -1129,14 +1129,14 @@ static int getPerfEventEnd( const int *pervEventFDs )
 		if( pervEventFDs[ i ] == -1 )
 			continue;
 		ioctl( pervEventFDs[ i ], PERF_EVENT_IOC_DISABLE, 0 );
-		count = read( pervEventFDs[ i ], &eventInfo, 
+		count = read( pervEventFDs[ i ], &eventInfo,
 					  sizeof( PERF_READ_INFO ) );
 		close( pervEventFDs[ i ] );
 		if( count <= 0 )
 			continue;
-		DEBUG_PRINT_COND( debugRandom, 
+		DEBUG_PRINT_COND( debugRandom,
 						  ( "perf_event %d returned value %ld, time %ld, "
-						    "runtime %ld.\n", i, eventInfo.value, 
+						    "runtime %ld.\n", i, eventInfo.value,
 							eventInfo.time_enabled, eventInfo.time_running ) );
 		addRandomData( randomState, &eventInfo, count );
 		quality += ( i <= PERF_EVEN_LAST_HW ) ? 2 : 1;
@@ -1146,14 +1146,14 @@ static int getPerfEventEnd( const int *pervEventFDs )
 	   value */
 	endRandomData( randomState, quality );
 
-	DEBUG_PRINT_COND( debugRandom, 
+	DEBUG_PRINT_COND( debugRandom,
 					  ( "perf_events contributed %d value.\n", quality ));
 
 	return( quality );
 	}
 #endif /* Linux */
 
-#ifdef __iOS__ 
+#ifdef __iOS__
 
 #define IOS_BUFSIZE			256
 
@@ -1165,27 +1165,27 @@ static int getIOSData( void )
 	BYTE secRandomBuffer[ IOS_BUFSIZE + 8 ];
 	int quality = 0, status;
 
-	/* Get random data from the iOS system randomness routine.  Although 
-	   SecRandomCopyBytes() takes as its first parameter the generator type, 
-	   only one is allowed, kSecRandomDefault, after which the call is 
-	   passed down to CCRandomCopyBytes(), which does something with one of 
-	   the NIST DRBGs, but it's all obfuscated with macros and function 
+	/* Get random data from the iOS system randomness routine.  Although
+	   SecRandomCopyBytes() takes as its first parameter the generator type,
+	   only one is allowed, kSecRandomDefault, after which the call is
+	   passed down to CCRandomCopyBytes(), which does something with one of
+	   the NIST DRBGs, but it's all obfuscated with macros and function
 	   pointers so it's hard to tell what.
 
 	   Initially SecRandomCopyBytes() was just a wrapper for a thread-safe
-	   read of Apple's /dev/random (for which see the comment in 
-	   getDevRandomData() about the value of this and why we only assign a 
+	   read of Apple's /dev/random (for which see the comment in
+	   getDevRandomData() about the value of this and why we only assign a
 	   quality factor of 60%), however what's in use now isn't a /dev/random
 	   read any more but something much more complex (see above).
-	   
-	   Another possible complication is that if both SecRandomCopyBytes() 
-	   and the explicit /dev/random read that we perform ourselves are 
-	   getting their input from the same source then we should only count 
-	   its value once, however the current Apple code, which seems to be out 
+
+	   Another possible complication is that if both SecRandomCopyBytes()
+	   and the explicit /dev/random read that we perform ourselves are
+	   getting their input from the same source then we should only count
+	   its value once, however the current Apple code, which seems to be out
 	   of sync with the documentation, appears to do more than that */
 	status = initRandomData( randomState, buffer, RANDOM_BUFSIZE );
 	ENSURES_EXT( cryptStatusOK( status ), 0 );
-	status = SecRandomCopyBytes( kSecRandomDefault, IOS_BUFSIZE, 
+	status = SecRandomCopyBytes( kSecRandomDefault, IOS_BUFSIZE,
 								 secRandomBuffer );
 	if( status == 0 )
 		{
@@ -1194,8 +1194,8 @@ static int getIOSData( void )
 		}
 	endRandomData( randomState, quality );
 
-	DEBUG_PRINT_COND( debugRandom, 
-					  ( "SecRandomCopyBytes contributed %d value.\n", 
+	DEBUG_PRINT_COND( debugRandom,
+					  ( "SecRandomCopyBytes contributed %d value.\n",
 					    quality ));
 
 	return( quality );
@@ -1204,8 +1204,8 @@ static int getIOSData( void )
 
 /* TPM poll: "The Linux TPM implementation is Trousers".
 
-   We can check for the existence of a TPM, at least under Linux, by 
-   checking /sys/class/misc/hw_random/rng_available and 
+   We can check for the existence of a TPM, at least under Linux, by
+   checking /sys/class/misc/hw_random/rng_available and
    /sys/class/misc/hw_random/rng_current, which will point to "tpm-rng"
    if this is present and/or available */
 
@@ -1223,10 +1223,10 @@ static int getTPMData( void )
 
 	/* Create a TSPI context, connect it to the system TPM, and get the TPM
 	   handle from it.  The typical error return from Tspi_Context_Connect(),
-	   if it fails, is the totally undocumented 0x3011 indicating that tcsd 
+	   if it fails, is the totally undocumented 0x3011 indicating that tcsd
 	   isn't running (check with "ps aux | grep tcsd", and/or via the
-	   "tpm_version" command which will print an error if it can't connect), 
-	   in which case it needs to be started with 
+	   "tpm_version" command which will print an error if it can't connect),
+	   in which case it needs to be started with
 	   "sudo /etc/init.d/trousers start" */
 	if( Tspi_Context_Create( &hTSPIContext ) != TSS_SUCCESS )
 		return( 0 );
@@ -1239,10 +1239,10 @@ static int getTPMData( void )
 		Tspi_Context_Close( hTSPIContext );
 		return( 0 );
 		}
-	DEBUG_PRINT_COND( debugRandom, 
+	DEBUG_PRINT_COND( debugRandom,
 					  ( "Opened connection to system TPM.\n" ));
 
-	/* Get random data from the TPM */ 
+	/* Get random data from the TPM */
 	if( Tspi_TPM_GetRandom( hTPM, 256, &bufPtr ) == TSS_SUCCESS )
 		{
 		RANDOM_STATE randomState;
@@ -1263,7 +1263,7 @@ static int getTPMData( void )
 	Tspi_Context_FreeMemory( hTSPIContext, NULL );
 	Tspi_Context_Close( hTSPIContext );
 
-	DEBUG_PRINT_COND( debugRandom, 
+	DEBUG_PRINT_COND( debugRandom,
 					  ( "TPM contributed %d value.\n", quality ));
 
 	return( quality );
@@ -1284,30 +1284,30 @@ static int addStaticSystemInfo( void )
 	RANDOM_STATE randomState;
 	BYTE buffer[ RANDOM_BUFSIZE + 8 ];
 	static const int auxValTypes[] = {
-		/* The following values are universal, the #ifdef'd ones are 
+		/* The following values are universal, the #ifdef'd ones are
 		   documented but don't seem to exist on most systems */
-		AT_BASE, AT_EGID, AT_ENTRY, AT_EUID, AT_EXECFD, AT_HWCAP, AT_PHDR, 
-		AT_PHENT, AT_PHNUM, 
+		AT_BASE, AT_EGID, AT_ENTRY, AT_EUID, AT_EXECFD, AT_HWCAP, AT_PHDR,
+		AT_PHENT, AT_PHNUM,
 #ifdef AT_DCACHEBSIZE
 		AT_DCACHEBSIZE, AT_ICACHEBSIZE, AT_UCACHEBSIZE,
 #endif /* AT_DCACHEBSIZE */
 #ifdef AT_L1D_CACHEGEOMETRY
-		AT_L1D_CACHEGEOMETRY, AT_L1D_CACHESIZE, 
-		AT_L1I_CACHEGEOMETRY, AT_L1I_CACHESIZE, 
+		AT_L1D_CACHEGEOMETRY, AT_L1D_CACHESIZE,
+		AT_L1I_CACHEGEOMETRY, AT_L1I_CACHESIZE,
 #endif /* AT_L1D_CACHEGEOMETRY */
 #ifdef AT_L2_CACHEGEOMETRY
-		AT_L2_CACHEGEOMETRY, AT_L2_CACHESIZE, 
+		AT_L2_CACHEGEOMETRY, AT_L2_CACHESIZE,
 #endif /* AT_L2_CACHEGEOMETRY */
 #ifdef AT_L3_CACHEGEOMETRY
-		AT_L3_CACHEGEOMETRY, AT_L3_CACHESIZE, 
-#endif /* AT_L3_CACHEGEOMETRY */		
+		AT_L3_CACHEGEOMETRY, AT_L3_CACHESIZE,
+#endif /* AT_L3_CACHEGEOMETRY */
 		CRYPT_ERROR, CRYPT_ERROR };
 	int typeIndex, quality = 0, status;
 
 	status = initRandomData( randomState, buffer, RANDOM_BUFSIZE );
 	ENSURES_EXT( cryptStatusOK( status ), 0 );
 
-	for( typeIndex = 0; auxValTypes[ typeIndex ] != CRYPT_ERROR; 
+	for( typeIndex = 0; auxValTypes[ typeIndex ] != CRYPT_ERROR;
 		 typeIndex++ )
 		{
 		const long auxVal = getauxval( auxValTypes[ typeIndex ] );
@@ -1336,9 +1336,9 @@ static int addStaticSystemInfo( void )
 static int getHWRNGNAME( BYTE *buffer, const int bufSize )
 	{
 	int fd, count;
-	
+
 	/* Clear return value */
-	REQUIRES( isShortIntegerRangeNZ( bufSize ) ); 
+	REQUIRES( isShortIntegerRangeNZ( bufSize ) );
 	memset( buffer, 0, bufSize );
 
 	/* Try and read the HW RNG name.  This may or may not be terminated with
@@ -1352,12 +1352,12 @@ static int getHWRNGNAME( BYTE *buffer, const int bufSize )
 		close( fd );
 		return( -1 );
 		}
-	count = read( fd, buffer, bufSize ); 
-	close( fd ); 
+	count = read( fd, buffer, bufSize );
+	close( fd );
 	if( count < 2 )
 		return( -1 );
 	if( buffer[ count - 1 ] == '\n' )
-		buffer[ count - 1 ] = '\0'; 
+		buffer[ count - 1 ] = '\0';
 
 	return( 0 );
 	}
@@ -1371,20 +1371,20 @@ static int getHWRNGData( void )
 	BYTE hwrngBuffer[ HWRNG_BUFSIZE + 8 ];
 	int hwrngFD, count, quality = 0, status;
 
-	/* Open the hardware RNG device, whose nature is documented in 
-	   /sys/class/misc/hw_random/rng_current.  This is a real Clayton's 
-	   device because the fact that it can be opened doesn't mean that it 
-	   actually exists.  The justification for this is that the underlying 
-	   hardware can be altered at runtime, so the device may change at any 
-	   point, which means that we can happily open the nonexistent device 
-	   but won't be told that it's nonexistent until we try and read from 
-	   it.  Because of this we fail silently rather than warning that no 
+	/* Open the hardware RNG device, whose nature is documented in
+	   /sys/class/misc/hw_random/rng_current.  This is a real Clayton's
+	   device because the fact that it can be opened doesn't mean that it
+	   actually exists.  The justification for this is that the underlying
+	   hardware can be altered at runtime, so the device may change at any
+	   point, which means that we can happily open the nonexistent device
+	   but won't be told that it's nonexistent until we try and read from
+	   it.  Because of this we fail silently rather than warning that no
 	   data was read, since it would lead to endless false positives */
 	hwrngFD = open( "/dev/hwrng", O_RDONLY );
 	if( hwrngFD < 0 )
 		return( 0 );
 	DEBUG_OP( count = getHWRNGNAME( buffer, 128 ) );
-	DEBUG_PRINT_COND( debugRandom && count >= 0, 
+	DEBUG_PRINT_COND( debugRandom && count >= 0,
 					  ( "Hardware RNG is provided via '%s' source.\n", buffer ));
 	count = read( hwrngFD, hwrngBuffer, HWRNG_BUFSIZE );
 	close( hwrngFD );
@@ -1397,22 +1397,22 @@ static int getHWRNGData( void )
 		}
 	else
 		{
-		DEBUG_PRINT_COND( debugRandom, 
+		DEBUG_PRINT_COND( debugRandom,
 						  ( "Hardware RNG via /dev/hwrng is available but "
 						    "not readable,\n  this is broken but by-design "
 							"functionality.\n" ));
 		}
 	endRandomData( randomState, quality );
 
-	DEBUG_PRINT_COND( debugRandom && quality > 0, 
+	DEBUG_PRINT_COND( debugRandom && quality > 0,
 					  ( "Hardware RNG read via /dev/hwrng contributed %d "
 					    "value.\n", quality ));
 
 	return( quality );
 	}
 
-/* Named process information via the /procfs interface.  Each source is 
-   given a weighting of 1-3, with 1 being a static (although unpredictable) 
+/* Named process information via the /procfs interface.  Each source is
+   given a weighting of 1-3, with 1 being a static (although unpredictable)
    source, 2 being a slowly-changing source, and 3 being a rapidly-changing
    source */
 
@@ -1426,16 +1426,16 @@ static int getProcFSdata( void )
 		const int value;
 		} PROCSOURCE_INFO;
 	static const PROCSOURCE_INFO procSources[] = {
-		{ "diskstats", 2 }, { "interrupts", 3 }, { "loadavg", 2 }, 
+		{ "diskstats", 2 }, { "interrupts", 3 }, { "loadavg", 2 },
 		{ "locks", 1 }, { "meminfo", 3 }, { "net/dev", 2 },
-		{ "net/ipx", 2 }, { "modules", 1 }, { "mounts", 1 }, 
-		{ "net/netstat", 2 }, { "net/rt_cache", 1 }, 
-		{ "net/rt_cache_stat", 3 }, { "net/snmp", 2 }, 
-		{ "net/softnet_stat", 2 }, { "net/stat/arp_cache", 3 }, 
-		{ "net/stat/ndisc_cache", 2 }, { "net/stat/rt_cache", 3 }, 
+		{ "net/ipx", 2 }, { "modules", 1 }, { "mounts", 1 },
+		{ "net/netstat", 2 }, { "net/rt_cache", 1 },
+		{ "net/rt_cache_stat", 3 }, { "net/snmp", 2 },
+		{ "net/softnet_stat", 2 }, { "net/stat/arp_cache", 3 },
+		{ "net/stat/ndisc_cache", 2 }, { "net/stat/rt_cache", 3 },
 		{ "net/tcp", 3 }, { "net/udp", 2 }, { "net/wireless", 2 },
-		{ "slabinfo", 3 }, { "stat", 3 }, { "sys/fs/inode-state", 1 }, 
-		{ "sys/fs/file-nr", 1 }, { "sys/fs/dentry-state", 1 }, 
+		{ "slabinfo", 3 }, { "stat", 3 }, { "sys/fs/inode-state", 1 },
+		{ "sys/fs/file-nr", 1 }, { "sys/fs/dentry-state", 1 },
 		{ "sysvipc/msg", 1 }, { "sysvipc/sem", 1 }, { "sysvipc/shm", 1 },
 		{ "zoneinfo", 3 },
 /*		{ "/sys/devices/system/node/node0/numastat", 2 }, */
@@ -1447,7 +1447,7 @@ static int getProcFSdata( void )
 
 	/* Read the first 1K of data from some of the more useful sources (most
 	   of these produce far less than 1K output) */
-	for( procIndex = 0; 
+	for( procIndex = 0;
 		 procIndex < FAILSAFE_ARRAYSIZE( procSources, PROCSOURCE_INFO ) && \
 			procSources[ procIndex ].source != NULL;
 		 procIndex++ )
@@ -1455,11 +1455,11 @@ static int getProcFSdata( void )
 		char fileName[ 128 + 8 ];
 		int count, status;
 
-		/* Try and open the data source.  We don't use O_NOFOLLOW because on 
-		   some Unixen special files can be symlinks and in any case a 
-		   system that allows attackers to mess with privileged filesystems 
+		/* Try and open the data source.  We don't use O_NOFOLLOW because on
+		   some Unixen special files can be symlinks and in any case a
+		   system that allows attackers to mess with privileged filesystems
 		   like this is presumably a goner anyway */
-		result = sprintf_s( fileName, 128, "/proc/%s", 
+		result = sprintf_s( fileName, 128, "/proc/%s",
 							procSources[ procIndex ].source );
 		ENSURES( rangeCheck( result, 7, 127 ) );
 		procFD = open( fileName, O_RDONLY );
@@ -1478,11 +1478,11 @@ static int getProcFSdata( void )
 		count = read( procFD, buffer, PROCS_BUFSIZE );
 		if( count > 16 )
 			{
-			DEBUG_PRINT_COND( debugRandom, 
+			DEBUG_PRINT_COND( debugRandom,
 							  ( "/proc/%s contributed %d bytes.\n",
 								procSources[ procIndex ].source, count ));
 			setMessageData( &msgData, buffer, count );
-			status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, 
+			status = krnlSendMessage( SYSTEM_OBJECT_HANDLE,
 									  IMESSAGE_SETATTRIBUTE_S, &msgData,
 									  CRYPT_IATTRIBUTE_ENTROPY );
 			if( cryptStatusOK( status ) )
@@ -1494,25 +1494,25 @@ static int getProcFSdata( void )
 	zeroise( buffer, PROCS_BUFSIZE );
 
 	/* Produce an estimate of the data's value.  We require that we get a
-	   quality value of at least 5 and limit it to a maximum value of 50 to 
+	   quality value of at least 5 and limit it to a maximum value of 50 to
 	   ensure that some data is still coming from other sources */
 	if( procValue < 5 )
 		return( 0 );
 	quality = min( procValue, 50 );
 	krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_SETATTRIBUTE,
-					 ( MESSAGE_CAST ) &quality, 
+					 ( MESSAGE_CAST ) &quality,
 					 CRYPT_IATTRIBUTE_ENTROPY_QUALITY );
 
-	DEBUG_PRINT_COND( debugRandom, 
-					  ( "procfs reads contributed %d entropy quality.\n", 
+	DEBUG_PRINT_COND( debugRandom,
+					  ( "procfs reads contributed %d entropy quality.\n",
 						quality ));
 
 	return( quality );
 	}
 
-/* System information via the sysfs interface.  These often provide very 
-   small amounts of data each, although they're also somewhat schizophrenic, 
-   some provide a single numeric value or string while others provide 
+/* System information via the sysfs interface.  These often provide very
+   small amounts of data each, although they're also somewhat schizophrenic,
+   some provide a single numeric value or string while others provide
    formatted human-readable-only output */
 
 #define SYSFS_BUFSIZE		1024
@@ -1522,7 +1522,7 @@ static int getSysFSdata( void )
 	{
 	static const char *sysfsSources[] = {
 		/* "SCSI" disk, using a very weird definition of SCSI */
-		"block/sda0/stat", "block/sda1/stat", "block/sda2/stat", 
+		"block/sda0/stat", "block/sda1/stat", "block/sda2/stat",
 		"block/sda3/stat",
 		/* Xen virtual disk */
 		"block/xvda1/stat", "block/xvda2/stat", "block/xvda3/stat",
@@ -1530,7 +1530,7 @@ static int getSysFSdata( void )
 		/* MMC block device */
 		"block/mmcblk0/stat", "block/mmcblk1/stat",
 		/* Device mapper */
-		"block/dm-0/stat", "block/dm-1/stat", "block/dm-2/stat", 
+		"block/dm-0/stat", "block/dm-1/stat", "block/dm-2/stat",
 		"block/dm-3/stat",
 		/* Device-specific information */
 		"class/devfreq/devfreq0/cur_freq", "class/devfreq/devfreq0/trans_stat",
@@ -1545,48 +1545,48 @@ static int getSysFSdata( void )
 		"class/dma/dma0chan1/bytes_transferred", "class/dma/dma0chan1/memcpy_count",
 		"class/dma/dma1chan0/bytes_transferred", "class/dma/dma1chan0/memcpy_count",
 		"class/dma/dma1chan1/bytes_transferred", "class/dma/dma1chan1/memcpy_count",
-		"class/hwmon/hwmon0/fan_speed", "class/hwmon/hwmon0/pwm1", 
-		"class/hwmon/hwmon1/fan_speed", "class/hwmon/hwmon1/pwm1", 
-		"class/input/event0/dev", "class/input/event1/dev", 
-		"class/input/event2/dev", "class/input/event3/dev", 
-		"class/input/input0/modalias", "class/input/input1/modalias", 
-		"class/input/input2/modalias", "class/input/input3/modalias", 
-		"class/net/eth0/carrier_changes", "class/net/eth0/statistics/rx_bytes", 
-		"class/net/eth0/statistics/rx_dropped", "class/net/eth0/statistics/rx_packets", 
-		"class/net/eth0/statistics/tx_bytes", "class/net/eth0/statistics/tx_dropped", 
+		"class/hwmon/hwmon0/fan_speed", "class/hwmon/hwmon0/pwm1",
+		"class/hwmon/hwmon1/fan_speed", "class/hwmon/hwmon1/pwm1",
+		"class/input/event0/dev", "class/input/event1/dev",
+		"class/input/event2/dev", "class/input/event3/dev",
+		"class/input/input0/modalias", "class/input/input1/modalias",
+		"class/input/input2/modalias", "class/input/input3/modalias",
+		"class/net/eth0/carrier_changes", "class/net/eth0/statistics/rx_bytes",
+		"class/net/eth0/statistics/rx_dropped", "class/net/eth0/statistics/rx_packets",
+		"class/net/eth0/statistics/tx_bytes", "class/net/eth0/statistics/tx_dropped",
 		"class/net/eth0/statistics/tx_packets",
 		"class/net/eth1/carrier_changes", "class/net/eth1/statistics/rx_bytes",
 		"class/net/eth1/statistics/rx_dropped", "class/net/eth1/statistics/rx_packets",
 		"class/net/eth1/statistics/tx_bytes", "class/net/eth1/statistics/tx_dropped",
-		"class/net/eth1/statistics/tx_packets", 
-		"class/net/lo/statistics/rx_bytes", "class/net/lo/statistics/rx_dropped", 
-		"class/net/lo/statistics/rx_packets", "class/net/lo/statistics/tx_bytes", 
-		"class/net/lo/statistics/tx_dropped", "class/net/lo/statistics/tx_packets", 
-		"class/net/wlan0/statistics/rx_bytes", "class/net/wlan0/statistics/rx_dropped", 
-		"class/net/wlan0/statistics/rx_packets", "class/net/wlan0/statistics/tx_bytes", 
-		"class/net/wlan0/statistics/tx_dropped", "class/net/wlan0/statistics/tx_packets", 
-		"class/net/wlan1/statistics/rx_bytes", "class/net/wlan1/statistics/rx_dropped", 
-		"class/net/wlan1/statistics/rx_packets", "class/net/wlan1/statistics/tx_bytes", 
-		"class/net/wlan1/statistics/tx_dropped", "class/net/wlan1/statistics/tx_packets", 
+		"class/net/eth1/statistics/tx_packets",
+		"class/net/lo/statistics/rx_bytes", "class/net/lo/statistics/rx_dropped",
+		"class/net/lo/statistics/rx_packets", "class/net/lo/statistics/tx_bytes",
+		"class/net/lo/statistics/tx_dropped", "class/net/lo/statistics/tx_packets",
+		"class/net/wlan0/statistics/rx_bytes", "class/net/wlan0/statistics/rx_dropped",
+		"class/net/wlan0/statistics/rx_packets", "class/net/wlan0/statistics/tx_bytes",
+		"class/net/wlan0/statistics/tx_dropped", "class/net/wlan0/statistics/tx_packets",
+		"class/net/wlan1/statistics/rx_bytes", "class/net/wlan1/statistics/rx_dropped",
+		"class/net/wlan1/statistics/rx_packets", "class/net/wlan1/statistics/tx_bytes",
+		"class/net/wlan1/statistics/tx_dropped", "class/net/wlan1/statistics/tx_packets",
 			/* systemd insanity */
-		"class/net/eno1/statistics/rx_bytes", "class/net/eno1/statistics/rx_dropped", 
-		"class/net/eno1/statistics/rx_packets", "class/net/eno1/statistics/tx_bytes", 
-		"class/net/eno1/statistics/tx_dropped", "class/net/eno1/statistics/tx_packets", 
-		"class/net/eno2/statistics/rx_bytes", "class/net/eno2/statistics/rx_dropped", 
-		"class/net/eno2/statistics/rx_packets", "class/net/eno2/statistics/tx_bytes", 
-		"class/net/eno2/statistics/tx_dropped", "class/net/eno2/statistics/tx_packets", 
-		"class/net/ens1/statistics/rx_bytes", "class/net/ens1/statistics/rx_dropped", 
-		"class/net/ens1/statistics/rx_packets", "class/net/ens1/statistics/tx_bytes", 
-		"class/net/ens1/statistics/tx_dropped", "class/net/ens1/statistics/tx_packets", 
-		"class/net/ens2/statistics/rx_bytes", "class/net/ens2/statistics/rx_dropped", 
-		"class/net/ens2/statistics/rx_packets", "class/net/ens2/statistics/tx_bytes", 
-		"class/net/ens2/statistics/tx_dropped", "class/net/ens2/statistics/tx_packets", 
-		"class/regulator/regulator.0/microvolts", "class/regulator/regulator.1/microvolts", 
-		"class/regulator/regulator.2/microvolts", "class/regulator/regulator.3/microvolts", 
-		"class/regulator/regulator.4/microvolts", "class/regulator/regulator.5/microvolts", 
-		"class/regulator/regulator.6/microvolts", "class/regulator/regulator.7/microvolts", 
+		"class/net/eno1/statistics/rx_bytes", "class/net/eno1/statistics/rx_dropped",
+		"class/net/eno1/statistics/rx_packets", "class/net/eno1/statistics/tx_bytes",
+		"class/net/eno1/statistics/tx_dropped", "class/net/eno1/statistics/tx_packets",
+		"class/net/eno2/statistics/rx_bytes", "class/net/eno2/statistics/rx_dropped",
+		"class/net/eno2/statistics/rx_packets", "class/net/eno2/statistics/tx_bytes",
+		"class/net/eno2/statistics/tx_dropped", "class/net/eno2/statistics/tx_packets",
+		"class/net/ens1/statistics/rx_bytes", "class/net/ens1/statistics/rx_dropped",
+		"class/net/ens1/statistics/rx_packets", "class/net/ens1/statistics/tx_bytes",
+		"class/net/ens1/statistics/tx_dropped", "class/net/ens1/statistics/tx_packets",
+		"class/net/ens2/statistics/rx_bytes", "class/net/ens2/statistics/rx_dropped",
+		"class/net/ens2/statistics/rx_packets", "class/net/ens2/statistics/tx_bytes",
+		"class/net/ens2/statistics/tx_dropped", "class/net/ens2/statistics/tx_packets",
+		"class/regulator/regulator.0/microvolts", "class/regulator/regulator.1/microvolts",
+		"class/regulator/regulator.2/microvolts", "class/regulator/regulator.3/microvolts",
+		"class/regulator/regulator.4/microvolts", "class/regulator/regulator.5/microvolts",
+		"class/regulator/regulator.6/microvolts", "class/regulator/regulator.7/microvolts",
 		"class/rtc/rtc0/since_epoch", "class/rtc/rtc1/since_epoch",
-		"class/spi_master/spi0/statistics/bytes_rx", 
+		"class/spi_master/spi0/statistics/bytes_rx",
 		"class/spi_master/spi0/statistics/bytes_tx",
 		"class/spi_master/spi0/statistics/messages",
 		"class/spi_master/spi0/statistics/transfers",
@@ -1599,13 +1599,13 @@ static int getSysFSdata( void )
 		"class/thermal/thermal_zone4/temp", "class/thermal/thermal_zone5/temp",
 		"class/thermal/thermal_zone6/temp", "class/thermal/thermal_zone7/temp",
 		/* System hardware stats */
-		"kernel/debug/gpio", "kernel/debug/irq_domain_mapping", 
-		"kernel/debug/pwm", "kernel/debug/suspend_stats", 
+		"kernel/debug/gpio", "kernel/debug/irq_domain_mapping",
+		"kernel/debug/pwm", "kernel/debug/suspend_stats",
 		"kernel/debug/wakeup_sources", "kernel/debug/asoc/codecs",
 		"kernel/debug/asoc/dais", "kernel/debug/asoc/platforms",
 		"kernel/debug/clk/clk_dump", "kernel/debug/clk/clk_summary",
 		"kernel/debug/memblock/reserved", "kernel/debug/mmc0/ios",
-		"kernel/debug/mmc0/regs", "kernel/debug/mmc1/ios", 
+		"kernel/debug/mmc0/regs", "kernel/debug/mmc1/ios",
 		"kernel/debug/mmc1/regs", "kernel/debug/pinctrl/pinctrl-handles",
 		"kernel/debug/pinctrl/pinctrl-maps",
 		"kernel/debug/regulator/regulator_summary",
@@ -1622,7 +1622,7 @@ static int getSysFSdata( void )
 
 	/* Read the first 1K of data from some of the more useful sources (most
 	   of these produce far less than 1K output) */
-	for( sysfsIndex = 0; 
+	for( sysfsIndex = 0;
 		 sysfsIndex < FAILSAFE_ARRAYSIZE( sysfsSources, char * ) && \
 			sysfsSources[ sysfsIndex ] != NULL;
 		 sysfsIndex++ )
@@ -1630,11 +1630,11 @@ static int getSysFSdata( void )
 		char fileName[ 128 + 8 ];
 		int count, result;
 
-		/* Try and open the data source.  We don't use O_NOFOLLOW because 
+		/* Try and open the data source.  We don't use O_NOFOLLOW because
 		   sysfs is typically symlinked all over itself, with links from
 		   /sys/whatever going into the system-specific /sys/devices tree
 		   (as well as circular links) */
-		result = sprintf_s( fileName, 128, "/sys/%s", 
+		result = sprintf_s( fileName, 128, "/sys/%s",
 							sysfsSources[ sysfsIndex ] );
 		ENSURES( rangeCheck( result, 6, 127 ) );
 		sysfsFD = open( fileName, O_RDONLY );
@@ -1667,13 +1667,13 @@ static int getSysFSdata( void )
 				continue;
 			}
 
-		/* We got something, check whether it's a dummy value ('0') or 
+		/* We got something, check whether it's a dummy value ('0') or
 		   something static ('0'/'1') */
 		if( count <= 1 && \
 			( sysfsBuffer[ 0 ] == '0' || sysfsBuffer[ 0 ] == '1' ) )
 			continue;
 
-		DEBUG_PRINT_COND( debugRandom, 
+		DEBUG_PRINT_COND( debugRandom,
 						  ( "/sys/%s contributed %d %s.\n",
 							sysfsSources[ sysfsIndex ], count,
 							( count > 1 ) ? "bytes" : "byte" ));
@@ -1683,13 +1683,13 @@ static int getSysFSdata( void )
 	ENSURES( sysfsIndex < FAILSAFE_ARRAYSIZE( sysfsSources, char * ) );
 	zeroise( sysfsBuffer, SYSFS_BUFSIZE );
 
-	/* Produce an estimate of the data's value.  We require that we get 
+	/* Produce an estimate of the data's value.  We require that we get
 	   at least 20 results to get the basic quality value */
 	quality = ( sysfsCount >= 50 ) ? 20 : ( sysfsCount >= 20 ) ? 10 : 0;
 	endRandomData( randomState, quality );
 
-	DEBUG_PRINT_COND( debugRandom, 
-					  ( "sysfs reads contributed %d entropy quality.\n", 
+	DEBUG_PRINT_COND( debugRandom,
+					  ( "sysfs reads contributed %d entropy quality.\n",
 						quality ));
 
 	return( quality );
@@ -1712,10 +1712,10 @@ static int getDevRandomData( void )
 	int randFD, noBytes = 0, readErrno, status;
 
 	/* Because of a combination of various types of braindamage in the Linux
-	   handling of /dev/random (it should block until it thinks it's got 
-	   enough entropy combined with not trusting hardware sources like 
+	   handling of /dev/random (it should block until it thinks it's got
+	   enough entropy combined with not trusting hardware sources like
 	   RDRAND), an attempt to use this as a source may block.  This has been
-	   known about for many years, has been biting people for a smaller 
+	   known about for many years, has been biting people for a smaller
 	   number of years, and is still being argued about now, see "Hard and
 	   Not-necessarily-hard Problems in Cryptography".  In order to at least
 	   warn users that this braindamage is present, we read the (bogus)
@@ -1728,7 +1728,7 @@ static int getDevRandomData( void )
 
 		if( randFD > 2 && \
 			ioctl( randFD, RNDGETENTCNT, &entropyCount ) == 0 && \
-			entropyCount < 128 ) 
+			entropyCount < 128 )
 			{
 			DEBUG_DIAG(( "/dev/random doesn't contain enough entropy to "
 						 "provide reliable random data,\nthis may result "
@@ -1738,38 +1738,38 @@ static int getDevRandomData( void )
 		}
 #endif /* RNDGETENTCNT */
 
-	/* Some OSes include a call to access the system randomness data 
-	   directly rather than having to go via a pseudo-device, if this 
-	   capability is available then we use a direct read.  This currently 
-	   applies to OpenBSD (added in 5.6, conveniently about the time that 
-	   LibreSSL needed it) and Linux kernels from 3.17 (in response to 
+	/* Some OSes include a call to access the system randomness data
+	   directly rather than having to go via a pseudo-device, if this
+	   capability is available then we use a direct read.  This currently
+	   applies to OpenBSD (added in 5.6, conveniently about the time that
+	   LibreSSL needed it) and Linux kernels from 3.17 (in response to
 	   prodding from LibreSSL and the appearance of the OpenBSD function).
-	   
+
 	   OpenBSD also has the older arc4random_buf(), which used to use
 	   RC4 (ugh) until OpenBSD 5.5 when it was replaced by ChaCha20, which
-	   postprocess the entropy data through the given stream cipher.  Since 
+	   postprocess the entropy data through the given stream cipher.  Since
 	   we're feeding the output into our own PRNG and since this function
-	   is a general interface to the system randomness data, we use 
+	   is a general interface to the system randomness data, we use
 	   getentropy() rather than arc4random() */
 #if defined( __linux__ ) && defined( GRND_NONBLOCK ) && \
 	defined( SYS_getrandom )
 	/* getrandom() was defined in kernel 3.17 and above but is rarely
 	   supported in libc ("if we add support for it then people might use it
-	   and things won't work any more with older libc versions", the full 
-	   story for glibc specifically is at https://lwn.net/Articles/711013/).  
-	   In some cases it's possible to access it via syscall() with 
-	   SYS_getrandom, so the best that we can do is use that if it's 
+	   and things won't work any more with older libc versions", the full
+	   story for glibc specifically is at https://lwn.net/Articles/711013/).
+	   In some cases it's possible to access it via syscall() with
+	   SYS_getrandom, so the best that we can do is use that if it's
 	   available.
-	   
-	   Even then, getrandom() is somewat risky because its behaviour is to 
-	   block until sufficient entropy (128 bits) is available and then 
+
+	   Even then, getrandom() is somewat risky because its behaviour is to
+	   block until sufficient entropy (128 bits) is available and then
 	   become nonblocking, see
 	   https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=c6e9d6f3.
-	   This means that the call can block at random if it's called during or 
-	   right after the boot process, and in fact can block fairly reliably 
+	   This means that the call can block at random if it's called during or
+	   right after the boot process, and in fact can block fairly reliably
 	   on embedded systems, see
 	   https://lore.kernel.org/linux-ext4/20190915081747.GA1058@darwi-home-pc.
-	   After ever-increasing instances of this making systems unbootable, 
+	   After ever-increasing instances of this making systems unbootable,
 	   attempts were made to fix things, https://lwn.net/Articles/800509/,
 	   but the debate about not blocking vs. not returning "perfect" entropy
 	   went on endlessly until finally, in kernel 5.4, a possible workaround
@@ -1777,16 +1777,16 @@ static int getDevRandomData( void )
 	   form of the 1996-vintage truerand.
 
 	   In summary, we don't know whether getrandom() will be available, and
-	   we don't know whether it will block or not, which is why we use the 
+	   we don't know whether it will block or not, which is why we use the
 	   syscall() option */
 	#include <sys/syscall.h>
-	noBytes = syscall( SYS_getrandom, buffer, DEVRANDOM_BUFSIZE, 
+	noBytes = syscall( SYS_getrandom, buffer, DEVRANDOM_BUFSIZE,
 					   GRND_NONBLOCK );
-	DEBUG_PRINT_COND( debugRandom, 
-					  ( "getrandom() (via syscall) contributed %d bytes.\n", 
+	DEBUG_PRINT_COND( debugRandom,
+					  ( "getrandom() (via syscall) contributed %d bytes.\n",
 						noBytes ));
 #elif defined( __OpenBSD__ ) && OpenBSD > 201412
-	/* See the comment at the start for why we use 'OpenBSD' for the version 
+	/* See the comment at the start for why we use 'OpenBSD' for the version
 	   number */
 	noBytes = getentropy( buffer, DEVRANDOM_BUFSIZE );
 	if( noBytes == 0 )
@@ -1797,7 +1797,7 @@ static int getDevRandomData( void )
 		   count */
 		noBytes = DEVRANDOM_BUFSIZE;
 		}
-	DEBUG_PRINT_COND( debugRandom, 
+	DEBUG_PRINT_COND( debugRandom,
 					  ( "getentropy() contributed %d bytes.\n", noBytes ));
 #elif ( defined( __FreeBSD__ ) || defined( __NetBSD__ ) || \
 		defined( __OpenBSD__ ) || defined( __APPLE__ ) ) && \
@@ -1806,18 +1806,18 @@ static int getDevRandomData( void )
 	static const int mib[] = { CTL_KERN, KERN_ARND };
 	size_t size = DEVRANDOM_BUFSIZE;
 
-	/* Alternative to getentropy() if it's not present, supported by some 
+	/* Alternative to getentropy() if it's not present, supported by some
 	   BSDs */
 	if( sysctl( mib, 2, buffer, &size, NULL, 0 ) == 0 )
 		noBytes = size;
-	DEBUG_PRINT_COND( debugRandom, 
-					  ( "sysctl( KERN_ARND ) contributed %d bytes.\n", 
+	DEBUG_PRINT_COND( debugRandom,
+					  ( "sysctl( KERN_ARND ) contributed %d bytes.\n",
 						noBytes ));
 	}
 #else
-	/* Check whether there's a /dev/random present.  We don't use O_NOFOLLOW 
-	   because on some Unixen special files can be symlinks and in any case 
-	   a system that allows attackers to mess with privileged filesystems 
+	/* Check whether there's a /dev/random present.  We don't use O_NOFOLLOW
+	   because on some Unixen special files can be symlinks and in any case
+	   a system that allows attackers to mess with privileged filesystems
 	   like this is presumably a goner anyway */
 	if( ( randFD = open( "/dev/urandom", O_RDONLY ) ) < 0 )
 		return( 0 );
@@ -1831,31 +1831,31 @@ static int getDevRandomData( void )
 		}
 
 	/* Read data from /dev/urandom, which won't block (although the quality
-	   of the noise is arguably slightly less).  We only assign this a 75% 
-	   quality factor to ensure that we still get randomness from other 
-	   sources as well.  
-	   
-	   Under FreeBSD 5.x and OS X, the /dev/random implementation is broken, 
-	   using a pretend dev-random implemented with Yarrow and a 160-bit pool 
-	   (animi sub vulpe latent) so we only assign a 60% quality factor.  
-	   These generators also lie about entropy, with both /random and 
+	   of the noise is arguably slightly less).  We only assign this a 75%
+	   quality factor to ensure that we still get randomness from other
+	   sources as well.
+
+	   Under FreeBSD 5.x and OS X, the /dev/random implementation is broken,
+	   using a pretend dev-random implemented with Yarrow and a 160-bit pool
+	   (animi sub vulpe latent) so we only assign a 60% quality factor.
+	   These generators also lie about entropy, with both /random and
 	   /urandom being the same PRNG-based implementation.
-	   
-	   The AIX /dev/random isn't an original /dev/random either but merely 
-	   provides a compatible interface, taking its input from interrupt 
-	   timings of a very small number of sources such as ethernet and SCSI 
-	   adapters and postprocessing them with Yarrow.  This implementation is 
-	   also a lot more conservative about its entropy estimation, such that 
-	   the blocking interface blocks a lot more often than the original 
-	   /dev/random implementation would.  In addition it stops gathering 
-	   entropy (from interrupts) when it thinks it has enough, and only 
-	   resumes when the value falls below a certain value.  
-	   
-	   OTOH this may still be better than the Linux implementation, which 
-	   in 2009 stopped gathering any information from interrupts at all by 
-	   removing the IRQF_SAMPLE_RANDOM flag.  The apparent intention was to 
-	   replace it with something else, but after much bikeshedding this 
-	   never happened, which makes the Linux /dev/random particularly bad 
+
+	   The AIX /dev/random isn't an original /dev/random either but merely
+	   provides a compatible interface, taking its input from interrupt
+	   timings of a very small number of sources such as ethernet and SCSI
+	   adapters and postprocessing them with Yarrow.  This implementation is
+	   also a lot more conservative about its entropy estimation, such that
+	   the blocking interface blocks a lot more often than the original
+	   /dev/random implementation would.  In addition it stops gathering
+	   entropy (from interrupts) when it thinks it has enough, and only
+	   resumes when the value falls below a certain value.
+
+	   OTOH this may still be better than the Linux implementation, which
+	   in 2009 stopped gathering any information from interrupts at all by
+	   removing the IRQF_SAMPLE_RANDOM flag.  The apparent intention was to
+	   replace it with something else, but after much bikeshedding this
+	   never happened, which makes the Linux /dev/random particularly bad
 	   on headless and embedded systems */
 	clearErrno();
 	noBytes = read( randFD, buffer, DEVRANDOM_BUFSIZE );
@@ -1872,23 +1872,23 @@ static int getDevRandomData( void )
 			}
 		else
 			{
-			DEBUG_DIAG(( "/dev/urandom read failed, status %d, errno = %d", 
+			DEBUG_DIAG(( "/dev/urandom read failed, status %d, errno = %d",
 						 noBytes, readErrno ));
 			}
 		return( 0 );
 		}
 	setMessageData( &msgData, buffer, noBytes );
-	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_SETATTRIBUTE_S, 
+	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_SETATTRIBUTE_S,
 							  &msgData, CRYPT_IATTRIBUTE_ENTROPY );
 	zeroise( buffer, DEVRANDOM_BUFSIZE );
 	if( cryptStatusError( status ) || noBytes < DEVRANDOM_BUFSIZE )
 		return( 0 );
 	krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_SETATTRIBUTE,
-					 ( MESSAGE_CAST ) &quality, 
+					 ( MESSAGE_CAST ) &quality,
 					 CRYPT_IATTRIBUTE_ENTROPY_QUALITY );
 
-	DEBUG_PRINT_COND( debugRandom, 
-					  ( "/dev/urandom contributed %d entropy quality.\n", 
+	DEBUG_PRINT_COND( debugRandom,
+					  ( "/dev/urandom contributed %d entropy quality.\n",
 					  quality ));
 
 	return( quality );
@@ -1906,14 +1906,14 @@ static int getEGDdata( void )
 	static const int quality = 75;
 	int egdIndex, sockFD, noBytes = CRYPT_ERROR, status;
 
-	/* Look for the egd/prngd output.  We re-search each time we're called 
-	   because, unlike /dev/random, it's both a user-level process and a 
-	   movable feast, so it can in theory disappear and reappear at a 
+	/* Look for the egd/prngd output.  We re-search each time we're called
+	   because, unlike /dev/random, it's both a user-level process and a
+	   movable feast, so it can in theory disappear and reappear at a
 	   different location between runs */
 	sockFD = socket( AF_UNIX, SOCK_STREAM, 0 );
 	if( sockFD < 0 )
 		return( 0 );
-	for( egdIndex = 0; 
+	for( egdIndex = 0;
 		 egdIndex < FAILSAFE_ARRAYSIZE( egdSources, char * ) && \
 			egdSources[ egdIndex ] != NULL;
 		 egdIndex++ )
@@ -1922,7 +1922,7 @@ static int getEGDdata( void )
 
 		memset( &sockAddr, 0, sizeof( struct sockaddr_un ) );
 		sockAddr.sun_family = AF_UNIX;
-		strlcpy_s( sockAddr.sun_path, sizeof( sockAddr.sun_path ), 
+		strlcpy_s( sockAddr.sun_path, sizeof( sockAddr.sun_path ),
 				   egdSources[ egdIndex ] );
 		if( connect( sockFD, ( struct sockaddr * ) &sockAddr,
 					 sizeof( struct sockaddr_un ) ) >= 0 )
@@ -1968,17 +1968,17 @@ static int getEGDdata( void )
 
 	/* Send the data to the pool */
 	setMessageData( &msgData, buffer, noBytes );
-	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_SETATTRIBUTE_S, 
+	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_SETATTRIBUTE_S,
 							  &msgData, CRYPT_IATTRIBUTE_ENTROPY );
 	zeroise( buffer, DEVRANDOM_BUFSIZE );
 	if( cryptStatusError( status ) || noBytes < DEVRANDOM_BUFSIZE )
 		return( 0 );
 	krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_SETATTRIBUTE,
-					 ( MESSAGE_CAST ) &quality, 
+					 ( MESSAGE_CAST ) &quality,
 					 CRYPT_IATTRIBUTE_ENTROPY_QUALITY );
 
-	DEBUG_PRINT_COND( debugRandom, 
-					  ( "EGD (%s) contributed %d entropy quality.\n", 
+	DEBUG_PRINT_COND( debugRandom,
+					  ( "EGD (%s) contributed %d entropy quality.\n",
 						egdSources[ egdIndex ], quality ));
 
 	return( quality );
@@ -1992,11 +1992,11 @@ static int getEGDdata( void )
 
 #ifndef NO_SYSV_SHAREDMEM
 
-/* The structure containing information on random-data sources.  Each record 
-   contains the source and a relative estimate of its usefulness (weighting) 
-   which is used to scale the number of kB of output from the source (total 
-   = data_bytes / usefulness).  Usually the weighting is in the range 1-3 
-   (or 0 for especially useless sources), resulting in a usefulness rating 
+/* The structure containing information on random-data sources.  Each record
+   contains the source and a relative estimate of its usefulness (weighting)
+   which is used to scale the number of kB of output from the source (total
+   = data_bytes / usefulness).  Usually the weighting is in the range 1-3
+   (or 0 for especially useless sources), resulting in a usefulness rating
    of 1...3 for each kB of source output (or 0 for the useless sources).
 
    If the source is constantly changing (certain types of network statistics
@@ -2008,10 +2008,10 @@ static int getEGDdata( void )
 
    In order to provide enough randomness to satisfy the requirements for a
    slow poll, we need to accumulate at least 20 points of usefulness (a
-   typical system should get about 30 points).  This is useful not only for 
-   use on source-starved systems but also in special circumstances like 
+   typical system should get about 30 points).  This is useful not only for
+   use on source-starved systems but also in special circumstances like
    running in a *BSD jail, in which only other processes running in the jail
-   are visible, severely restricting the amount of entropy that can be 
+   are visible, severely restricting the amount of entropy that can be
    collected.
 
    Some potential options are missed out because of special considerations.
@@ -2031,7 +2031,7 @@ static int getEGDdata( void )
 
    Some binaries are stored in different locations on different systems so
    alternative paths are given for them.  The code sorts out which one to run
-   by itself, once it finds an exectable somewhere it moves on to the next
+   by itself, once it finds an executable somewhere it moves on to the next
    source.  The sources are arranged roughly in their order of usefulness,
    occasionally sources that provide a tiny amount of relatively useless
    data are placed ahead of ones that provide a large amount of possibly
@@ -2044,13 +2044,13 @@ static int getEGDdata( void )
    understand the usual options but will provide enough output (in the form
    of error messages) to look like they're the real thing, causing
    alternative options to be skipped (we can't check the return either
-   because some commands return peculiar, non-zero status values even when 
+   because some commands return peculiar, non-zero status values even when
    they're working correctly).
 
    In order to maximise use of the buffer, the code performs a form of run-
    length compression on its input where a repeated sequence of bytes is
    replaced by the occurrence count mod 256.  Some commands output an awful
-   lot of whitespace, this measure greatly increases the amount of data that 
+   lot of whitespace, this measure greatly increases the amount of data that
    we can fit into the buffer.
 
    When we scale the weighting using the SC() macro, some preprocessors may
@@ -2059,7 +2059,7 @@ static int getEGDdata( void )
    we define a value SC_0 that evaluates to zero when fed to '1024 / SC_0' */
 
 #define SC( weight )	( int ) ( 1024 / weight )	/* Scale factor */
-#define SC_0			16384				/* SC( SC_0 ) evalutes to 0 */
+#define SC_0			16384				/* SC( SC_0 ) evaluates to 0 */
 
 typedef struct {
 	const char *path;		/* Path to check for existence of source */
@@ -2227,7 +2227,7 @@ static DATA_SOURCE_INFO dataSources[] = {
 #endif /* 0 */
 
 	/* End-of-sources marker */
-	{ NULL, NULL, 0, NULL, 0, 0, 0, FALSE }, 
+	{ NULL, NULL, 0, NULL, 0, 0, 0, FALSE },
 		{ NULL, NULL, 0, NULL, 0, 0, 0, FALSE }
 	};
 
@@ -2252,7 +2252,7 @@ typedef struct {
 
 #if defined( __MVS__ ) || defined( __hpux ) || defined( __Android__ )
 
-/* MVS USS, PHUX, and the Android version of Linux don't have wait4() so we 
+/* MVS USS, PHUX, and the Android version of Linux don't have wait4() so we
    emulate it with waitpid() and getrusage() */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2, 4 ) ) \
@@ -2293,19 +2293,19 @@ static void my_sched_yield( void )
 
 #endif /* Systems without sched_yield() */
 
-/* When exiting from the child, we call _exit() rather than exit() since 
+/* When exiting from the child, we call _exit() rather than exit() since
    this skips certain cleanup operations (atexit() and signal handlers).
    More technically, _exit() is a system call that performs kernel-space
    cleanup while exit() also performs user-space cleanup */
-	  
+
 #define CHILD_EXIT( status )	_exit( status )
 
-/* A special form of the REQUIRES()/ENSURES() predicates used in the forked 
+/* A special form of the REQUIRES()/ENSURES() predicates used in the forked
    child process, which call CHILD_EXIT() rather than returning */
 
 #define REQUIRES_EXIT( x ) \
 		if( !( x ) ) { assert( INTERNAL_ERROR ); CHILD_EXIT( -1 ); }
-#define ENSURES_EXIT			REQUIRES_EXIT 
+#define ENSURES_EXIT			REQUIRES_EXIT
 
 /* Under SunOS 4.x popen() doesn't record the pid of the child process.  When
    pclose() is called, instead of calling waitpid() for the correct child, it
@@ -2338,9 +2338,9 @@ static FILE *my_popen( INOUT_PTR DATA_SOURCE_INFO *entry )
 	/* Sanity check for stdin and stdout */
 	REQUIRES_N( STDIN_FILENO <= 1 && STDOUT_FILENO <= 1 );
 
-	/* If we're root, get UID/GID information so that we can give up our 
-	   permissions to make sure that we don't inadvertently read anything 
-	   sensitive.  We do it at this point in order to avoid calling 
+	/* If we're root, get UID/GID information so that we can give up our
+	   permissions to make sure that we don't inadvertently read anything
+	   sensitive.  We do it at this point in order to avoid calling
 	   getpwnam() between the fork() and the execl() since some getpwnam()s
 	   may call malloc() which could be locked by another thread which the
 	   child won't have access to */
@@ -2365,20 +2365,20 @@ static FILE *my_popen( INOUT_PTR DATA_SOURCE_INFO *entry )
 	if( pipe( pipedes ) < 0 )
 		return( NULL );
 
-	/* Fork off the child.  In theory we could use vfork() ("vfork() is like 
-	   an OS orgasm.  All OSes want to do it, but most just end up faking 
-	   it" - Chris Wedgwood), but most modern Unixen use copy-on-write for 
-	   forks anyway (with vfork() being just an alias for fork()), so we get 
-	   most of the benefits of vfork() with a plain fork().  There is 
-	   however another problem with fork that isn't fixed by COW.  Any large 
-	   program, when forked, requires (at least temporarily) a lot of 
-	   address space.  That is, when the process is forked the system needs 
-	   to allocate many virtual pages (backing store) even if those pages 
-	   are never used.  If the system doesn't have enough swap space 
-	   available to support this, the fork() will fail when the system tries 
-	   to reserve backing store for pages that are never touched.  Even in 
-	   non-large processes this can cause problems when (as with the 
-	   randomness-gatherer) many children are forked at once.  However this 
+	/* Fork off the child.  In theory we could use vfork() ("vfork() is like
+	   an OS orgasm.  All OSes want to do it, but most just end up faking
+	   it" - Chris Wedgwood), but most modern Unixen use copy-on-write for
+	   forks anyway (with vfork() being just an alias for fork()), so we get
+	   most of the benefits of vfork() with a plain fork().  There is
+	   however another problem with fork that isn't fixed by COW.  Any large
+	   program, when forked, requires (at least temporarily) a lot of
+	   address space.  That is, when the process is forked the system needs
+	   to allocate many virtual pages (backing store) even if those pages
+	   are never used.  If the system doesn't have enough swap space
+	   available to support this, the fork() will fail when the system tries
+	   to reserve backing store for pages that are never touched.  Even in
+	   non-large processes this can cause problems when (as with the
+	   randomness-gatherer) many children are forked at once.  However this
 	   is a rather unlikely situation, and since the fork()-based entropy-
 	   gathering is used only as a last resort when all other methods have
 	   failed, we rarely get to this code, let alone run it in a situation
@@ -2413,11 +2413,11 @@ static FILE *my_popen( INOUT_PTR DATA_SOURCE_INFO *entry )
 			close( fd );
 			}
 
-		/* Give up our permissions if required to make sure that we don't 
-		   inadvertently read anything sensitive.  We don't check whether 
-		   the change succeeds since it's not a major security problem but 
-		   just a precaution (in theory an attacker could do something like 
-		   fork()ing until RLIMIT_NPROC is reached, at which point it'd 
+		/* Give up our permissions if required to make sure that we don't
+		   inadvertently read anything sensitive.  We don't check whether
+		   the change succeeds since it's not a major security problem but
+		   just a precaution (in theory an attacker could do something like
+		   fork()ing until RLIMIT_NPROC is reached, at which point it'd
 		   fail, but that doesn't really give them anything) */
 		if( gathererUID != ( uid_t ) -1 )
 			{
@@ -2451,7 +2451,7 @@ static FILE *my_popen( INOUT_PTR DATA_SOURCE_INFO *entry )
 
 	/* We're the parent, close the irrelevant side of the pipe and open the
 	   relevant side as a new stream.  Mark our side of the pipe to close on
-	   exec, so new children won't see it (if this call fails there's not 
+	   exec, so new children won't see it (if this call fails there's not
 	   much that we can do, and it's mostly a hygiene thing so we don't fail
 	   fatally on it) */
 	close( pipedes[ STDOUT_FILENO ] );
@@ -2476,7 +2476,7 @@ static FILE *my_popen( INOUT_PTR DATA_SOURCE_INFO *entry )
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int my_pclose( INOUT_PTR DATA_SOURCE_INFO *entry, 
+static int my_pclose( INOUT_PTR DATA_SOURCE_INFO *entry,
 					  INOUT_PTR struct rusage *rusage )
 	{
 	pid_t pid;
@@ -2511,9 +2511,9 @@ static int my_pclose( INOUT_PTR DATA_SOURCE_INFO *entry,
 /* Get data from an external entropy source */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
-static int getEntropySourceData( INOUT_PTR DATA_SOURCE_INFO *dataSource, 
-								 OUT_BUFFER( bufSize, *bufPos ) BYTE *bufPtr, 
-								 IN_DATALENGTH const int bufSize, 
+static int getEntropySourceData( INOUT_PTR DATA_SOURCE_INFO *dataSource,
+								 OUT_BUFFER( bufSize, *bufPos ) BYTE *bufPtr,
+								 IN_DATALENGTH const int bufSize,
 								 OUT_DATALENGTH_Z int *bufPos )
 	{
 	int bufReadPos = 0, bufWritePos = 0;
@@ -2537,7 +2537,7 @@ static int getEntropySourceData( INOUT_PTR DATA_SOURCE_INFO *dataSource,
 			if( dataSource->usefulness < 0 )
 				{
 				/* Absolute rating, 1024 / -n */
-				REQUIRES( !checkOverflowDiv( 1025, 
+				REQUIRES( !checkOverflowDiv( 1025,
 											 -dataSource->usefulness ) );
 				total = 1025 / -dataSource->usefulness;
 				}
@@ -2549,7 +2549,7 @@ static int getEntropySourceData( INOUT_PTR DATA_SOURCE_INFO *dataSource,
 				total = dataSource->length / dataSource->usefulness;
 				}
 			}
-		DEBUG_PRINT_COND( debugRandom, 
+		DEBUG_PRINT_COND( debugRandom,
 						  ( "%s %s contributed %d bytes (compressed), "
 							"usefulness = %d.\n", dataSource->path,
 							( dataSource->arg != NULL ) ? dataSource->arg : "",
@@ -2627,22 +2627,22 @@ static void childPollingProcess( const int existingEntropy )
 
 	/* General housekeeping: Make sure that we can never dump core, and close
 	   all inherited file descriptors.  We need to do this because if we
-	   don't and the calling app has FILE's open, these will be flushed if 
-	   we call exit() in the child and again when the parent writes to them 
+	   don't and the calling app has FILE's open, these will be flushed if
+	   we call exit() in the child and again when the parent writes to them
 	   or closes them, resulting in everything that was present in the
 	   FILE * buffer at the time of the fork() being written twice.  An
-	   alternative solution would be to call _exit() instead of exit() 
-	   (which is the default action for the CHILD_EXIT() macro), but this is 
+	   alternative solution would be to call _exit() instead of exit()
+	   (which is the default action for the CHILD_EXIT() macro), but this is
 	   somewhat system-dependant and isn't present in all cases so we still
 	   take the precaution of exit()-proofing the code.
-	   
-	   Note that we don't close any of the standard handles because this 
+
+	   Note that we don't close any of the standard handles because this
 	   could lead to the next file being opened being given the stdin/stdout/
-	   stderr handle, which in general is just a nuisance but then some 
-	   older kernels didn't check handles when running a setuid program so 
-	   that it was actually an exploitable flaw.  In addition some later 
-	   kernels (e.g. NetBSD) overreact to the problem a bit and complain 
-	   when they see a setuid program with stdin/stdout/stderr closed, so 
+	   stderr handle, which in general is just a nuisance but then some
+	   older kernels didn't check handles when running a setuid program so
+	   that it was actually an exploitable flaw.  In addition some later
+	   kernels (e.g. NetBSD) overreact to the problem a bit and complain
+	   when they see a setuid program with stdin/stdout/stderr closed, so
 	   it's a good idea to leave these open.  We could in theory close them
 	   anyway and reopen them to /dev/null, but it's not clear whether this
 	   really buys us anything.
@@ -2658,11 +2658,11 @@ static void childPollingProcess( const int existingEntropy )
 	   may be tied to a device that will propagate the shutdown from the
 	   child to the parent via the device.
 
-	   In general the child will be short-lived, and the fact that any modern 
-	   fork() will have copy-on-write semantics will mean that cryptlib 
-	   memory is never copied to the child and further children.  It would, 
-	   however, be better if there were some way to perform a neutron-bomb 
-	   type shutdown that only zeroises senstive information while leaving 
+	   In general the child will be short-lived, and the fact that any modern
+	   fork() will have copy-on-write semantics will mean that cryptlib
+	   memory is never copied to the child and further children.  It would,
+	   however, be better if there were some way to perform a neutron-bomb
+	   type shutdown that only zeroises sensitive information while leaving
 	   structures intact */
 	setrlimit( RLIMIT_CORE, &rl );
 	for( fdIndex = fdTableSize - 1; fdIndex > STDOUT_FILENO; fdIndex-- )
@@ -2671,9 +2671,9 @@ static void childPollingProcess( const int existingEntropy )
 
 	/* Fire up each randomness source */
 	FD_ZERO( &fds );
-	for( i = 0; 
+	for( i = 0;
 		 i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ) && \
-			dataSources[ i ].path != NULL; 
+			dataSources[ i ].path != NULL;
 		 i++ )
 		{
 		/* Check for the end-of-lightweight-sources marker */
@@ -2684,7 +2684,7 @@ static void childPollingProcess( const int existingEntropy )
 			   done */
 			if( existingEntropy >= 50 )
 				{
-				DEBUG_PRINT_COND( debugRandom, 
+				DEBUG_PRINT_COND( debugRandom,
 								  ( "All lightweight sources polled, exiting "
 									"without polling heavyweight ones.\n" ));
 				break;
@@ -2695,11 +2695,11 @@ static void childPollingProcess( const int existingEntropy )
 			continue;
 			}
 
-		/* Since popen() is a fairly heavyweight function, we check to see 
+		/* Since popen() is a fairly heavyweight function, we check to see
 		   whether the executable exists before we try to run it */
 		if( access( dataSources[ i ].path, X_OK ) )
 			{
-			DEBUG_PRINT_COND( debugRandom, 
+			DEBUG_PRINT_COND( debugRandom,
 							  ( "%s not present%s.\n", dataSources[ i ].path,
 								dataSources[ i ].hasAlternative ? \
 									", has alternatives" : "" ));
@@ -2735,10 +2735,10 @@ static void childPollingProcess( const int existingEntropy )
 		while( dataSources[ i ].path != NULL && \
 			   dataSources[ i ].hasAlternative && \
 			   i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ) && \
-			   iterationCount++ < FAILSAFE_ITERATIONS_MED ) 
+			   iterationCount++ < FAILSAFE_ITERATIONS_MED )
 			{
-			DEBUG_PRINT_COND( debugRandom, 
-							  ( "Skipping %s.\n", 
+			DEBUG_PRINT_COND( debugRandom,
+							  ( "Skipping %s.\n",
 								dataSources[ i + 1 ].path ));
 			i++;
 			}
@@ -2772,7 +2772,7 @@ static void childPollingProcess( const int existingEntropy )
 			break;
 
 		/* One of the sources has data available, read it into the buffer */
-		for( i = 0; 
+		for( i = 0;
 			 i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ) && \
 				dataSources[ i ].path != NULL;
 			 i++ )
@@ -2792,7 +2792,7 @@ static void childPollingProcess( const int existingEntropy )
 		/* Check if there's more input available on any of the sources */
 		moreSources = FALSE;
 		FD_ZERO( &fds );
-		for( i = 0; 
+		for( i = 0;
 			 i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ) && \
 				dataSources[ i ].path != NULL;
 			 i++ )
@@ -2810,14 +2810,14 @@ static void childPollingProcess( const int existingEntropy )
 		   sources */
 		if( checkMonoTimerExpired( &timerInfo ) )
 			{
-			for( i = 0; 
+			for( i = 0;
 				 i < FAILSAFE_ARRAYSIZE( dataSources, DATA_SOURCE_INFO ) && \
 					dataSources[ i ].path != NULL;
 				 i++ )
 				{
 				if( dataSources[ i ].pipe != NULL )
 					{
-					DEBUG_DIAG(( "Aborting read of %s due to timeout", 
+					DEBUG_DIAG(( "Aborting read of %s due to timeout",
 								 dataSources[ i ].path ));
 					fclose( dataSources[ i ].pipe );
 					kill( dataSources[ i ].pid, SIGKILL );
@@ -2835,8 +2835,8 @@ static void childPollingProcess( const int existingEntropy )
 	gathererInfo->usefulness = usefulness;
 	gathererInfo->noBytes = bufPos;
 
-	DEBUG_PRINT_COND( debugRandom, 
-					  ( "Got %d bytes, usefulness = %d.\n", bufPos, 
+	DEBUG_PRINT_COND( debugRandom,
+					  ( "Got %d bytes, usefulness = %d.\n", bufPos,
 						usefulness ));
 
 	/* "Thou child of the daemon, ... wilt thou not cease...?"
@@ -2844,34 +2844,34 @@ static void childPollingProcess( const int existingEntropy )
 	CHILD_EXIT( 0 );
 	}
 
-/* Unix external-source slow poll.  If a few of the randomness sources 
-   create a large amount of output then the slowPoll() stops once the buffer 
-   has been filled (but before all of the randomness sources have been 
-   sucked dry) so that the 'usefulness' factor remains below the threshold.  
-   For this reason the gatherer buffer has to be fairly sizeable on 
+/* Unix external-source slow poll.  If a few of the randomness sources
+   create a large amount of output then the slowPoll() stops once the buffer
+   has been filled (but before all of the randomness sources have been
+   sucked dry) so that the 'usefulness' factor remains below the threshold.
+   For this reason the gatherer buffer has to be fairly sizeable on
    moderately loaded systems.
 
-   An alternative strategy, suggested by Massimo Squillace, is to use a 
-   chunk of shared memory protected by a semaphore, with the first 
-   sizeof( int ) bytes at the start serving as a high-water mark.  The 
-   process forks and waitpid()'s for the child's pid.  The child forks all 
-   the entropy-gatherers and exits, allowing the parent to resume execution. 
-   The child's children are inherited by init (double-fork paradigm), when 
-   each one is finished it takes the semaphore, writes data to the shared 
-   memory segment at the given offset, updates the offset, releases the 
+   An alternative strategy, suggested by Massimo Squillace, is to use a
+   chunk of shared memory protected by a semaphore, with the first
+   sizeof( int ) bytes at the start serving as a high-water mark.  The
+   process forks and waitpid()'s for the child's pid.  The child forks all
+   the entropy-gatherers and exits, allowing the parent to resume execution.
+   The child's children are inherited by init (double-fork paradigm), when
+   each one is finished it takes the semaphore, writes data to the shared
+   memory segment at the given offset, updates the offset, releases the
    semaphore again, and exits, to be reaped by init.
 
-   The parent monitors the shared memory offset and when enough data is 
-   available takes the semaphore, grabs the data, and releases the shared 
-   memory area and semaphore.  If any children are still running they'll get 
-   errors when they try to access the semaphore or shared memory and 
+   The parent monitors the shared memory offset and when enough data is
+   available takes the semaphore, grabs the data, and releases the shared
+   memory area and semaphore.  If any children are still running they'll get
+   errors when they try to access the semaphore or shared memory and
    silently exit.
 
-   This approach has the advantage that all of the forked processes are 
-   managed by init rather than having the parent have to wait for them, but 
-   the disadvantage that the end-of-job handling is rather less rigorous. 
-   An additional disadvantage is that the existing code has had a lot of 
-   real-world testing and adaptation to system-specific quirks, which would 
+   This approach has the advantage that all of the forked processes are
+   managed by init rather than having the parent have to wait for them, but
+   the disadvantage that the end-of-job handling is rather less rigorous.
+   An additional disadvantage is that the existing code has had a lot of
+   real-world testing and adaptation to system-specific quirks, which would
    have to be repeated for any new version */
 
 #define SHARED_BUFSIZE		49152	/* Usually about 25K are filled */
@@ -2880,13 +2880,13 @@ static void externalSourcesPoll( const int existingEntropy )
 	{
 	const int pageSize = getSysVar( SYSVAR_PAGESIZE );
 
-	/* We don't check for a maximum page size in order to deal with large 
-	   pages, the code further down that works with pageSize clamps the 
+	/* We don't check for a maximum page size in order to deal with large
+	   pages, the code further down that works with pageSize clamps the
 	   maximum data size to SHARED_BUFSIZE */
 	REQUIRES_V( pageSize >= 512 );
 
-	/* Check whether a non-default SIGCHLD handler is present.  This is 
-	   necessary because if the program that cryptlib is a part of installs 
+	/* Check whether a non-default SIGCHLD handler is present.  This is
+	   necessary because if the program that cryptlib is a part of installs
 	   its own handler it will end up reaping the cryptlib children before
 	   cryptlib can.  As a result my_pclose() will call waitpid() on a
 	   process that has already been reaped by the installed handler and
@@ -2914,7 +2914,7 @@ static void externalSourcesPoll( const int existingEntropy )
 					 "information" ));
 		}
 
-	/* If a non-default handler is present, replace it with the default 
+	/* If a non-default handler is present, replace it with the default
 	   handler */
 	if( gathererOldHandler.sa_handler != SIG_DFL )
 		{
@@ -2926,14 +2926,14 @@ static void externalSourcesPoll( const int existingEntropy )
 		sigaction( SIGCHLD, &newHandler, NULL );
 		}
 
-	/* Determine how much memory we want to set up.  This can get a bit 
+	/* Determine how much memory we want to set up.  This can get a bit
 	   tricky, implementations typically round the amount passed to shmget()
 	   up to the system page size, typically 4kB, but some systems have
 	   variable-size pages that can, in theory, go up to 4GB or more.  To
-	   deal with this, we fit the amount that we're requesting into the page 
-	   size if pages are more or less standard-sized, but don't try and do 
+	   deal with this, we fit the amount that we're requesting into the page
+	   size if pages are more or less standard-sized, but don't try and do
 	   anything if pages are huge */
-	if( pageSize > SHARED_BUFSIZE ) 
+	if( pageSize > SHARED_BUFSIZE )
 		gathererBufSize = SHARED_BUFSIZE;
 	else
 		{
@@ -2960,7 +2960,7 @@ static void externalSourcesPoll( const int existingEntropy )
 			   it and return ENOSYS */
 			fprintf( stderr, "cryptlib: SYSV shared memory required for "
 					 "random number gathering isn't\n  supported on this "
-					 "type of Cray hardware (ENOSYS),\n  file " __FILE__ 
+					 "type of Cray hardware (ENOSYS),\n  file " __FILE__
 					 ", line %d.\n", __LINE__ );
 			}
 #endif /* Cray */
@@ -2981,16 +2981,16 @@ static void externalSourcesPoll( const int existingEntropy )
 	gathererProcess = -1;
 	unlockPollingMutex();
 
-	/* Fork off the gatherer, the parent process returns to the caller.  
-	
-	   Programs using the OS X Core Foundation framework will complain if a 
-	   program calls fork() and doesn't follow it up with an exec() (which 
+	/* Fork off the gatherer, the parent process returns to the caller.
+
+	   Programs using the OS X Core Foundation framework will complain if a
+	   program calls fork() and doesn't follow it up with an exec() (which
 	   really screws up daemonization ), printing an error message:
 
 		The process has forked and you cannot use this CoreFoundation \
 		functionality safely. You MUST exec().
 
-	   There are workarounds possible but they're daemon-specific and 
+	   There are workarounds possible but they're daemon-specific and
 	   involve running under launchd, which isn't really an option here.
 	   For now this is left as an OS X framework problem, there doesn't
 	   seem to be anything that we can do to fix it here */
@@ -3001,7 +3001,7 @@ static void externalSourcesPoll( const int existingEntropy )
 		if( gathererProcess != -1 )
 			return;
 
-		/* The fork() failed, clean up and reset the gatherer PID to make 
+		/* The fork() failed, clean up and reset the gatherer PID to make
 		   sure that we're not locked out of retrying the poll later */
 		DEBUG_DIAG(( "fork() failed, errno = %d", errno ));
 		lockPollingMutex();
@@ -3033,14 +3033,14 @@ static int externalSourcesPollComplete( IN_BOOL const BOOLEAN force )
 		return( CRYPT_OK );
 		}
 
-	/* If this is a forced shutdown, be fairly assertive with the gathering 
+	/* If this is a forced shutdown, be fairly assertive with the gathering
 	   process */
 	if( force )
 		{
-		/* Politely ask the the gatherer to shut down and (try and) yield 
-		   our timeslice a few times so that the shutdown can take effect. 
-		   This is unfortunately somewhat implementation-dependant in that 
-		   in some cases it'll only yield the current thread's timeslice 
+		/* Politely ask the the gatherer to shut down and (try and) yield
+		   our timeslice a few times so that the shutdown can take effect.
+		   This is unfortunately somewhat implementation-dependant in that
+		   in some cases it'll only yield the current thread's timeslice
 		   rather than the overall process' timeslice, or if it's a high-
 		   priority thread it'll be scheduled again before any lower-
 		   priority threads get to run */
@@ -3049,14 +3049,14 @@ static int externalSourcesPollComplete( IN_BOOL const BOOLEAN force )
 		sched_yield();
 		sched_yield();	/* Well, sync is done three times too... */
 
-		/* If the gatherer is still running, ask again, less politely this 
+		/* If the gatherer is still running, ask again, less politely this
 		   time */
 		clearErrno();
 		if( kill( gathererProcess, 0 ) != -1 || errno != ESRCH )
 			kill( gathererProcess, SIGKILL );
 		}
 
-	/* Wait for the gathering process to finish and, if it was sucessful, 
+	/* Wait for the gathering process to finish and, if it was successful,
 	   add the randomness that it's gathered */
 	do
 		{
@@ -3067,7 +3067,7 @@ static int externalSourcesPollComplete( IN_BOOL const BOOLEAN force )
 		   iterationCount++ < FAILSAFE_ITERATIONS_SMALL );
 	if( pid == gathererProcess && WIFEXITED( waitPidStatus ) )
 		{
-		/* The child terminated normally, forward its output to the system 
+		/* The child terminated normally, forward its output to the system
 		   device */
 		if( gathererInfo->noBytes > 0 && !force )
 			{
@@ -3082,8 +3082,8 @@ static int externalSourcesPollComplete( IN_BOOL const BOOLEAN force )
 			assert( cryptStatusOK( status ) );
 			if( quality > 0 )
 				{
-				/* On some very cut-down embedded systems the entropy 
-				   quality can be zero so we only send a quality estimate if 
+				/* On some very cut-down embedded systems the entropy
+				   quality can be zero so we only send a quality estimate if
 				   there's actually something there */
 				status = krnlSendMessage( SYSTEM_OBJECT_HANDLE,
 										  IMESSAGE_SETATTRIBUTE, &quality,
@@ -3093,27 +3093,27 @@ static int externalSourcesPollComplete( IN_BOOL const BOOLEAN force )
 
 			DEBUG_PRINT_COND( debugRandom,
 							  ( "Polling parent added %d bytes, "
-								"quality = %d.\n", gathererInfo->noBytes, 
+								"quality = %d.\n", gathererInfo->noBytes,
 								quality ));
 			}
 		}
 	else
 		{
-		/* There was a problem with the gatherer process, let the user 
+		/* There was a problem with the gatherer process, let the user
 		   know */
 		DEBUG_DIAG(( "Polling parent failed to get data from child,\n  "
-					 "waitpid() status value %X, errno = %d", waitPidStatus, 
+					 "waitpid() status value %X, errno = %d", waitPidStatus,
 					 errno ));
 		DEBUG_PRINT_COND( debugRandom && WIFSIGNALED( waitPidStatus ),
 						  ( "  Child was terminated due to signal %d.\n",
 						    WTERMSIG( waitPidStatus ) ));
 		}
-	REQUIRES( isIntegerRangeNZ( gathererBufSize ) ); 
+	REQUIRES( isIntegerRangeNZ( gathererBufSize ) );
 	zeroise( gathererBuffer, gathererBufSize );
 
-	/* Detach and delete the shared memory (the latter is necessary because 
-	   otherwise the unused ID hangs around until the process terminates) 
-	   and restore the original signal handler if we replaced someone else's 
+	/* Detach and delete the shared memory (the latter is necessary because
+	   otherwise the unused ID hangs around until the process terminates)
+	   and restore the original signal handler if we replaced someone else's
 	   one */
 	shmdt( gathererBuffer );
 	shmctl( gathererMemID, IPC_RMID, NULL );
@@ -3121,13 +3121,13 @@ static int externalSourcesPollComplete( IN_BOOL const BOOLEAN force )
 		{
 		struct sigaction oact;
 
-		/* We replaced someone else's handler for the slow poll, reinstate 
-		   the original one.  Since someone else could have in turn replaced 
+		/* We replaced someone else's handler for the slow poll, reinstate
+		   the original one.  Since someone else could have in turn replaced
 		   our handler, we check for this and warn the user if necessary */
 		sigaction( SIGCHLD, NULL, &oact );
 		if( oact.sa_handler != SIG_DFL )
 			{
-			/* The current handler isn't the one that we installed, warn the 
+			/* The current handler isn't the one that we installed, warn the
 			   user */
 			DEBUG_DIAG(( "SIGCHLD handler was replaced while slow poll was "
 						 "in progress,\nsee the source code for more "
@@ -3135,7 +3135,7 @@ static int externalSourcesPollComplete( IN_BOOL const BOOLEAN force )
 			}
 		else
 			{
-			/* Our handler is still in place, replace it with the original 
+			/* Our handler is still in place, replace it with the original
 			   one */
 			sigaction( SIGCHLD, &gathererOldHandler, NULL );
 			}
@@ -3153,8 +3153,8 @@ static int externalSourcesPollComplete( IN_BOOL const BOOLEAN force )
 *																			*
 ****************************************************************************/
 
-/* Slow poll.  We try for sources that are directly accessible 
-   programmatically and only fall back to the external-sources poll as a 
+/* Slow poll.  We try for sources that are directly accessible
+   programmatically and only fall back to the external-sources poll as a
    last resort (this is rarely, if ever, required) */
 
 void slowPoll( void )
@@ -3166,13 +3166,13 @@ void slowPoll( void )
 	static BOOLEAN addedStaticData = FALSE;
 	int entropy = 0;
 
-	DEBUG_PRINT_COND( debugRandom, 
+	DEBUG_PRINT_COND( debugRandom,
 					  ( "Attempting to get entropy from /dev/urandom" ));
-	DEBUG_PRINT_COND( debugRandom && !access( "/dev/hwrng", R_OK ), 
+	DEBUG_PRINT_COND( debugRandom && !access( "/dev/hwrng", R_OK ),
 					  ( ", /dev/hwrng" ));
-	DEBUG_PRINT_COND( debugRandom && !access( "/proc/interrupts", R_OK ), 
+	DEBUG_PRINT_COND( debugRandom && !access( "/proc/interrupts", R_OK ),
 					  ( ", procfs" ));
-	DEBUG_PRINT_COND( debugRandom && !access( "/sys/block", R_OK ), 
+	DEBUG_PRINT_COND( debugRandom && !access( "/sys/block", R_OK ),
 					  ( ", sysfs" ));
 #ifdef USE_KSTAT
 	DEBUG_PRINT_COND( debugRandom, ( ", kstat" ));
@@ -3193,7 +3193,7 @@ void slowPoll( void )
 	DEBUG_PRINT_COND( debugRandom && !access( "/proc/sys/kernel/perf_event_paranoid", R_OK ),
 					  ( ", perf_event" ));
 #endif /* USE_PERFEVENT */
-#ifdef __iOS__ 
+#ifdef __iOS__
 	DEBUG_PRINT_COND( debugRandom, ( ", iOS SecRandomCopyBytes()" ));
 #endif /* __iOS__  */
 #ifdef USE_TPM_RNG
@@ -3201,10 +3201,10 @@ void slowPoll( void )
 #endif /* USE_TPM_RNG */
 	DEBUG_PRINT_COND( debugRandom, ( ".\n" ));
 
-	/* If we can detect a TPM RNG and its use isn't enabled, notify that it 
+	/* If we can detect a TPM RNG and its use isn't enabled, notify that it
 	   could be used */
 #ifndef USE_TPM_RNG
-	DEBUG_OP( { BYTE buffer[ 128 ]; int count; 
+	DEBUG_OP( { BYTE buffer[ 128 ]; int count;
 				 count = getHWRNGNAME( buffer, 128 ) );
 	DEBUG_PRINT_COND( count >= 0 && !memcmp( buffer, "tpm-rng", 7 ),
 					  ( "System contains a TPM, consider enabling TPM use "
@@ -3215,11 +3215,11 @@ void slowPoll( void )
 	/* Make sure that we don't start more than one slow poll at a time.  The
 	   gathererProcess value may be positive (a PID) or -1 (error), so we
 	   compare it to the specific value 0 (= not-used) in the check.
-	   
-	   Some static analysers will complain about the use of potentially 
+
+	   Some static analysers will complain about the use of potentially
 	   blocking calls to read() in functions called from this one, this
 	   isn't a problem because the calls, to things like /dev/urandom, will
-	   only block if something has gone catastrophically wrong, and all 
+	   only block if something has gone catastrophically wrong, and all
 	   it'll do is stall any other threads that come along behind us to
 	   call slowPoll() */
 	lockPollingMutex();
@@ -3236,7 +3236,7 @@ void slowPoll( void )
 		addedStaticData = TRUE;
 		}
 
-	/* Begin performance event polling.  This brackets the other polling 
+	/* Begin performance event polling.  This brackets the other polling
 	   types since it measures system performance around the duration of the
 	   other polls */
 #ifdef USE_PERFEVENT
@@ -3246,10 +3246,10 @@ void slowPoll( void )
 
 	/* The popen()-level slow poll is the screen-scraping interface of last
 	   resort that we use only if we can't get the entropy in any other
-	   way.  If the system provides entropy from alternate sources, we don't 
-	   have have to try the screen-scraping slow poll (a number of these 
-	   additional sources, things like procfs and kstats, duplicate the 
-	   sources polled in the slow poll anyway, so we're not adding much by 
+	   way.  If the system provides entropy from alternate sources, we don't
+	   have have to try the screen-scraping slow poll (a number of these
+	   additional sources, things like procfs and kstats, duplicate the
+	   sources polled in the slow poll anyway, so we're not adding much by
 	   polling these extra sources if we've already got the data directly) */
 	entropy += getDevRandomData();
 	if( !access( "/dev/hwrng", R_OK ) )
@@ -3274,7 +3274,7 @@ void slowPoll( void )
 #ifdef USE_GETFSSTAT
 	entropy += getFsstatData();
 #endif /* USE_GETFSSTAT */
-#ifdef __iOS__ 
+#ifdef __iOS__
 	entropy += getIOSData();
 #endif /* __iOS__  */
 #ifdef USE_TPM_RNG
@@ -3284,17 +3284,17 @@ void slowPoll( void )
 	if( perfEventsOK )
 		entropy += getPerfEventEnd( perfEventFDs );
 #endif /* USE_PERFEVENT */
-	DEBUG_PRINT_COND( debugRandom, 
+	DEBUG_PRINT_COND( debugRandom,
 					  ( "Got %d entropy from direct sources.\n", entropy ));
 	if( entropy >= 100 )
 		{
-		DEBUG_PRINT_COND( debugRandom, 
+		DEBUG_PRINT_COND( debugRandom,
 						  ( "  Skipping full slowpoll since sufficient "
 							"entropy is available.\n" ));
 		}
 	else
 		{
-		DEBUG_PRINT_COND( debugRandom, 
+		DEBUG_PRINT_COND( debugRandom,
 						  ( "  Continuing to full slowpoll since sufficient "
 							"entropy wasn't gathered.\n" ));
 		}
@@ -3306,9 +3306,9 @@ void slowPoll( void )
 		return;
 		}
 
-	/* A few systems don't support SYSV shared memory so we can't go beyond 
-	   this point, all that we can do is warn the user that they'll have to 
-	   use the entropy mechanisms intended for embedded systems without 
+	/* A few systems don't support SYSV shared memory so we can't go beyond
+	   this point, all that we can do is warn the user that they'll have to
+	   use the entropy mechanisms intended for embedded systems without
 	   proper entropy sources */
 #ifdef NO_SYSV_SHAREDMEM
 	fprintf( stderr, "cryptlib: This system doesn't contain the OS "
@@ -3342,47 +3342,47 @@ int waitforRandomCompletion( IN_BOOL const BOOLEAN force )
    since the last check, for multithreaded environments this isn't reliable
    since some systems have per-thread pid's so we need to use
    pthread_atfork() as a trigger to set the pid-changed flag.
-   
-   This is complicated by the fact that some threads implementations don't 
-   call pthread_atfork() on a vfork() (see the note about OS X below) while 
-   others do, so that with sufficiently obstreperous use of vfork() (doing 
-   stuff other than calling one of the exec() functions) it's possible to 
-   end up with duplicate pools.  OTOH this behaviour is explicitly advised 
-   against in vfork() manpages and documented as leading to undefined 
+
+   This is complicated by the fact that some threads implementations don't
+   call pthread_atfork() on a vfork() (see the note about OS X below) while
+   others do, so that with sufficiently obstreperous use of vfork() (doing
+   stuff other than calling one of the exec() functions) it's possible to
+   end up with duplicate pools.  OTOH this behaviour is explicitly advised
+   against in vfork() manpages and documented as leading to undefined
    behaviour, so anyone who does this kinda gets what they deserve.
 
-   In terms of OS-specific issues, under Aches calling pthread_atfork() with 
-   any combination of arguments or circumstances produces a segfault, so we 
-   disable its use and fall back to the getpid()-based fork detection.  In 
-   addition some other environments don't support the call, so we exclude 
-   those as well.  FreeBSD is a particular pain because of its highly 
-   confusing use of -RELEASE, -STABLE (experimental), and -CURRENT (also 
-   experimental but differently so) while maintaining the same version, it's 
-   present in 5.x-CURRENT but not 5.x-RELEASE or -STABLE, so we have to 
-   exclude it for all 5.x to be safe.  OS X is also a bit of a pain, support 
-   was added after 10.4 (Tiger) but OS X uses vfork() internally so the 
-   atfork handler doesn't get called because parent and child are still 
-   sharing the same address space, so we also rely on the getpid()-based 
+   In terms of OS-specific issues, under Aches calling pthread_atfork() with
+   any combination of arguments or circumstances produces a segfault, so we
+   disable its use and fall back to the getpid()-based fork detection.  In
+   addition some other environments don't support the call, so we exclude
+   those as well.  FreeBSD is a particular pain because of its highly
+   confusing use of -RELEASE, -STABLE (experimental), and -CURRENT (also
+   experimental but differently so) while maintaining the same version, it's
+   present in 5.x-CURRENT but not 5.x-RELEASE or -STABLE, so we have to
+   exclude it for all 5.x to be safe.  OS X is also a bit of a pain, support
+   was added after 10.4 (Tiger) but OS X uses vfork() internally so the
+   atfork handler doesn't get called because parent and child are still
+   sharing the same address space, so we also rely on the getpid()-based
    fork detection mechanism.
-   
-   Another problem, specific to glibc and shared libraries, is that 
+
+   Another problem, specific to glibc and shared libraries, is that
    pthread_atfork() isn't actually present in libpthread.so but in a static
-   library libpthread_nonshared.a, with libpthread.so actually being a 
+   library libpthread_nonshared.a, with libpthread.so actually being a
    linker script that pulls in libpthread.so.0 and libpthread_nonshared.a.
    If something goes wrong with this hack, it produces the gcc gibberish
-   "hidden symbol `pthread_atfork' in XXX is referenced by DSO", meaning 
-   that there's a problem with linking in pthread_atfork() from 
+   "hidden symbol `pthread_atfork' in XXX is referenced by DSO", meaning
+   that there's a problem with linking in pthread_atfork() from
    libpthread_nonshared.a.
-   
+
    There are other possible fork-checking mechanisms, but they're even less
-   portable, and considerably more ugly, than pthread_atfork().  For example 
-   some recent open-source Unix systems implement an INHERIT_ZERO flag for 
-   minherit() which causes a page to be zeroed on fork, present in OpenBSD 
-   5.6 and newer and FreeBSD 12.0 and newer, with the Linux version being 
-   MADV_WIPEONFORK passed to madvise() in Linux 4.14 and newer.  One way to 
-   implement this would be to mmap() a page, fill it with 0xFF, set 
-   INHERIT_ZERO/MADV_WIPEONFORK as required, and treat it as a has-forked 
-   boolean, but the lack of portability and general clunkiness makes it far 
+   portable, and considerably more ugly, than pthread_atfork().  For example
+   some recent open-source Unix systems implement an INHERIT_ZERO flag for
+   minherit() which causes a page to be zeroed on fork, present in OpenBSD
+   5.6 and newer and FreeBSD 12.0 and newer, with the Linux version being
+   MADV_WIPEONFORK passed to madvise() in Linux 4.14 and newer.  One way to
+   implement this would be to mmap() a page, fill it with 0xFF, set
+   INHERIT_ZERO/MADV_WIPEONFORK as required, and treat it as a has-forked
+   boolean, but the lack of portability and general clunkiness makes it far
    less useful than pthread_atfork() */
 
 #if defined( USE_THREADS ) && \
@@ -3434,7 +3434,7 @@ BOOLEAN forkCheck( IN_BOOL const BOOLEAN checkForked )
 		originalPID = getpid();
 	else
 		{
-		/* This is a fork check, if the pid has changed then we've forked 
+		/* This is a fork check, if the pid has changed then we've forked
 		   and we're the child, remember the new pid */
 		if( getpid() != originalPID )
 			{
@@ -3451,14 +3451,14 @@ BOOLEAN forkCheck( IN_BOOL const BOOLEAN checkForked )
 
 void initRandomPolling( void )
 	{
-	/* Hardcoding in the Posix function name at this point is safe because 
+	/* Hardcoding in the Posix function name at this point is safe because
 	   it also works for Solaris threads */
 #ifdef USE_THREADS
 	pthread_mutex_init( &gathererMutex, NULL );
 
-	/* If it's multithreaded code then we need to ensure that we're 
-	   signalled if another thread calls fork().  We set the forked flag 
-	   in both the child and the parent to ensure that both sides remix the 
+	/* If it's multithreaded code then we need to ensure that we're
+	   signalled if another thread calls fork().  We set the forked flag
+	   in both the child and the parent to ensure that both sides remix the
 	   pool thoroughly */
   #ifndef NO_PTHREAD_ATFORK
 	pthread_mutex_init( &forkedMutex, NULL );

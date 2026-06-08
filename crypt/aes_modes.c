@@ -36,6 +36,9 @@ Issue Date: 20/12/2007
 #else
   #include "crypt/aesopt.h"
 #endif /* Compiler-specific includes */
+#if defined( _MSC_VER )
+  #pragma warning( default: 4090 )	/* different 'const' qualifiers */
+#endif /* Visual C++ */
 
 #if defined( AES_MODES )
 #if defined(__cplusplus)

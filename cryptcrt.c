@@ -1289,10 +1289,21 @@ int createCertificateInfo( OUT_PTR_PTR_COND CERT_INFO **certInfoPtrPtr,
 		case CRYPT_CERTTYPE_CERTIFICATE:
 		case CRYPT_CERTTYPE_ATTRIBUTE_CERT:
 		case CRYPT_CERTTYPE_CERTCHAIN:
+			{
+			LOOP_INDEX i;
+
 			certInfoPtr->cCertCert = ( CERT_CERT_INFO * ) certInfoPtr->storage;
+			LOOP_SMALL( i = 0, i < MAX_CHAINLENGTH, i++ )
+				{
+				ENSURES( LOOP_INVARIANT_SMALL( i, 0, MAX_CHAINLENGTH - 1 ) );
+		
+				certInfoPtr->cCertCert->chain[ i ] = CRYPT_ERROR;
+				}
+			ENSURES( LOOP_BOUND_OK );
 			certInfoPtr->cCertCert->chainPos = CRYPT_ERROR;
 			certInfoPtr->cCertCert->trustedUsage = CRYPT_ERROR;
 			break;
+			}
 
 #ifdef USE_CERTREQ
 		case CRYPT_CERTTYPE_REQUEST_CERT:

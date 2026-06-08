@@ -436,13 +436,19 @@ BOOLEAN testSelfTest( void )
 		}
 	status = cryptGetAttribute( CRYPT_UNUSED, CRYPT_OPTION_SELFTESTOK, 
 								&value );
-	if( cryptStatusError( status ) || value != TRUE )
+	if( cryptStatusError( status ) )
+		{
+		fprintf( outputStream, "Couldn't retrieve cryptlib self-test "
+				 "result, status %d, line %d.\n", status, __LINE__ );
+		return( FALSE );
+		}
+	if( value != TRUE )
 		{
 		/* Unfortunately all that we can report at this point is that the
 		   self-test failed, we can't try each algorithm individually
 		   because the self-test has disabled the failed one(s) */
-		fprintf( outputStream, "cryptlib algorithm self-test failed, line "
-				 "%d.\n", __LINE__ );
+		fprintf( outputStream, "cryptlib algorithm self-test failed, "
+				 "boolean result = %d, line %d.\n", value, __LINE__ );
 		return( FALSE );
 		}
 	fputs( "cryptlib algorithm self-test succeeded.\n\n", outputStream );
@@ -799,7 +805,6 @@ static const TEST_FUNCTION_INFO midLevelTestInfo[] = {
 	MK_TESTFUNC_COND_ALGO( testKeyExportImport, CRYPT_ALGO_RSA ),
 	MK_TESTFUNC( testSignData ),
 	MK_TESTFUNC( testKeygen ),
-	MK_TESTFUNC( testMidLevelDebugCheck ),
 	{ NULL }
 	};
 
@@ -1157,8 +1162,6 @@ static const TEST_FUNCTION_INFO envelopeTestInfo[] = {
 	MK_TESTFUNC( testPGPEnvelopeDetachedSig ),
 	MK_TESTFUNC( testCMSEnvelopeRefCount ),
 	MK_TESTFUNC( testCMSEnvelopeSignedDataImport ),
-	MK_TESTFUNC( testEnvelopeCMSDebugCheck ),
-	MK_TESTFUNC( testEnvelopePGPDebugCheck ),
 	{ NULL }
 	};
 
@@ -1300,8 +1303,6 @@ BOOLEAN testSessionsLoopback( void )
 		return( FALSE );
 	if( !testSessionSSHClientServerMultichannel() )
 		return( FALSE );
-	if( !testSessionSSHClientServerDebugCheck() )
-		return( FALSE );
 
 	/* TLS 1.0 tests, default disabled */
 	if( !testSessionTLSClientServer() )
@@ -1319,8 +1320,6 @@ BOOLEAN testSessionsLoopback( void )
 	if( !testSessionTLS11ClientServer() )
 		return( FALSE );
 	if( !testSessionTLS11ClientCertClientServer() )
-		return( FALSE );
-	if( !testSessionTLSClientServerDebugCheck() )
 		return( FALSE );
 	
 	/* TLS 1.2 tests */
@@ -1376,8 +1375,6 @@ BOOLEAN testSessionsLoopback( void )
 		return( FALSE );
 	if( !testSessionSCEPSHA2ClientServer() )
 		return( FALSE );
-	if( !testSessionSCEPClientServerDebugCheck() )
-		return( FALSE );
 
 	/* CMP tests */
 	if( !testSessionCMPClientServer() )
@@ -1409,8 +1406,6 @@ BOOLEAN testSessionsLoopback( void )
 		   "cryptEnd() due to\n         an early-out thread exit, this is "
 		   "not an actual error.\n", outputStream );
 #endif /* 1 */
-	if( !testSessionCMPClientServerDebugCheck() )
-		return( FALSE );
 
 	/* The final set of loopback tests, which spawn a large number of 
 	   threads, can be somewhat alarming due to the amount of message spew 
@@ -1468,6 +1463,40 @@ BOOLEAN testUsers( void )
 	fputs( "Skipping test of user routines...\n\n", outputStream );
 	return( TRUE );
 	}
+
+/****************************************************************************
+*																			*
+*							Fault-injection Tests							*
+*																			*
+****************************************************************************/
+
+#ifdef CONFIG_FAULTS
+
+/* Test the fault-injection routines */
+
+static const TEST_FUNCTION_INFO faultTestInfo[] = { 
+	MK_TESTFUNC( testMidLevelDebugCheck ),
+	MK_TESTFUNC( testEnvelopeCMSDebugCheck ),
+	MK_TESTFUNC( testEnvelopePGPDebugCheck ),
+	MK_TESTFUNC( testSessionSSHClientServerDebugCheck ),
+	MK_TESTFUNC( testSessionTLSClientServerDebugCheck ),
+	MK_TESTFUNC( testSessionSCEPClientServerDebugCheck ),
+	MK_TESTFUNC( testSessionCMPClientServerDebugCheck ),
+	{ NULL }
+	};
+
+BOOLEAN testFaults( void )
+	{
+	return( runTests( faultTestInfo ) );
+	}
+#else
+
+BOOLEAN testFaults( void )
+	{
+	fputs( "Skipping test of fault-injection routines...\n\n", outputStream );
+	return( TRUE );
+	}
+#endif /* CONFIG_FAULTS */
 
 /****************************************************************************
 *																			*

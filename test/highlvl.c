@@ -348,10 +348,26 @@ static int signData( const CRYPT_ALGO_TYPE algorithm,
 		cryptDestroyContext( hashCheckContext );
 		if( externalSignContext == CRYPT_UNUSED )
 			destroyContexts( CRYPT_UNUSED, checkContext, signContext );
+#if defined( CONFIG_FAULTS ) 
+		if( status != expectedFaultStatus && expectedFaultStatus != CRYPT_OK )
+			{
+			printf( "Expected fault error %d, got %d.\nHit a key...", 
+					expectedFaultStatus, status );
+			( void ) getchar();
+			}
+#endif /* CONFIG_FAULTS */
 		fprintf( outputStream, "cryptCheckSignature() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		return( FALSE );
 		}
+#if defined( CONFIG_FAULTS ) 
+	if( expectedFaultType != FAULT_NONE )
+		{
+		printf( "Expected fault error %d but got success.\nHit a key...", 
+				expectedFaultStatus );
+		( void ) getchar();
+		}
+#endif /* CONFIG_FAULTS */
 
 	/* Clean up */
 	cryptDestroyContext( hashSignContext );
@@ -497,8 +513,24 @@ static int keyExportImport( const CRYPT_ALGO_TYPE algorithm,
 		fprintf( outputStream, "cryptUnwrapKeyEx() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		free( buffer );
+#if defined( CONFIG_FAULTS ) 
+		if( status != expectedFaultStatus && expectedFaultStatus != CRYPT_OK )
+			{
+			printf( "Expected fault error %d, got %d.\nHit a key...", 
+					expectedFaultStatus, status );
+			( void ) getchar();
+			}
+#endif /* CONFIG_FAULTS */
 		return( FALSE );
 		}
+#if defined( CONFIG_FAULTS ) 
+	if( expectedFaultType != FAULT_NONE )
+		{
+		printf( "Expected fault error %d but got success.\nHit a key...", 
+				expectedFaultStatus );
+		( void ) getchar();
+		}
+#endif /* CONFIG_FAULTS */
 
 	/* Make sure that the two keys match */
 	if( !compareSessionKeys( sessionKeyContext1, sessionKeyContext2 ) )
@@ -1068,8 +1100,24 @@ static int conventionalExportImport( const CRYPT_CONTEXT cryptContext,
 		fprintf( outputStream, "cryptUnwrapKey() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
 		free( buffer );
+#if defined( CONFIG_FAULTS ) 
+		if( status != expectedFaultStatus && expectedFaultStatus != CRYPT_OK )
+			{
+			printf( "Expected fault error %d, got %d.\nHit a key...", 
+					expectedFaultStatus, status );
+			( void ) getchar();
+			}
+#endif /* CONFIG_FAULTS */
 		return( FALSE );
 		}
+#if defined( CONFIG_FAULTS ) 
+	if( expectedFaultType != FAULT_NONE )
+		{
+		printf( "Expected fault error %d but got success.\nHit a key...", 
+				expectedFaultStatus );
+		( void ) getchar();
+		}
+#endif /* CONFIG_FAULTS */
 
 	/* Make sure that the two keys match */
 	if( !compareSessionKeys( sessionKeyContext1, sessionKeyContext2 ) )
@@ -1812,16 +1860,15 @@ int testKeygen( void )
 
 /* Test handling of injected faults */
 
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
+#if defined( CONFIG_FAULTS ) 
 
 typedef enum { TEST_SIGN_RSA, TEST_SIGN_ECDSA, TEST_KEYEX_CONV, 
 			   TEST_KEYEX_PKC, TEST_PRF } TEST_TYPE;
 
-static int testDebugCheck( const TEST_TYPE testType, const FAULT_TYPE testFaultType )
+static int testDebugCheck( const TEST_TYPE testType )
 	{
 	int status;
 
-	cryptSetFaultType( testFaultType );
 	switch( testType )
 		{
 		case TEST_SIGN_RSA:
@@ -1866,36 +1913,44 @@ static int testDebugCheck( const TEST_TYPE testType, const FAULT_TYPE testFaultT
 		   "correct).\n", outputStream );
 	return( TRUE );
 	}
-#endif /* CONFIG_FAULTS && Debug */
+#endif /* CONFIG_FAULTS */
 
 int testMidLevelDebugCheck( void )
 	{
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
+#if defined( CONFIG_FAULTS ) 
 	fputs( "Testing encryption mechanism error handling...\n", 
 		   outputStream );
-	cryptSetFaultType( FAULT_NONE );
-	if( !testDebugCheck( TEST_SIGN_RSA, FAULT_MECH_CORRUPT_HASH ) )
+	setFaultInfo( FAULT_MECH_CORRUPT_HASH, CRYPT_ERROR_SIGNATURE );
+	if( !testDebugCheck( TEST_SIGN_RSA ) )
 		return( FALSE );
-	if( !testDebugCheck( TEST_SIGN_RSA, FAULT_MECH_CORRUPT_SIG ) )
+	setFaultInfo( FAULT_MECH_CORRUPT_SIG, CRYPT_ERROR_SIGNATURE );
+	if( !testDebugCheck( TEST_SIGN_RSA ) )
 		return( FALSE );
-	if( !testDebugCheck( TEST_SIGN_ECDSA, FAULT_MECH_CORRUPT_HASH ) )
+	setFaultInfo( FAULT_MECH_CORRUPT_HASH, CRYPT_ERROR_SIGNATURE );
+	if( !testDebugCheck( TEST_SIGN_ECDSA ) )
 		return( FALSE );
-	if( !testDebugCheck( TEST_SIGN_ECDSA, FAULT_MECH_CORRUPT_SIG ) )
+	setFaultInfo( FAULT_MECH_CORRUPT_SIG, CRYPT_ERROR_SIGNATURE );
+	if( !testDebugCheck( TEST_SIGN_ECDSA ) )
 		return( FALSE );
-	if( !testDebugCheck( TEST_KEYEX_CONV, FAULT_MECH_CORRUPT_KEY ) )
+	setFaultInfo( FAULT_MECH_CORRUPT_KEY, CRYPT_ERROR_WRONGKEY );
+	if( !testDebugCheck( TEST_KEYEX_CONV ) )
 		return( FALSE );
-	if( !testDebugCheck( TEST_KEYEX_PKC, FAULT_MECH_CORRUPT_KEY ) )
+	setFaultInfo( FAULT_MECH_CORRUPT_KEY, CRYPT_ERROR_INVALID );
+	if( !testDebugCheck( TEST_KEYEX_PKC ) )
 		return( FALSE );
-	if( !testDebugCheck( TEST_PRF, FAULT_MECH_CORRUPT_SALT ) )
+	setFaultInfo( FAULT_MECH_CORRUPT_SALT, CRYPT_ERROR_WRONGKEY );
+	if( !testDebugCheck( TEST_PRF ) )
 		return( FALSE );
-	if( !testDebugCheck( TEST_PRF, FAULT_MECH_CORRUPT_ITERATIONS ) )
+	setFaultInfo( FAULT_MECH_CORRUPT_ITERATIONS, CRYPT_ERROR_WRONGKEY );
+	if( !testDebugCheck( TEST_PRF ) )
 		return( FALSE );
-	if( !testDebugCheck( TEST_PRF, FAULT_MECH_CORRUPT_PRFALGO ) )
+	setFaultInfo( FAULT_MECH_CORRUPT_PRFALGO, CRYPT_ERROR_WRONGKEY );
+	if( !testDebugCheck( TEST_PRF ) )
 		return( FALSE );
 	cryptSetFaultType( FAULT_NONE );
 	fputs( "Encryption mechanism error handling self-test succeeded.\n\n", 
 		   outputStream );
-#endif /* CONFIG_FAULTS && Debug */
+#endif /* CONFIG_FAULTS */
 	return( TRUE );
 	}
 #endif /* TEST_MIDLEVEL */

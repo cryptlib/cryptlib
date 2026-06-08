@@ -29,7 +29,7 @@
 		{ NULL, blockSize } */
 
 typedef enum {
-	KEYPARAM_NONE,			/* No crypto paramter type */
+	KEYPARAM_NONE,			/* No crypto parameter type */
 	KEYPARAM_MODE,			/* Encryption mode */
 	KEYPARAM_IV,			/* Initialisation vector */
 	KEYPARAM_BLOCKSIZE,		/* Hash/MAC output size */
@@ -99,7 +99,7 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 		int ( *CAP_GENERATEKEY_FUNCTION )( INOUT_PTR CI_STRUCT *contextInfoPtr, \
 										   IN_RANGE( bytesToBits( MIN_KEYSIZE ),
-													bytesToBits( CRYPT_MAX_PKCSIZE ) ) \
+													 bytesToBits( CRYPT_MAX_PKCSIZE ) ) \
 												const int keySizeBits );
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 		int ( *CAP_ENCRYPTSPECIAL_FUNCTION )( INOUT_PTR CI_STRUCT *contextInfoPtr, 

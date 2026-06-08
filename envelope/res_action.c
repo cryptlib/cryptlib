@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Envelope Action Management					*
-*						Copyright Peter Gutmann 1996-2016					*
+*						Copyright Peter Gutmann 1996-2026					*
 *																			*
 ****************************************************************************/
 
@@ -393,7 +393,7 @@ int addAction( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 /* Replace a context in an action with a different one, used to update an
    existing action when circumstances change */
 
-STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int replaceAction( INOUT_PTR ACTION_LIST *actionListItem,
 				   IN_HANDLE const CRYPT_HANDLE cryptHandle )
 	{
@@ -642,7 +642,8 @@ ACTION_RESULT checkAction( IN_PTR_OPT const ACTION_LIST *actionListStart,
 		BOOLEAN isDuplicate = FALSE;
 		int actionAlgo;
 
-		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+		ENSURES_EXT( LOOP_INVARIANT_MED_GENERIC(),
+					 ACTION_RESULT_ERROR );
 
 		REQUIRES_EXT( sanityCheckActionList( actionListPtr ), 
 					  ACTION_RESULT_ERROR );
@@ -701,10 +702,9 @@ ACTION_RESULT checkAction( IN_PTR_OPT const ACTION_LIST *actionListStart,
 					isDuplicate = TRUE;
 				break;
 
-			case ACTION_COMPRESS:
-			case ACTION_xxx:
+			default:
 				/* The remaining actions, which shouldn't be present */
-				retIntError();
+				retIntError_Ext( ACTION_RESULT_ERROR );
 			}
 		if( isDuplicate )
 			{
@@ -948,7 +948,7 @@ BOOLEAN checkActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			else
 				{
 				/* MACed envelope, we need one or more MAC actions (the check
-				   for genericSecretActionCount is redudant since we already
+				   for genericSecretActionCount is redundant since we already
 				   know that it's 0, but it's included here to document the
 				   required condition) */
 				if( genericSecretActionCount != 0 || cryptActionCount != 0 )
@@ -963,7 +963,7 @@ BOOLEAN checkActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		return( TRUE );
 		}
 
-	/* If there are post-actions then it has to be a hash follwed by 
+	/* If there are post-actions then it has to be a hash followed by 
 	   signature actions */
 	if( postActionListPtr != NULL )
 		{
@@ -1120,7 +1120,7 @@ BOOLEAN checkActions( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			{
 			REQUIRES_B( sanityCheckActionList( actionListPtr ) );
 
-			ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+			ENSURES_B( LOOP_INVARIANT_MED_GENERIC() );
 
 			if( actionListPtr->action != ACTION_HASH )
 				return( FALSE );

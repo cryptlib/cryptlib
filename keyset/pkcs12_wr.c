@@ -555,7 +555,7 @@ int pkcs12Flush( INOUT_PTR STREAM *stream,
 ****************************************************************************/
 
 /* Add an item to the PKCS #12 keyset.  PKCS #12's braindamaged format 
-   severly restricts what we can allow in terms of keyset updates.  Since 
+   severely restricts what we can allow in terms of keyset updates.  Since 
    there's only a single KEK used for both the private-key wrap and the
    overall MAC of the data, we can't store more than one private key.  In
    addition because of the lack of any useful indexing information there's

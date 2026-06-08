@@ -282,7 +282,8 @@ static const ALGO_STRING_INFO algoStringMapTbl[] = {
 			
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int checkSignalAlgo( IN_BUFFER( nameLength ) const void *name,
-							IN_LENGTH_SHORT const int nameLength,
+							IN_LENGTH_SHORT_MIN( SSH2_MIN_ALGOID_SIZE ) \
+								const int nameLength,
 							OUT_FLAGS_Z( SSH ) int *flags,
 							IN_BOOL const BOOLEAN isServer )
 	{
@@ -298,6 +299,7 @@ static int checkSignalAlgo( IN_BUFFER( nameLength ) const void *name,
 	assert( isReadPtrDynamic( name, nameLength ) );
 	assert( isWritePtr( flags, sizeof( int ) ) );
 	
+	REQUIRES( isShortIntegerRangeMin( nameLength, SSH2_MIN_ALGOID_SIZE ) );
 	REQUIRES( isBooleanValue( isServer ) );
 				
 	/* Clear return value */
@@ -710,7 +712,7 @@ static int readAlgoStringEx( INOUT_PTR STREAM *stream,
 				  "Excessive number (more than %d) of SSH algorithm "
 				  "strings encountered", noStrings ) );
 		}
-	if( algoIndex > 50 )	/* Initialisated to 999 at start */
+	if( algoIndex > 50 )	/* Initialised to 999 at start */
 		{
 		/* We couldn't find anything to use, tell the caller what was
 		   available */
@@ -747,6 +749,7 @@ int readAlgoString( INOUT_PTR STREAM *stream,
 	assert( isReadPtr( algoInfo, sizeof( ALGO_STRING_INFO ) * \
 								 noAlgoStringEntries ) );
 	assert( isWritePtr( algoParam, sizeof( int ) ) );
+	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( noAlgoStringEntries >= 1 && noAlgoStringEntries <= 16 );
 	REQUIRES( isBooleanValue( useFirstMatch ) );
@@ -801,6 +804,9 @@ static int readAlgoStringPair( INOUT_PTR STREAM *stream,
 	assert( isReadPtr( algoInfo, sizeof( ALGO_STRING_INFO ) * \
 								 noAlgoStringEntries ) );
 	assert( isWritePtr( algo, sizeof( CRYPT_ALGO_TYPE ) ) );
+	assert( isWritePtr( mode, sizeof( CRYPT_MODE_TYPE ) ) );
+	assert( isWritePtr( parameter, sizeof( int ) ) );
+	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( noAlgoStringEntries >= 1 && noAlgoStringEntries <= 16 );
 	REQUIRES( isBooleanValue( isServer ) );
@@ -1142,7 +1148,7 @@ int writeAlgoClassList( INOUT_PTR STREAM *stream,
 	REQUIRES( isEnumRange( algoClass, SSH_ALGOCLASS ) );
 
 	/* Write the appropriate algorithm list for this algorithm class.  The 
-	   keyex algoriths are only written as a list by the server since the 
+	   keyex algorithms are only written as a list by the server since the 
 	   client only writes a single algorithm as a response to the server's
 	   selection, so we know that we can send the server-side signalling 
 	   algorithms at this point */
@@ -1192,7 +1198,7 @@ int writeAlgoClassList( INOUT_PTR STREAM *stream,
 
 /* Process a client/server hello packet.  This function is placed here 
    because it consists primarily of reading and processing algorithm 
-   information, which consitutes not so much a negotiation as a runway on
+   information, which constitutes not so much a negotiation as a runway on
    which implementers get to parade their particular fashion statements up
    and down */
 
@@ -1357,8 +1363,8 @@ int processHelloSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( isServer && handshakeInfo->pubkeyAlgo != algoStringInfo.algo )
 		{
 		sMemDisconnect( &stream );
-		retExt( status,
-				( status, SESSION_ERRINFO, 
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
 				  "Client requested pubkey algorithm %s when we "
 				  "advertised %s", getAlgoName( algoStringInfo.algo ), 
 				  getAlgoName( handshakeInfo->pubkeyAlgo ) ) );
@@ -1518,6 +1524,7 @@ int checkReadPublicKey( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( keyDataStart, sizeof( int ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
+	assert( isWritePtr( keyDataStart, sizeof( int ) ) );
 
 	/* Clear return values */
 	*pubkeyAlgo = CRYPT_ALGO_NONE;
@@ -1543,8 +1550,8 @@ int checkReadPublicKey( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Read the public-key data */
-	streamBookmarkSet( stream, *keyDataStart  );
-	ENSURES( streamBookmarkOK( *keyDataStart ) );
+	status = streamBookmarkSet( stream, keyDataStart  );
+	ENSURES( cryptStatusOK( status ) );
 	switch( algoParam )
 		{
 		case CRYPT_ALGO_RSA:

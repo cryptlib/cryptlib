@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Semaphores, Mutexes, and Threads					*
-*						Copyright Peter Gutmann 1997-2022					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -38,6 +38,8 @@ int initSemaphores( void )
 	LOOP_INDEX i;
 	int status;
 
+	/* Make sure that we've got the correct number of mutexes, which run
+	   between MUTEX_NONE and MUTEX_LAST */
 #if defined( USE_SESSIONS )
 	static_assert( MUTEX_LAST == 6, "Mutex value" );
 #elif defined( USE_TCP )
@@ -74,8 +76,6 @@ int initSemaphores( void )
 	ENSURES( cryptStatusOK( status ) );
 	MUTEX_CREATE( mutex5, status );
 	ENSURES( cryptStatusOK( status ) );
-	MUTEX_CREATE( mutex6, status );
-	ENSURES( cryptStatusOK( status ) );
 #endif /* USE_SESSIONS */
 
 	return( CRYPT_OK );
@@ -98,7 +98,6 @@ void endSemaphores( void )
 
 	/* Shut down the mutexes */
 #ifdef USE_SESSIONS
-	MUTEX_DESTROY( mutex6 );
 	MUTEX_DESTROY( mutex5 );
 	MUTEX_DESTROY( mutex4 );
 	MUTEX_DESTROY( mutex3 );
@@ -203,9 +202,7 @@ void clearSemaphore( IN_ENUM( SEMAPHORE ) const SEMAPHORE_TYPE semaphore )
 		/* Precondition: The reference count is valid.  Note that we have to
 		   make this an assert() rather than a REQUIRES() because the latter
 		   would exit with the semaphore still held */
-#if !( defined( __WINCE__ ) && _WIN32_WCE < 400 )
-		assert( semaphoreInfo[ semaphore ].refCount >= 0 );
-#endif /* Fix for bug in PocketPC 2002 emulator with eVC++ 3.0 */
+		assert( semaphoreInfo->refCount >= 0 );
 
 		/* If there are threads waiting on this semaphore, tell the last
 		   thread out to turn out the lights */
@@ -277,7 +274,8 @@ BOOLEAN krnlWaitSemaphore( IN_ENUM( SEMAPHORE ) const SEMAPHORE_TYPE semaphore )
 		semaphoreObject = semaphoreInfo->semaphoreObject;
 		threadObject = semaphoreInfo->threadObject;
 #endif /* NONSCALAR_HANDLES */
-		REQUIRES_B( !checkOverflowInc( semaphoreInfo->refCount ) );
+		REQUIRES_MUTEX_B( !checkOverflowInc( semaphoreInfo->refCount ),
+						  semaphore );
 		semaphoreInfo->refCount++;
 		semaphoreSet = TRUE;
 		}
@@ -312,7 +310,8 @@ BOOLEAN krnlWaitSemaphore( IN_ENUM( SEMAPHORE ) const SEMAPHORE_TYPE semaphore )
 		semaphoreInfo->state == SEMAPHORE_STATE_PRECLEAR )
 		{
 		/* The semaphore is still set, update the reference count */
-		REQUIRES_B( !checkOverflowDec( semaphoreInfo->refCount ) );
+		REQUIRES_MUTEX_B( !checkOverflowDec( semaphoreInfo->refCount ),
+						  semaphore );
 		semaphoreInfo->refCount--;
 
 		/* Inner precondition: The reference count is valid.  Note that we 
@@ -322,7 +321,7 @@ BOOLEAN krnlWaitSemaphore( IN_ENUM( SEMAPHORE ) const SEMAPHORE_TYPE semaphore )
 
 		/* If the object owner has signalled that it's done with the object
 		   and the reference count has reached zero, we can delete it */
-		if( semaphoreInfo->state == SEMAPHORE_STATE_PRECLEAR || \
+		if( semaphoreInfo->state == SEMAPHORE_STATE_PRECLEAR && \
 			semaphoreInfo->refCount <= 0 )
 			{
 			/* No threads waiting on the semaphore, we can delete it */
@@ -510,7 +509,9 @@ THREADFUNC_DEFINE( threadServiceFunction, threadInfoPtr )
 	THREAD_EXIT( threadInfo->syncHandle );
 	}
 
-/* Dispatch a function in a background thread */
+/* Dispatch a function in a background thread.  This is only called from the 
+   init code for the threaded driver bind, so it uses the thread information
+   storage in the kernel data */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int krnlDispatchThread( THREAD_FUNCTION threadFunction,

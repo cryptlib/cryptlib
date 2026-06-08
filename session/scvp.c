@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib SCVP Session Management					*
-*						Copyright Peter Gutmann 2009-2021					*
+*						Copyright Peter Gutmann 2009-2025					*
 *																			*
 ****************************************************************************/
 
@@ -230,7 +230,7 @@ int calculateRequestHash( INOUT_PTR SCVP_PROTOCOL_INFO *protocolInfo,
 		} 
 
    This is yet another place where digital ancestor-worship clashes with 
-   practical reality, for a blacklist-based approach it's necessary to 
+   practical reality, for a blocklist-based approach it's necessary to 
    perform an incredible silly-walk to try and sort out something that may 
    or may not be valid while for a whitelist-based approach there's only one 
    outcome, "valid" or "not valid".  Because of this the huge mass of policy 
@@ -314,7 +314,7 @@ int writeValidationPolicy( INOUT_PTR STREAM *stream )
 		acRef					[3]	SCVPCertID
 		}
 
-   with no idication as to why there needs to be a distinction since both 
+   with no indication as to why there needs to be a distinction since both 
    the certificate itself and the OID identifying what's being done indicate 
    whether it's an attribute certificate or not */
 
@@ -339,27 +339,31 @@ int readCertRef( INOUT_PTR STREAM *stream,
 	/* Check the certificate reference type.  For now we only allow a direct 
 	   certificate reference since nothing seems to use the garbled pkcRef 
 	   option */
-	if( peekTag( stream ) != MAKE_CTAG( CTAG_PR_CERT ) )
+	status = tag = peekTag( stream );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( tag != MAKE_CTAG( CTAG_PR_CERT ) )
 		return( CRYPT_ERROR_BADDATA );
 
 	/* Find out how big the certificate is */
 	status = getStreamObjectLength( stream, &length, MIN_CRYPT_OBJECTSIZE );
 	if( cryptStatusError( status ) )
 		return( status );
+	if( !isShortIntegerRangeMin( length, MIN_CERTSIZE ) )
+		return( CRYPT_ERROR_BADDATA );
 
 	/* If we're fuzzing then we skip the certificate since otherwise it just
 	   turns into fuzzing certificates */
 #ifdef CONFIG_FUZZ
-	if( length >= MAX_INTLENGTH_SHORT )
-		return( CRYPT_ERROR_BADDATA );
 	return( sSkip( stream, length, MAX_INTLENGTH_SHORT ) );
 #endif /* CONFIG_FUZZ */
 
 	/* Importing the certificate is a pain because of the weird nonstandard 
 	   tagging used, and we can't rewrite the tag into the correct form 
-	   because we're probably dealing with a read-only stream.  Because of
-	   this we have to access the stream buffer directly and swap out the
-	   tag around the certificate import */
+	   because we're probably dealing with a read-only stream, meaning that 
+	   the stream is marked as read-only but the underlying memory buffer is
+	   writeable.  Because of this we access the stream buffer directly and 
+	   swap out the tag around the certificate import */
 	status = sMemGetDataBlock( stream, ( void ** ) &certDataPtr, 1 );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -529,7 +533,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	krnlSendNotifier( cryptCert, IMESSAGE_INCREFCOUNT );
 	sessionInfoPtr->iCertRequest = cryptCert;
 
-	return( status );
+	return( CRYPT_OK );
 	}
 
 /****************************************************************************

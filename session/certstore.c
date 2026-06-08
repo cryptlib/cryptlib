@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib HTTP Certstore Session Management				*
-*						Copyright Peter Gutmann 1998-2016					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -30,7 +30,7 @@
 
 #if defined( USE_CERTSTORE ) || defined( USE_SCEP )
 
-#ifdef USE_SCEP
+#ifdef USE_CERTSTORE
 
 /* Table mapping a query submitted as an HTTP GET to a cryptlib-internal 
    keyset query.  Note that the first letter must be lowercase for the
@@ -48,7 +48,7 @@ static const CERTSTORE_READ_INFO certstoreReadInfo[] = {
 	{ NULL, 0, CRYPT_KEYID_NONE, CERTSTORE_FLAG_NONE },
 		{ NULL, 0, CRYPT_KEYID_NONE, CERTSTORE_FLAG_NONE }
 	};
-#endif /* USE_SCEP */
+#endif /* USE_CERTSTORE */
 
 /* Convert a query attribute into a text string suitable for use with 
    retExt() */
@@ -143,15 +143,11 @@ int processCertQuery( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	ENSURES( i < queryReqInfoSize );
 	if( queryInfoPtr == NULL )
 		{
-		char queryText[ CRYPT_MAX_TEXTSIZE + 8 ];
-
-		status = queryAttributeToString( queryText, CRYPT_MAX_TEXTSIZE,
-										 httpReqInfo->attribute, 
-										 httpReqInfo->attributeLen );
-		ENSURES( cryptStatusOK( status ) );
-		retExt( CRYPT_ERROR_BADDATA, 
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid certificate query attribute '%s'", queryText ) );
+		retExtSan( CRYPT_ERROR_BADDATA, 
+				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+					 "Invalid certificate query attribute '%s'", 
+					 httpReqInfo->attribute, httpReqInfo->attributeLen,
+					 NULL, 0, NULL, 0 ) );
 		}
 
 	/* We've got a valid attribute, let the caller know which one it is.  If
@@ -176,15 +172,11 @@ int processCertQuery( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   CRYPT_CERTFORMAT_NONE );
 	if( cryptStatusError( status ) )
 		{
-		char queryText[ CRYPT_MAX_TEXTSIZE + 8 ];
-
-		status = queryAttributeToString( queryText, CRYPT_MAX_TEXTSIZE,
-										 httpReqInfo->value, 
-										 httpReqInfo->valueLen );
-		ENSURES( cryptStatusOK( status ) );
-		retExt( CRYPT_ERROR_BADDATA, 
-				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid base64-encoded query value '%s'", queryText ) );
+		retExtSan( CRYPT_ERROR_BADDATA, 
+				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+					 "Invalid base64-encoded query value '%s'", 
+					 httpReqInfo->value, httpReqInfo->valueLen,
+					 NULL, 0, NULL, 0 ) );
 		}
 
 	return( CRYPT_OK );
@@ -294,11 +286,14 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		char textBuffer[ 64 + CRYPT_MAX_TEXTSIZE + 8 ];
 		int textLength;
 
+		/* Let the client know what the problem is.  We map potentially low-
+		   level keyset-specific error codes to a generic notfound error */
+		sendCertErrorResponse( sessionInfoPtr, CRYPT_ERROR_NOTFOUND );
+
 		/* Not finding a certificate in response to a request isn't a real 
 		   error so all we do is return a warning to the caller.  
 		   Unfortunately since we're not using retExt() we have to assemble
 		   the message string ourselves */
-		sendCertErrorResponse( sessionInfoPtr, status );
 		status = queryAttributeToString( queryText, CRYPT_MAX_TEXTSIZE,
 										 httpReqInfo.value, 
 										 httpReqInfo.valueLen );
@@ -320,18 +315,11 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	krnlSendNotifier( getkeyInfo.cryptHandle, IMESSAGE_DESTROY );
 	if( cryptStatusError( status ) )
 		{
-		char queryText[ CRYPT_MAX_TEXTSIZE + 8 ];
-		int altStatus;
-
-		sendCertErrorResponse( sessionInfoPtr, status );
-		altStatus = queryAttributeToString( queryText, CRYPT_MAX_TEXTSIZE,
-											httpReqInfo.value, 
-											httpReqInfo.valueLen );
-		ENSURES( cryptStatusOK( altStatus ) );
-		retExt( status, 
-				( status, SESSION_ERRINFO, 
-				  "Couldn't export requested certificate for '%s'", 
-				  queryText ) );
+		retExtSan( status, 
+				   ( status, SESSION_ERRINFO, 
+					 "Couldn't export requested certificate for '%s'", 
+					 httpReqInfo.value, httpReqInfo.valueLen,
+					 NULL, 0, NULL, 0 ) );
 		}
 	sessionInfoPtr->receiveBufEnd = msgData.length;
 
@@ -380,4 +368,4 @@ int setAccessMethodCertstore( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	return( CRYPT_OK );
 	}
-#endif /* USE_CERTSTORE || USE_SCEP */
+#endif /* USE_CERTSTORE */

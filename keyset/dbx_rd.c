@@ -270,7 +270,7 @@ static int checkObjectIDMatch( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
 
 	/* The internal key ID types are binary values and will be base64-
 	   encoded in order to be usable with the database back-end, before we 
-	   can compare them we have to covert them back into their original 
+	   can compare them we have to convert them back into their original 
 	   binary form */
 	if( keyIDtype >= CRYPT_KEYID_LAST_EXTERNAL )
 		{

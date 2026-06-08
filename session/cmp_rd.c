@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								Read CMP Messages							*
-*						Copyright Peter Gutmann 1999-2021					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -28,7 +28,7 @@
 typedef enum {
 	CMP_MSGINFO_NONE,				/* No additional details */
 	CMP_MSGINFO_FIRSTMESSAGE_TO_SERVER, /* First message from client */
-	CMP_MSGINFO_FIRSTMESSAGE_TO_CLIENT, /* First mesage from server */
+	CMP_MSGINFO_FIRSTMESSAGE_TO_CLIENT, /* First message from server */
 	CMP_MSGINFO_LAST				/* Last possible additional details */
 	} CMP_MSGINFO_TYPE;
 
@@ -167,7 +167,7 @@ static int updateMacInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	{
 	const ATTRIBUTE_LIST *passwordPtr = \
 				findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD );
-	BYTE macKey[ 64 + 8 ];
+	BYTE macKey[ CRYPT_MAX_HASHSIZE + 8 ];
 	BOOLEAN decodedMacKey = FALSE;
 	const void *macKeyPtr;
 	const int streamPos = stell( stream );
@@ -192,9 +192,12 @@ static int updateMacInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   for the issue and revocation), use that */
 		if( TEST_FLAG( passwordPtr->flags, ATTR_FLAG_ENCODEDVALUE ) )
 			{
-			/* It's an encoded value, get the decoded form */
+			/* It's an encoded value, get the decoded form.  We know that
+			   the decode will succeed because its validity was checked when 
+			   it was added */
 			macKeyPtr = macKey;
-			status = decodePKIUserValue( macKey, 64, &macKeyLength, 
+			status = decodePKIUserValue( macKey, CRYPT_MAX_HASHSIZE, 
+										 &macKeyLength, 
 										 passwordPtr->value, 
 										 passwordPtr->valueLength );
 			ENSURES( cryptStatusOK( status ) );
@@ -209,7 +212,7 @@ static int updateMacInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = readMacInfo( stream, protocolInfo, macKeyPtr,
 						  macKeyLength, SESSION_ERRINFO );
 	if( decodedMacKey )
-		zeroise( macKey, 64 );
+		zeroise( macKey, CRYPT_MAX_HASHSIZE );
 	if( cryptStatusError( status ) )
 		return( status );
 	sseek( stream, streamPos );
@@ -269,9 +272,18 @@ static int processExtraCerts( INOUT_PTR STREAM *stream,
 	status = readConstructed( stream, &length, CTAG_PM_EXTRACERTS );
 	if( cryptStatusError( status ) )
 		return( status );
+	if( !isShortIntegerRangeMin( length, MIN_CERTSIZE ) )
+		return( CRYPT_ERROR_BADDATA );
 
-	/* Read the certificate sequence */
+	/* Read the certificate sequence.  Since there may be certificates 
+	   present from a previous protocol run we clear them out if 
+	   required */
 	clearErrorInfo( &localErrorInfo );
+	if( cmpInfo->iExtraCerts != CRYPT_ERROR )
+		{
+		krnlSendNotifier( cmpInfo->iExtraCerts, IMESSAGE_DECREFCOUNT );
+		cmpInfo->iExtraCerts = CRYPT_ERROR;
+		}
 	status = importCertFromStream( stream, &cmpInfo->iExtraCerts, 
 								   DEFAULTUSER_OBJECT_HANDLE,
 								   CRYPT_ICERTTYPE_CMP_CERTSEQUENCE, length, 
@@ -286,8 +298,8 @@ static int processExtraCerts( INOUT_PTR STREAM *stream,
 
 	/* Since this field is unauthenticated, we have to verify the chain that 
 	   we've just read using the signature-check certificate.  If we're not 
-	   using signatures for authentication (meaning we don't have a 
-	   certificate present to check the chain that we've just read) we can't 
+	   using signatures for authentication, meaning that we don't have a 
+	   certificate present to check the chain that we've just read, we can't 
 	   do anything with the extraCerts since there's no way to verify 
 	   whether they're legitimate or not.  
 	   
@@ -349,15 +361,16 @@ static int processExtraCerts( INOUT_PTR STREAM *stream,
 			   error status to a general invalid-information error */
 			status = CRYPT_ERROR_INVALID;
 			}			
-		retExtErr( status,
-				   ( status, SESSION_ERRINFO, &localErrorInfo, 
-					 "Couldn't verify extraCerts certificate chain '%s' "
-					 "from %s using signature check key '%s'",
-					 getCertHolderName( cmpInfo->iExtraCerts, 
-										newCertName, CRYPT_MAX_TEXTSIZE ),
-					 getCMPMessageName( messageType ),
-					 getCertHolderName( sessionInfoPtr->iAuthInContext, 
-										certName, CRYPT_MAX_TEXTSIZE ) ) );
+		retExt( status,
+				( status, SESSION_ERRINFO, 
+				  "Signature verification failed for extraCerts "
+				  "certificate chain '%s' from %s using signature check "
+				  "key '%s'",
+				  getCertHolderName( cmpInfo->iExtraCerts, 
+									 newCertName, CRYPT_MAX_TEXTSIZE ),
+				  getCMPMessageName( messageType ),
+				  getCertHolderName( sessionInfoPtr->iAuthInContext, 
+									 certName, CRYPT_MAX_TEXTSIZE ) ) );
 		}
 	DEBUG_PRINT(( "%s: Verified extraCerts certificate chain '%s' "
 				  "from %s using configured CA key '%s'.\n", 
@@ -426,9 +439,11 @@ static int readGeneralInfoAttribute( INOUT_PTR STREAM *stream,
 	if( matchOID( oid, length, OID_ESS_CERTID ) )
 		{
 		BYTE certID[ CRYPT_MAX_HASHSIZE + 8 ];
-		int certIDsize, endPos;
+		int dummy, endPos;
 
-		/* Extract the certificate hash from the ESSCertID */
+		/* Extract the certificate hash from the ESSCertID.  The length 
+		   value read is a dummy because we constrain it to always be 
+		   KEYID_SIZE */
 		readSet( stream, NULL );					/* Attribute */
 		readSequence( stream, NULL );				/* SigningCerts */
 		readSequence( stream, NULL );				/* Certs */
@@ -438,8 +453,8 @@ static int readGeneralInfoAttribute( INOUT_PTR STREAM *stream,
 		REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 		endPos = stell( stream ) + length;
 		ENSURES( isIntegerRangeMin( endPos, length ) );
-		status = readOctetString( stream, certID, &certIDsize, 
-								  KEYID_SIZE, KEYID_SIZE );
+		status = readOctetString( stream, certID, &dummy, KEYID_SIZE, 
+								  KEYID_SIZE );
 		if( cryptStatusError( status ) )
 			return( status );
 		if( protocolInfo->certIDsize != KEYID_SIZE || \
@@ -468,9 +483,11 @@ static int readGeneralInfoAttribute( INOUT_PTR STREAM *stream,
 	if( matchOID( oid, length, OID_ESS_CERTIDv2 ) )
 		{
 		BYTE certIDv2[ CRYPT_MAX_HASHSIZE + 8 ];
-		int certIDv2size, endPos;
+		int dummy, endPos;
 
-		/* Extract the certificate hash from the ESSCertIDv2 */
+		/* Extract the certificate hash from the ESSCertIDv2.  The length 
+		   value read is a dummy because we constrain it to always be 
+		   the SHA-2 equivalent of KEYID_SIZE */
 		readSet( stream, NULL );					/* Attribute */
 		readSequence( stream, NULL );				/* SigningCerts */
 		readSequence( stream, NULL );				/* Certs */
@@ -480,7 +497,7 @@ static int readGeneralInfoAttribute( INOUT_PTR STREAM *stream,
 		REQUIRES( !checkOverflowAdd( stell( stream ), length ) );
 		endPos = stell( stream ) + length;
 		ENSURES( isIntegerRangeMin( endPos, length ) );
-		status = readOctetString( stream, certIDv2, &certIDv2size, 32, 32 );
+		status = readOctetString( stream, certIDv2, &dummy, 32, 32 );
 		if( cryptStatusError( status ) )
 			return( status );
 		if( protocolInfo->certIDv2size != 32 || \
@@ -540,7 +557,7 @@ static int readGeneralInfo( INOUT_PTR STREAM *stream,
 		}
 	ENSURES( LOOP_BOUND_OK );
 
-	return( status );
+	return( CRYPT_OK );
 	}
 
 /* Read the user ID in the PKI header */
@@ -711,8 +728,7 @@ static int readTransactionID( INOUT_PTR STREAM *stream,
 	ANALYSER_HINT( length >= 4 && length <= CRYPT_MAX_HASHSIZE );
 	DEBUG_PRINT(( "%s: Read transID.\n",
 				  protocolInfo->isServer ? "SVR" : "CLI" ));
-	DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", 
-					protocolInfo->transID, protocolInfo->transIDsize );
+	DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", buffer, length );
 	if( protocolInfo->transIDsize != length || \
 		memcmp( protocolInfo->transID, buffer, length ) )
 		return( CRYPT_ERROR_SIGNATURE );
@@ -879,7 +895,7 @@ static int readPkiHeader( INOUT_PTR STREAM *stream,
 		   the identity of the sender) can be specified either as the sender
 		   DN or the senderKID or both, or in some cases even indirectly via
 		   the transaction ID.  With no real guidance as to which one to 
-		   use, implementors are using any of these options to identify the 
+		   use, implementers are using any of these options to identify the 
 		   key.  Since we need to check that the integrity-protection key 
 		   that we're using is correct so that we can report a more 
 		   appropriate error than bad signature or bad data, we need to 
@@ -934,7 +950,7 @@ static int readPkiHeader( INOUT_PTR STREAM *stream,
 		   a signature error rather than the generic bad data error that
 		   we'd get from the following read unless this is the first message
 		   from the server, in which case it could be an unprotected error
-		   response to our mesage where the server can't figure out how to 
+		   response to our message where the server can't figure out how to 
 		   sign the response */
 		if( cmpMsgInfo != CMP_MSGINFO_FIRSTMESSAGE_TO_CLIENT )
 			{
@@ -1274,7 +1290,10 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   authenticated paketewhainau */
 	status = tag = peekTag( &stream );
 	if( cryptStatusError( status ) )
+		{
+		sMemDisconnect( &stream );
 		return( status );
+		}
 	tag = EXTRACT_CTAG( tag );
 	if( tag == CTAG_PB_ERROR )
 		{
@@ -1421,8 +1440,8 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 
 	/* Read the start of the message integrity information */
-	status = calculateStreamObjectLength( &stream, protPartStart,
-										  &protPartSize );
+	status = streamOffsetFromPosition( &stream, protPartStart,
+									   &protPartSize );
 	if( cryptStatusOK( status ) )
 		{
 		status = readConstructed( &stream, &integrityInfoLength,
@@ -1535,6 +1554,7 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifndef CONFIG_FUZZ
 	if( protocolInfo->useMACreceive )
 		{
+		INJECT_FAULT( BADSIG_DATA, SESSION_BADSIG_DATA_CMP );
 		status = checkMessageMAC( protocolInfo, 
 						sessionInfoPtr->receiveBuffer + protPartStart,
 						protPartSize, integrityInfoPtr, integrityInfoLength );
@@ -1550,6 +1570,7 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	else
 		{
+		INJECT_FAULT( BADSIG_HASH, SESSION_BADSIG_HASH_CMP );
 		status = checkMessageSignature( protocolInfo,
 						sessionInfoPtr->receiveBuffer + protPartStart,
 						protPartSize, integrityInfoPtr, integrityInfoLength, 
@@ -1584,8 +1605,8 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			protocolInfo->pkiFailInfo = CMPFAILINFO_BADMESSAGECHECK;
 			retExt( CRYPT_ERROR_SIGNATURE,
 					( CRYPT_ERROR_SIGNATURE, SESSION_ERRINFO, 
-					   "Couldn't verify message signature for %s message "
-					   "using certificate from '%s'",
+					   "Message signature verification failed for %s "
+					   "message using certificate from '%s'",
 					   getCMPMessageName( tag ), 
 					   getCertHolderName( protocolInfo->useAltAuthKey ? \
 											cmpInfo->iExtraCerts : \
@@ -1633,6 +1654,7 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		DEBUG_DIAG(( "No message-read function available for %s message", 
 					 getCMPMessageName( tag ) ));
 		assert( DEBUG_WARN );
+		sMemDisconnect( &stream );
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Unexpected %s message can't be processed", 

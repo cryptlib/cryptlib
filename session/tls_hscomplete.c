@@ -115,7 +115,7 @@ static int addSessionToCache( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	else
 		{
-		BYTE sessionIDbuffer[ KEYID_SIZE + 8 ];
+		BYTE sessionIDbuffer[ SESSIONID_SIZE + 8 ];
 		const BYTE *sessionIDptr = handshakeInfo->sessionID;
 		int sessionIDlength = handshakeInfo->sessionIDlength;
 
@@ -126,11 +126,11 @@ static int addSessionToCache( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			/* If there's an SNI present, update the session ID to include 
 			   it */
 			status = convertSNISessionID( handshakeInfo, sessionIDbuffer, 
-										  KEYID_SIZE );
+										  SESSIONID_SIZE );
 			if( cryptStatusError( status ) )
 				return( status );
 			sessionIDptr = sessionIDbuffer;
-			sessionIDlength = KEYID_SIZE;
+			sessionIDlength = SESSIONID_SIZE;
 			}
 		status = cachedID = \
 					addScoreboardEntry( scoreboardInfoPtr,
@@ -219,7 +219,7 @@ static int readHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   seeing it.  In addition if we're using TLS 1.1+ explicit IVs the
 	   effective header size changes because of the extra IV data, so we
 	   record the size of the additional IV data and update the receive
-	   buffer start offset to accomodate it */
+	   buffer start offset to accommodate it */
 	SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_READ );
 	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS11 && \
 		sessionInfoPtr->cryptBlocksize > 1 )
@@ -249,7 +249,7 @@ static int readHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		ENSURES( isIntegerRange( newStartPos ) );
 
 		/* Since we've changed the amount of metadata that needs to be 
-		   accomodated before the payload we have to adjust the data start
+		   accommodated before the payload we have to adjust the data start
 		   offsets to match.  This includes adjusting related offsets in
 		   order to preserve invariants for the receive buffer */
 		sessionInfoPtr->receiveBufStartOfs = \
@@ -409,7 +409,7 @@ static int writeHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   seeing it.  In addition if we're using TLS 1.1+ explicit IVs the
 	   effective header size changes because of the extra IV data, so we
 	   record the size of the additional IV data and update the receive
-	   buffer start offset to accomodate it */
+	   buffer start offset to accommodate it */
 	SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE );
 	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS11 && \
 		sessionInfoPtr->cryptBlocksize > 1 )
@@ -439,7 +439,7 @@ static int writeHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		ENSURES( isIntegerRange( newStartPos ) );
 
 		/* Since we've changed the amount of metadata that needs to be 
-		   accomodated before the payload we have to adjust the data start
+		   accommodated before the payload we have to adjust the data start
 		   offsets to match.  This includes adjusting related offsets in
 		   order to preserve invariants for the send buffer */
 		sessionInfoPtr->sendBufStartOfs = \
@@ -602,9 +602,9 @@ int completeHandshakeTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* At this point the hashing of the initiator and responder diverge.
 	   The initiator sends its change cipherspec and finished messages 
 	   first, so the hashing stops there, while the responder has to keep 
-	   hasing the initiator's messages until it's its turn to send its 
+	   hashing the initiator's messages until it's its turn to send its 
 	   change cipherspec and finished messages.  To handle this we clone 
-	   the initiator's hash context(s) so that we can contine the hashing 
+	   the initiator's hash context(s) so that we can continue the hashing 
 	   after the initiator has wrapped things up */
 	if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 )
 		{
@@ -647,7 +647,7 @@ int completeHandshakeTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	else
 		{
 		status = completeTLS12HashedMAC( initiatorSHA2context,
-							initiatorHashes, CRYPT_MAX_HASHSIZE,
+							initiatorHashes, CRYPT_MAX_HASHSIZE * 2,
 							&initiatorHashLength, tlsInitiatorString, 
 							tlsLabelLength, masterSecret, TLS_SECRET_SIZE,
 							TEST_FLAG( sessionInfoPtr->protocolFlags, 
@@ -813,6 +813,7 @@ int completeHandshakeTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   "completeHashedMAC", "IMESSAGE_CTX_HASH", 
 								   "completeHashedMAC",
 								   "writeHandshakeCompletionData" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_COMPLETE;
 
 	return( CRYPT_OK );
 	}

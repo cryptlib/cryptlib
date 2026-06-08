@@ -348,7 +348,7 @@ static int getNonce( INOUT_PTR DEVICE_INFO *deviceInfo,
 		   the device information is sanity-checked when we send the get-
 		   random message to it and a nonceHashSize with no nonce data would 
 		   fail the sanity check */
-		getHashAtomicParameters( CRYPT_ALGO_SHA1, 0,
+		getHashAtomicParameters( CRYPT_ALGO_SHA2, 0,
 								 &hashFunction, &hashSize );
 		setMessageData( &msgData, systemInfo->nonceData + hashSize, 
 								  NONCERNG_PRIVATE_STATESIZE );
@@ -400,7 +400,9 @@ static int getNonce( INOUT_PTR DEVICE_INFO *deviceInfo,
 				 /* nonceLength changes by number of bytes copied */
 
 		/* Hash the state and copy the appropriate amount of data to the
-		   output buffer */
+		   output buffer.  Note that the input and output buffers for the 
+		   hash function overlap, this is fine because the hash operation 
+		   reads its input before writing any output */
 		REQUIRES( !checkOverflowAdd( systemInfo->nonceHashSize,
 									 NONCERNG_PRIVATE_STATESIZE ) );
 		nonceHashFunction( systemInfo->nonceData, CRYPT_MAX_HASHSIZE, 
@@ -448,11 +450,19 @@ static int selftestFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 	   the randomness subsystem */
 	status = getRandomFunction( deviceInfo, buffer, 8, NULL );
 	if( cryptStatusError( status ) )
+		{
+		DEBUG_DIAG(( "Couldn't get entropy data needed for the algorithm "
+					 "self-test, can't perform a self-test" ));
 		return( status );
+		}
 	zeroise( buffer, 8 );
 	status = getNonce( deviceInfo, buffer, 8 );
 	if( cryptStatusError( status ) )
+		{
+		DEBUG_DIAG(( "Couldn't get nonce data needed for the algorithm "
+					 "self-test, can't perform a self-test" ));
 		return( status );
+		}
 	zeroise( buffer, 8 );
 
 	return( selftestDevice( deviceInfo, messageExtInfo ) );
@@ -747,6 +757,11 @@ CHECK_RETVAL \
 static int initCapabilities( void )
 	{
 	LOOP_INDEX i;
+
+	static_assert( FAILSAFE_ARRAYSIZE( getCapabilityTable, \
+									   GETCAPABILITY_FUNCTION ) < \
+									   MAX_NO_CAPABILITIES,
+				   "MAX_NO_CAPABILITIES is too small" );
 
 	/* Build the list of available capabilities */
 	memset( capabilityInfoList, 0,

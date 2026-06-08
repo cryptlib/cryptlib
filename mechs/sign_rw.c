@@ -63,8 +63,8 @@ static int readRawSignature( INOUT_PTR STREAM *stream,
 								MIN_SIGNATURE_SIZE, DEFAULT_TAG );
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, startPos, 
-											  &queryInfo->dataStart );
+		status = streamOffsetFromPosition( stream, startPos, 
+										   &queryInfo->dataStart );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -122,8 +122,8 @@ static int readX509Signature( INOUT_PTR STREAM *stream,
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, startPos, 
-											  &queryInfo->dataStart );
+		status = streamOffsetFromPosition( stream, startPos, 
+										   &queryInfo->dataStart );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -189,8 +189,8 @@ static int readCmsSignature( INOUT_PTR STREAM *stream,
 	{
 	ALGOID_PARAMS algoIDparams DUMMY_INIT_STRUCT;
 	const int startPos = stell( stream );
-	long value, endPos;
-	int tag, length, status;
+	long value;
+	int tag, length, endPos, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
@@ -223,8 +223,8 @@ static int readCmsSignature( INOUT_PTR STREAM *stream,
 		status = CRYPT_ERROR_BADDATA;
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, startPos, 
-											  &queryInfo->iAndSStart );
+		status = streamOffsetFromPosition( stream, startPos, 
+										   &queryInfo->iAndSStart );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -248,8 +248,8 @@ static int readCmsSignature( INOUT_PTR STREAM *stream,
 			status = CRYPT_ERROR_BADDATA;
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, startPos,
-												  &queryInfo->attributeStart );
+			status = streamOffsetFromPosition( stream, startPos,
+											   &queryInfo->attributeStart );
 			}
 		if( cryptStatusError( status ) )
 			return( status );
@@ -283,8 +283,8 @@ static int readCmsSignature( INOUT_PTR STREAM *stream,
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, startPos,
-											  &queryInfo->dataStart );
+		status = streamOffsetFromPosition( stream, startPos,
+										   &queryInfo->dataStart );
 		}
 	if( cryptStatusOK( status ) )
 		{
@@ -314,7 +314,7 @@ static int readCmsSignature( INOUT_PTR STREAM *stream,
 			status = CRYPT_ERROR_BADDATA;
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, startPos,
+			status = streamOffsetFromPosition( stream, startPos,
 										&queryInfo->unauthAttributeStart );
 			}
 		if( cryptStatusError( status ) )
@@ -452,8 +452,8 @@ static int readCryptlibSignature( INOUT_PTR STREAM *stream,
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, startPos,
-											  &queryInfo->dataStart );
+		status = streamOffsetFromPosition( stream, startPos,
+										   &queryInfo->dataStart );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -577,8 +577,8 @@ static int readTypeAndValue( INOUT_PTR STREAM *stream,
 	if( !memcmp( nameBuffer, NAME_STRING, NAME_STRING_LENGTH ) )
 		{
 		/* It's an issuerAndSerialNumber, remember it for later */
-		status = calculateStreamObjectLength( stream, startPos,
-											  &queryInfo->iAndSStart );
+		status = streamOffsetFromPosition( stream, startPos,
+										   &queryInfo->iAndSStart );
 		if( cryptStatusError( status ) )
 			return( status );
 		queryInfo->iAndSLength = valueLength;
@@ -881,8 +881,8 @@ static int readPgp2SigInfo( INOUT_PTR STREAM *stream,
 		return( status );
 	if( length != 5 )
 		return( CRYPT_ERROR_BADDATA );
-	status = calculateStreamObjectLength( stream, startPos,
-										  &queryInfo->attributeStart );
+	status = streamOffsetFromPosition( stream, startPos,
+									   &queryInfo->attributeStart );
 	if( cryptStatusError( status ) )
 		return( status );
 	queryInfo->attributeLength = 5;
@@ -924,8 +924,8 @@ static int readOpenPgpSigInfo( INOUT_PTR STREAM *stream,
 	   algorithms.  Since the extra data starts at the version byte that 
 	   we've already read, we add an offset of 1 to the start position, as 
 	   well as including it in the overall length calculation */
-	status = calculateStreamObjectLength( stream, startPos + 1,
-										  &queryInfo->attributeStart );
+	status = streamOffsetFromPosition( stream, startPos + 1,
+									   &queryInfo->attributeStart );
 	if( cryptStatusError( status ) )
 		return( status );
 	queryInfo->attributeLength = PGP_VERSION_SIZE + 1 + \
@@ -964,8 +964,8 @@ static int readOpenPgpSigInfo( INOUT_PTR STREAM *stream,
 		}
 
 	/* Process the unauthenticated attributes */
-	status = calculateStreamObjectLength( stream, startPos,
-										  &queryInfo->unauthAttributeStart );
+	status = streamOffsetFromPosition( stream, startPos,
+									   &queryInfo->unauthAttributeStart );
 	if( cryptStatusError( status ) )
 		return( status );
 	status = length = readUint16( stream );
@@ -1051,8 +1051,8 @@ static int readPgpSignature( INOUT_PTR STREAM *stream,
 										 BIGNUM_CHECK_VALUE_PKC );
 			if( cryptStatusOK( status ) )
 				{
-				status = calculateStreamObjectLength( stream, startPos,
-													  &objectSize );
+				status = streamOffsetFromPosition( stream, startPos,
+												   &objectSize );
 				}
 			if( cryptStatusError( status ) )
 				return( status );
@@ -1091,8 +1091,8 @@ static int readPgpSignature( INOUT_PTR STREAM *stream,
 				}
 			if( cryptStatusOK( status ) )
 				{
-				status = calculateStreamObjectLength( stream, dataStartPos,
-													  &queryInfo->dataLength );
+				status = streamOffsetFromPosition( stream, dataStartPos,
+												   &queryInfo->dataLength );
 				}
 			if( cryptStatusError( status ) )
 				return( status );
@@ -1116,8 +1116,8 @@ static int readPgpSignature( INOUT_PTR STREAM *stream,
 										 BIGNUM_CHECK_VALUE_FIXEDLEN );
 			if( cryptStatusOK( status ) )
 				{
-				status = calculateStreamObjectLength( stream, dataStartPos,
-													  &queryInfo->dataLength );
+				status = streamOffsetFromPosition( stream, dataStartPos,
+												   &queryInfo->dataLength );
 				}
 			if( cryptStatusError( status ) )
 				return( status );
@@ -1293,8 +1293,8 @@ static int readSshSignature( INOUT_PTR STREAM *stream,
 		default:
 			retIntError();
 		}
-	status = calculateStreamObjectLength( stream, startPos,
-										  &queryInfo->dataStart );
+	status = streamOffsetFromPosition( stream, startPos,
+									   &queryInfo->dataStart );
 	if( cryptStatusError( status ) )
 		return( status );
 	queryInfo->dataLength = length;
@@ -1445,8 +1445,8 @@ static int readTlsSignature( INOUT_PTR STREAM *stream,
 	if( length < min( MIN_PKCSIZE, MIN_PKCSIZE_ECCPOINT ) || \
 		length > CRYPT_MAX_PKCSIZE )
 		return( CRYPT_ERROR_BADDATA );
-	status = calculateStreamObjectLength( stream, startPos,
-										  &queryInfo->dataStart );
+	status = streamOffsetFromPosition( stream, startPos,
+									   &queryInfo->dataStart );
 	if( cryptStatusError( status ) )
 		return( status );
 	queryInfo->dataLength = length;
@@ -1479,7 +1479,7 @@ static int writeTlsSignature( INOUT_PTR STREAM *stream,
 /* Read/write TLS 1.2 signatures, which specify a hash algorithm before the 
    signature and use PKCS #1 formatting instead of TLS's raw dual-hash.
    TLS 1.3 then made a complete dog's breakfast of this, see the long 
-   comment in tls_ext.c:readSignatureAlgos() for more details and to
+   comment in tls_ext_rw.c:readSignatureAlgos() for more details and to
    understand what's going on for the TLS 1.3 entries below */
 
 typedef struct {
@@ -1515,7 +1515,7 @@ static const TLS_SIGHASH_INFO sigHashInfo[] = {
 	  CRYPT_ALGO_SHA2, bitsToBytes( 384 ), ALGOID_ENCODING_PSS },
 	{ /* RSA-PSS + SHA512 */ 0x0806, CRYPT_ALGO_RSA,
 	  CRYPT_ALGO_SHA2, bitsToBytes( 512 ), ALGOID_ENCODING_PSS },
-	{ /* RSA-PSS + SHA512 */ 0x0809, CRYPT_ALGO_RSA,
+	{ /* RSA-PSS + SHA512 */ 0x080B, CRYPT_ALGO_RSA,
 	  CRYPT_ALGO_SHA2, bitsToBytes( 512 ), ALGOID_ENCODING_PSS },
   #endif /* USE_SHA2_EXT */
 #endif /* USE_TLS13 && USE_PSS */
@@ -1604,8 +1604,8 @@ static int readTls12Signature( INOUT_PTR STREAM *stream,
 	if( length < min( MIN_PKCSIZE, MIN_PKCSIZE_ECCPOINT ) || \
 		length > CRYPT_MAX_PKCSIZE )
 		return( CRYPT_ERROR_BADDATA );
-	status = calculateStreamObjectLength( stream, startPos,
-										  &queryInfo->dataStart );
+	status = streamOffsetFromPosition( stream, startPos,
+									   &queryInfo->dataStart );
 	if( cryptStatusError( status ) )
 		return( status );
 	queryInfo->dataLength = length;

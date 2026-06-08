@@ -286,7 +286,7 @@ static int testKeysetRead( const CRYPT_KEYSET_TYPE keysetType,
 	/* If we're reading multiple certs using the same (cached) query type,
 	   try re-reading the certificate.  This can't be easily tested from the
 	   outside because it's database back-end specific, so it'll require
-	   attaching a debugger to the read code to make sure that the cacheing
+	   attaching a debugger to the read code to make sure that the caching
 	   is working as required */
 	if( option == READ_OPTION_MULTIPLE )
 		{
@@ -728,7 +728,7 @@ static int testKeysetWrite( const CRYPT_KEYSET_TYPE keysetType,
 							 TEXT( "Mr.Not Appearing in this Keyset" ) );
 	if( status != CRYPT_ERROR_NOTFOUND )
 		{
-		puts( "Attempt to delete a nonexistant key reports success, the "
+		puts( "Attempt to delete a nonexistent key reports success, the "
 			  "database backend glue\ncode needs to be fixed to handle this "
 			  "correctly." );
 		return( FALSE );

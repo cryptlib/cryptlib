@@ -96,7 +96,7 @@ static BOOLEAN sanityCheckEnvDecode( const ENVELOPE_INFO *envelopeInfoPtr )
 		return( FALSE );
 		}
 
-	/* Make sure that the envelope internal bookeeping is OK */
+	/* Make sure that the envelope internal bookkeeping is OK */
 	if( !isIntegerRange( envelopeInfoPtr->segmentSize ) || \
 		!isIntegerRange( envelopeInfoPtr->dataLeft ) )
 		{
@@ -153,6 +153,8 @@ static int processDataEnd( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		   using them to reject completely malformed data (out-of-bounds 
 		   array references), but hopefully the few cycles difference won't 
 		   be measurable in the overall scheme of things */
+		if( envelopeInfoPtr->bufPos < 1 )
+			return( errorStatus );
 		padSize = envelopeInfoPtr->buffer[ envelopeInfoPtr->bufPos - 1 ];
 		if( padSize < 1 || padSize > envelopeInfoPtr->blockSize || \
 			padSize > envelopeInfoPtr->bufPos )
@@ -285,7 +287,7 @@ static BOOLEAN isFixedLengthSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	   we run out of input".  This odd situation is encountered for PGP
 	   envelopes when working with compressed data for which there's no 
 	   length stored or when we're synchronising the envelope data prior to 
-	   processing and there are abitrary further packets (typically PGP 
+	   processing and there are arbitrary further packets (typically PGP 
 	   signature packets, where we want to process the packets in a 
 	   connected series rather than stopping at the end of the first packet 
 	   in the series) following the current one.  In both cases we don't 
@@ -311,13 +313,13 @@ static BOOLEAN isFixedLengthSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int processCmsSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr, 
 							  INOUT_PTR STREAM *stream, 
-							  OUT_LENGTH_Z long *segmentLength )
+							  OUT_LENGTH_Z int *segmentLength )
 	{
 	int status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( segmentLength, sizeof( long ) ) );
+	assert( isWritePtr( segmentLength, sizeof( int ) ) );
 
 	/* Clear return value */
 	*segmentLength = 0;
@@ -352,13 +354,13 @@ static int processCmsSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int processPgpSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr, 
 							  INOUT_PTR STREAM *stream, 
-							  OUT_LENGTH_Z long *segmentLength )
+							  OUT_LENGTH_Z int *segmentLength )
 	{
 	int status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( segmentLength, sizeof( long ) ) );
+	assert( isWritePtr( segmentLength, sizeof( int ) ) );
 
 	/* Clear return value */
 	*segmentLength = 0;
@@ -462,8 +464,7 @@ static int getNextSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 						   OUT_LENGTH_SHORT_Z int *bytesConsumed )
 	{
 	STREAM stream;
-	long segmentLength;
-	int status;
+	int segmentLength, status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( isReadPtrDynamic( buffer, length ) );
@@ -489,7 +490,9 @@ static int getNextSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		status = processPgpSegment( envelopeInfoPtr, &stream, 
 									&segmentLength );
 		}
+  #ifdef USE_CMS
 	else
+  #endif /* USE_CMS */
 #endif /* USE_PGP */
 #ifdef USE_CMS
 		{
@@ -1398,7 +1401,7 @@ static int copyFromDeenvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 #ifdef USE_COMPRESSION
 	if( TEST_FLAG( envelopeInfoPtr->flags, ENVELOPE_FLAG_ZSTREAMINITED ) )
 		{
-		const int originalInLength = bytesToCopy;
+		z_stream *zStream = &envelopeInfoPtr->zStream;
 		const int bytesIn = \
 			( envelopeInfoPtr->dataLeft > 0 && \
 			  envelopeInfoPtr->dataLeft < envelopeInfoPtr->bufPos ) ? \
@@ -1443,11 +1446,11 @@ static int copyFromDeenvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		   To at least partially deal with this, we report an in-to-out 
 		   ratio of over 10,000 to 1 as an error, it's unlikely that this is 
 		   legitimate data */
-		envelopeInfoPtr->zStream.next_in = envelopeInfoPtr->buffer;
-		envelopeInfoPtr->zStream.avail_in = bytesIn;
-		envelopeInfoPtr->zStream.next_out = buffer;
-		envelopeInfoPtr->zStream.avail_out = bytesToCopy;
-		status = inflate( &envelopeInfoPtr->zStream, Z_SYNC_FLUSH );
+		zStream->next_in = envelopeInfoPtr->buffer;
+		zStream->avail_in = bytesIn;
+		zStream->next_out = buffer;
+		zStream->avail_out = bytesToCopy;
+		status = inflate( zStream, Z_SYNC_FLUSH );
 		if( status != Z_OK && status != Z_STREAM_END && \
 			!( status == Z_BUF_ERROR && \
 			   envelopeInfoPtr->type == CRYPT_FORMAT_PGP ) && \
@@ -1459,9 +1462,8 @@ static int copyFromDeenvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 					( status == Z_BUF_ERROR ) ? CRYPT_ERROR_UNDERFLOW : \
 					CRYPT_ERROR_FAILED );
 			}
-		if( !checkOverflowMul( envelopeInfoPtr->zStream.total_in, 10000 ) && \
-			( envelopeInfoPtr->zStream.total_in * 10000 ) < \
-									envelopeInfoPtr->zStream.total_out )
+		if( checkOverflowMul( zStream->total_in, 10000 ) || \
+			( zStream->total_in * 10000 ) < zStream->total_out )
 			{
 			DEBUG_DIAG(( "Compression ratio of over 10000:1 detected, "
 						 "possible Zip bomb" ));
@@ -1471,36 +1473,51 @@ static int copyFromDeenvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 		/* Adjust the status information based on the data copied from the
 		   buffer into the zStream (bytesCopied) and the data flushed from
-		   the zStream to the output (bytesToCopy) */
-		REQUIRES( !checkOverflowSub( bytesIn, 
-									 envelopeInfoPtr->zStream.avail_in ) );
-		bytesCopied = bytesIn - envelopeInfoPtr->zStream.avail_in;
-		bytesToCopy -= envelopeInfoPtr->zStream.avail_out;
+		   the zStream to the output (bytesToCopy).  The calculation is a
+		   bit odd-looking, on input avail_out contains the amount of data
+		   requested, on output it's how much is still left, so to find out 
+		   how much was copied out we subtract the new avail_out from the 
+		   original one, which was set to bytesToCopy */
+		REQUIRES( !checkOverflowSub( bytesIn, zStream->avail_in ) );
+		bytesCopied = bytesIn - zStream->avail_in;
+		bytesToCopy -= zStream->avail_out;
 		ENSURES( isBufsizeRange( bytesCopied ) && \
-				 isBufsizeRange( bytesToCopy ) && \
-				 bytesToCopy <= originalInLength );
+				 isBufsizeRange( bytesToCopy ) );
 
-		/* If we're doing a lookahead read we can't just copy the data out 
-		   of the envelope buffer as we would for any other content type 
+		/* If we're doing a lookahead read then we can't just copy the data 
+		   out of the envelope buffer as we would for any other content type 
 		   because we can't undo the decompression step, so we copy the data 
 		   that was decompressed into the output buffer to a local buffer 
 		   and insert it into the output stream on the next non-lookahead 
-		   read.  The size of the read from the OOB buffer has been limited
+		   read (this may be zero if the zstream has absorbed it all without
+		   producing any output).
+		   
+		   The only time this is ever used is with PGP-format data, which
+		   has to read ahead into the compressed-data payload to figure out
+		   what to do with it.  This is done from 
+		   envelope/pgp_deenv.c:processEncapsDataHeader() which reads 8
+		   bytes, equivalent to OOB_BUFFER_SIZE, the minimum size of a PGP
+		   header, and fails with a CRYPT_ERROR_UNDERFLOW if it doesn't get 
+		   the full 8 bytes back.  In theory we only need to accommodate 
+		   this one specific case but we leave the code as general-purpose
+		   to avoid hardcoding in knowledge of what the caller is doing.
+		   
+		   The size of the read from the OOB buffer has been limited 
 		   previously when existing data was detected in the OOB buffer so 
 		   the total of the current OOB buffer contents and the amount to 
 		   read can never exceed the OOB buffer size */
-		if( isLookaheadRead )
+		if( isLookaheadRead && bytesToCopy > 0 )
 			{
 			REQUIRES( envelopeInfoPtr->oobBufSize + \
-					  originalInLength <= OOB_BUFFER_SIZE );
+					  bytesToCopy <= OOB_BUFFER_SIZE );
 
 			REQUIRES( boundsCheckZ( envelopeInfoPtr->oobBufSize, 
-									originalInLength, OOB_BUFFER_SIZE ) );
+									bytesToCopy, OOB_BUFFER_SIZE ) );
 			memcpy( envelopeInfoPtr->oobBuffer + envelopeInfoPtr->oobBufSize,
-					buffer, originalInLength );
+					buffer, bytesToCopy );
 			REQUIRES( !checkOverflowAdd( envelopeInfoPtr->oobBufSize, 
-										 originalInLength ) );
-			envelopeInfoPtr->oobBufSize += originalInLength;
+										 bytesToCopy ) );
+			envelopeInfoPtr->oobBufSize += bytesToCopy;
 			}
 		}
 	else
@@ -1657,7 +1674,7 @@ static int syncDeenvelopeData( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	const ENV_COPYTOENVELOPE_FUNCTION copyToEnvelopeFunction = \
 					( ENV_COPYTOENVELOPE_FUNCTION ) \
 					FNPTR_GET( envelopeInfoPtr->copyToEnvelopeFunction );
-	const long dataStartPos = stell( stream );
+	const int dataStartPos = stell( stream );
 	const int oldBufPos = envelopeInfoPtr->bufPos;
 	const int bytesLeftToCopy = sMemDataLeft( stream );
 	int bytesCopied;
@@ -1833,6 +1850,8 @@ static int processExtraData( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 STDC_NONNULL_ARG( ( 1 ) ) \
 void initDeenvelopeStreaming( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	{
+	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
+
 	/* Set the access method pointers */
 	FNPTR_SET( envelopeInfoPtr->copyToEnvelopeFunction, copyToDeenvelope );
 	FNPTR_SET( envelopeInfoPtr->copyFromEnvelopeFunction, copyFromDeenvelope );

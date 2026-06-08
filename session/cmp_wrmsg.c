@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Write CMP Messages Types						*
-*						Copyright Peter Gutmann 1999-2009					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -288,9 +288,13 @@ static int writeResponseBody( INOUT_PTR STREAM *stream,
 
 	/* Write the certificate data */
 	writeSequence( stream, objSize( dataLength ) );
-	writeConstructed( stream, dataLength, CTAG_CK_CERT );
-	return( exportCertToStream( stream, sessionInfoPtr->iCertResponse, 
-								CRYPT_CERTFORMAT_CERTIFICATE ) );
+	status = writeConstructed( stream, dataLength, CTAG_CK_CERT );
+	if( cryptStatusOK( status ) )
+		{
+		status = exportCertToStream( stream, sessionInfoPtr->iCertResponse, 
+									 CRYPT_CERTFORMAT_CERTIFICATE );
+		}
+	return( status );
 	}
 
 /* Write conf body:
@@ -399,7 +403,7 @@ static int writeGenMsgResponseBody( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckSessionCMP( sessionInfoPtr ) );
 
 	/* Get the CTL from the CA object.  We recreate this each time rather 
-	   than cacheing it in the session to ensure that changes in the trusted
+	   than caching it in the session to ensure that changes in the trusted
 	   certificate set while the session is active get reflected back to the 
 	   caller.
 	   

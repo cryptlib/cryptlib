@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib Key Derivation Mechanism Routines					*
-*					Copyright Peter Gutmann 1992-2019						*
+*					Copyright Peter Gutmann 1992-2025						*
 *																			*
 ****************************************************************************/
 
@@ -188,7 +188,7 @@ static int pbkdf2Hash( OUT_BUFFER_FIXED( outLength ) BYTE *out,
 					   IN_BUFFER( saltLength ) const void *salt, 
 					   IN_RANGE( 4, 512 ) const int saltLength,
 					   IN_INT const int iterations, 
-					   IN_RANGE( 1, 1000 ) const int blockCount )
+					   IN_RANGE( 1, 255 ) const int blockCount )
 	{
 	HASHINFO hashInfo;
 	BYTE block[ CRYPT_MAX_HASHSIZE + 8 ], countBuffer[ 4 + 8 ];
@@ -207,7 +207,7 @@ static int pbkdf2Hash( OUT_BUFFER_FIXED( outLength ) BYTE *out,
 	REQUIRES( keyLength >= 1 && keyLength <= HMAC_DATASIZE );
 	REQUIRES( saltLength >= 4 && saltLength <= 512 );
 	REQUIRES( isIntegerRangeNZ( iterations ) );
-	REQUIRES( blockCount > 0 && blockCount <= 1000 );
+	REQUIRES( blockCount > 0 && blockCount <= 255 );
 
 	/* Clear return value */
 	REQUIRES( isShortIntegerRangeNZ( outLength ) ); 
@@ -434,7 +434,9 @@ int kdfPBKDF2( STDC_UNUSED void *dummy,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 static int deriveHKDF( STDC_UNUSED void *dummy, 
-					   INOUT_PTR MECHANISM_DERIVE_INFO *mechanismInfo )
+					   INOUT_PTR MECHANISM_DERIVE_INFO *mechanismInfo,
+					   IN_BUFFER_OPT( infoStringLen ) const void *infoString,
+					   IN_LENGTH_SHORT_Z const int infoStringLen )
 	{
 	CRYPT_ALGO_TYPE hashAlgo;
 	HASH_FUNCTION_ATOMIC hashFunctionAtomic;
@@ -455,6 +457,12 @@ static int deriveHKDF( STDC_UNUSED void *dummy,
 
 	UNUSED_ARG_OPT( dummy );
 	assert( isWritePtr( mechanismInfo, sizeof( MECHANISM_DERIVE_INFO ) ) );
+	assert( infoString == NULL || \
+			isReadPtr( infoString, infoStringLen ) );
+	
+	REQUIRES( ( infoString == NULL && infoStringLen == 0 ) || \
+			  ( infoString != NULL && \
+				isShortIntegerRangeNZ( infoStringLen ) ) );
 
 	/* Clear return value */
 	REQUIRES( isShortIntegerRangeNZ( mechanismInfo->dataOutLength ) ); 
@@ -541,15 +549,16 @@ static int deriveHKDF( STDC_UNUSED void *dummy,
 			hashFunction( hashInfo, NULL, 0, dataOutPtr - hashSize, 
 						  hashSize, HASH_STATE_CONTINUE );
 			}
-#if 1	/* 'info' field hardcoded to run the test vectors */
-		hashFunction( hashInfo, NULL, 0, 
-					  "\xF0\xF1\xF2\xF3\xF4\xF5\xF6\xF7\xF8\xF9", 10, 
-					  HASH_STATE_CONTINUE );
-#endif /* 1 */
+		if( infoString != NULL )
+			{
+			hashFunction( hashInfo, NULL, 0, infoString, infoStringLen, 
+						  HASH_STATE_CONTINUE );
+			}
 		hashFunction( hashInfo, NULL, 0, &counter, 1, 
 					  HASH_STATE_CONTINUE );
 		status = prfEnd( hashFunction, hashInfo, hashSize, block, 
-						 CRYPT_MAX_HASHSIZE, hkdfKey, hashSize );
+						 CRYPT_MAX_HASHSIZE, processedKey, 
+						 processedKeyLength );
 		if( cryptStatusError( status ) )
 			break;
 		counter++;		/* Byte counter, no checkOverflowInc() */
@@ -584,6 +593,13 @@ int kdfHKDF( STDC_UNUSED void *dummy,
 	UNUSED_ARG_OPT( dummy );
 	assert( isWritePtr( mechanismInfo, sizeof( MECHANISM_DERIVE_INFO ) ) );
 
+	/* This code currently isn't used, the only protocol that uses HKDF is 
+	   TLS 1.3 for which session/tls13_crypt.c synthesises it directly from
+	   hashFunctionAtomic() to avoid having to make dozens of HKDF kernel
+	   calls with all of the little bits and pieces that TLS 1.3 hashes up */
+	DEBUG_DIAG(( "Unexpected invocation of HKDF mechanism" ));
+	retIntError();
+	
 	/* Get the key payload details from the key contexts */
 	status = krnlSendMessage( mechanismInfo->masterKeyContext, 
 							  IMESSAGE_GETATTRIBUTE, &masterSecretSize,
@@ -604,13 +620,13 @@ int kdfHKDF( STDC_UNUSED void *dummy,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* derive the key from it using HKDF as the KDF */
+	/* Derive the key from it using HKDF as the KDF */
 	setMechanismDeriveInfo( &mechanismDeriveInfo, keyBuffer, keySize,
 							masterSecretBuffer, masterSecretSize,
 							mechanismInfo->hashAlgo, mechanismInfo->salt,
 							mechanismInfo->saltLength, 1 );
 	mechanismDeriveInfo.hashParam = mechanismInfo->hashParam;
-	status = deriveHKDF( NULL, &mechanismDeriveInfo );
+	status = deriveHKDF( NULL, &mechanismDeriveInfo, NULL, 0 );
 	zeroise( masterSecretBuffer, CRYPT_MAX_KEYSIZE );
 	if( cryptStatusError( status ) )
 		{
@@ -691,7 +707,7 @@ static int add64( INOUT_BUFFER_FIXED( destLen ) BYTE *dest,
 	return( CRYPT_OK );
 	}
 
-/* Concantenate enough copies of the input data together to fill an output 
+/* Concatenate enough copies of the input data together to fill an output 
    buffer */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
@@ -1264,10 +1280,10 @@ static int pgpPrfHash( OUT_BUFFER_FIXED( outLength ) BYTE *out,
 					   IN_LENGTH_SHORT_MIN( 2 ) const int keyLength,
 					   IN_BUFFER( saltLength ) const void *salt, 
 					   IN_LENGTH_FIXED( PGP_SALTSIZE ) const int saltLength,
-					   INOUT_LENGTH_Z long *byteCount, 
+					   INOUT_LENGTH_Z int *byteCount, 
 					   IN_RANGE( CRYPT_UNUSED, 1 ) const int preloadLength )
 	{
-	long count = *byteCount;
+	int count = *byteCount;
 
 	assert( isWritePtrDynamic( out, outLength ) );
 	assert( isWritePtr( hashInfo, sizeof( HASHINFO ) ) );
@@ -1339,13 +1355,17 @@ int derivePGP( STDC_UNUSED void *dummy,
 	{
 	HASH_FUNCTION hashFunction;
 	HASHINFO hashInfo;
-	long byteCount = ( long ) mechanismInfo->iterations << 6;
-	long secondByteCount = 0;
+	int byteCount = mechanismInfo->iterations << 6;
+	int secondByteCount = 0, hashSize, status = CRYPT_OK;
 	LOOP_INDEX i;
-	int hashSize, status = CRYPT_OK;
 
 	assert( isWritePtr( mechanismInfo, sizeof( MECHANISM_DERIVE_INFO ) ) );
 
+	/* The checks below are a bit complex, see the long comment in 
+	   misc/consts.h for the bizarro way that the S2K processing-complexity
+	   specifier works.  In brief the count, once shifted/multiplied by 64,
+	   is capped at 65,011,712 so we don't have to worry about an overflow 
+	   in the shift */
 	REQUIRES( mechanismInfo->iterations >= 0 && \
 			  mechanismInfo->iterations <= MAX_KEYSETUP_HASHSPECIFIER );
 	REQUIRES( isBufsizeRange( byteCount ) );
@@ -1509,8 +1529,9 @@ int deriveHOTP( STDC_UNUSED void *dummy,
 	HASHINFO hashInfo;
 	BYTE processedKey[ HMAC_DATASIZE + 8 ];
 	BYTE hash[ CRYPT_MAX_HASHSIZE + 8 ];
-	long value;
-	int hashSize, processedKeyLength, index, result, status;
+	char totpString[ 16 + 8 ];
+	int hashSize, processedKeyLength, index, totpValue, totpStringLen;
+	int status;
 
 	UNUSED_ARG_OPT( dummy );
 	assert( isWritePtr( mechanismInfo, sizeof( MECHANISM_DERIVE_INFO ) ) );
@@ -1544,23 +1565,26 @@ int deriveHOTP( STDC_UNUSED void *dummy,
 		return( status );
 		}
 
-	/* Using the last 4 bits of the hash value as an index into the hash,
-	   extract the 31-bit value starting at that location */
-	index = hash[ hashSize - 1 ] & 0x0F;
-	value = ( ( long ) ( hash[ index ] & 0x7F ) << 24 ) | \
-			( ( long ) hash[ index + 1 ] << 16 ) | \
-			( ( long ) hash[ index + 2 ] << 8 ) | \
+	/* Using the last 4 bits of the hash value as an index into the hash (a
+	   Rube Goldberg step that achieves nothing apart from adding 
+	   unnecessary complexity), extract the 31-bit value starting at that 
+	   location */
+	index = byteToInt( hash[ hashSize - 1 ] ) & 0x0F;
+	ENSURES( rangeCheck( index, 0, hashSize - 4 ) );
+	totpValue = ( byteToInt( hash[ index ] & 0x7F ) << 24 ) | \
+				( byteToInt( hash[ index + 1 ] ) << 16 ) | \
+				( byteToInt( hash[ index + 2 ] ) << 8 ) | \
 					   hash[ index + 3 ];
+	zeroise( hash, CRYPT_MAX_HASHSIZE );
 
 	/* Truncate the value to six digits and return the result as a text 
 	   string.  The RFC never states how results shorter than 6 digits are 
 	   treated but Authy adds leading zeroes so we go with that */
-	value %= 1000000L;
-	result = sprintf_s( hash, CRYPT_MAX_HASHSIZE, "%06ld", value );
-	ENSURES( rangeCheck( result, 6, CRYPT_MAX_HASHSIZE - 1 ) );
-	memcpy( mechanismInfo->dataOut, hash, 6 ); 
-
-	zeroise( hash, CRYPT_MAX_HASHSIZE );
+	totpValue %= 1000000L;
+	totpStringLen = sprintf_s( totpString, 16, "%06d", totpValue );
+	ENSURES( rangeCheck( totpStringLen, 6, 16 - 1 ) );
+	memcpy( mechanismInfo->dataOut, totpString, 6 ); 
+	zeroise( totpString, 16 );
 
 	return( CRYPT_OK );
 	}
@@ -1781,6 +1805,16 @@ int deriveSelftest( STDC_UNUSED void *dummy,
 
 /* Test KDF mechanisms */
 
+CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
+static int testDeriveHKDF( STDC_UNUSED void *dummy, 
+						   INOUT_PTR MECHANISM_DERIVE_INFO *mechanismInfo )
+	{
+	/* The HKDF test requires an extra parameter so we need to go through an 
+	   intermediate function that adds this */
+	return( deriveHKDF( dummy, mechanismInfo,
+						"\xF0\xF1\xF2\xF3\xF4\xF5\xF6\xF7\xF8\xF9", 10 ) ); 
+	}
+
 static const MECHANISM_TEST_INFO kdfMechanismTestInfo[] = {
 	/* For the KDF tests we call deriveXXX() rather than kdfXXX() since the 
 	   latter works directly on encryption contexts rather than on user-
@@ -1791,7 +1825,7 @@ static const MECHANISM_TEST_INFO kdfMechanismTestInfo[] = {
 		inputValue, MECHANISM_INPUT_SIZE, CRYPT_ALGO_HMAC_SHA2, 0,
 		saltValue, MECHANISM_SALT_SIZE, 1 } },
 #if 1	/* RFC 5869 Test 1 needs 'info' value */
-	{ { MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_HKDF, ( FUNCTION_CAST ) deriveHKDF },
+	{ { MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_HKDF, ( FUNCTION_CAST ) testDeriveHKDF },
 	  { MKDATA( "\x3C\xB2\x5F\x25\xFA\xAC\xD5\x7A\x90\x43\x4F\x64\xD0\x36\x2F\x2A"
 				"\x2D\x2D\x0A\x90\xCF\x1A\x5A\x4C\x5D\xB0\x2D\x56\xEC\xC4\xC5\xBF"
 				"\x34\x00\x72\x08\xD5\xB8\x87\x18\x58\x65" ), 42,
@@ -1802,7 +1836,7 @@ static const MECHANISM_TEST_INFO kdfMechanismTestInfo[] = {
 		/* RFC 5869 Test 2 exceeds CRYPT_MAX_HASHSIZE */
 		/* RFC 5869 Test 3 zero-length salt */
 		/* RFC 5869 Test 3 Test Case 4 needs 'info' value */
-	{ { MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_HKDF, ( FUNCTION_CAST ) deriveHKDF },
+	{ { MESSAGE_DEV_DERIVE, MECHANISM_DERIVE_HKDF, ( FUNCTION_CAST ) testDeriveHKDF },
 	  { MKDATA( "\x08\x5A\x01\xEA\x1B\x10\xF3\x69\x33\x06\x8B\x56\xEF\xA5\xAD\x81"
 				"\xA4\xF1\x4B\x82\x2F\x5B\x09\x15\x68\xA9\xCD\xD4\xF1\x55\xFD\xA2"
 				"\xC2\x2E\x42\x24\x78\xD3\x05\xF3\xF8\x96" ), 42,
@@ -1813,8 +1847,7 @@ static const MECHANISM_TEST_INFO kdfMechanismTestInfo[] = {
 		/* RFC 5869 Test 6 zero-length salt */
 		/* RFC 5869 Test 7 same as Test 6 */
 #endif /* 0 */
-	{ { MESSAGE_NONE, MECHANISM_NONE, NULL } }, 
-			{ { MESSAGE_NONE, MECHANISM_NONE, NULL } }
+	{ { MESSAGE_NONE } }, { { MESSAGE_NONE } }
 	};
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
@@ -1831,7 +1864,7 @@ int kdfSelftest( STDC_UNUSED void *dummy,
 	LOOP_LARGE( i = 0, 
 				i < FAILSAFE_ARRAYSIZE( kdfMechanismTestInfo, \
 										MECHANISM_TEST_INFO ) && \
-					kdfMechanismTestInfo[ i ].mechanismFunctionInfo.mechanism != MECHANISM_NONE,
+					kdfMechanismTestInfo[ i ].mechanismFunctionInfo.action != MESSAGE_NONE,
 				i++ )
 		{
 		const MECHANISM_FUNCTION_INFO *mechanismFunctionInfo;

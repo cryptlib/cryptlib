@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib PGP Key Read Routines						*
-*						Copyright Peter Gutmann 1992-2015					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -63,7 +63,7 @@ static int getMPIsize( INOUT_PTR STREAM *stream,
 								 maxMpiSize, BIGNUM_CHECK_VALUE );
 	if( cryptStatusError( status ) )
 		return( status );
-	return( calculateStreamObjectLength( stream, position, length ) );
+	return( streamOffsetFromPosition( stream, position, length ) );
 	}
 
 /* Determine the minimum allowed packet size for a given packet type.  The 
@@ -109,8 +109,7 @@ static int scanPacketGroup( INOUT_PTR STREAM *stream,
 	LOOP_MED( ( endPos = 0, noPackets = 0 ), 
 			  endPos < totalLength && noPackets < 32, noPackets++ )
 		{
-		long length;
-		int ctb, type;
+		int ctb, type, length;
 
 		ENSURES( LOOP_INVARIANT_MED( noPackets, 0, 31 ) );
 		ENSURES( LOOP_INVARIANT_SECONDARY( endPos, 0, totalLength - 1 ) );
@@ -279,7 +278,7 @@ static int readPrivateKeyDecryptionInfo( INOUT_PTR STREAM *stream,
 		   the payload */
 		keyInfo->hashedChecksum = TRUE;
 		}
-		REQUIRES( rangeCheck( ivSize, 1, CRYPT_MAX_IVSIZE ) );
+	REQUIRES( rangeCheck( ivSize, 1, CRYPT_MAX_IVSIZE ) );
 	status = sread( stream, keyInfo->iv, ivSize );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -521,10 +520,8 @@ CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int readUserID( INOUT_PTR STREAM *stream, 
 					   INOUT_PTR_OPT PGP_INFO *pgpInfo )
 	{
-	long packetLength;
-	int ctb, packetType DUMMY_INIT;
+	int ctb, packetType DUMMY_INIT, packetLength, status DUMMY_INIT;
 	LOOP_INDEX noPackets;
-	int status DUMMY_INIT;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( pgpInfo == NULL || \
@@ -692,10 +689,9 @@ static int readKey( INOUT_PTR STREAM *stream,
 	BYTE hash[ CRYPT_MAX_HASHSIZE + 8 ], packetHeader[ 16 + 8 ];
 	BOOLEAN isPublicKey = TRUE;
 	void *pubKeyPayload DUMMY_INIT;
-	long packetLength;
-	int pubKeyPos, pubKeyPayloadPos, endPos, pubKeyPayloadLen;
-	LOOP_INDEX noUserIDs;
+	int packetLength, pubKeyPos, pubKeyPayloadPos, endPos, pubKeyPayloadLen;
 	int ctb, length, value, hashSize, status;
+	LOOP_INDEX noUserIDs;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( pgpInfo, sizeof( PGP_INFO ) ) );
@@ -751,7 +747,7 @@ static int readKey( INOUT_PTR STREAM *stream,
 		{
 		retExt( CRYPT_ERROR_BADDATA, 
 				( CRYPT_ERROR_BADDATA, errorInfo, 
-				  "Invalid PGP key packet length %ld for key packet group %d", 
+				  "Invalid PGP key packet length %d for key packet group %d", 
 				  packetLength, keyGroupNo ) );
 		}
 
@@ -874,8 +870,8 @@ static int readKey( INOUT_PTR STREAM *stream,
 
 	/* Now that we know where the public key data starts and finishes, we 
 	   can set up references to it */
-	status = calculateStreamObjectLength( stream, pubKeyPos, 
-										  &keyInfo->pubKeyDataLen );
+	status = streamOffsetFromPosition( stream, pubKeyPos, 
+									   &keyInfo->pubKeyDataLen );
 	if( cryptStatusOK( status ) )
 		{
 		REQUIRES( isIntegerRangeNZ( keyInfo->pubKeyDataLen ) );
@@ -888,8 +884,8 @@ static int readKey( INOUT_PTR STREAM *stream,
 		assert( DEBUG_WARN );
 		return( status );
 		}
-	status = calculateStreamObjectLength( stream, pubKeyPayloadPos, 
-										  &pubKeyPayloadLen );
+	status = streamOffsetFromPosition( stream, pubKeyPayloadPos, 
+									   &pubKeyPayloadLen );
 	if( cryptStatusOK( status ) )
 		{
 		REQUIRES( isIntegerRangeNZ( pubKeyPayloadLen ) );
@@ -1274,7 +1270,7 @@ static int processKeyringPackets( INOUT_PTR STREAM *stream,
 			if( keyMatchInfo == NULL )
 				{
 				/* Free the entry that we allocated earlier */
-				pgpFreeEntry( pgpInfo );
+				pgpFreeEntry( pgpInfoPtr );
 				}
 			continue;
 			}

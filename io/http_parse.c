@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib HTTP Parsing Routines						*
-*					  Copyright Peter Gutmann 1998-2024						*
+*					  Copyright Peter Gutmann 1998-2025						*
 *																			*
 ****************************************************************************/
 
@@ -189,7 +189,7 @@ static int getEncodedChar( IN_BUFFER( bufSize ) const char *buffer,
 
 /* Decode a string as per RFC 1866 */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int decodeRFC1866( INOUT_BUFFER( bufSize, *newBufSize ) char *buffer, 
 						  IN_LENGTH_SHORT const int bufSize,
 						  OUT_LENGTH_SHORT_Z int *newBufSize )
@@ -684,9 +684,8 @@ static int processHeaderLine( IN_BUFFER( dataLength ) const char *data,
 							  IN_RANGE( 1, 999 ) const int errorLineNo )
 	{
 	const HTTP_HEADER_PARSE_INFO *headerParseInfoPtr = NULL;
-	const int firstChar = toUpper( data[ 0 ] );
 	LOOP_INDEX i;
-	int processedLength, dataLeft;
+	int firstChar, processedLength, dataLeft;
 
 	assert( isReadPtrDynamic( data, dataLength ) );
 	assert( isWritePtr( headerType, sizeof( HTTP_HEADER_TYPE ) ) );
@@ -700,6 +699,7 @@ static int processHeaderLine( IN_BUFFER( dataLength ) const char *data,
 	*headerType = HTTP_HEADER_NONE;
 
 	/* Look for a header line that we recognise */
+	firstChar = toUpper( data[ 0 ] );
 	LOOP_MED( i = 0, 
 			  i < FAILSAFE_ARRAYSIZE( httpHeaderParseInfo, \
 									  HTTP_HEADER_PARSE_INFO ) && \
@@ -1034,21 +1034,11 @@ int readHeaderLines( INOUT_PTR STREAM *stream,
 										&contentLength, 1, MAX_BUFFER_SIZE );
 				if( cryptStatusError( status ) )
 					{
-#ifdef USE_ERRMSGS
-					char stringBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
-					int stringBufferLength;
-
-					stringBufferLength = min( lineLength, 
-											  CRYPT_MAX_TEXTSIZE );
-					REQUIRES( rangeCheck( stringBufferLength, \
-										  1, CRYPT_MAX_TEXTSIZE ) );
-					memcpy( stringBuffer, lineBufPtr, stringBufferLength );
-#endif /* USE_ERRMSGS */
 					retExt( CRYPT_ERROR_BADDATA, 
 							( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
 							  "Invalid HTTP content length '%s', line %d",
-							  sanitiseString( stringBuffer, 
-									CRYPT_MAX_TEXTSIZE, lineLength ), 
+							  sanitiseString( lineBufPtr, CRYPT_MAX_TEXTSIZE, 
+											  lineLength ), 
 							  lineCount + 2 ) );
 					}
 				seenLength = TRUE;
@@ -1490,15 +1480,6 @@ int readHeaderLines( INOUT_PTR STREAM *stream,
 		status = contentLength = getChunkLength( lineBuffer, lineLength );
 		if( cryptStatusError( status ) )
 			{
-#ifdef USE_ERRMSGS
-			char stringBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
-			int stringBufferLength;
-
-			stringBufferLength = min( lineLength, CRYPT_MAX_TEXTSIZE );
-			REQUIRES( rangeCheck( stringBufferLength, \
-								  1, CRYPT_MAX_TEXTSIZE ) );
-			memcpy( stringBuffer, lineBuffer, stringBufferLength );
-#endif /* USE_ERRMSGS */
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, NETSTREAM_ERRINFO, 
 					  "Invalid length '%s' for HTTP chunked encoding, line "

@@ -157,7 +157,7 @@ static int addFapiContext( IN_HANDLE CRYPT_CONTEXT cryptContext,
 	if( i >= NO_FAPI_OBJECTS )
 		return( CRYPT_ERROR_OVERFLOW );
 
-	/* Remmeber the path ID and its associated context */
+	/* Remember the path ID and its associated context */
 	memcpy( fapiContextIndex[ i ].fapiID, pathID, 
 			TPM_STORAGEID_STRING_LENGTH );
 	fapiContextIndex[ i ].cryptContext = cryptContext;
@@ -459,8 +459,7 @@ TSS2_RC Fapi_GetAppData( FAPI_CONTEXT *context, char const *path,
 						 uint8_t **appData, size_t *appDataSize )
 	{
 	FILE *filePtr;
-	long dataSize;
-	int count;
+	int dataSize, count;
 
 #if defined( _MSC_VER ) && VC_GE_2008( _MSC_VER )
 	errno_t result;

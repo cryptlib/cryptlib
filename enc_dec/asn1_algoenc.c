@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				ASN.1 Encryption Algorithm Identifier Routines				*
-*						Copyright Peter Gutmann 1992-2022					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -41,10 +41,79 @@
 		} 
 
    The KDF parameter values are salt and iteration-count are read and 
-   written as blobs consisting of an OCTET STRING SIZE(0) + INTEGER(1) */
+   written as blobs consisting of an OCTET STRING SIZE(0) + INTEGER(1).
+   
+   These are internal functions for which the caller applies sSetError()
+   to the return value */
 
 #define FIXEDPARAM_DATA			MKDATA( "\x04\x00\x02\x01\x01" )
 #define FIXEDPARAM_DATA_SIZE	5
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
+static int readKdfParamData( INOUT_PTR STREAM *stream,
+							 OUT_ALGO_Z CRYPT_ALGO_TYPE *kdfAlgo,
+							 OUT_INT_SHORT_Z int *kdfParam )
+	{
+	ALGOID_PARAMS algoIDparams DUMMY_INIT_STRUCT;
+	BYTE fixedParamBuffer[ FIXEDPARAM_DATA_SIZE + 8 ];
+	int status;
+
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( kdfAlgo, sizeof( CRYPT_ALGO_TYPE ) ) );
+	assert( isWritePtr( kdfParam, sizeof( int ) ) );
+	
+	/* Clear return values */
+	*kdfAlgo = CRYPT_ALGO_NONE;
+	*kdfParam = 0;
+	
+	/* Recover the KDF information.  Early implementations erroneously 
+	   omitted the PBKDF2 AlgorithmIdentifier for the CMS code so we allow 
+	   for versions with or without this value.  Since the entries are 
+	   skipped anyway it just means that there's two additional values to 
+	   skip:
+
+		KdfParams ::= [ 0 ] SEQUENCE {			-- 3.4.3 - 3.4.4.1
+			salt			OCTET STRING SIZE(0),
+			iterationCount	INTEGER (1),
+			prf				AlgorithmIdentifier
+			} 
+
+		KdfParams ::= [ 0 ] SEQUENCE {			-- Present if HMAC != SHA1
+			pbkdf2			OBJECT IDENTIFIER,
+			SEQUENCE {
+				salt		OCTET STRING SIZE(0),
+				iterationCount INTEGER (1),
+				prf			AlgorithmIdentifier	-- HMAC-SHA2, etc
+				}
+			} */
+	status = readConstructed( stream, NULL, 0 );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( peekTag( stream ) == BER_OBJECT_IDENTIFIER )
+		{
+		readUniversal( stream );		/* pbkdf2 OID */
+		status = readSequence( stream, NULL );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
+	REQUIRES( rangeCheck( FIXEDPARAM_DATA_SIZE, 1, FIXEDPARAM_DATA_SIZE ) );
+	status = sread( stream, fixedParamBuffer, FIXEDPARAM_DATA_SIZE );
+	if( cryptStatusOK( status ) &&		/* OCTET STRING + INTEGER */
+		memcmp( fixedParamBuffer, FIXEDPARAM_DATA, FIXEDPARAM_DATA_SIZE ) )
+		status = CRYPT_ERROR_BADDATA;
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* We've finally got through to the bit that matters, the HMAC 
+	   algorithm */
+	status = readAlgoIDex( stream, kdfAlgo, &algoIDparams, 
+						   ALGOID_CLASS_HASH );
+	if( cryptStatusError( status ) )
+		return( status );
+	*kdfParam = algoIDparams.hashParam;
+	
+	return( CRYPT_OK );
+	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int readAuthEncParamData( INOUT_PTR STREAM *stream,
@@ -73,19 +142,19 @@ static int readAuthEncParamData( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 	if( tagValue != tag )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+		return( CRYPT_ERROR_BADDATA );
 	status = readUniversalData( stream );
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, paramStart, 
-											  &paramLength );
+		status = streamOffsetFromPosition( stream, paramStart, 
+										   &paramLength );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
 
 	/* Make sure that it appears valid */
 	if( paramLength < 8 || paramLength > maxLength )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+		return( CRYPT_ERROR_BADDATA );
 
 	*offset = paramStart;
 	*length = paramLength;
@@ -101,6 +170,7 @@ static int readGenericSecretParams( INOUT_PTR STREAM *stream,
 	int tag, length, objectSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
 
 	REQUIRES_S( isShortIntegerRange( startOffset ) && \
 				startOffset < stell( stream ) );
@@ -114,10 +184,11 @@ static int readGenericSecretParams( INOUT_PTR STREAM *stream,
 		tag == MAKE_CTAG( 0 ) )
 		{
 		/* Read the optional KDF parameters */
-		status = calculateStreamObjectLength( stream, startOffset, 
-											  &objectSize );
+		status = streamOffsetFromPosition( stream, startOffset, 
+										   &objectSize );
 		if( cryptStatusError( status ) )
 			return( status );
+		REQUIRES( !checkOverflowSub( AUTHENCPARAM_MAX_SIZE, objectSize ) );
 		status = readAuthEncParamData( stream,
 							&queryInfo->kdfParamStart, 
 							&queryInfo->kdfParamLength, MAKE_CTAG( 0 ), 
@@ -127,20 +198,20 @@ static int readGenericSecretParams( INOUT_PTR STREAM *stream,
 		}
 
 	/* Read the encryption and MAC algorithm parameters */
-	status = calculateStreamObjectLength( stream, startOffset, 
-										  &objectSize );
+	status = streamOffsetFromPosition( stream, startOffset, &objectSize );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowSub( AUTHENCPARAM_MAX_SIZE, objectSize ) );
 	status = readAuthEncParamData( stream,
 							&queryInfo->encParamStart, 
 							&queryInfo->encParamLength, BER_SEQUENCE,
 							AUTHENCPARAM_MAX_SIZE - objectSize );
 	if( cryptStatusError( status ) )
 		return( status );
-	status = calculateStreamObjectLength( stream, startOffset, 
-										  &objectSize );
+	status = streamOffsetFromPosition( stream, startOffset, &objectSize );
 	if( cryptStatusError( status ) )
 		return( status );
+	REQUIRES( !checkOverflowSub( AUTHENCPARAM_MAX_SIZE, objectSize ) );
 	status = readAuthEncParamData( stream,
 							&queryInfo->macParamStart, 
 							&queryInfo->macParamLength, BER_SEQUENCE,
@@ -157,21 +228,22 @@ static int readGenericSecretParams( INOUT_PTR STREAM *stream,
 
 	/* For AuthEnc data we need to MAC the encoded parameter data after 
 	   we've processed it, so we save a copy for the caller */
-	status = calculateStreamObjectLength( stream, startOffset, 
-										  &length );
+	status = streamOffsetFromPosition( stream, startOffset, &length );
 	if( cryptStatusError( status ) )
 		return( status );
 	if( length <= 16 || length > AUTHENCPARAM_MAX_SIZE )
-		return( sSetError( stream, CRYPT_ERROR_OVERFLOW ) );
+		return( CRYPT_ERROR_OVERFLOW );
 	status = sseek( stream, startOffset );
 	if( cryptStatusOK( status ) )
 		{
 		REQUIRES_S( rangeCheck( length, 1, AUTHENCPARAM_MAX_SIZE ) );
 		status = sread( stream, queryInfo->authEncParamData, length );
 		}
-	if( cryptStatusOK( status ) )
-		queryInfo->authEncParamLength = length;
-	return( status );
+	if( cryptStatusError( status ) )
+		return( status );
+	queryInfo->authEncParamLength = length;
+
+	return( CRYPT_OK );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
@@ -234,7 +306,10 @@ static int writeGenericSecretParams( INOUT_PTR STREAM *stream,
 /* Set generic secret parameters for a context.  This encodes the 
    information needed to recreate the encryption and MAC contexts derived
    from the generic secret and stores the encoded information with the
-   generic-secret context */
+   generic-secret context.
+
+   setKDFParams() is an internal function for which the caller applies 
+   sSetError() to the return value */
 
 CHECK_RETVAL \
 static int setKDFParams( IN_HANDLE const CRYPT_CONTEXT iGenericSecret,
@@ -367,8 +442,8 @@ int setGenericSecretParams( IN_HANDLE const CRYPT_CONTEXT iGenericSecret,
 		{
 		setMessageData( &msgData, algorithmParamData, 
 						algorithmParamDataSize );
-		status =  krnlSendMessage( iGenericSecret, IMESSAGE_SETATTRIBUTE_S, 
-								   &msgData, CRYPT_IATTRIBUTE_MACPARAMS );
+		status = krnlSendMessage( iGenericSecret, IMESSAGE_SETATTRIBUTE_S, 
+								  &msgData, CRYPT_IATTRIBUTE_MACPARAMS );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -401,59 +476,19 @@ int getGenericSecretParams( IN_HANDLE const CRYPT_CONTEXT iGenericContext,
 	/* Clear return values */
 	*iCryptContext = *iMacContext = CRYPT_ERROR;
 
-	/* Recover the KDF information if it's present.  Early implementations
-	   erroneously omitted the PBKDF2 AlgorithmIdentifier for the CMS code 
-	   so we allow for versions with or without this value.  Since the 
-	   entries are skipped anyway it just means that there's two additional 
-	   values to skip:
-
-		KdfParams ::= [ 0 ] SEQUENCE {			-- 3.4.3 - 3.4.4.1
-			salt			OCTET STRING SIZE(0),
-			iterationCount	INTEGER (1),
-			prf				AlgorithmIdentifier
-			} 
-
-		KdfParams ::= [ 0 ] SEQUENCE {			-- Present if HMAC != SHA1
-			pbkdf2			OBJECT IDENTIFIER,
-			SEQUENCE {
-				salt		OCTET STRING SIZE(0),
-				iterationCount INTEGER (1),
-				prf			AlgorithmIdentifier	-- HMAC-SHA2, etc
-				}
-			} */
+	/* Recover the KDF information if it's present */
 	if( queryInfo->kdfParamLength > 0 )
 		{
-		ALGOID_PARAMS algoIDparams DUMMY_INIT_STRUCT;
-		BYTE fixedParamBuffer[ FIXEDPARAM_DATA_SIZE + 8 ];
-
 		REQUIRES( boundsCheck( queryInfo->kdfParamStart,
 							   queryInfo->kdfParamLength,
 							   queryInfo->authEncParamLength ) );
 		sMemConnect( &stream, 
 					 queryInfo->authEncParamData + queryInfo->kdfParamStart,
 					 queryInfo->kdfParamLength  );
-		readConstructed( &stream, NULL, 0 );
-		if( peekTag( &stream ) == BER_OBJECT_IDENTIFIER )
-			{
-			readUniversal( &stream );		/* pbkdf2 OID */
-			readSequence( &stream, NULL );
-			}
-		REQUIRES( rangeCheck( FIXEDPARAM_DATA_SIZE, 1, \
-							  FIXEDPARAM_DATA_SIZE ) );
-		status = sread( &stream, fixedParamBuffer, FIXEDPARAM_DATA_SIZE );
-		if( cryptStatusOK( status ) &&		/* OCTET STRING + INTEGER */
-			memcmp( fixedParamBuffer, FIXEDPARAM_DATA, \
-					FIXEDPARAM_DATA_SIZE ) )
-			status = CRYPT_ERROR_BADDATA;
-		if( cryptStatusOK( status ) )
-			{								/* HMAC algorithm */
-			status = readAlgoIDex( &stream, &kdfAlgo, &algoIDparams,  
-								   ALGOID_CLASS_HASH );
-			}
+		status = readKdfParamData( &stream, &kdfAlgo, &kdfParam );
 		sMemDisconnect( &stream );
 		if( cryptStatusError( status ) )
 			return( status );
-		kdfParam = algoIDparams.hashParam;
 		}
 	else
 		{
@@ -581,7 +616,7 @@ CHECK_RETVAL_LENGTH \
 int sizeofCryptContextAlgoID( IN_HANDLE const CRYPT_CONTEXT iCryptContext )
 	{
 	STREAM nullStream;
-	int status;
+	int length DUMMY_INIT, status;
 
 	REQUIRES( isHandleRangeValid( iCryptContext ) );
 
@@ -591,10 +626,12 @@ int sizeofCryptContextAlgoID( IN_HANDLE const CRYPT_CONTEXT iCryptContext )
 	sMemNullOpen( &nullStream );
 	status = writeCryptContextAlgoID( &nullStream, iCryptContext );
 	if( cryptStatusOK( status ) )
-		status = stell( &nullStream );
+		status = length = stell( &nullStream );
 	sMemClose( &nullStream );
+	if( cryptStatusError( status ) )
+		return( status );
 
-	return( status );
+	return( length );
 	}
 
  /* Read an EncryptionAlgorithmIdentifier/DigestAlgorithmIdentifier */
@@ -604,6 +641,8 @@ int readCryptAlgoParams( INOUT_PTR STREAM *stream,
 						 INOUT_PTR QUERY_INFO *queryInfo,
 						 IN_LENGTH_Z const int startOffset )
 	{
+	int status;
+	
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
 
@@ -683,8 +722,12 @@ int readCryptAlgoParams( INOUT_PTR STREAM *stream,
 #endif /* USE_RC4 */
 
 		case CRYPT_IALGO_GENERIC_SECRET:
-			return( readGenericSecretParams( stream, queryInfo, 
-											 startOffset ) );
+			status = readGenericSecretParams( stream, queryInfo, 
+											  startOffset );
+			if( cryptStatusError( status ) )
+				return( sSetError( stream, status ) );
+
+			return( CRYPT_OK );
 		}
 
 	retIntError();
@@ -744,7 +787,7 @@ int writeCryptContextAlgoID( INOUT_PTR STREAM *stream,
 		DEBUG_DIAG(( "Couldn't extract information needed to write "
 					 "AlgoID" ));
 		assert( DEBUG_WARN );
-		return( status );
+		return( sSetError( stream, status ) );
 		}
 
 	ENSURES_S( isConvAlgo( algorithm ) || isSpecialAlgo( algorithm ) );
@@ -760,7 +803,7 @@ int writeCryptContextAlgoID( INOUT_PTR STREAM *stream,
 		   CRYPT_ERROR_NOTAVAIL */
 		DEBUG_DIAG(( "Tried to write non-PKCS #7 / CMS algorithm ID" ));
 		assert( DEBUG_WARN );
-		return( CRYPT_ERROR_NOTAVAIL );
+		return( sSetError( stream, CRYPT_ERROR_NOTAVAIL ) );
 		}
 	oidSize = sizeofOID( oid );
 	ENSURES_S( oidSize >= MIN_OID_SIZE && oidSize <= MAX_OID_SIZE );
@@ -833,8 +876,12 @@ int writeCryptContextAlgoID( INOUT_PTR STREAM *stream,
 #endif /* USE_RC4 */
 
 		case CRYPT_IALGO_GENERIC_SECRET:
-			return( writeGenericSecretParams( stream, iCryptContext, 
-											  oid, oidSize ) );
+			status = writeGenericSecretParams( stream, iCryptContext, 
+											   oid, oidSize );
+			if( cryptStatusError( status ) )
+				return( sSetError( stream, status ) );
+
+			return( CRYPT_OK );
 		}
 
 	retIntError();

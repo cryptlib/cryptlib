@@ -14,17 +14,23 @@
 # servers are running very old versions of SSH that don't do SHA2
 # signatures, and to deal with SSH server keys changing.
 #
+# Machine list at https://portal.cfarm.net/machines/list.
+#
 # Former hosts:
 #	cfarm23 = MIPS64, vanished mid-2025, using cfarm230.
 #	cfarm92 = RiscV64 SiFive, vanished mid-2025.
 #	cfarm93 = RiscV64 JH7110, vanished mid-2025, using cfarm94.
+#	cfarm110 = PPC64 big-endian Linux clang, retired early 2026.
+#	cfarm111 = PPC64 big-endian AIX xlc, retired early 2026.
+#	cfarm119 = PPC32 big-ending AIX xlc, moved to clang with complex custom
+#			   path configuration early 2026.
 #	cfarm203 = PPC64, retired late 2025, using cfarm121
 
 HOSTS="27 70 94 95 104 112 121 185 210 211 215 216 220 230 231 240 400 439 440"
 HOSTPREFIX="cfarm"
 HOSTSUFFIX="cfarm.net"
 USER="peter"
-SSH_PRIVKEYPATH="$HOME/.ssh/cpunx.pri"
+SSH_PRIVKEYPATH="$HOME/.ssh/cfarm.pri"
 SSH_ARGS="-o PubkeyAcceptedAlgorithms=+ssh-rsa -o KexAlgorithms=+diffie-hellman-group-exchange-sha1 -o HostKeyAlgorithms=+ssh-rsa -o StrictHostKeyChecking=no"
 SSH_PORTARG_SCP=
 SSH_PORTARG_SSH=
@@ -54,10 +60,14 @@ while getopts "h:r:u:" options ; do
 done
 shift $(( OPTIND - 1 ))
 
-# Make sure that the required source file is ready to go.
+# Make sure that the required files are ready to go.
 
 if [ ! -s ./beta.zip ] ; then
 	echo "Error: Couldn't find beta.zip in the current directory." >&2 ;
+	exit 1 ;
+fi
+if [ ! -s $SSH_PRIVKEYPATH ] ; then
+	echo "Error: Couldn't find SSH key $SSH_PRIVKEYPATH." >&2 ;
 	exit 1 ;
 fi
 
@@ -131,16 +141,17 @@ for host in $HOSTS ; do
 		'104') echo "cfarm104: Apple M1 Arm64 little-endian OS X clang." ;;
 #		'110') echo "cfarm110: PPC64 big-endian Linux clang." ;;
 #		'111') echo "cfarm111: PPC64 big-endian AIX xlc." ;;
-		'112') echo "cfarm112: PPC64 little-endian Linux gcc.  Broken clang install." ;;
+		'112') echo "cfarm112: PPC64 little-endian Linux gcc. Broken clang install." ;;
+#		'119') echo "cfarm119: PPC32 big-endian AIX xlc.  32-bit time_t" ;;
 		'121') echo "cfarm121: PPC64 big-endian Linux clang." ;;
 		'185') echo "cfarm185: Arm64 little-endian Linux clang." ;;
 #		'203') echo "cfarm203: PPC64 big-endian Linux clang." ;;
-		'210') echo "cfarm210: Sparc64 big-endian Solaris 10 SunPro.  OpenCSW." ;;
-		'211') echo "cfarm211: Sparc64 big-endian Solaris 11 SunPro.  OpenCSW." ;;
+		'210') echo "cfarm210: Sparc64 big-endian Solaris 10 SunPro. OpenCSW." ;;
+		'211') echo "cfarm211: Sparc64 32-bit big-endian Solaris 11 SunPro. OpenCSW. 32-bit time_t" ;;
 		'215') echo "cfarm215: Intel x86-64 little-endian Solaris 11 clang." ;;
 		'216') echo "cfarm216: Sparc64 big-endian Solaris 11 clang." ;;
 		'220') echo "cfarm220: Xeon x86-64 little-endian OpenBSD clang." ;;
-		'230') echo "cfarm230: MIPS64 big-endian Linux clang." ;;
+		'230') echo "cfarm230: MIPS64 32-bit big-endian Linux clang. 32-bit time_t" ;;
 		'231') echo "cfarm231: MIPS64 big-endian OpenBSD clang" ;;
 		'240') echo "cfarm240: ARM Morello CheriBSD/FreeBSD, 64-bit word, 128-bit pointers." ;;
 		'400') echo "cfarm400: Loongson64 little-endian Linux clang." ;;
@@ -195,16 +206,11 @@ EOL
 	if [ $status -ne 0 ] ; 	then
 		printf "\n**** Error testing on %s: %d ****\n" "$HOSTNAME" "$status" >&2 ;
 		case $host in
-#			'23')
-#				echo "(If the problem was an internal error in clang, restart with '-r 27')" >&2 ;;
-
-			'104'|'111'|'185')
-				# This doesn't actually get displayed because we have to ^C to
-				# get out.
-				echo "(If the problem was a hang on the SSH test, restart with '-r 111/112/210')" >&2 ;;
-
 			'112')
 				echo "(If the problem was due to a broken clang install, restart with '-r 121')" >&2 ;;
+
+			'119')
+				echo "(If the problem was due to a missing xlc, restart with '-r 121')" >&2 ;;
 		esac ;
 		exit 1 ;
 	fi

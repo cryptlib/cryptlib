@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib RSA Encryption Routines					*
-*						Copyright Peter Gutmann 1993-2019					*
+*						Copyright Peter Gutmann 1993-2025					*
 *																			*
 ****************************************************************************/
 
@@ -275,7 +275,10 @@ static int initContext( OUT_PTR CONTEXT_INFO *contextInfo,
 							   BIGNUM_CHECK_VALUE );
 		}
 	if( cryptStatusError( status ) )
+		{
+		staticDestroyContext( contextInfo );
 		return( status );
+		}
 
 	ENSURES( sanityCheckPKCInfo( pkcInfo ) );
 
@@ -294,7 +297,7 @@ static int selfTest( void )
 	/* Initialise the key components */
 	status = initContext( &contextInfo, pkcInfo );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( CRYPT_ERROR_FAILED );
 
 	/* Perform the test en/decryption of a block of data */
 	capabilityInfoPtr = DATAPTR_GET( contextInfo.capabilityInfo );
@@ -322,8 +325,10 @@ static int selfTest( void )
 	memcpy( buffer, randomTestData, 128 );
 	status = initContext( &contextInfo, pkcInfo );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( CRYPT_ERROR_FAILED );
 	SET_FLAG( contextInfo.flags, CONTEXT_FLAG_SIDECHANNELPROTECTION );
+	capabilityInfoPtr = DATAPTR_GET( contextInfo.capabilityInfo );
+	REQUIRES( capabilityInfoPtr != NULL );
 	status = capabilityInfoPtr->initKeyFunction( &contextInfo, NULL, 0 );
 	if( cryptStatusOK( status ) )
 		{
@@ -464,7 +469,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
    shortcut.  n isn't needed because of this.
 
    There are two types of side-channel attack protection that we employ for
-   prvate-key operations, the first being standard blinding included in the
+   private-key operations, the first being standard blinding included in the
    code below.  The second type applies to CRT-based RSA implementations and
    is based on the fact that if a fault occurs during the computation of p2
    or q2 (to give, say, p2') then applying the CRT will yield a faulty
@@ -795,7 +800,6 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 									   BIGNUM_CHECK_VALUE );
 				}
 			}
-		SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		if( cryptStatusError( status ) )
 			return( status );
 

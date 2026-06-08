@@ -154,7 +154,6 @@ int initSessionNetConnectInfo( IN_PTR const SESSION_INFO *sessionInfoPtr,
    The checks performed are:
 
 	CRYPT_SESSINFO_REQUEST		-> !CRYPT_SESSINFO_REQUEST, 
-								   !CRYPT_SESSINFO_PRIVATEKEY,
 								   !CRYPT_SESSINFO_CMP_PRIVKEYSET
 
 	CRYPT_SESSINFO_PRIVATEKEY	-> !CRYPT_SESSINFO_PRIVATEKEY,
@@ -180,7 +179,7 @@ BOOLEAN checkAttributesConsistent( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	{
 	static const MAP_TABLE excludedAttrTbl[] = {
 		{ CRYPT_SESSINFO_REQUEST, 
-			CHECK_ATTR_REQUEST | CHECK_ATTR_PRIVKEY | CHECK_ATTR_PRIVKEYSET },
+			CHECK_ATTR_REQUEST | CHECK_ATTR_PRIVKEYSET },
 		{ CRYPT_SESSINFO_PRIVATEKEY,
 			CHECK_ATTR_PRIVKEY | CHECK_ATTR_PRIVKEYSET },
 		{ CRYPT_SESSINFO_CACERTIFICATE, 
@@ -209,6 +208,13 @@ BOOLEAN checkAttributesConsistent( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		sessionInfoPtr->iCertRequest != CRYPT_ERROR )
 		{
 		setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_REQUEST,
+							CRYPT_ERRTYPE_ATTR_PRESENT );
+		return( FALSE );
+		}
+	if( ( flags & CHECK_ATTR_PRIVKEY ) && \
+		sessionInfoPtr->privateKey != CRYPT_ERROR )
+		{
+		setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_PRIVATEKEY,
 							CRYPT_ERRTYPE_ATTR_PRESENT );
 		return( FALSE );
 		}
@@ -799,7 +805,7 @@ int activateSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		{
 		ATTRIBUTE_LIST *attributeList;
 
-		/* If there's a sub-protocol selected, set up the acccess methods 
+		/* If there's a sub-protocol selected, set up the access methods 
 		   for it */
 #if defined( USE_WEBSOCKETS ) || defined( USE_EAP )
 		if( sessionInfoPtr->subProtocol != CRYPT_SUBPROTOCOL_NONE )

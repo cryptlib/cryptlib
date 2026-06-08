@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				Miscellaneous (Non-ASN.1) Read/Write Routines				*
-*						Copyright Peter Gutmann 1992-2024					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -81,7 +81,7 @@ static int readInteger( INOUT_PTR STREAM *stream,
 		/* This is a fixed-length value, e.g. X9.62, for which 
 		   minLength == maxLength == length */
 		if( length != minLength )
-			return( CRYPT_ERROR_BADDATA );
+			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 		*integerLength = length;
 		if( integer == NULL )
 			return( sSkip( stream, length, MAX_INTLENGTH_SHORT ) );
@@ -136,10 +136,15 @@ static int readInteger( INOUT_PTR STREAM *stream,
 
 	/* If we're reading a signed integer then the sign bit can't be set 
 	   since this would produce a negative value.  This differs from the 
-	   ASN.1 code, where the incorrect setting of the sign bit is so common 
+	   ASN.1 code where the incorrect setting of the sign bit is so common 
 	   that we always treat integers as unsigned */
-	if( lengthType == LENGTH_32 && ( sPeek( stream ) & 0x80 ) )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+	if( lengthType == LENGTH_32 )
+		{
+		const int firstByte = sPeek( stream );
+		
+		if( cryptStatusError( firstByte ) || ( firstByte & 0x80 ) )
+			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+		}
 
 	/* Skip up to 4 bytes of possible leading-zero padding and repeat the 
 	   length check once the zero-padding has been adjusted */
@@ -170,12 +175,22 @@ static int readInteger( INOUT_PTR STREAM *stream,
 
 		case BIGNUM_CHECK_VALUE_PKC:
 			if( isShortPKCKey( length ) )
+				{
+				/* See the previous comment for 
+				   BIGNUM_CHECK_VALUE_PKC */
+				sSetError( stream, CRYPT_ERROR_BADDATA );
 				return( CRYPT_ERROR_NOSECURE );
+				}
 			break;
 
 		case BIGNUM_CHECK_VALUE_ECC:
 			if( isShortECCKey( length ) )
+				{
+				/* See the previous comment for 
+				   BIGNUM_CHECK_VALUE_PKC */
+				sSetError( stream, CRYPT_ERROR_BADDATA );
 				return( CRYPT_ERROR_NOSECURE );
+				}
 			break;
 
 		default:
@@ -270,25 +285,39 @@ int readUint32Time( INOUT_PTR STREAM *stream,
 	   time_t's.  This is a bit of a problem because if we simply reject 
 	   the value we'll Y2038 ourselves (although the value would be
 	   rejected later anyway when it fails a time range check), so we
-	   clamp it to MAX_TIME_VALUE and let the user know in debug mode.
-	   Fortunately many 32-bit systems switched to a 64-bit time_t so
-	   it'll likely only affect a small remnant, mostly RTOSes, and in
-	   any case the only place where it's currently used is when reading 
-	   creation times of PGP keys which are unlikely to be used on 
-	   VxWorks */
+	   clamp it to MAX_TIME_VALUE - 1 and let the user know in debug mode.
+	   See the long comment in misc/consts.h for how time issues are
+	   handled */
 	status = sread( stream, buffer, UINT32_SIZE );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( sizeof( time_t ) <= 4 && ( buffer[ 0 ] & 0x80 ) )
-		{
-		assert( DEBUG_WARN );
-		*timeVal = MAX_TIME_VALUE;
-		return( CRYPT_OK );
-		}
+#ifdef TIMET_64BIT
 	value = ( ( ( time_t ) buffer[ 0 ] ) << 24 ) | \
 			( ( ( time_t ) buffer[ 1 ] ) << 16 ) | \
 			( ( ( time_t ) buffer[ 2 ] ) << 8 ) | \
 				( time_t ) buffer[ 3 ];
+#else
+	if( sizeof( time_t ) <= 4 && ( buffer[ 0 ] & 0x80 ) )
+		{
+		/* High bit set, we can't try and read the value into a time_t */
+		assert( DEBUG_WARN );
+		value = MAX_TIME_VALUE - 1;
+		}
+	else
+		{
+		value = ( ( ( time_t ) buffer[ 0 ] ) << 24 ) | \
+				( ( ( time_t ) buffer[ 1 ] ) << 16 ) | \
+				( ( ( time_t ) buffer[ 2 ] ) << 8 ) | \
+					( time_t ) buffer[ 3 ];
+		if( sizeof( time_t ) <= 4 && value >= MAX_TIME_VALUE )
+			{
+			/* Value without the high bit set but still beyond 
+			   MAX_TIME_VALUE */
+			assert( DEBUG_WARN );
+			value = MAX_TIME_VALUE - 1;
+			}
+		}
+#endif /* TIMET_64BIT */
 	if( value < MIN_STORED_TIME_VALUE || value >= MAX_TIME_VALUE )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	*timeVal = value;
@@ -679,7 +708,7 @@ int writeUint16( INOUT_PTR STREAM *stream,
 	}
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int writeUint32( INOUT_PTR STREAM *stream, IN_INT_Z const long value )
+int writeUint32( INOUT_PTR STREAM *stream, IN_INT_Z const int value )
 	{
 	BYTE buffer[ UINT32_SIZE + 8 ];
 
@@ -695,7 +724,7 @@ int writeUint32( INOUT_PTR STREAM *stream, IN_INT_Z const long value )
 	}
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int writeUint64( INOUT_PTR STREAM *stream, IN_INT_Z const long value )
+int writeUint64( INOUT_PTR STREAM *stream, IN_INT_Z const int value )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -846,10 +875,20 @@ int writeInteger32( INOUT_PTR STREAM *stream,
 CHECK_RETVAL_RANGE( UINT32_SIZE, MAX_INTLENGTH_SHORT ) STDC_NONNULL_ARG( ( 1 ) ) \
 int sizeofBignumInteger32( const void *bignum )
 	{
+	const int length = BN_num_bytes( bignum );
+
 	assert( isReadPtr( bignum, sizeof( BIGNUM ) ) );
 
-	return( UINT32_SIZE + BN_high_bit( ( BIGNUM * ) bignum ) + \
-						  BN_num_bytes( bignum ) );
+	/* The output from this function is typically used in calculations
+	   involving multiple bignums, for which it doesn't make much sense to
+	   individually check the return value of each function call for a
+	   condition that can only be caused by an internal error, so we throw
+	   an exception in debug mode but otherwise convert the condition to
+	   a no-op length value */
+	if( cryptStatusError( length ) )
+		retIntError_Ext( 0 );
+
+	return( UINT32_SIZE + BN_high_bit( ( BIGNUM * ) bignum ) + length );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \

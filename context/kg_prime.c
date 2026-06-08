@@ -436,7 +436,11 @@ int primeProbable( INOUT_PTR PKC_INFO *pkcInfo,
 	/* Perform n iterations of Miller-Rabin */
 	LOOP_LARGE( i = 0, i < noChecks, i++ )
 		{
+		const int smallPrime = getSieveEntry( i );
+		
 		ENSURES( LOOP_INVARIANT_LARGE( i, 0, noChecks - 1 ) );
+
+		ENSURES( !cryptStatusError( smallPrime ) );
 
 		/* Instead of using a bignum for the Miller-Rabin check we use a
 		   series of small primes.  The reason for this is that if bases a1
@@ -488,7 +492,7 @@ int primeProbable( INOUT_PTR PKC_INFO *pkcInfo,
 		   for Primality Testing" by Massimo and Paterson, however this would
 		   then require a very expensive full-blown primality check every 
 		   time we import a public key value */
-		CK( BN_set_word( a, getSieveEntry( i ) ) );
+		CK( BN_set_word( a, smallPrime ) );
 		if( bnStatusError( bnStatus ) )
 			return( getBnStatus( bnStatus ) );
 		status = witness( pkcInfo, a, n, n_1, u, k, &pkcInfo->montCTX1 );
@@ -568,7 +572,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int generatePrimeEx( INOUT_PTR PKC_INFO *pkcInfo, 
 							INOUT_PTR BIGNUM *candidate, 
 							IN_LENGTH_SHORT_MIN( 120 ) const int noBits, 
-							IN_INT_OPT const long exponent,
+							IN_INT_OPT const int exponent,
 							IN_PTR_OPT const GET_RANDOM_INFO *getRandomInfo )
 	{
 	const GETRANDOMDATA_FUNCTION getRandomFunction = \
@@ -802,7 +806,7 @@ int generatePrimeRSA( INOUT_PTR PKC_INFO *pkcInfo,
 					  INOUT_PTR BIGNUM *candidate, 
 					  IN_LENGTH_SHORT_MIN( bytesToBits( MIN_PKCSIZE ) / 2 ) \
 							const int noBits, 
-					  IN_INT const long exponent )
+					  IN_INT const int exponent )
 	{
 	assert( isWritePtr( pkcInfo, sizeof( PKC_INFO ) ) );
 	assert( isWritePtr( candidate, sizeof( BIGNUM ) ) );

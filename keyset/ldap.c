@@ -899,7 +899,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	if( valuePtrs != NULL )
 		{
 		MESSAGE_CREATEOBJECT_INFO createInfo;
-		long length;
+		int length;
 
 		/* Perform a sanity check on the length.  This avoids triggering 
 		   assertions in the debug build and provides somewhat more specific 
@@ -1028,7 +1028,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 #ifdef USE_LDAP_WRITE
 
 /* Add an entry/attribute to an LDAP directory.  The LDAP behaviour differs
-   somewhat from DAP in that assigning a value to a nonexistant attribute
+   somewhat from DAP in that assigning a value to a nonexistent attribute
    implicitly creates the required attribute.  In addition deleting the last
    value automatically deletes the entire attribute, the delete item code
    assumes the user is requesting a superset of this behaviour and deletes

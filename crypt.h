@@ -25,7 +25,7 @@
 	debug.h			// Debugging header
 	fault.h			// Debugging (fault-injection) header */
 
-/* Global headers used in almost every module.  Before includng these, we 
+/* Global headers used in almost every module.  Before including these, we 
    have to set a few defines to enable normally-disabled functionality */
 
 #ifndef __STDC_WANT_LIB_EXT1__
@@ -80,20 +80,6 @@
 
 /****************************************************************************
 *																			*
-*						Data Size and Crypto-related Constants				*
-*																			*
-****************************************************************************/
-
-/* Pull in the data-size and crypt-related constants */
-
-#if defined( INC_ALL )
-  #include "consts.h"
-#else
-  #include "misc/consts.h"
-#endif /* Compiler-specific includes */
-
-/****************************************************************************
-*																			*
 *						System- and Compiler-Specific Interface				*
 *																			*
 ****************************************************************************/
@@ -107,14 +93,29 @@
   #include "misc/analyse.h"
 #endif /* Compiler-specific includes */
 
-/* Pull in the system and compiler-specific interface definitions.  This 
-   uses the output from config.h to enable/disable system-specific 
-   interfaces and options */
+/* Pull in OS and compiler-specific interface definitions as well as 
+   detection of compiler and OS features.  This uses the output from 
+   config.h to enable/disable OS-specific interfaces and options */
 
 #if defined( INC_ALL )
   #include "os_spec.h"
 #else
   #include "misc/os_spec.h"
+#endif /* Compiler-specific includes */
+
+/****************************************************************************
+*																			*
+*						Data Size and Crypto-related Constants				*
+*																			*
+****************************************************************************/
+
+/* Pull in the data-size and crypt-related constants.  This uses the output
+   from os_spec.h to define various OS-related constants */
+
+#if defined( INC_ALL )
+  #include "consts.h"
+#else
+  #include "misc/consts.h"
 #endif /* Compiler-specific includes */
 
 /****************************************************************************
@@ -172,14 +173,14 @@
    dealing with a stream.  Used to sample data from the crypto RNG to detect 
    stuck-at faults and in the debug version of clAlloc() */
 
-#define mgetLong( memPtr ) \
+#define mget32( memPtr ) \
 		( ( ( unsigned long ) ( memPtr )[ 0 ] << 24 ) | \
 		  ( ( unsigned long ) ( memPtr )[ 1 ] << 16 ) | \
 		  ( ( unsigned long ) ( memPtr )[ 2 ] << 8 ) | \
 		    ( unsigned long ) ( memPtr )[ 3 ] ); \
 		memPtr += 4
 
-#define mputLong( memPtr, data ) \
+#define mput32( memPtr, data ) \
 		( memPtr )[ 0 ] = ( BYTE ) ( ( ( data ) >> 24 ) & 0xFF ); \
 		( memPtr )[ 1 ] = ( BYTE ) ( ( ( data ) >> 16 ) & 0xFF ); \
 		( memPtr )[ 2 ] = ( BYTE ) ( ( ( data ) >> 8 ) & 0xFF ); \
@@ -205,7 +206,7 @@ typedef struct {
 	   could handle it */
 	CRYPT_FORMAT_TYPE formatType;	/* Object format type */
 	CRYPT_OBJECT_TYPE type, optType;/* Object type */
-	long size;						/* Object size */
+	int size;						/* Object size */
 	VALUE( 0, 10 ) \
 	int version;					/* Object format version */
 
@@ -265,12 +266,11 @@ typedef struct {
 	} QUERY_INFO;
 
 /* DLP algorithms require composite parameters when en/decrypting and
-   signing/sig checking, so we can't just pass in a single buffer full of
-   data as we can with RSA.  In addition the data length changes, for
-   example for a DSA sig we pass in a 20-byte hash and get back a ~50-byte
-   sig, for sig.checking we pass in a 20-byte hash and ~50-byte sig and get
-   back nothing.  Because of this we have to use the following structure to
-   pass data to the DLP-based PKCs, with the parameters being:
+   signing/sig checking so we have to use the following structure.  In 
+   addition the data length changes, for example for a DSA sig we pass in 
+   a 20-byte hash and get back a ~50-byte sig, for sig.checking we pass in 
+   a 20-byte hash and ~50-byte sig and get back nothing.  The parameters 
+   are:
 
 	Sign	inParam1 = hash
 			outParam = signature
@@ -279,40 +279,93 @@ typedef struct {
 	Encr	inParam1 = plaintext
 			outParam = ciphertext
 	Decr	inParam1 = ciphertext
-			outParam = plaintext */
+			outParam = plaintext 
+
+   Because of the usual special-snowflake requirements for the Bernstein
+   algorithms, which sign an entire message rather than just a hash, we need 
+   custom handling for them:
+
+	Sign	inMessagePtr = message
+			outParam = signature
+	Verify	inMessagePtr = message
+			inParam2 = signature */
+
+#ifdef USE_ELGAMAL
+  #define DLP_DATA_SIZE			( CRYPT_MAX_PKCSIZE * 2 ) + 16
+#else
+  #define DLP_DATA_SIZE			CRYPT_MAX_PKCSIZE
+#endif /* USE_ELGAMAL */
 
 typedef struct {
-	BUFFER_FIXED( inLen1 ) \
-	const BYTE *inParam1;
-	BUFFER_OPT_FIXED( inLen2 ) \
-	const BYTE *inParam2;				/* Input parameters */
-	BUFFER_FIXED( outLen ) \
-	BYTE *outParam;						/* Output parameter */
-	int inLen1, inLen2, outLen;			/* Parameter lengths */
-	CRYPT_FORMAT_TYPE formatType;		/* Paramter format type */
+	BUFFER( DLP_DATA_SIZE, inLen1 ) \
+	BYTE inParam1[ DLP_DATA_SIZE + 8 ];
+	VALUE( 0, DLP_DATA_SIZE ) \
+	int inLen1;
+	BUFFER( DLP_DATA_SIZE, inLen2 ) \
+	BYTE inParam2[ DLP_DATA_SIZE + 8 ];
+	VALUE( 0, DLP_DATA_SIZE ) \
+	int inLen2;							/* Input parameters */
+	BUFFER( DLP_DATA_SIZE, outLen2 ) \
+	BYTE outParam[ DLP_DATA_SIZE + 8 ];
+	VALUE( 0, DLP_DATA_SIZE ) \
+	int outLen;							/* Output parameters */
+	CRYPT_FORMAT_TYPE formatType;		/* Parameter format type */
+#ifdef USE_ED25519
+	const void *inMessagePtr;			/* Special-snowflake input parameters */
+	int inMessageLen;
+#endif /* USE_ED25519 */
 	} DLP_PARAMS;
 
-#define setDLPParams( dlpDataPtr, dataIn, dataInLen, dataOut, dataOutLen ) \
+#define initDLPParamsSign( dlpDataPtr, hash, hashLen ) \
 	{ \
 	memset( ( dlpDataPtr ), 0, sizeof( DLP_PARAMS ) ); \
 	( dlpDataPtr )->formatType = CRYPT_FORMAT_CRYPTLIB; \
-	( dlpDataPtr )->inParam1 = ( dataIn ); \
-	( dlpDataPtr )->inLen1 = ( dataInLen ); \
-	( dlpDataPtr )->outParam = ( dataOut ); \
-	( dlpDataPtr )->outLen = ( dataOutLen ); \
+	memcpy( ( dlpDataPtr )->inParam1, hash, hashLen ); \
+	( dlpDataPtr )->inLen1 = hashLen; \
 	}
 
-/* When calling key agreement functions we have to pass a mass of cruft
-   around instead of the usual flat data (even more than the generic DLP
-   parameter information) for which we use the following structure.  The
-   public value is the public key value used for the agreement process,
-   typically y = g^x mod p for DH-like mechanisms.  The ukm is the user
-   keying material, typically something which is mixed into the DH process
-   to make the new key unique.  The wrapped key is the output (originator)/
-   input(recipient) to the keyagreement process.  The session key context
-   contains a context into which the derived key is loaded.  Typical
-   examples of use, with ML-KEM following the usual PQC pattern of doing
-   things in a strange way, are::
+#define initDLPParamsSigCheck( dlpDataPtr, hash, hashLen, sig, sigLen ) \
+	{ \
+	memset( ( dlpDataPtr ), 0, sizeof( DLP_PARAMS ) ); \
+	( dlpDataPtr )->formatType = CRYPT_FORMAT_CRYPTLIB; \
+	memcpy( ( dlpDataPtr )->inParam1, hash, hashLen ); \
+	( dlpDataPtr )->inLen1 = hashLen; \
+	memcpy( ( dlpDataPtr )->inParam2, sig, sigLen ); \
+	( dlpDataPtr )->inLen2 = sigLen; \
+	}
+
+#ifdef USE_ED25519
+
+#define initDLPParamsSignBernstein( dlpDataPtr, message, messageLen ) \
+	{ \
+	memset( ( dlpDataPtr ), 0, sizeof( DLP_PARAMS ) ); \
+	( dlpDataPtr )->formatType = CRYPT_FORMAT_CRYPTLIB; \
+	( dlpDataPtr )->inMessagePtr = message; \
+	( dlpDataPtr )->inMessageLen = messageLen; \
+	}
+
+#define initDLPParamsSigCheckBernstein( dlpDataPtr, message, messageLen, sig, sigLen ) \
+	{ \
+	memset( ( dlpDataPtr ), 0, sizeof( DLP_PARAMS ) ); \
+	( dlpDataPtr )->formatType = CRYPT_FORMAT_CRYPTLIB; \
+	( dlpDataPtr )->inMessagePtr = message; \
+	( dlpDataPtr )->inMessageLen = messageLen; \
+	memcpy( ( dlpDataPtr )->inParam2, sig, sigLen ); \
+	( dlpDataPtr )->inLen2 = sigLen; \
+	}
+#endif /* USE_ED25519 */
+
+#define initDLPParamsCrypt	initDLPParamsSign
+
+/* When calling key agreement functions we have to pass input and output
+   parameters around, for which we use the following structure.  The public 
+   value is the public key value used for the agreement process, for example
+   y = g^x mod p for DH-like mechanisms.  The ukm (unused, from S/MIME 
+   Fortezza support) is the user keying material, typically something which 
+   is mixed into the DH process to make the new key unique.  The wrapped key 
+   is the output from the keyagreement process.  Typical examples of use, 
+   with ML-KEM following the usual PQC pattern of doing things in a strange 
+   way, are:
 
 	PKCS #3: publicValue = y
 	S/MIME: publicValue = y, ukm = 512-bit nonce, wrappedKey = g^x mod p
@@ -535,18 +588,16 @@ typedef struct {
 		( ( keySize ) >= MIN_PKCSIZE_ECC_THRESHOLD && \
 		  ( keySize ) < MIN_PKCSIZE_ECC )
 
-/* To avoid problems with signs, for example due to (signed) characters
-   being potentially converted to large signed integer values we perform a
-   safe conversion by going via an intermediate unsigned value, which in
-   the case of char -> int results in 0xFF turning into 0x000000FF rather
-   than 0xFFFFFFFF.
+/* To avoid problems with sign extension, for example due to (signed) 
+   characters being potentially converted to large signed integer values, 
+   we perform a safe conversion by going via an intermediate unsigned value, 
+   which in the case of char -> int results in 0xFF turning into 0x000000FF 
+   rather than 0xFFFFFFFF.
    
    For Visual Studio we explicitly mask some values to avoid runtime traps 
    in debug builds */
 
 #define byteToInt( x )				( ( int ) ( ( BYTE ) ( x ) ) )
-#define intToLong( x )				( ( unsigned int ) ( x ) )
-
 #if defined( _MSC_VER ) && VC_GE_2010( _MSC_VER )
   #define intToByte( x )			( ( BYTE ) ( ( x ) & 0xFF ) )
 #else

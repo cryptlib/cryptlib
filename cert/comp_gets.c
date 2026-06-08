@@ -39,9 +39,8 @@ static int oidToText( IN_BUFFER( binaryOidLen ) const BYTE *binaryOID,
 					  IN_LENGTH_SHORT_MIN( 16 ) const int maxOidLen, 
 					  OUT_LENGTH_BOUNDED_Z( maxOidLen ) int *oidLen )
 	{
-	long value = 0;
+	int value = 0, length = 0, subLen;
 	LOOP_INDEX i;
-	int length = 0, subLen;
 
 	assert( isReadPtrDynamic( binaryOID, binaryOidLen ) );
 	assert( isWritePtrDynamic( oid, maxOidLen ) );
@@ -59,7 +58,7 @@ static int oidToText( IN_BUFFER( binaryOidLen ) const BYTE *binaryOID,
 
 	LOOP_MED( i = 2, i < binaryOidLen, i++ )
 		{
-		const long valTmp = value << 7;
+		const int valTmp = value << 7;
 		int data;
 
 		ENSURES( LOOP_INVARIANT_MED( i, 2, binaryOidLen - 1 ) );
@@ -90,7 +89,7 @@ static int oidToText( IN_BUFFER( binaryOidLen ) const BYTE *binaryOID,
 
 			if( length == 0 )
 				{
-				long x, y;
+				int x, y;
 
 				/* The first two levels are encoded into one byte since the 
 				   root level has only 3 nodes (40*x + y), however if x = 
@@ -117,12 +116,12 @@ static int oidToText( IN_BUFFER( binaryOidLen ) const BYTE *binaryOID,
 					   that's just appeared */
 					return( CRYPT_ERROR_BADDATA );
 					}
-				subLen = sprintf_s( oid, maxOidLen, "%ld %ld", x, y );
+				subLen = sprintf_s( oid, maxOidLen, "%d %d", x, y );
 				}
 			else
 				{
 				subLen = sprintf_s( oid + length, maxOidLen - length, 
-									" %ld", value );
+									" %d", value );
 				}
 			if( checkOverflowSub( maxOidLen, length ) || \
 				!rangeCheck( subLen, 2, ( maxOidLen - length ) - 1 ) )
@@ -151,41 +150,29 @@ static int oidToText( IN_BUFFER( binaryOidLen ) const BYTE *binaryOID,
 CHECK_RETVAL_RANGE( 0, CRYPT_MAX_TEXTSIZE ) STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int scanValue( IN_BUFFER( strMaxLength ) const char *string, 
 					  IN_LENGTH_TEXT const int strMaxLength,
-					  OUT_INT_Z long *value )
+					  OUT_INT_Z int *value )
 	{
-	LOOP_INDEX index;
-	int intValue, status;
+	int length;
 
 	assert( isReadPtrDynamic( string, strMaxLength ) );
-	assert( isWritePtr( value, sizeof( long ) ) );
+	assert( isWritePtr( value, sizeof( int ) ) );
 
 	REQUIRES( strMaxLength > 0 && strMaxLength <= CRYPT_MAX_TEXTSIZE );
 
 	/* Clear return value */
 	*value = 0;
 
-	/* Look for the end of the arc */
-	LOOP_MED( index = 0, index < strMaxLength, index++ )
-		{
-		ENSURES( LOOP_INVARIANT_MED( index , 0, strMaxLength - 1 ) );
-
-		if( string[ index ] == ' ' || string[ index ] == '.' )
-			break;
-		}
-	ENSURES( LOOP_BOUND_OK );
-	if( index <= 0 || index > CRYPT_MAX_TEXTSIZE )
+	/* Extract the numeric value for the arc */
+	length = strParseNumeric( string, strMaxLength, value, 0, OID_ARC_MAX );
+	if( cryptStatusError( length ) )
 		return( -1 );
-	status = strGetNumeric( string, index, &intValue, 0, OID_ARC_MAX );
-	if( cryptStatusError( status ) )
-		return( -1 );
-	*value = intValue;
-	if( index < strMaxLength && \
-		( string[ index ] == ' ' || string[ index ] == '.' ) )
+	if( length < strMaxLength && \
+		( string[ length ] == ' ' || string[ length ] == '.' ) )
 		{
 		/* There's more to go, skip the delimiter */
-		index++;
+		length++;
 		}
-	return( index );
+	return( length );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 5 ) ) \
@@ -196,9 +183,8 @@ int textToOID( IN_BUFFER( textOidLength ) const char *textOID,
 			   OUT_LENGTH_BOUNDED_Z( binaryOidMaxLen ) int *binaryOidLen )
 	{
 	const char *textOidPtr;
-	long value, value2;
+	int value, value2, length = 3, subLen, status;
 	LOOP_INDEX dataLeft;
-	int length = 3, subLen, status;
 
 	assert( isReadPtrDynamic( textOID, textOidLength ) );
 	assert( isWritePtrDynamic( binaryOID, binaryOidMaxLen ) );
@@ -1513,7 +1499,7 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 			   authorityInfoAccess information present then the URL won't 
 			   have been initialised.  Since this attribute isn't accessed 
 			   via the normal certificate attribute mechanisms we have to 
-			   explictly check for its non-presence */
+			   explicitly check for its non-presence */
 			switch( certInfoPtr->type )
 				{
 #ifdef USE_CERTREV

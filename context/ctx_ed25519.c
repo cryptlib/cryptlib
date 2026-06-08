@@ -65,9 +65,11 @@
    8 (canonical encoding) or 5 (non-canonical encoding) values.  This is 
    purely a sanity check used in an ENSURES() statement to document the fact
    that initKey() won't load such a key, it does a full check via 
-   ed25519_pubkey_verify() rather than just a blacklist check */
+   ed25519_pubkey_verify() rather than just a blocklist check */
 
 typedef BYTE POINT_DATA[ CURVE25519_SIZE ];
+
+#define NONCANONICAL_TEST_VALUE		9	/* First non-canonical encoding */
 
 static const POINT_DATA pointData[] = {
 	/* Canonical encodings */
@@ -129,7 +131,7 @@ static const POINT_DATA pointData[] = {
 	  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 	  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F },
 	/* End-of-list marker */
-	{ 0xFF }, { 0xFF }
+	{ 0xFF, 0x00 }, { 0xFF, 0x00 }
 	};
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -140,7 +142,8 @@ static BOOLEAN isPubkeySmallOrder( IN_BUFFER( CURVE25519_SIZE ) \
 
 	LOOP_MED( i = 0, 
 			  i < FAILSAFE_ARRAYSIZE( pointData, POINT_DATA ) && \
-					pointData[ i ][ 0 ] != 0xFF,
+					!( pointData[ i ][ 0 ] == 0xFF && \
+					   pointData[ i ][ 1 ] == 0x00 ),
 			  i++ )
 		{
 		ENSURES_EXT( LOOP_INVARIANT_MED( i, 0, 
@@ -209,10 +212,14 @@ static BOOLEAN checkRangeS( IN_BUFFER( CURVE25519_SIZE ) const BYTE *s )
 		sRev[ i ] = s[ CURVE25519_SIZE - ( i + 1 ) ];
 		}
 	ENSURES_B( LOOP_BOUND_OK );
-	if( memcmp( s, lowerBound, CURVE25519_SIZE ) < 0 || \
+	if( memcmp( sRev, lowerBound, CURVE25519_SIZE ) <= 0 || \
 		memcmp( sRev, L, CURVE25519_SIZE ) >= 0 )
+		{
+		zeroise( sRev, CURVE25519_SIZE );
 		return( FALSE );
+		}
 	
+	zeroise( sRev, CURVE25519_SIZE );
 	return( TRUE );
 	}
 
@@ -649,9 +656,8 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	DLP_PARAMS dlpParams;
-	BYTE buffer[ ( 2 * CURVE25519_SIZE ) + 8 ];
-	int sigSize, status;
+	DLP_PARAMS dlpParamsSign, dlpParamsSigCheck;
+	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -659,19 +665,18 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
 	REQUIRES_B( capabilityInfoPtr != NULL );
 
 	/* Generate a signature with the private key */
-	setDLPParams( &dlpParams, sha256hash, 32, buffer, 2 * CURVE25519_SIZE );
+	initDLPParamsSignBernstein( &dlpParamsSign, sha256hash, 32 );
 	status = capabilityInfoPtr->signFunction( contextInfoPtr,
-						( BYTE * ) &dlpParams, sizeof( DLP_PARAMS ) );
+						( BYTE * ) &dlpParamsSign, sizeof( DLP_PARAMS ) );
 	if( cryptStatusError( status ) )
 		return( FALSE );
 
 	/* Verify the signature with the public key */
-	sigSize = dlpParams.outLen;
-	setDLPParams( &dlpParams, sha256hash, 32, NULL, 0 );
-	dlpParams.inParam2 = buffer;
-	dlpParams.inLen2 = sigSize;
+	initDLPParamsSigCheckBernstein( &dlpParamsSigCheck, sha256hash, 32, 
+									dlpParamsSign.outParam, 
+									dlpParamsSign.outLen );
 	status = capabilityInfoPtr->sigCheckFunction( contextInfoPtr,
-						( BYTE * ) &dlpParams, sizeof( DLP_PARAMS ) );
+						( BYTE * ) &dlpParamsSigCheck, sizeof( DLP_PARAMS ) );
 	return( cryptStatusOK( status ) ? TRUE : FALSE );
 	}
 
@@ -694,7 +699,7 @@ static int selfTest( void )
 	int status;
 
 	/* Make sure that we can detect non-canonical encodings */
-	if( clib_ed25519_pubkey_verify( pointData[ 9 ] ) )
+	if( clib_ed25519_pubkey_verify( pointData[ NONCANONICAL_TEST_VALUE ] ) )
 		{
 		DEBUG_DIAG(( "Failed to detect non-canonical encoding of 25519 "
 					 "value" ));
@@ -752,10 +757,10 @@ static int selfTest( void )
 			}
 		if( cryptStatusOK( status ) )
 			{
-			setDLPParams( &dlpParams, ed25519TestPtr->message, 
-						  ed25519TestPtr->messageLen, NULL, 0 );
-			dlpParams.inParam2 = ed25519TestPtr->sig;
-			dlpParams.inLen2 = CURVE25519_SIZE * 2;
+			initDLPParamsSigCheckBernstein( &dlpParams, ed25519TestPtr->message, 
+											ed25519TestPtr->messageLen, 
+											ed25519TestPtr->sig, 
+											CURVE25519_SIZE * 2 );
 			status = capabilityInfoPtr->sigCheckFunction( &contextInfo,
 							( BYTE * ) &dlpParams, sizeof( DLP_PARAMS ) );
 			}
@@ -800,10 +805,11 @@ static int selfTest( void )
 		status = capabilityInfoPtr->initKeyFunction( &contextInfo, NULL, 0 );
 		if( cryptStatusOK( status ) )
 			{
-			setDLPParams( &dlpParams, stressTestDataPtr->message, 
-						  CURVE25519_SIZE, NULL, 0 );
-			dlpParams.inParam2 = stressTestDataPtr->signature;
-			dlpParams.inLen2 = CURVE25519_SIZE * 2;
+			initDLPParamsSigCheckBernstein( &dlpParams, 
+											stressTestDataPtr->message, 
+											CURVE25519_SIZE, 
+											stressTestDataPtr->signature, 
+											CURVE25519_SIZE * 2 );
 			status = capabilityInfoPtr->sigCheckFunction( &contextInfo,
 							( BYTE * ) &dlpParams, sizeof( DLP_PARAMS ) );
 			}
@@ -887,20 +893,16 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( eccParams, sizeof( DLP_PARAMS ) ) );
-	assert( isReadPtrDynamic( eccParams->inParam1, eccParams->inLen1 ) );
-	assert( isWritePtrDynamic( eccParams->outParam, eccParams->outLen ) );
+	assert( isReadPtr( eccParams->inMessagePtr, eccParams->inMessageLen ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( noBytes == sizeof( DLP_PARAMS ) );
-	REQUIRES( eccParams->inParam1 != NULL && \
-			  isShortIntegerRangeNZ( eccParams->inLen1 ) );
-	REQUIRES( eccParams->inParam2 == NULL && eccParams->inLen2 == 0 );
-	REQUIRES( isShortIntegerRangeMin( eccParams->outLen, 
-									  CURVE25519_SIZE * 2 ) );
+	REQUIRES( eccParams->inMessagePtr != NULL && \
+			  isIntegerRangeNZ( eccParams->inMessageLen ) );
 
 	/* Clear return values */
-	REQUIRES( isShortIntegerRangeNZ( eccParams->outLen ) ); 
-	memset( eccParams->outParam, 0, min( 16, eccParams->outLen ) );
+	REQUIRES( rangeCheck( DLP_DATA_SIZE, 1, DLP_DATA_SIZE ) ); 
+	memset( eccParams->outParam, 0, min( 16, DLP_DATA_SIZE ) );
 	eccParams->outLen = 0;
 
 	R = eccParams->outParam;
@@ -922,8 +924,6 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	zeroise( nonce, CRYPT_MAX_HASHSIZE );
 	if( osslStatus != TRUE )
 		{
-		/* r is an output parameter needed for the next step so we sanitise
-		   that as well */
 		zeroise( r, CURVE25519_SIZE );
 		return( CRYPT_ERROR_FAILED );
 		}
@@ -933,16 +933,20 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   check since initKey() won't load a public key of small order */
 	status = export25519ByteString( pubKey, CURVE25519_SIZE, &pubKeySize, 
 									&pkcInfo->curve25519Param_pub );
-	if( cryptStatusError( status ) )
-		return( status );
-	ENSURES( pubKeySize == CURVE25519_SIZE );
-	ENSURES( !isPubkeySmallOrder( pubKey ) );
-	status = hashRAM( hRAM, CRYPT_MAX_HASHSIZE, R, pubKey, 
-					  eccParams->inParam1, eccParams->inLen1 );
+	if( cryptStatusOK( status ) )
+		{
+		ENSURES( pubKeySize == CURVE25519_SIZE );
+		ENSURES( !isPubkeySmallOrder( pubKey ) );
+		status = hashRAM( hRAM, CRYPT_MAX_HASHSIZE, R, pubKey, 
+						  eccParams->inMessagePtr, 
+						  eccParams->inMessageLen );
+		}
 	if( cryptStatusError( status ) )
 		{
 		zeroise( r, CURVE25519_SIZE );
 		zeroise( R, CURVE25519_SIZE );
+		zeroise( hRAM, CRYPT_MAX_HASHSIZE );
+		zeroise( pubKey, CURVE25519_SIZE );
 		return( status );
 		}
 
@@ -991,16 +995,14 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( eccParams, sizeof( DLP_PARAMS ) ) );
-	assert( isReadPtrDynamic( eccParams->inParam1, eccParams->inLen1 ) );
-	assert( isReadPtrDynamic( eccParams->inParam2, eccParams->inLen2 ) );
+	assert( isReadPtr( eccParams->inMessagePtr, eccParams->inMessageLen ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( noBytes == sizeof( DLP_PARAMS ) );
-	REQUIRES( eccParams->inParam1 != NULL && \
-			  isShortIntegerRangeNZ( eccParams->inLen1 ) );
+	REQUIRES( eccParams->inMessagePtr != NULL && \
+			  isIntegerRangeNZ( eccParams->inMessageLen ) );
 	REQUIRES( eccParams->inParam2 != NULL && \
 			  eccParams->inLen2 == CURVE25519_SIZE * 2 );
-	REQUIRES( eccParams->outParam == NULL && eccParams->outLen == 0 );
 
 	/* Extract { r, s } from the signature data and verify that they're 
 	   kosher.  r is also checked in clib_ed25519_verify() which does an
@@ -1036,7 +1038,7 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   s' = s + nq and the signature would still verify because s' == s mod q. 
 	   The checkRangeS() earlier catches this */
 	status = hashRAM( hRAM, CRYPT_MAX_HASHSIZE, r, pubKey, 
-					  eccParams->inParam1, eccParams->inLen1 );
+					  eccParams->inMessagePtr, eccParams->inMessageLen );
 	if( cryptStatusError( status ) )
 		{
 		zeroise( pubKey, CURVE25519_SIZE );
@@ -1100,7 +1102,6 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 											ed25519Key->priv, 
 											CURVE25519_SIZE );
 			}
-		SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		if( cryptStatusError( status ) )
 			return( status );
 

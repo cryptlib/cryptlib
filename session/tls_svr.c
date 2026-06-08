@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							cryptlib TLS Server								*
-*					   Copyright Peter Gutmann 1998-2024					*
+*					   Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -51,6 +51,7 @@ static int readCheckClientCerts( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef CONFIG_SUITEB
 	int length;
 #endif /* CONFIG_SUITEB */
+	BOOLEAN isInWhitelist;
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -65,7 +66,7 @@ static int readCheckClientCerts( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* Check whether the client certificate is present the permitted-
+	/* Check whether the client certificate is present in the permitted-
 	   certificates whitelist (if there is one).  Checking whether the 
 	   certificate is known to us at this point opens us up to a theoretical 
 	   account-enumeration attack in which an attacker who has obtained a 
@@ -84,9 +85,18 @@ static int readCheckClientCerts( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   don't even go into a keyex unless we recognise the certificate */
 #ifndef CONFIG_SUITEB_TESTS 
 	status = checkCertWhitelist( sessionInfoPtr, 
-								 sessionInfoPtr->iKeyexAuthContext, TRUE );
+								 sessionInfoPtr->iKeyexAuthContext, 
+								 &isInWhitelist, TRUE );
 	if( cryptStatusError( status ) )
+		{
+		/* There's a whitelist present but the certificate isn't in it */
 		return( status );
+		}
+	if( isInWhitelist )
+		{
+		/* There's a whitelist present and the certificate is in it */
+		return( CRYPT_OK );
+		}
 #endif /* !CONFIG_SUITEB_TESTS */
 
 	/* Make sure that the key is of the appropriate size for the Suite B 
@@ -127,6 +137,12 @@ static int readCheckClientCerts( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 #endif /* CONFIG_SUITEB */
 
+	/* There's no whitelist present, it's up to the caller to check whether 
+	   they'll accept the certificate.  Note that this is the same as the
+	   isInWhiteList result, it's broken out here in case further checks are
+	   added above that would reject non-whitelisted certificates */
+	ENSURES( !isInWhitelist );
+	
 	return( CRYPT_OK );
 	}
 
@@ -177,7 +193,8 @@ static int writeCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( isBooleanValue( rsaAvailable ) );
 
-	/* Write the certificate type */
+	/* Write the certificate type.  An error status is sticky so we only
+	   need to capture the one from the last write that was used */
 	status = sputc( stream, ( rsaAvailable ? 1 : 0 ) + \
 							( dsaAvailable ? 1 : 0 ) + \
 							( ecdsaAvailable ? 1 : 0 ) );
@@ -235,7 +252,8 @@ static int writeCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int convertSNISessionID( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 						 OUT_BUFFER_FIXED( idBufferLength ) BYTE *idBuffer,
-						 IN_LENGTH_FIXED( KEYID_SIZE ) const int idBufferLength )
+						 IN_LENGTH_FIXED( SESSIONID_SIZE ) \
+							const int idBufferLength )
 	{
 	STREAM sniStream;
 	BYTE sniInfo[ UINT16_SIZE + MAX_SESSIONID_SIZE + \
@@ -246,10 +264,11 @@ int convertSNISessionID( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 	assert( isWritePtrDynamic( idBuffer, idBufferLength ) );
 
 	REQUIRES( sanityCheckTLSHandshakeInfo( handshakeInfo ) );
-	REQUIRES( idBufferLength == KEYID_SIZE );
+	REQUIRES( idBufferLength == SESSIONID_SIZE );
+	REQUIRES( handshakeInfo->hashedSNIpresent == TRUE );
 
 	/* Clear return value */
-	REQUIRES( idBufferLength == KEYID_SIZE );
+	REQUIRES( idBufferLength == SESSIONID_SIZE );
 	memset( idBuffer, 0, idBufferLength );
 
 	/* Write the session ID and hashed SNI to a buffer for hashing */
@@ -280,7 +299,7 @@ static int processSessionResume( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									SCOREBOARD_ENTRY_INFO *scoreboardEntryInfo,
 								 OUT_INT_Z int *resumedSessionID )
 	{
-	BYTE sessionIDbuffer[ KEYID_SIZE + 8 ];
+	BYTE sessionIDbuffer[ SESSIONID_SIZE + 8 ];
 	void *scoreboardInfoPtr = \
 				DATAPTR_GET( sessionInfoPtr->sessionTLS->scoreboardInfoPtr );
 	const BYTE *sessionIDptr = handshakeInfo->sessionID;
@@ -304,11 +323,11 @@ static int processSessionResume( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( handshakeInfo->hashedSNIpresent )
 		{
 		status = convertSNISessionID( handshakeInfo, sessionIDbuffer,
-									  KEYID_SIZE );
+									  SESSIONID_SIZE );
 		if( cryptStatusError( status ) )
 			return( status );
 		sessionIDptr = sessionIDbuffer;
-		sessionIDlength = KEYID_SIZE;
+		sessionIDlength = SESSIONID_SIZE;
 		}
 
 	/* The client has sent us a sessionID in an attempt to resume a previous 
@@ -481,7 +500,7 @@ static void checkSNI( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusOK( status ) )
 		return;		/* Success return */
 
-	/* If we're fuzzing there's not need to switch keys */
+	/* If we're fuzzing then there's no need to switch keys */
 	FUZZ_SKIP_REMAINDER_V();
 
 	/* It doesn't match the primary key, check for matches against any other
@@ -645,8 +664,9 @@ static int processPSKKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   while having little to no tangible benefit.  Because of this we don't 
 	   try and fake out the valid/invalid user name indication but just exit 
 	   immediately if an invalid name is found */
-	length = readUint16( stream );
-	if( length < 1 || length > CRYPT_MAX_TEXTSIZE || \
+	status = length = readUint16( stream );
+	if( cryptStatusError( status ) || \
+		length < 1 || length > CRYPT_MAX_TEXTSIZE || \
 		cryptStatusError( sread( stream, userID, length ) ) )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
@@ -937,8 +957,8 @@ static int createServerKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, keyDataOffset,
-											  &keyDataLength );
+		status = streamOffsetFromPosition( stream, keyDataOffset,
+										   &keyDataLength );
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -1030,7 +1050,7 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( status != OK_SPECIAL )
 			return( status );
 
-		/* Reset the special-case status value.  This is techically a dead
+		/* Reset the special-case status value.  This is technically a dead
 		   assignment but we do it anyway for hygiene reasons */
 		status = CRYPT_OK;
 		ANALYSER_HINT_DEADSTORE_OK( status );
@@ -1061,6 +1081,7 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* If we're fuzzing the input then we can skip all data writes to 
 	   minimise the overhead during fuzz testing */
+	FUZZ_SET( handshakeInfo->completedHSstate, HANDSHAKE_STATE_BEGIN );
 	FUZZ_SKIP_REMAINDER();
 
 	/* Handle session resumption if we're using standard TLS.  Under TLS 1.3
@@ -1083,20 +1104,36 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 		else
 			{
+			const int originalFlags = \
+				scoreboardEntryInfo.metaData & TLS_RESUMEDSESSION_FLAGS;
+			const int resumedFlags = \
+				GET_FLAGS( sessionInfoPtr->protocolFlags, 
+						   TLS_RESUMEDSESSION_FLAGS );
+			
 			/* We're resuming a previous session, if extended TLS facilities 
-			   were in use then make sure that the resumed session uses the 
-			   same facilities.  This check preents downgrade attacks where 
-			   additional security features are disabled by a MITM */
-			if( !TEST_FLAGS( sessionInfoPtr->protocolFlags, 
-							 TLS_RESUMEDSESSION_FLAGS, 
-							 scoreboardEntryInfo.metaData ) )
+			   were in use (EtM, EMS, LTS) then make sure that the resumed 
+			   session uses at least those same facilities.  This check 
+			   prevents downgrade attacks where additional security features 
+			   are disabled by a MITM 
+			   
+			   Note the "at least" check, it's possible to legitimately go 
+			   from fewer to more facilities in the resume, for example if 
+			   resuming a TLS 1.1 session, which doesn't do LTS, with a TLS 
+			   1.2 session, which does.
+			   
+			   It's unclear whether we should block cross-version resumption.
+			   The RFCs are silent on the matter, and third-party analyses 
+			   like "Client Side Caching for TLS" (section 3.1, "Cacheable 
+			   handshake parameters") don't mention the protocol version as 
+			   a parameter of interest.  If a client were to drop from TLS
+			   1.2 to 1.1 it would be downgrading itself, so we allow it */
+			if( resumedFlags < originalFlags )
 				{
 				retExt( CRYPT_ERROR_INVALID,
 						( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
-						  "Session with options %X was resumed with options "
-						  "%X.\n", scoreboardEntryInfo.metaData,
-						  GET_FLAGS( sessionInfoPtr->protocolFlags,
-									 TLS_RESUMEDSESSION_FLAGS ) ) );
+						  "Attempt to resume TLS session having option "
+						  "flags 0x%X with lower-security option flags "
+						  "0x%X", originalFlags, resumedFlags ) );
 				}
 
 			/* Remember the premaster secret for the resumed session */
@@ -1158,26 +1195,47 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusOK( status ) && \
 		originalServerVersion >= TLS_MINOR_VERSION_TLS12 )
 		{
-		/* Set the downgrade-protection value based on the (apparent) 
-		   requested protocol version.  The client can use this to detect 
-		   downgrade attacks by comparing the version it requested, e.g. 
-		   TLS 1.2, with the value it gets back.  If it gets TLS 1.1 then 
-		   it knows there's been a downgrade attack */
+		/* Set the downgrade-protection value based on the client's 
+		   (apparent) requested protocol version.  The client can use this 
+		   to detect downgrade attacks by comparing the version it 
+		   requested, e.g. TLS 1.2, with the value it gets back */
+		switch( sessionInfoPtr->version )
+			{
 #ifdef USE_TLS13
-		if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS13 )
-			{
-			memcpy( handshakeInfo->serverNonce + TLS_DOWNGRADEID_OFFSET, 
-					( sessionInfoPtr->version == TLS_MINOR_VERSION_TLS12 ) ? \
-					  TLS_DOWNGRADEID_TLS12 : TLS_DOWNGRADEID_TLS11, 
-					TLS_DOWNGRADEID_SIZE );
-			}
+			case TLS_MINOR_VERSION_TLS13:
+				/* Nothing to do, we're at the maximum version */
+				break;
+				
+			case TLS_MINOR_VERSION_TLS12:
+				/* If started with TLS 1.3, notify that we've dropped to 
+				   TLS 1.2 */
+				if( originalServerVersion >= TLS_MINOR_VERSION_TLS13 )
+					{
+					memcpy( handshakeInfo->serverNonce + \
+												TLS_DOWNGRADEID_OFFSET, 
+							TLS_DOWNGRADEID_TLS12, TLS_DOWNGRADEID_SIZE );
+					}
+				break;
 #else
-		if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 )
-			{
-			memcpy( handshakeInfo->serverNonce + TLS_DOWNGRADEID_OFFSET, 
-					TLS_DOWNGRADEID_TLS11, TLS_DOWNGRADEID_SIZE );
-			}
+			case TLS_MINOR_VERSION_TLS12:
+				/* Nothing to do, we're at the maximum version */
+				break;
 #endif /* USE_TLS13 */
+
+			case TLS_MINOR_VERSION_TLS11:
+				/* If started with TLS 1.2 or 1.3, notify that we've dropped 
+				   to TLS 1.1 */
+				if( originalServerVersion >= TLS_MINOR_VERSION_TLS12 )
+					{
+					memcpy( handshakeInfo->serverNonce + \
+												TLS_DOWNGRADEID_OFFSET, 
+							TLS_DOWNGRADEID_TLS11, TLS_DOWNGRADEID_SIZE );
+					}
+				break;
+
+			default:
+				retIntError();
+			}
 		}
 	if( cryptStatusOK( status ) && isKeyexAlgo( handshakeInfo->keyexAlgo ) && \
 		sessionInfoPtr->version <= TLS_MINOR_VERSION_TLS12 )
@@ -1258,8 +1316,8 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = completeHSPacketStream( stream, packetOffset );
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, TLS_HEADER_SIZE,
-											  &serverHelloLength );
+		status = streamOffsetFromPosition( stream, TLS_HEADER_SIZE,
+										   &serverHelloLength );
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -1311,6 +1369,7 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		handshakeInfo->originalServerHelloLength = serverHelloLength;
 		ENSURES( CFI_CHECK_SEQUENCE_4( "processHelloTLS", "resumedSession", 
 									   "initDHcontextTLS", "serverHello" ) );
+		handshakeInfo->completedHSstate = HANDSHAKE_STATE_BEGIN;
 
 		return( CRYPT_OK );
 		}
@@ -1342,7 +1401,7 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			sMemDisconnect( stream );
 			return( status );
 			}
-		CFI_CHECK_UPDATE( "resumedSession" );
+		CFI_CHECK_UPDATE( "resumedSessionDone" );
 
 		/* Tell the caller that it's a resumed session, leaving the stream
 		   open in order to write the change cipherspec message that follows 
@@ -1355,7 +1414,9 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		ENSURES( CFI_CHECK_SEQUENCE_6( "processHelloTLS", "resumedSession", 
 									   "initDHcontextTLS", "serverHello", 
-									   "TLS12LTS", "resumedSession" ) );
+									   "TLS12LTS", "resumedSessionDone" ) );
+		handshakeInfo->completedHSstate = HANDSHAKE_STATE_BEGIN;
+
 		return( OK_SPECIAL );
 		}
 	CFI_CHECK_UPDATE( "nonResumedSession" );
@@ -1462,12 +1523,14 @@ static int beginServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 	CFI_CHECK_UPDATE( "sendPacketTLS" );
 
-	ENSURES( CFI_CHECK_SEQUENCE_12( "processHelloTLS", "resumedSession", 
+	ENSURES( CFI_CHECK_SEQUENCE_11( "processHelloTLS", "resumedSession", 
 									"initDHcontextTLS", "serverHello", 
-									"TLS12LTS", "resumedSession",
-									"nonResumedSession", "writeTLSCertChain", 
-									"createServerKeyex", "writeCertRequest",
-									"completeHSPacketStream", "sendPacketTLS" ) );
+									"TLS12LTS", "nonResumedSession", 
+									"writeTLSCertChain", "createServerKeyex", 
+									"writeCertRequest", "completeHSPacketStream", 
+									"sendPacketTLS" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_BEGIN;
+
 	return( CRYPT_OK );
 	}
 
@@ -1575,6 +1638,8 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	ENSURES( CFI_CHECK_SEQUENCE_4( "readCheckClientCerts", "processKeyex", 
 								   "createSessionHash", "checkCertVerify" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_KEYEX;
+
 	return( CRYPT_OK );
 	}
 

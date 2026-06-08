@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TLS Cipher Suites							*
-*					Copyright Peter Gutmann 1998-2020						*
+*					Copyright Peter Gutmann 1998-2025						*
 *																			*
 ****************************************************************************/
 
@@ -190,7 +190,7 @@ static const CIPHERSUITE_INFO cipherSuiteGCM[] = {
 	{ TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, 
 	  DESCRIPTION( "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384" )
 	  CRYPT_ALGO_ECDH, CRYPT_ALGO_RSA, CRYPT_ALGO_AES,
-	  CRYPT_ALGO_HMAC_SHA2, 48, 16, GCMICV_SIZE, 
+	  CRYPT_ALGO_HMAC_SHA2, 48, 32, GCMICV_SIZE, 
 	  CIPHERSUITE_FLAG_GCM | CIPHERSUITE_FLAG_TLS12 }, 
   #endif /* CONFIG_SUITEB */
 
@@ -202,9 +202,9 @@ static const CIPHERSUITE_INFO cipherSuiteGCM[] = {
 	  CIPHERSUITE_FLAG_GCM | CIPHERSUITE_FLAG_TLS12 },
   #ifdef CONFIG_SUITEB
 	{ TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
-	  DESCRIPTION( "TLS_DHE_RSA_WITH_AES_128_GCM_SHA384" )
+	  DESCRIPTION( "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384" )
 	  CRYPT_ALGO_DH, CRYPT_ALGO_RSA, CRYPT_ALGO_AES,
-	  CRYPT_ALGO_HMAC_SHA2, 48, 16, GCMICV_SIZE, 
+	  CRYPT_ALGO_HMAC_SHA2, 48, 32, GCMICV_SIZE, 
 	  CIPHERSUITE_FLAG_GCM | CIPHERSUITE_FLAG_TLS12 }, 
   #endif /* CONFIG_SUITEB */
 
@@ -401,11 +401,13 @@ static const CIPHERSUITE_INFO cipherSuiteRSA[] = {
 	{ SSL_NULL_WITH_NULL,
 	  DESCRIPTION( "End-of-list marker" )
 	  CRYPT_ALGO_NONE, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE, 
-	  CRYPT_ALGO_NONE, 0, 0, 0, CIPHERSUITE_FLAG_NONE },
+	  CRYPT_ALGO_NONE, 0, 0, 0, 
+	  CIPHERSUITE_FLAG_NONE },
 	{ SSL_NULL_WITH_NULL,
 	  DESCRIPTION( "End-of-list marker" )
 	  CRYPT_ALGO_NONE, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE, 
-	  CRYPT_ALGO_NONE, 0, 0, 0, CIPHERSUITE_FLAG_NONE }
+	  CRYPT_ALGO_NONE, 0, 0, 0, 
+	  CIPHERSUITE_FLAG_NONE }
 	};
 #endif /* USE_RSA_SUITES */
 
@@ -431,7 +433,7 @@ static const CIPHERSUITES_LIST cipherSuitesList[] = {
   #endif /* USE_ECDH */
   #ifdef USE_CHACHA20
 	{ cipherSuiteBernstein, FAILSAFE_ARRAYSIZE( cipherSuiteBernstein, CIPHERSUITE_INFO ) },
-  #endif /* USE_CHACH20 */
+  #endif /* USE_CHACHA20 */
 #endif /* PREFER_ECC */
 
 	/* DH suites */
@@ -447,7 +449,7 @@ static const CIPHERSUITES_LIST cipherSuitesList[] = {
   #endif /* USE_ECDH */
   #ifdef USE_CHACHA20
 	{ cipherSuiteBernstein, FAILSAFE_ARRAYSIZE( cipherSuiteBernstein, CIPHERSUITE_INFO ) },
-  #endif /* USE_CHACH20 */
+  #endif /* USE_CHACHA20 */
 #endif /* !PREFER_ECC */
 
 #ifdef USE_RSA_SUITES 
@@ -622,7 +624,7 @@ int getCipherSuiteInfo( OUT_PTR_PTR \
 						OUT_INT_Z int *noSuiteEntries )
 	{
 	static CIPHERSUITE_INFO *cipherSuiteInfoTbl[ MAX_NO_SUITES + 8 ];
-	static BOOLEAN cipherSuitInfoInited = FALSE;
+	static BOOLEAN cipherSuiteInfoInited = FALSE;
 	static int cipherSuiteCount = 0;
 	int status;
 
@@ -635,13 +637,14 @@ int getCipherSuiteInfo( OUT_PTR_PTR \
 	   completely deterministic manner it doesn't matter if the extremely
 	   unlikely situation of two threads initialising the array at the same
 	   time occurs, since they're initialising it identically */
-	if( !cipherSuitInfoInited )
+	if( !cipherSuiteInfoInited )
 		{
 		static const CIPHERSUITE_INFO endOfList = {
 			SSL_NULL_WITH_NULL,
 			DESCRIPTION( "End-of-list marker" )
 			CRYPT_ALGO_NONE, CRYPT_ALGO_NONE, CRYPT_ALGO_NONE, 
-			CRYPT_ALGO_NONE, 0, 0, CIPHERSUITE_FLAG_NONE };
+			CRYPT_ALGO_NONE, 0, 0, 0, 
+			CIPHERSUITE_FLAG_NONE };
 		LOOP_INDEX i;
 
 		/* Build the unified list of cipher suites */
@@ -673,7 +676,7 @@ int getCipherSuiteInfo( OUT_PTR_PTR \
 		cipherSuiteInfoTbl[ cipherSuiteCount ] = \
 								( CIPHERSUITE_INFO * ) &endOfList;
 
-		cipherSuitInfoInited = TRUE;
+		cipherSuiteInfoInited = TRUE;
 		}
 
 	*cipherSuiteInfoPtrPtrPtr = ( const CIPHERSUITE_INFO ** ) \

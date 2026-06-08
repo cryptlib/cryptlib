@@ -332,7 +332,7 @@ static USER_FILE_INFO *findFreeEntry( IN_ARRAY( noUserIndexEntries ) \
 	   expected to be bypassing cryptlib to directly access the user files),
 	   we take the simplest approach and use the lowest-value free fileRef.
 	   This is somewhat ugly because it's potentially an O( n^2 ) operation,
-	   but the actualy impact is insignificant because the number of users
+	   but the actually impact is insignificant because the number of users
 	   is tiny and new user creation is extremely rare, so it's not worth
 	   switching to the complexity of a more sophisticated algorithm */
 	LOOP_MED( newFileRef = 0, newFileRef < MAX_USER_OBJECTS, newFileRef++ )

@@ -67,7 +67,7 @@
 /* By default cryptlib uses DH key agreement, which is supported by all 
    servers.  It's also possible to use ECDH key agreement, however due to
    SSH's braindamaged way of choosing algorithms the peer will always go
-   for ECDH if it can handle it (see the comment in sesion/ssh2_svr.c for
+   for ECDH if it can handle it (see the comment in session/ssh2_svr.c for
    more on this), so we disable ECDH by default.  To use ECDH key agreement 
    in preference to DH, uncomment the following */
 
@@ -139,7 +139,7 @@
 #define SSH_MSG_IGNORE			2	/* No-op */
 #define SSH_MSG_UNIMPLEMENTED	3	/* Treat as disconnect */
 #define SSH_MSG_DEBUG			4	/* No-op */
-#define SSH_MSG_SERVICE_REQUEST 5	/* Request authentiction */
+#define SSH_MSG_SERVICE_REQUEST 5	/* Request authentication */
 #define SSH_MSG_SERVICE_ACCEPT	6	/* Acknowledge request */
 #define SSH_MSG_EXT_INFO		7	/* Extension info */
 #define SSH_MSG_KEXINIT			20	/* Hello */
@@ -295,7 +295,8 @@ typedef enum {
 
 /* Values for working with SSH channels.  Channels have a 32-bit ID
    (although no sane implementation uses very large values), to deal with
-   range checking for these we limit them to LONG_MAX in 32-bit systems.
+   range checking for these we limit them to a bit below LONG_MAX on 32-bit 
+   systems.
 
    SSH channels have a number of SSH-internal attributes that aren't exposed 
    as cryptlib-wide attribute types.  The following values are used to 
@@ -304,7 +305,7 @@ typedef enum {
 #ifdef SYSTEM_64BIT
   #define CHANNEL_MAX				0x0FFFFFFFFUL
 #else
-  #define CHANNEL_MAX				LONG_MAX
+  #define CHANNEL_MAX				( LONG_MAX - 10 )
 #endif /* 32- vs 64-bit systems */
 
 #ifdef USE_SSH_EXTENDED
@@ -492,6 +493,7 @@ typedef struct SH {
 	int challengeLength, responseLength, receivedResponseLength;
 
 	/* Miscellaneous information */
+	HANDSHAKE_STATE_TYPE completedHSstate;	/* Just-completed handshake state */
 	BOOLEAN sendExtInfo;					/* Whether to send extended info */
 
 	/* Table mapping SSH algorithm names to cryptlib algorithm IDs.  This 
@@ -544,13 +546,13 @@ typedef struct SH {
 	...
 	streamBookmarkComplete( stream, &dataPtr, &dataLength, offset );
    
-	streamBookmarkSet( stream, offset );
-	ENSURES( streamBookmarkOK( offset ) );
+	status = streamBookmarkSet( stream, &offset );
+	ENSURES( cryptStatusOK( status ) );
 	...
 	streamBookmarkComplete( stream, &dataPtr, &dataLength, offset );
    
-	streamBookmarkSetFullPacket( stream, offset );
-	ENSURES( streamBookmarkOK( offset ) );
+	status = streamBookmarkSetFullPacket( stream, &offset );
+	ENSURES( cryptStatusOK( status ) );
 	...
 	streamBookmarkComplete( stream, &dataPtr, &dataLength, offset );
 
@@ -558,11 +560,12 @@ typedef struct SH {
    the stream buffer for the data */
 
 #define streamBookmarkStreamStart( offset )	offset = 0
-#define streamBookmarkSet( stream, offset ) \
-		offset = stell( stream )
-#define streamBookmarkSetFullPacket( stream, offset ) \
-		offset = stell( stream ) - ID_SIZE
-#define streamBookmarkOK( offset )		isIntegerRangeNZ( offset )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int streamBookmarkSet( IN_PTR const STREAM *stream, 
+					   OUT_DATALENGTH_Z int *offset );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int streamBookmarkSetFullPacket( IN_PTR const STREAM *stream, 
+								 OUT_DATALENGTH_Z int *offset ); 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 int streamBookmarkComplete( INOUT_PTR STREAM *stream, 
 							OUT_OPT_PTR void **dataPtrPtr, 
@@ -797,14 +800,14 @@ int hashAsMPI( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 			   IN_LENGTH_SHORT const int dataLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int checkMacSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext, 
-				 IN_INT const long seqNo,
+				 IN_INT const int seqNo,
 				 IN_BUFFER( dataMaxLength ) const BYTE *data, 
 				 IN_DATALENGTH const int dataMaxLength, 
 				 IN_DATALENGTH_Z const int dataLength, 
 				 IN_LENGTH_HASH const int macLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int checkMacSSHIncremental( IN_HANDLE const CRYPT_CONTEXT iMacContext, 
-							IN_INT_Z const long seqNo,
+							IN_INT_Z const int seqNo,
 							IN_BUFFER( dataMaxLength ) const BYTE *data, 
 							IN_DATALENGTH const int dataMaxLength, 
 							IN_DATALENGTH_Z const int dataLength, 
@@ -813,7 +816,7 @@ int checkMacSSHIncremental( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 							IN_LENGTH_HASH const int macLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int createMacSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext, 
-				  IN_INT const long seqNo,
+				  IN_INT const int seqNo,
 				  IN_BUFFER( dataMaxLength ) BYTE *data, 
 				  IN_DATALENGTH const int dataMaxLength, 
 				  IN_DATALENGTH const int dataLength );

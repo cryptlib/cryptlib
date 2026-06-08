@@ -122,7 +122,7 @@ fi
 #			appropriate.
 #	-ldl = dload() support for dynamically loaded PKCS #11 drivers.  Some
 #			Debian releases require that the use of this library be
-#			explicitly specified, although there's no discernable pattern
+#			explicitly specified, although there's no discernible pattern
 #			for when this might be required (or even any easy way to detect
 #			Debian), so we unconditionally include it under Linux if libdl
 #			exists.  Note that on some Linux systems it's hidden in

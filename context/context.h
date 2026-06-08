@@ -480,7 +480,6 @@ typedef struct CI {
 #define dlpTmp1					param6
 #define dlpTmp2					param7
 #define dlpTmp3					param8	/* More temp.values for DLP PKCs */
-#define dhParam_yPrime			param8	/* Special value for DH */
 #define dlpParam_mont_p			montCTX1
 
 #define rsaParam_n				param1
@@ -651,7 +650,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int processActionMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr, 
 						  IN_MESSAGE const MESSAGE_TYPE message,
 						  INOUT_BUFFER_FIXED( dataLength ) void *data, 
-						  IN_LENGTH_PKC const int dataLength );
+						  IN_LENGTH_Z const int dataLength );
 
 /* Low-level capability checking and context-creation functions used when
    creating a context in a device */

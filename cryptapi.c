@@ -1169,7 +1169,7 @@ static int cmdSetKey( COMMAND_INFO *cmd )
 		
 		/* Depending on whether we're writing a private key to a keyset or
 		   a device we may or may not need a password.  The check for this
-		   is a bit complicated because reading the object type requres an
+		   is a bit complicated because reading the object type requires an
 		   internal message, so we first check for external accessibility
 		   with a dummy read of an object property and then read the actual
 		   object type using an internal message */
@@ -1251,9 +1251,8 @@ static void processCommand( BYTE *buffer )
 	{
 	COMMAND_INFO cmd = { 0 };
 	BYTE header[ COMMAND_FIXED_DATA_SIZE ], *bufPtr;
-	long totalLength;
+	int totalLength, status;
 	LOOP_INDEX i;
-	int status;
 
 	/* Read the client's message header */
 	memcpy( header, buffer, COMMAND_FIXED_DATA_SIZE );
@@ -1372,7 +1371,7 @@ static void processCommand( BYTE *buffer )
 		cmd.type == COMMAND_QUERYCAPABILITY || \
 		cmd.type == COMMAND_GETATTRIBUTE )
 		{
-		const long dataLength = cmd.strArgLen[ 0 ];
+		const int dataLength = cmd.strArgLen[ 0 ];
 
 		/* Return capability info or attribute data and length */
 		putMessageType( bufPtr, COMMAND_RESULT, 0, 1, 1 );
@@ -1443,11 +1442,11 @@ static int dispatchCommand( COMMAND_INFO *cmd )
 	const BOOLEAN isDataCommand = \
 		( cmd->type == COMMAND_ENCRYPT || cmd->type == COMMAND_DECRYPT || \
 		  isPushPop ) ? TRUE : FALSE;
-	const long payloadLength = ( cmd->noArgs * COMMAND_WORDSIZE ) + \
-							   ( cmd->noStrArgs * COMMAND_WORDSIZE ) + \
-							   cmd->strArgLen[ 0 ] + cmd->strArgLen[ 1 ];
-	long dataLength = ( cmd->type == COMMAND_POPDATA ) ? \
-					  cmd->arg[ 1 ] : cmd->strArgLen[ 0 ], resultLength;
+	const int payloadLength = ( cmd->noArgs * COMMAND_WORDSIZE ) + \
+							  ( cmd->noStrArgs * COMMAND_WORDSIZE ) + \
+							  cmd->strArgLen[ 0 ] + cmd->strArgLen[ 1 ];
+	int dataLength = ( cmd->type == COMMAND_POPDATA ) ? \
+					 cmd->arg[ 1 ] : cmd->strArgLen[ 0 ], resultLength;
 	LOOP_INDEX i;
 
 	assert( checkCommandInfo( cmd, 0 ) );
@@ -1459,8 +1458,7 @@ static int dispatchCommand( COMMAND_INFO *cmd )
 	if( !isDataCommand && \
 		( COMMAND_FIXED_DATA_SIZE + payloadLength ) > RPC_IO_BUFSIZE )
 		{
-		long maxLength = dataLength;
-		int maxPos = 0;
+		int maxLength = dataLength, maxPos = 0;
 
 		/* Find the longest arg (the one that contributes most to the
 		   problem) and report it as an error.  We report the problem
@@ -1667,7 +1665,7 @@ static int dispatchCommand( COMMAND_INFO *cmd )
 			   bytes copied value even if an error occurs */
 			if( sentCmd.type == COMMAND_PUSHDATA )
 				{
-				const long bytesCopied = \
+				const int bytesCopied = \
 							getMessageWord( bufPtr + COMMAND_WORDSIZE );
 
 				if( bytesCopied < 0 )
@@ -4641,7 +4639,7 @@ C_RET cryptFuzzInit( C_IN CRYPT_SESSION cryptSession,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* Perform any necessary final session initialistion */
+	/* Perform any necessary final session initialisation */
 	if( sessionInfoPtr->sendBuffer == NULL )
 		{
 		REQUIRES( rangeCheck( sessionInfoPtr->receiveBufSize, 

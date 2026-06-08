@@ -42,14 +42,14 @@
   #pragma convlit( suspend )
 #endif /* EBCDIC systems */
 
-/* Check that EAP and any required ancilliary capabilities are enabled in 
+/* Check that EAP and any required ancillary capabilities are enabled in 
    the build */
 
 #if defined( USE_EAP ) && defined( USE_CRYPTLIB_DES ) && !defined( USE_DES )
   #error USE_EAP requires USE_DES for MSCHAPv2
 #endif /* USE_EAP && USE_CRYPTLIB_DES && !USE_DES */
 
-/* Additional debugging suppport when we're built in debug mode */
+/* Additional debugging support when we're built in debug mode */
 
 #ifdef NDEBUG
   #define DEBUG_PUTS( x )
@@ -2062,7 +2062,7 @@ static int testCryptoBindings( void )
 	status = eapCreateCMAC( cmac, cmk, eapolMacDataTx, 60 );
 	if( cryptStatusError( status ) )
 		{
-		DEBUG_PUTS(( "eapCreateCMAC() respponse test failed." ));
+		DEBUG_PUTS(( "eapCreateCMAC() response test failed." ));
 		return( CRYPT_ERROR_FAILED );
 		}
 	if( memcmp( cmac, eapolCMACTx, 20 ) )

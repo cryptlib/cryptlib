@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib SSHv2 Channel Management					*
-*						Copyright Peter Gutmann 1998-2015					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -71,7 +71,7 @@ typedef struct {
 #define isNullChannel( channelInfoPtr ) \
 		( ( channelInfoPtr )->readChannelNo == UNUSED_CHANNEL_NO )
 #define isActiveChannel( channelInfoPtr ) \
-		( channelInfoPtr->flags & CHANNEL_FLAG_ACTIVE )
+		( ( channelInfoPtr )->flags & CHANNEL_FLAG_ACTIVE )
 
 /****************************************************************************
 *																			*
@@ -275,7 +275,7 @@ static ATTRIBUTE_LIST *findChannelAttr( const SESSION_INFO *sessionInfoPtr,
 		{
 		const SSH_CHANNEL_INFO *channelInfoPtr;
 
-		ENSURES_B( LOOP_INVARIANT_MAX_GENERIC() );
+		ENSURES_N( LOOP_INVARIANT_MAX_GENERIC() );
 
 		/* If it's not an SSH channel, continue */
 		if( attributeListPtr->attributeID != CRYPT_SESSINFO_SSH_CHANNEL )
@@ -336,7 +336,7 @@ static SSH_CHANNEL_INFO *findChannelByID( const SESSION_INFO *sessionInfoPtr,
 		{
 		const SSH_CHANNEL_INFO *channelInfoPtr;
 
-		ENSURES_B( LOOP_INVARIANT_MAX_GENERIC() );
+		ENSURES_N( LOOP_INVARIANT_MAX_GENERIC() );
 
 		/* If it's not an SSH channel, continue */
 		if( attributeListPtr->attributeID != CRYPT_SESSINFO_SSH_CHANNEL )
@@ -374,7 +374,7 @@ static SSH_CHANNEL_INFO *findChannelByAddr( const SESSION_INFO *sessionInfoPtr,
 		{
 		const SSH_CHANNEL_INFO *channelInfoPtr;
 
-		ENSURES_B( LOOP_INVARIANT_MAX_GENERIC() );
+		ENSURES_N( LOOP_INVARIANT_MAX_GENERIC() );
 
 		/* If it's not an SSH channel, continue */
 		if( attributeListPtr->attributeID != CRYPT_SESSINFO_SSH_CHANNEL )
@@ -450,7 +450,10 @@ long getCurrentChannelNo( const SESSION_INFO *sessionInfoPtr,
 	}
 
 /* Get/set an attribute or SSH-specific internal attribute from/for the 
-   current channel */
+   current channel.  The const-ness of the SESSION_INFO in the two set 
+   functions is a bit ambiguous, we're modifying data in things pointed to
+   by the SESSION_INFO but not the SESSION_INFO itself so we declare it as
+   const */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int getChannelAttribute( const SESSION_INFO *sessionInfoPtr,
@@ -991,35 +994,6 @@ int deleteChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			CRYPT_OK : OK_SPECIAL );
 	}
 
-#if 0
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-int deleteChannelByAddr( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
-						 IN_BUFFER( addrInfoLen ) const char *addrInfo,
-						 IN_LENGTH_SHORT const int addrInfoLen )
-	{
-	const SSH_CHANNEL_INFO *channelInfoPtr;
-
-	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
-	assert( isReadPtrDynamic( addrInfo, addrInfoLen ) );
-
-	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
-	REQUIRES( isShortIntegerRangeNZ( addrInfoLen ) );
-
-	channelInfoPtr = findChannelByAddr( sessionInfoPtr, addrInfo,
-										addrInfoLen );
-	if( channelInfoPtr == NULL )
-		return( CRYPT_ERROR_NOTFOUND );
-
-	/* We've found the entry that it corresponds to, clear it.  This doesn't
-	   actually delete the entire channel but merely deletes the forwarding.
-	   See the note in ssh2_msg.c for why this is currently unused */
-	memset( channelInfoPtr->arg1, 0, CRYPT_MAX_TEXTSIZE );
-	channelInfoPtr->arg1Len = 0;
-	return( CRYPT_OK );
-	}
-#endif /* 0 */
-
 /****************************************************************************
 *																			*
 *							Enqueue/Send Channel Messages					*
@@ -1107,7 +1081,8 @@ static int encodeSendResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( ( offset == CRYPT_UNUSED && responseSize == NULL ) || \
 			  ( offset >= 0 && offset < sessionInfoPtr->sendBufSize && \
 			    responseSize != NULL ) );
-	REQUIRES( sendBufOffset >= 0 && offset < sessionInfoPtr->sendBufSize );
+	REQUIRES( sendBufOffset >= 0 && \
+			  sendBufOffset < sessionInfoPtr->sendBufSize );
 
 	/* Make sure that there's room for at least two packets worth of 
 	   wrappers plus a short control packet, needed to handle a control 
@@ -1146,9 +1121,9 @@ static int encodeSendResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* If we're in the data transfer phase and there's nothing in the send 
 	   buffer, set the packet start offset to zero.  We have to do this 
-	   because it's pre-adjusted to accomodate the header for a payload data 
-	   packet, since we're assembling our own packet in the buffer there's 
-	   no need for this additional header room */
+	   because it's pre-adjusted to accommodate the header for a payload 
+	   data packet, since we're assembling our own packet in the buffer 
+	   there's no need for this additional header room */
 	if( TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISOPEN ) && \
 		sendBufOffset == sessionInfoPtr->sendBufStartOfs )
 		{

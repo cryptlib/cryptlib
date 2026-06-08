@@ -155,7 +155,7 @@
 	
 	FLAG_MANUAL_CERTCHECK: Interrupt the handshake (returning 
 		CRYPT_ERROR_RESOURCE) to allow the caller to check the peer's 
-		cerificate.
+		certificate.
 
 	FLAG_RESUMED: TLS session is resumed.
 
@@ -587,7 +587,7 @@ typedef enum {
 	TLS_EXT_TLMSP,				/* 36: ETSI TS 103 523-2, Middlebox */
 	TLS_EXT_TLMSP_PROXYING,		/* 37: ETSI TS 103 523-2, Security */
 	TLS_EXT_TLMSP_DELEGATE,		/* 38: ETSI TS 103 523-2, Protocol */
-	TLS_EXT_SUPPORTED_EKT_CIPHERS, /* 39: RFC 8870, Encrypted key trasport */
+	TLS_EXT_SUPPORTED_EKT_CIPHERS, /* 39: RFC 8870, Encrypted key transport */
 		/* 40 unused */
 	TLS_EXT_PRESHARED_KEY = 41,	/* 41: RFC 8446 TLS 1.3 pre-shared key */
 	TLS_EXT_EARLY_DATA,			/* 42: RFC 8446 TLS 1.3 early data */
@@ -631,6 +631,14 @@ typedef enum {
 	TLS_CERTTYPE_DUMMY3 /* RSA+EDH */, TLS_CERTTYPE_DUMMY4 /* DSA+EDH */,
 	TLS_CERTTYPE_ECDSA = 64, TLS_CERTTYPE_LAST
 	} TLS_CERTTYPE_TYPE;
+
+/* TLS ECC curve types */
+
+typedef enum {
+	TLS_CURVETYPE_NONE, TLS_CURVETYPE_EXPLICIT_PRIME, 
+	TLS_CURVETYPE_EXPLICIT_CHAR2, TLS_CURVETYPE_NAMED, TLS_CURVETYPE_LAST
+	} TLS_CURVETYPE_TYPE;
+
 
 /* TLS signature and hash algorithm identifiers, from
    https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-16
@@ -1168,6 +1176,7 @@ typedef struct TH {
 	int cryptKeysize;			/* Size of key in sessionInfo */
 
 	/* Other information */
+	HANDSHAKE_STATE_TYPE completedHSstate;	/* Just-completed handshake state */
 	int clientOfferedVersion;	/* Prot.vers.originally offered by client */
 	int originalVersion;		/* Original version set by the user before
 								   it was modified based on what the peer
@@ -1320,7 +1329,7 @@ int checkMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_GCM
 CHECK_RETVAL \
 int macDataTLSGCM( IN_HANDLE const CRYPT_CONTEXT iCryptContext, 
-				   IN_INT_Z const long seqNo, 
+				   IN_INT_Z const int seqNo, 
 				   IN_RANGE( TLS_MINOR_VERSION_TLS, \
 							 TLS_MINOR_VERSION_TLS13 ) const int version,
 				   IN_LENGTH_Z const int payloadLength, 
@@ -1434,6 +1443,15 @@ int initKeyexContextTLS( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 						 IN_ENUM_OPT( CRYPT_ECCCURVE ) \
 							const CRYPT_ECCCURVE_TYPE eccCurve,
 						 IN_BOOL const BOOLEAN isTLSLTS );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
+int readSupportedGroups( INOUT_PTR STREAM *stream, 
+						 INOUT_PTR SESSION_INFO *sessionInfoPtr, 
+						 INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo, 
+						 IN_LENGTH_SHORT_Z const int extLength,
+						 OUT_BOOL BOOLEAN *extErrorInfoSet );
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int writeSupportedGroups( INOUT_PTR STREAM *stream,
+						  const SESSION_INFO *sessionInfoPtr );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int getTLSGroupInfo( OUT_PTR_PTR const TLS_GROUP_INFO **groupInfoPtrPtr,
 					 OUT_INT_Z int *noGroupInfoEntries );
@@ -1557,9 +1575,10 @@ int refreshHSStream( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 /* Prototypes for functions in tls_sign.c */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int checkCertWhitelist( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
+						OUT_BOOL BOOLEAN *isInWhitelist,
 						IN_BOOL const BOOLEAN isServer );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int createSessionHash( IN_PTR const SESSION_INFO *sessionInfoPtr,
@@ -1618,7 +1637,8 @@ int getSuiteBCipherSuiteInfo( OUT_PTR_PTR \
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int convertSNISessionID( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 						 OUT_BUFFER_FIXED( idBufferLength ) BYTE *idBuffer,
-						 IN_LENGTH_FIXED( KEYID_SIZE ) const int idBufferLength );
+						 IN_LENGTH_FIXED( SESSIONID_SIZE ) \
+							const int idBufferLength );
 
 /* Prototypes for functions in tls_wr.c */
 
@@ -1675,7 +1695,7 @@ int initCryptGCMTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int createSessionHashTLS13( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 						    IN_HANDLE const CRYPT_CONTEXT iHashContext,
-							const BOOLEAN isServerVerify );
+							IN_BOOL const BOOLEAN isServerVerify );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
 int createFinishedTLS13( OUT_BUFFER( finishedValueMaxLen, \
 									 *finishedValueLen ) \

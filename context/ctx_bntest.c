@@ -524,7 +524,7 @@ static BOOLEAN selfTestBignumFields( void )
    may end up referencing the OpenSSL version of the functions rather than 
    our ones.  To try and detect this we initialise a bignum with BN_one()
    (= BN_set_word()), check that the fields are OK, and if they're not check
-   whehter they look like an OpenSSL-style bignum */ 
+   whether they look like an OpenSSL-style bignum */ 
 
 CHECK_RETVAL_BOOL \
 static BOOLEAN selfTestBignumLinkage( void )
@@ -766,7 +766,7 @@ static BOOLEAN selfTestOp( const SELFTEST_VALUE *selftestValue,
 
 	REQUIRES_B( isEnumRange( op, BN_OP ) );
 
-	/* The BN_OP_MODWORD is sufficently specialised that we have to handle 
+	/* The BN_OP_MODWORD is sufficiently specialised that we have to handle 
 	   it specially */
 	if( op == BN_OP_MODWORD )
 		{

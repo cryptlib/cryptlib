@@ -106,8 +106,8 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readKeyDerivationInfo( INOUT_PTR STREAM *stream, 
 								  OUT_PTR QUERY_INFO *queryInfo )
 	{
-	long endPos, value;
-	int length, status;
+	long value;
+	int length, endPos, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
@@ -449,8 +449,8 @@ static int readCryptlibKek( INOUT_PTR STREAM *stream,
 								  MIN_KEYSIZE, DEFAULT_TAG );
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, startPos, 
-											  &queryInfo->dataStart );
+		status = streamOffsetFromPosition( stream, startPos, 
+										   &queryInfo->dataStart );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -664,9 +664,11 @@ static int writePgpKek( INOUT_PTR STREAM *stream,
 	ENSURES( count >= 0 && count <= 0xFF );
 
 	/* Write the SKE packet */
-	pgpWritePacketHeader( stream, PGP_PACKET_SKE, 
-						  PGP_VERSION_SIZE + PGP_ALGOID_SIZE + 1 + \
-							PGP_ALGOID_SIZE + PGP_SALTSIZE + 1 );
+	status = pgpWritePacketHeader( stream, PGP_PACKET_SKE, 
+								   PGP_VERSION_SIZE + PGP_ALGOID_SIZE + 1 + \
+								   PGP_ALGOID_SIZE + PGP_SALTSIZE + 1 );
+	if( cryptStatusError( status ) )
+		return( status );
 	sputc( stream, PGP_VERSION_OPENPGP );
 	sputc( stream, pgpKekCryptAlgo );
 	sputc( stream, 3 );		/* S2K = salted, iterated hash */
@@ -763,8 +765,8 @@ static int readCmsKeytrans( INOUT_PTR STREAM *stream,
 		status = CRYPT_ERROR_BADDATA;
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, startPos, 
-											  &queryInfo->iAndSStart );
+		status = streamOffsetFromPosition( stream, startPos, 
+										   &queryInfo->iAndSStart );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -790,8 +792,8 @@ static int readCmsKeytrans( INOUT_PTR STREAM *stream,
 								  MIN_PKCSIZE, DEFAULT_TAG );
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, startPos, 
-											  &queryInfo->dataStart );
+		status = streamOffsetFromPosition( stream, startPos, 
+										   &queryInfo->dataStart );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -947,8 +949,8 @@ static int readCryptlibKeytrans( INOUT_PTR STREAM *stream,
 								  MIN_KEYSIZE, DEFAULT_TAG );
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, startPos, 
-											  &queryInfo->dataStart );
+		status = streamOffsetFromPosition( stream, startPos, 
+										   &queryInfo->dataStart );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1113,8 +1115,8 @@ static int readPgpKeytrans( INOUT_PTR STREAM *stream,
 									 BIGNUM_CHECK_VALUE_PKC );
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, startPos, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, startPos, 
+											   &objectSize );
 			}
 		if( cryptStatusError( status ) )
 			return( status );
@@ -1146,8 +1148,8 @@ static int readPgpKeytrans( INOUT_PTR STREAM *stream,
 			}
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, dataStartPos, 
-												  &queryInfo->dataLength );
+			status = streamOffsetFromPosition( stream, dataStartPos, 
+											   &queryInfo->dataLength );
 			}
 		if( cryptStatusError( status ) )
 			return( status );
@@ -1159,7 +1161,7 @@ static int readPgpKeytrans( INOUT_PTR STREAM *stream,
 	/* Make sure that we've read the entire object.  This check is necessary 
 	   to detect corrupted length values, which can result in reading past 
 	   the end of the object */
-	status = calculateStreamObjectLength( stream, startPos, &objectSize );
+	status = streamOffsetFromPosition( stream, startPos, &objectSize );
 	if( cryptStatusError( status ) || objectSize != queryInfo->size )
 		return( CRYPT_ERROR_BADDATA );
 
@@ -1203,11 +1205,13 @@ static int writePgpKeytrans( INOUT_PTR STREAM *stream,
 	ENSURES( cryptStatusOK( status ) );
 
 	/* Write the PKE packet */
-	pgpWritePacketHeader( stream, PGP_PACKET_PKE,
-						  PGP_VERSION_SIZE + PGP_KEYID_SIZE + PGP_ALGOID_SIZE + \
-						  ( ( algorithm == CRYPT_ALGO_RSA ) ? \
-							sizeofInteger16U( encryptedKeyLength ) : \
-							encryptedKeyLength ) );
+	status = pgpWritePacketHeader( stream, PGP_PACKET_PKE,
+					PGP_VERSION_SIZE + PGP_KEYID_SIZE + PGP_ALGOID_SIZE + \
+					( ( algorithm == CRYPT_ALGO_RSA ) ? \
+					  sizeofInteger16U( encryptedKeyLength ) : \
+					  encryptedKeyLength ) );
+	if( cryptStatusError( status ) )
+		return( status );
 	sputc( stream, 3 );		/* Version = 3 (OpenPGP) */
 	swrite( stream, keyID, PGP_KEYID_SIZE );
 	sputc( stream, pgpAlgo );

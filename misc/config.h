@@ -17,6 +17,8 @@
 /* #define CONFIG_PROFILE_SSH */
 /* #define CONFIG_CUSTOM_1 */
 
+/* #define CONFIG_FAULTS */
+
 /* Insertion point for the CRYPTLIB_TEST_BUILD debug define.  It'd be better 
    to define this for just one specific machine, for which an obvious way to 
    do it would be to check for a particular environment variable set on that
@@ -28,7 +30,7 @@
    defined in os_detect.h (cryptlib) and test.h (test code) */
 
 #if !defined( NDEBUG ) && \
-	defined( _MSC_VER ) && ( _MSC_VER == 1500 ) && 0
+	defined( _MSC_VER ) && ( _MSC_VER == 1500 ) && 1
 	#define CRYPTLIB_TEST_BUILD
 #endif /* VS 2008 development build */
 #if !defined( NDEBUG ) && \
@@ -342,7 +344,17 @@
 /* Problematic algorithms that can cause issues due to memory/code size (for
    example AES-GCM uses eight times as much memory as straight AES, and 
    that's for the variant with the small lookup tables) or because the 
-   cryptosystems are brittle and problematic (GCM again) */
+   cryptosystems are brittle and problematic (GCM again).
+   
+   Unfortunately we have to enable this as of 2025 because a number of 
+   TLS 1.2 servers have disabled all of the CBC suites through panic over
+   Lucky 13, an attack that "can reliably recover a complete block of TLS-
+   encrypted plaintext using about 2^23 [8 million] TLS sessions, assuming 
+   the attacker is located on the same LAN as the machine being attacked 
+   and HMAC-SHA1 is used", in other words one that's so ridiculously 
+   impractical that no attacker will ever bother with it */
+
+#define USE_PROBLEMATIC_ALGORITHMS
 
 #ifdef USE_PROBLEMATIC_ALGORITHMS
   #define USE_GCM
@@ -979,22 +991,14 @@
   #endif /* USE_FILES */
 #endif /* CONFIG_RANDSEED */
 
-/* Networking.  DNS SRV is very rarely used and somewhat risky to leave 
-   enabled by default because the high level of complexity of DNS packet 
-   parsing combined with the primitiveness of some of the APIs (specifically
-   the Unix ones) make it a bit risky to leave enabled by default, so we
-   disable it by default for attack surface reduction */
-
-#if defined( USE_TCP ) && \
-	( defined( __WINDOWS__ ) || defined( __UNIX__ ) ) && 0
-  #define USE_DNSSRV
-#endif /* Windows || Unix */
-
 /* If we're on a particularly slow or fast CPU we disable or enable certain 
    processor-intensive operations.  In the absence of any easy compile-time 
    metric we define the following:
 
-	Slow: All 16-bit CPUs.
+	Slow: Will need to be explicitly defined via #define CONFIG_SLOW_CPU,
+		  in theory we could detect something like Cortex M0 and M3 with 
+		  __ARM_ARCH_6M__ and __ARM_ARCH_7M__ but this is a bit too 
+		  unreliable to do much with.
 
 	Fast: All 64-bit CPUs.  Windows PCs.  Arm A-series CPUs.
 		  Servers: High-end MIPS, Sparc, PowerPC (these are ones not already
@@ -1003,11 +1007,9 @@
 
    This isn't perfect, but is a reasonable approximation */
 
-#if defined( SYSTEM_16BIT )
-  #define CONFIG_SLOW_CPU
-#elif defined( SYSTEM_64BIT ) || defined( __WINDOWS__ ) || \
-	  defined( __ARM_ARCH_8A__ ) || defined( _MIPS_ISA_MIPS4 ) || \
-	  defined( __POWERPC__ ) || defined( __sparc_v9__ )
+#if defined( SYSTEM_64BIT ) || defined( __WINDOWS__ ) || \
+	defined( __ARM_ARCH_8A__ ) || defined( _MIPS_ISA_MIPS4 ) || \
+	defined( __POWERPC__ ) || defined( __sparc_v9__ )
   #define CONFIG_FAST_CPU
 #endif /* Approximation of CPU speeds */
 
@@ -1079,7 +1081,6 @@
 	#undef USE_SCEP
 	#undef USE_SCVP
 	#undef USE_TSP
-	#undef USE_DNSSRV
 #endif /* Application-specific profiles */
 
 #ifdef CONFIG_PROFILE_TLS
@@ -1215,7 +1216,6 @@
 	#undef USE_SSH
 	#undef USE_TLS
 	#undef USE_TSP
-	#undef USE_DNSSRV
 	#undef USE_SESSIONS
 
 	/* Variations on the standard config */
@@ -1322,9 +1322,9 @@
 	#define USE_CRYPTOAPI
   #endif /* VS 2019 and newer */
   #define USE_CFB
-////////////////////////////
+/////////////////////////////////////
 //  #define USE_DES
-////////////////////////////
+/////////////////////////////////////
   #define USE_DEVICES	/* Needed if USE_HARDWARE is defined */
   #define USE_ECDH
   #define USE_ECDSA
@@ -1355,10 +1355,13 @@
 /////////////////////////////////////
 //  #define USE_RC4
 /////////////////////////////////////
+  #define USE_RPKI
   #if defined( USE_TCP ) && !defined( CONFIG_NO_SESSIONS )
-	#if defined( _MSC_VER ) && ( _MSC_VER >= 1400 )
-	  #define USE_DNSSRV
-	#endif /* VS 2005 and newer */
+/////////////////////////////////////
+//	#if defined( _MSC_VER ) && ( _MSC_VER >= 1400 )
+//	  #define USE_DNSSRV
+//	#endif /* VS 2005 and newer */
+/////////////////////////////////////
 	#define USE_EAP
 	#define USE_DES		/* Needed for MSCHAPv2 in PEAP */
 	#define USE_RSA_SUITES	/* RSA suites in TLS, unsafe */ 
@@ -1388,7 +1391,6 @@
   #define USE_CHACHA20
   #define USE_CFB
   #define USE_DES
-  #define USE_DNSSRV
   #define USE_EAP
   #define USE_ECDH
   #define USE_ECDSA
@@ -1410,6 +1412,7 @@
   #define USE_PSS
   #define USE_RC2
   #define USE_RC4
+  #define USE_RPKI
   #define USE_RSA_SUITES 
   #define USE_SSH_EXTENDED
   #define USE_SSH_CTR

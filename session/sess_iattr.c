@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *			cryptlib Session-specific Attribute Support Routines			*
-*					  Copyright Peter Gutmann 1998-2008						*
+*					  Copyright Peter Gutmann 1998-2025						*
 *																			*
 ****************************************************************************/
 
@@ -204,6 +204,7 @@ static const void *getAttrFunction( IN_PTR_OPT TYPECAST( ATTRIBUTE_LIST * ) \
 		status = accessFunction( attributeListPtr, attrGetType, &value );
 		if( cryptStatusError( status ) )
 			return( NULL );
+		ENSURES_N( isBooleanValue( value ) );
 		subGroupMove = value;
 		}
 
@@ -246,6 +247,10 @@ static const void *getAttrFunction( IN_PTR_OPT TYPECAST( ATTRIBUTE_LIST * ) \
 			{
 			ATTRACCESS_FUNCTION accessFunction;
 
+			/* In this case we're doing a pure information fetch via 
+			   ATTR_NONE, so what we get back is the currently-selected 
+			   attribute ID rather than a boolean move-succeeded/failed
+			   flag */
 			accessFunction = ( ATTRACCESS_FUNCTION ) \
 							 FNPTR_GET( attributeListPtr->accessFunction );
 			REQUIRES_N( accessFunction != NULL );
@@ -413,7 +418,11 @@ int getSessionAttributeCursor( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 			REQUIRES( accessFunction != NULL );
 
-			/* It's a composite type, get the currently-selected sub-attribute */
+			/* It's a composite type, get the currently-selected 
+			   sub-attribute.  Since this is a pure information fetch via 
+			   ATTR_NONE what we get back is the currently-selected 
+			   attribute ID rather than a boolean move-succeeded/failed
+			   flag */
 			status = accessFunction( attributeListCursor, ATTR_NONE, &value );
 			if( cryptStatusError( status ) )
 				return( status );
@@ -746,8 +755,9 @@ int addSessionInfoEx( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  attributeID < CRYPT_SESSINFO_LAST );
 	REQUIRES( isShortIntegerRangeNZ( dataLength ) && \
 			  dataLength <= dataMaxLength );
-assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_ENCODEDVALUE | ATTR_FLAG_MULTIVALUED ) ) == 0 );
 	REQUIRES( isFlagRangeZ( flags, ATTR ) );
+	REQUIRES( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_ENCODEDVALUE | \
+						   ATTR_FLAG_MULTIVALUED ) ) == 0 );
 
 	/* Pre-3.3 kludge: Set the groupID to the attributeID since groups 
 	   aren't defined yet */
@@ -771,9 +781,10 @@ int addSessionInfoComposite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  attributeID < CRYPT_SESSINFO_LAST );
 	REQUIRES( accessFunction != NULL );
 	REQUIRES( isShortIntegerRangeNZ( dataLength ) );
-assert( flags == ATTR_FLAG_MULTIVALUED || flags == ATTR_FLAG_COMPOSITE || \
-		flags == ( ATTR_FLAG_MULTIVALUED | ATTR_FLAG_COMPOSITE ) );
 	REQUIRES( isFlagRange( flags, ATTR ) );
+	REQUIRES( flags == ATTR_FLAG_MULTIVALUED || \
+			  flags == ATTR_FLAG_COMPOSITE || \
+			  flags == ( ATTR_FLAG_MULTIVALUED | ATTR_FLAG_COMPOSITE ) );
 
 	/* For composite attributes the groupID is the attributeID, with the
 	   actual attributeID being returned by the accessFunction */
@@ -808,8 +819,9 @@ int updateSessionInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isShortIntegerRangeNZ( dataLength ) && \
 			  dataLength <= dataMaxLength );
 	REQUIRES( isShortIntegerRangeNZ( dataMaxLength ) );
-assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_EPHEMERAL | ATTR_FLAG_ENCODEDVALUE ) ) == 0 );
 	REQUIRES( isFlagRangeZ( flags, ATTR ) );
+	REQUIRES( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_EPHEMERAL | \
+						   ATTR_FLAG_ENCODEDVALUE ) ) == 0 );
 	REQUIRES( !( flags & ATTR_FLAG_MULTIVALUED ) );
 	REQUIRES( DATAPTR_ISVALID( sessionInfoPtr->attributeList ) );
 

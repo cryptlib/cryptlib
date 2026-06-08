@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib PKC Key Wrap Mechanism Routines					*
-*					Copyright Peter Gutmann 1992-2017						*
+*					Copyright Peter Gutmann 1992-2025						*
 *																			*
 ****************************************************************************/
 
@@ -237,7 +237,7 @@ static BOOLEAN pgpVerifyChecksum( IN_BUFFER( dataLength ) const void *data,
 	{
 	STREAM stream;
 	LOOP_INDEX i;
-	int checksum = 0, storedChecksum;
+	int checksum = 0, storedChecksum, status;
 
 	assert( isReadPtrDynamic( data, dataLength ) );
 
@@ -263,10 +263,12 @@ static BOOLEAN pgpVerifyChecksum( IN_BUFFER( dataLength ) const void *data,
 		checksum += ch;
 		}
 	ENSURES_B( LOOP_BOUND_OK );
-	storedChecksum = readUint16( &stream );
+	status = storedChecksum = readUint16( &stream );
 	sMemDisconnect( &stream );
+	if( cryptStatusError( status ) )
+		return( FALSE );
 
-	return( storedChecksum == checksum );
+	return( storedChecksum == ( checksum & 0xFFFF ) );
 	}
 
 /* PGP includes the session key information alongside the encrypted key so
@@ -331,14 +333,20 @@ static int pgpExtractKey( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 								  IMESSAGE_SETATTRIBUTE, &algoParam, 
 								  CRYPT_CTXINFO_KEYSIZE );
 		if( cryptStatusError( status ) )
+			{
+			krnlSendNotifier( createInfo.cryptHandle, 
+							  IMESSAGE_DECREFCOUNT );
 			return( status );
+			}
 		}
 	status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_SETATTRIBUTE,
 							  ( MESSAGE_CAST ) &mode, CRYPT_CTXINFO_MODE );
 	if( cryptStatusError( status ) )
+		{
 		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
-	else
-		*iCryptContext = createInfo.cryptHandle;
+		return( status );
+		}
+	*iCryptContext = createInfo.cryptHandle;
 
 	return( CRYPT_OK );
 	}
@@ -354,26 +362,26 @@ static int pgpExtractKey( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int pkcWrapData( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
-						INOUT_BUFFER_FIXED( wrappedDataLength ) BYTE *wrappedData, 
-						IN_LENGTH_PKC const int wrappedDataLength,
+						IN_LENGTH_PKC const int inputLength,
 						IN_BOOL const BOOLEAN usePgpWrap, 
 						IN_BOOL const BOOLEAN isDlpAlgo )
 	{
 	BYTE dataSample[ 16 + 8 ];
-	const void *samplePtr = wrappedData + ( wrappedDataLength / 2 );
+	const BYTE *samplePtr = ( BYTE * ) mechanismInfo->wrappedData + \
+													( inputLength / 2 );
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 	int status;
 
 	assert( isWritePtr( mechanismInfo, sizeof( MECHANISM_WRAP_INFO ) ) );
-	assert( isWritePtrDynamic( wrappedData, wrappedDataLength ) );
 
-	REQUIRES( wrappedDataLength >= MIN_PKCSIZE && \
-			  wrappedDataLength <= CRYPT_MAX_PKCSIZE );
+	REQUIRES( inputLength >= MIN_PKCSIZE && \
+			  inputLength <= CRYPT_MAX_PKCSIZE );
 #ifdef USE_OAEP
-	REQUIRES( wrappedData[ 0 ] == 0x00 );
+	REQUIRES( ( ( BYTE * ) mechanismInfo->wrappedData )[ 0 ] == 0x00 );
 #else
-	REQUIRES( wrappedData[ 0 ] == 0x00 && \
-			  ( wrappedData[ 1 ] == 0x01 || wrappedData[ 1 ] == 0x02 ) );
+	REQUIRES( ( ( BYTE * ) mechanismInfo->wrappedData )[ 0 ] == 0x00 && \
+			  ( ( ( BYTE * ) mechanismInfo->wrappedData )[ 1 ] == 0x01 || \
+			    ( ( BYTE * ) mechanismInfo->wrappedData )[ 1 ] == 0x02 ) );
 #endif /* USE_OAEP */
 	REQUIRES( isBooleanValue( usePgpWrap ) );
 	REQUIRES( isBooleanValue( isDlpAlgo ) );
@@ -387,49 +395,65 @@ static int pkcWrapData( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 
 		/* For DLP-based PKC's the output length isn't the same as the key
 		   size so we adjust the return length as required */
-		setDLPParams( &dlpParams, wrappedData, wrappedDataLength, 
-					  wrappedData, mechanismInfo->wrappedDataLength );
+		initDLPParamsCrypt( &dlpParams, mechanismInfo->wrappedData, 
+							inputLength );
 		if( usePgpWrap )
 			dlpParams.formatType = CRYPT_FORMAT_PGP;
 		status = krnlSendMessage( mechanismInfo->wrapContext,
 								  IMESSAGE_CTX_ENCRYPT, &dlpParams,
 								  sizeof( DLP_PARAMS ) );
 		if( cryptStatusOK( status ) )
+			{
+			REQUIRES( rangeCheck( dlpParams.outLen, 1, 
+								  mechanismInfo->wrappedDataLength ) );
+			memcpy( mechanismInfo->wrappedData, dlpParams.outParam, 
+					dlpParams.outLen );
 			mechanismInfo->wrappedDataLength = dlpParams.outLen;
+			}
+		zeroise( &dlpParams, sizeof( DLP_PARAMS ) );
 		CFI_CHECK_UPDATE( "IMESSAGE_CTX_ENCRYPT" );
 		}
 	else
 		{
 		status = krnlSendMessage( mechanismInfo->wrapContext,
-								  IMESSAGE_CTX_ENCRYPT, wrappedData, 
-								  wrappedDataLength );
+								  IMESSAGE_CTX_ENCRYPT, 
+								  mechanismInfo->wrappedData, inputLength );
 		if( cryptStatusOK( status ) )
 			{
-			const BYTE *dataPtr = wrappedData;
-			LOOP_INDEX dataLength = wrappedDataLength;
+			const BYTE *dataPtr = mechanismInfo->wrappedData;
+			LOOP_INDEX dataLength = inputLength;
 
 			/* The PKC wrap functions take a fixed-length input and produce 
-			   a fixed-length output but some of this can be leading-zero 
-			   padding, so we strip the padding if there's any present */
+			   a fixed-length output but, with very low probability because
+			   RSA/DLP keys are typically engineered to use up every bit of 
+			   their bit length, some of this can be leading-zero padding so 
+			   we strip the padding if there's any present */
 			if( *dataPtr == 0 )
 				{
+				int delta;
+				
 				LOOP_MED_REV_CHECKINC( *dataPtr == 0 && dataLength > 16,
 									   ( dataPtr++, dataLength-- ) )
 					{
 					ENSURES( LOOP_INVARIANT_REV( dataLength, 17, 
-												 wrappedDataLength ) );
-							 /* dataLength is initialised to 
-							    wrappedDataLength above */
+												 inputLength ) );
+							 /* dataLength is initialised to inputLength 
+							    above */
 					}
 				ENSURES( LOOP_BOUND_MED_REV_OK );
-				REQUIRES( rangeCheck( dataLength, 16, wrappedDataLength ) );
-				memmove( wrappedData, dataPtr, dataLength );
-				REQUIRES( rangeCheck( wrappedDataLength - dataLength, 
-									  1, CRYPT_MAX_PKCSIZE ) );
-				REQUIRES( !checkOverflowSub( wrappedDataLength, 
-											 dataLength ) );
-				memset( wrappedData + dataLength, 0, 
-						wrappedDataLength - dataLength );
+				REQUIRES( rangeCheck( dataLength, 16, inputLength ) );
+				memmove( mechanismInfo->wrappedData, dataPtr, dataLength );
+				REQUIRES( !checkOverflowSub( inputLength, dataLength ) );
+				delta = inputLength - dataLength;
+				REQUIRES( boundsCheck( dataLength, delta, \
+									   CRYPT_MAX_PKCSIZE ) );
+				memset( ( BYTE * ) mechanismInfo->wrappedData + dataLength, 
+						0, delta );	/* Clear trailing bytes */
+						
+				/* Since we've moved the data that the samplePtr is pointing 
+				   to we also need to move that to point to its new 
+				   location */
+				samplePtr -= delta;
 				}
 			mechanismInfo->wrappedDataLength = dataLength;
 			CFI_CHECK_UPDATE( "IMESSAGE_CTX_ENCRYPT" );
@@ -441,15 +465,16 @@ static int pkcWrapData( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 		   failure of the encryption.  We don't do a retIntError() at this
 		   point because we want to at least continue and zeroise the data
 		   first */
-		assert( FALSE );
+		assert( DEBUG_WARN );
 		status = CRYPT_ERROR_FAILED;
 		}
 	zeroise( dataSample, 16 );
 	if( cryptStatusError( status ) )
 		{
 		/* There was a problem with the wrapping, clear the output value */
-		REQUIRES( isShortIntegerRangeNZ( wrappedDataLength ) ); 
-		zeroise( wrappedData, wrappedDataLength );
+		REQUIRES( isShortIntegerRangeNZ( mechanismInfo->wrappedDataLength ) );
+		zeroise( mechanismInfo->wrappedData, 
+				 mechanismInfo->wrappedDataLength );
 		return( status );
 		}
 
@@ -492,9 +517,8 @@ static int pkcUnwrapData( MECHANISM_WRAP_INFO *mechanismInfo,
 		{
 		DLP_PARAMS dlpParams;
 
-		setDLPParams( &dlpParams, mechanismInfo->wrappedData,
-					  mechanismInfo->wrappedDataLength, data, 
-					  dataMaxLength );
+		initDLPParamsCrypt( &dlpParams, mechanismInfo->wrappedData,
+							mechanismInfo->wrappedDataLength );
 		if( usePgpWrap )
 			dlpParams.formatType = CRYPT_FORMAT_PGP;
 		status = krnlSendMessage( mechanismInfo->wrapContext,
@@ -502,9 +526,14 @@ static int pkcUnwrapData( MECHANISM_WRAP_INFO *mechanismInfo,
 								  sizeof( DLP_PARAMS ) );
 		if( cryptStatusOK( status ) )
 			{
+			REQUIRES( rangeCheck( dlpParams.outLen, 1, dataMaxLength ) );
+			memcpy( data, dlpParams.outParam, dlpParams.outLen );
 			*dataOutLength = dlpParams.outLen;
+			zeroise( &dlpParams, sizeof( DLP_PARAMS ) );
+
 			return( CRYPT_OK );
 			}
+		zeroise( &dlpParams, sizeof( DLP_PARAMS ) );
 		}
 	else
 		{
@@ -521,6 +550,7 @@ static int pkcUnwrapData( MECHANISM_WRAP_INFO *mechanismInfo,
 		if( cryptStatusOK( status ) )
 			{
 			*dataOutLength = dataInLength;
+
 			return( CRYPT_OK );
 			}
 		}
@@ -738,7 +768,7 @@ static int pkcs1Wrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 					  IN_ENUM( PKCS1_WRAP ) const PKCS1_WRAP_TYPE type )
 	{
 	CRYPT_ALGO_TYPE cryptAlgo;
-	BYTE *wrappedData = mechanismInfo->wrappedData, *dataPtr;
+	BYTE *dataPtr;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 	int payloadSize, length, pkcs1PadSize, status;
 #ifdef USE_PGP
@@ -830,19 +860,19 @@ static int pkcs1Wrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 		return( CRYPT_ERROR_OVERFLOW );
 
 	/* Generate the PKCS #1 data block with room for the payload at the end */
-	status = generatePkcs1DataBlock( wrappedData, length, &pkcs1PadSize, 
-									 payloadSize );
+	status = generatePkcs1DataBlock( mechanismInfo->wrappedData, length, 
+									 &pkcs1PadSize, payloadSize );
 	if( cryptStatusError( status ) )
 		{
 		REQUIRES( isShortIntegerRangeNZ( length ) ); 
-		zeroise( wrappedData, length );
+		zeroise( mechanismInfo->wrappedData, length );
 		return( status );
 		}
 	ENSURES( pkcs1PadSize + payloadSize == length );
 	CFI_CHECK_UPDATE( "generatePkcs1DataBlock" );
 
 	/* Copy the payload in at the last possible moment, then encrypt it */
-	dataPtr = wrappedData + pkcs1PadSize;
+	dataPtr = ( BYTE * ) mechanismInfo->wrappedData + pkcs1PadSize;
 	switch( type )
 		{
 		case PKCS1_WRAP_NORMAL:
@@ -881,12 +911,12 @@ static int pkcs1Wrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 	if( cryptStatusError( status ) )
 		{
 		REQUIRES( isShortIntegerRangeNZ( length ) ); 
-		zeroise( wrappedData, length );
+		zeroise( mechanismInfo->wrappedData, length );
 		return( status );
 		}
 
 	/* Wrap the encoded data using the public key */
-	status = pkcWrapData( mechanismInfo, wrappedData, length,
+	status = pkcWrapData( mechanismInfo, length,
 #ifdef USE_PGP
 						  ( type == PKCS1_WRAP_PGP ) ? TRUE : FALSE,
 #else
@@ -897,7 +927,7 @@ static int pkcs1Wrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 		{
 		/* There was a problem with the wrapping, clear the output value */
 		REQUIRES( isShortIntegerRangeNZ( length ) ); 
-		zeroise( wrappedData, length );
+		zeroise( mechanismInfo->wrappedData, length );
 		return( status );
 		}
 	CFI_CHECK_UPDATE( "pkcWrapData" );
@@ -949,7 +979,12 @@ static int pkcs1Unwrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 		return( status );
 	ANALYSER_HINT( length > MIN_PKCSIZE && length <= CRYPT_MAX_PKCSIZE );
 
-	/* Decrypt the data */
+	/* Decrypt the data.  Unlike for signatures (see the long comment in 
+	   mechs/mech_sign.c:sigcheck()), this is non-public data so we have to
+	   be a bit more careful about what we report.  When used from within 
+	   cryptlib the status is always converted to a generic decrypt 
+	   failure but external callers may not do this so we convert all error
+	   codes to an umbrella CRYPT_ERROR_INVALID */
 	status = pkcUnwrapData( mechanismInfo, decryptedData, CRYPT_MAX_PKCSIZE,
 							&length, length, 
 #ifdef USE_PGP
@@ -991,7 +1026,7 @@ static int pkcs1Unwrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 	if( cryptStatusError( status ) )
 		{
 		zeroise( decryptedData, CRYPT_MAX_PKCSIZE );
-		return( status );
+		return( CRYPT_ERROR_INVALID );
 		}
 
 	/* Evaluate the location and length of the payload after the PKCS #1 
@@ -1008,7 +1043,7 @@ static int pkcs1Unwrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 	if( length < MIN_KEYSIZE || length > maxPayloadLength )
 		{
 		zeroise( decryptedData, CRYPT_MAX_PKCSIZE );
-		return( CRYPT_ERROR_BADDATA );
+		return( CRYPT_ERROR_INVALID );
 		}
 	payloadPtr = decryptedData + pkcs1PadSize;
 
@@ -1031,7 +1066,7 @@ static int pkcs1Unwrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 			if( length < MIN_KEYSIZE )
 				{
 				zeroise( decryptedData, CRYPT_MAX_PKCSIZE );
-				return( CRYPT_ERROR_BADDATA );
+				return( CRYPT_ERROR_INVALID );
 				}
 			STDC_FALLTHROUGH;
 #endif /* USE_PGP */
@@ -1071,8 +1106,10 @@ static int pkcs1Unwrap( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 			retIntError();
 		}
 	zeroise( decryptedData, CRYPT_MAX_PKCSIZE );
+	if( cryptStatusError( status ) )
+		return( CRYPT_ERROR_INVALID );
 
-	return( status );
+	return( CRYPT_OK );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
@@ -1351,7 +1388,7 @@ static int generateOaepDataBlock( OUT_BUFFER_FIXED( dataMaxLen ) BYTE *data,
 	status = getOaepHash( db, dbLen, &length, hashAlgo, hashParam );
 	if( cryptStatusError( status ) )
 		return( status );
-	REQUIRES( !checkOverflowSub( dbLen, messageLen - 1 ) );
+	REQUIRES( !checkOverflowSub3( dbLen, messageLen, 1 ) );
 	db[ dbLen - messageLen - 1 ] = 0x01;
 	REQUIRES( boundsCheck( 1 + seedLen + dbLen - messageLen, messageLen,
 						   dataMaxLen ) );
@@ -1529,7 +1566,10 @@ static int recoverOaepDataBlock( OUT_BUFFER( messageMaxLen, *messageLen ) \
 		}
 	if( dataBuffer[ 0 ] != 0x00 || \
 		compareDataConstTime( db, dbMask, seedLen ) != TRUE )
+		{
+		zeroise( dataBuffer, CRYPT_MAX_PKCSIZE );
 		return( CRYPT_ERROR_BADDATA );
+		}
 	LOOP_EXT( i = seedLen, i < dbLen && db[ i ] == 0x00, i++, 
 			  CRYPT_MAX_PKCSIZE + 1 )
 		{
@@ -1538,7 +1578,10 @@ static int recoverOaepDataBlock( OUT_BUFFER( messageMaxLen, *messageLen ) \
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( i <= seedLen || i >= dbLen || db[ i++ ] != 0x01 )
+		{
+		zeroise( dataBuffer, CRYPT_MAX_PKCSIZE );
 		return( CRYPT_ERROR_BADDATA );
+		}
 	if( dbLen < i )
 		length = UNDERFLOW_MARKER;
 	else
@@ -1546,14 +1589,16 @@ static int recoverOaepDataBlock( OUT_BUFFER( messageMaxLen, *messageLen ) \
 		REQUIRES( !checkOverflowSub( dbLen, i ) );
 		length = dbLen - i;
 		}
-	if( length < MIN_KEYSIZE )
-		return( CRYPT_ERROR_UNDERFLOW );
-	if( length > messageMaxLen )
-		return( CRYPT_ERROR_OVERFLOW );
+	if( length < MIN_KEYSIZE || length > messageMaxLen )
+		{
+		zeroise( dataBuffer, CRYPT_MAX_PKCSIZE );
+		return( ( length < MIN_KEYSIZE ) ? \
+				CRYPT_ERROR_UNDERFLOW : CRYPT_ERROR_OVERFLOW );
+		}
 
 	/* Return the recovered message to the caller */
 	REQUIRES( boundsCheck( i, length, dbLen ) );
-	REQUIRES( rangeCheck( length, 0, messageMaxLen ) );
+	REQUIRES( rangeCheck( length, MIN_KEYSIZE, messageMaxLen ) );
 	memcpy( message, db + i, length );
 	*messageLen = length;
 
@@ -1657,9 +1702,9 @@ int exportOAEP( STDC_UNUSED void *dummy,
 	CFI_CHECK_UPDATE( "generateOaepDataBlock" );
 
 	/* Wrap the encoded data using the public key */
-	status = pkcWrapData( mechanismInfo, mechanismInfo->wrappedData, length, 
-						  FALSE, ( cryptAlgo == CRYPT_ALGO_ELGAMAL ) ? \
-								 TRUE : FALSE );
+	status = pkcWrapData( mechanismInfo, length, FALSE, 
+						  ( cryptAlgo == CRYPT_ALGO_ELGAMAL ) ? \
+							TRUE : FALSE );
 	if( cryptStatusError( status ) )
 		{
 		/* There was a problem with the wrapping, clear the output value */
@@ -1735,8 +1780,11 @@ int importOAEP( STDC_UNUSED void *dummy,
 		}
 	if( cryptStatusError( status ) )
 		{
+		/* See the comment in pkcs1Unwrap() for why we convert all errors 
+		   from the decrypt/recover stage into a generic 
+		   CRYPT_ERROR_INVALID */
 		zeroise( message, CRYPT_MAX_PKCSIZE );
-		return( status );
+		return( CRYPT_ERROR_INVALID );
 		}
 
 	/* Load the decrypted keying information into the session key context */

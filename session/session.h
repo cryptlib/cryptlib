@@ -180,7 +180,7 @@
 #define FIXED_HEADER_MAX			21		/* TLS 1.1+ header with explicit 
 											   AES IV */
 
-/* The minimum and maximum packet size for procotols with variable-length
+/* The minimum and maximum packet size for protocols with variable-length
    data packets */
 
 #define PACKET_SIZE_MIN				1024
@@ -217,6 +217,24 @@ typedef enum {
 	AUTHRESPONSE_FAILURE,				/* Disallow authorisation */
 	AUTHRESPONSE_LAST					/* Last possible authorisation response */
 	} AUTHRESPONSE_TYPE;
+
+/* The request/response sessions have a multi-stage handshake process that 
+   progresses { beginHandshake, exchangeKeys, completeHandshake } and 
+   requires that all parts of the process be completed.  If we accidentally
+   exit early from one of the stages with a non-error return code then we'll
+   proceed to the next stage without having completed essential steps.  This
+   won't lead to a security vulnerability because the fact that things like
+   encryption contexts aren't initialised will be caught, but it's better to
+   explicitly check for this than to rely on it triggering sanity checks 
+   later */
+
+typedef enum {
+	HANDSHAKE_STATE_NONE,				/* No handshake state */
+	HANDSHAKE_STATE_BEGIN,				/* beginHandshake */
+	HANDSHAKE_STATE_KEYEX,				/* exchangeKeys */
+	HANDSHAKE_STATE_COMPLETE,			/* completeHandshake */
+	HANDSHAKE_STATE_LAST				/* Last possible handshake state */
+	} HANDSHAKE_STATE_TYPE;
 
 /****************************************************************************
 *																			*
@@ -265,7 +283,7 @@ typedef struct {
 
 	/* The incoming and outgoing packet sequence number, for detecting 
 	   insertion/deletion attacks */
-	long readSeqNo, writeSeqNo;
+	int readSeqNo, writeSeqNo;
 
 	/* TLS 1.2+ with AEAD modes breaks the IV down into two parts, an 
 	   explicit portion that's sent with every packet and an implicit
@@ -333,7 +351,7 @@ typedef struct {
 
 	/* The incoming and outgoing packet sequence number, for detecting 
 	   insertion/deletion attacks */
-	long readSeqNo, writeSeqNo;
+	int readSeqNo, writeSeqNo;
 
 	/* Per-channel state information */
 	int currReadChannel, currWriteChannel; /* Current active R/W channels */
@@ -548,7 +566,7 @@ typedef struct AL {
 	   a small integer or context, we store it in the intValue member.  If 
 	   it's a string or composite attribute data, we store it in the 
 	   variable-length buffer */
-	long intValue;						/* Integer value for simple types */
+	int intValue;						/* Integer value for simple types */
 	BUFFER_OPT_FIXED( valueLength ) \
 	void *value;						/* Attribute value */
 	int valueLength;					/* Attribute value length */
@@ -656,7 +674,7 @@ typedef struct SI {
 	   any further attempts to work with the session will return this
 	   status.  Since an error on one side of the channel (e.g. bad data on
 	   read) doesn't necessarily affect the operation of the other side, we
-	   keep track of the two sides independantly, and only set the error
+	   keep track of the two sides independently, and only set the error
 	   state for both sides for network-related errors.
 
 	   In many cases there'll still be data in the internal buffer that the

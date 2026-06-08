@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Certificate DN Read/Write Routines					*
-*						Copyright Peter Gutmann 1996-2024					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -29,8 +29,8 @@ static int readAVABitstring( INOUT_PTR STREAM *stream,
 							 OUT_LENGTH_SHORT_Z int *length, 
 							 OUT_TAG_ENCODED_Z int *stringTag )
 	{
-	long streamPos;
-	int bitStringLength, innerTag, innerLength DUMMY_INIT, status;
+	int bitStringLength, streamPos, innerTag, innerLength DUMMY_INIT;
+	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( length, sizeof( int ) ) );
@@ -198,6 +198,13 @@ static int readRDNcomponent( INOUT_PTR STREAM *stream,
 	   bytes, see the comment for copyFromASN1String() below */
 	if( valueLength > MAX_ATTRIBUTE_SIZE / 4 )
 		return( CRYPT_ERROR_OVERFLOW );
+	if( stringTag ==  BER_STRING_BMP && ( valueLength & 1 ) )
+		{
+		/* Unicode strings shouldn't have an odd length, this avoids 
+		   potential problems later with code that processes two bytes 
+		   at a time */
+		return( CRYPT_ERROR_BADDATA );
+		}
 
 	/* Skip broken AVAs with zero-length strings */
 	if( valueLength <= 0 )
@@ -274,8 +281,8 @@ static int readDNComponent( INOUT_PTR STREAM *stream,
 		status = readRDNcomponent( stream, dnPtr, rdnLength );
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, rdnStart, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, rdnStart, 
+											   &objectSize );
 			}
 		if( cryptStatusError( status ) )
 			return( status );
@@ -334,8 +341,8 @@ int readDN( INOUT_PTR STREAM *stream,
 		status = readDNComponent( stream, &dn );
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, innerStartPos, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, innerStartPos, 
+											   &objectSize );
 			}
 		if( cryptStatusError( status ) )
 			break;
@@ -377,7 +384,8 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int preEncodeDN( INOUT_PTR DN_COMPONENT *dnComponentPtr, 
 						OUT_LENGTH_SHORT_Z int *length )
 	{
-	LOOP_INDEX size = 0;
+	LOOP_INDEX_PTR DN_COMPONENT *dnAvaPtr = dnComponentPtr;
+	int size = 0;
 
 	assert( isWritePtr( dnComponentPtr, sizeof( DN_COMPONENT ) ) );
 	assert( isWritePtr( length, sizeof( int ) ) );
@@ -389,22 +397,22 @@ static int preEncodeDN( INOUT_PTR DN_COMPONENT *dnComponentPtr,
 	*length = 0;
 
 	/* Walk down the DN pre-encoding each AVA */
-	LOOP_MED_CHECKINC( dnComponentPtr != NULL,
-					   dnComponentPtr = DATAPTR_GET( dnComponentPtr->next ) )
+	LOOP_MED_CHECKINC( dnAvaPtr != NULL,
+					   dnAvaPtr = DATAPTR_GET( dnAvaPtr->next ) )
 		{
-		DN_COMPONENT *rdnStartPtr = dnComponentPtr;
+		DN_COMPONENT *rdnStartPtr = dnAvaPtr;
 		int LOOP_ITERATOR_ALT;
 
 		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
 
 		/* Calculate the size of every AVA in this RDN */
-		LOOP_MED_CHECKINC_ALT( dnComponentPtr != NULL,
-							   dnComponentPtr = DATAPTR_GET( dnComponentPtr->next ) )
+		LOOP_MED_CHECKINC_ALT( dnAvaPtr != NULL,
+							   dnAvaPtr = DATAPTR_GET( dnAvaPtr->next ) )
 			{
 			const DN_COMPONENT_INFO *dnComponentInfo;
 			int dnStringLength, status;
 
-			REQUIRES( sanityCheckDNComponent( dnComponentPtr ) );
+			REQUIRES( sanityCheckDNComponent( dnAvaPtr ) );
 
 			ENSURES( LOOP_INVARIANT_MED_ALT_GENERIC() );
 
@@ -412,28 +420,28 @@ static int preEncodeDN( INOUT_PTR DN_COMPONENT *dnComponentPtr,
 			   continue.  This occurs because any DN write follows the
 			   pattern { sizeofDN(), writeDN() } so we only need to perform
 			   the encoding check the first time */
-			if( dnComponentPtr->encodedAVAdataSize > 0 )
+			if( dnAvaPtr->encodedAVAdataSize > 0 )
 				{
-				if( !TEST_FLAG( dnComponentPtr->flags, DN_FLAG_CONTINUED ) )
+				if( !TEST_FLAG( dnAvaPtr->flags, DN_FLAG_CONTINUED ) )
 					break;
 				continue;
 				}
 
-			dnComponentInfo = dnComponentPtr->typeInfo;
-			status = getASN1StringInfo( dnComponentPtr->value, 
-										dnComponentPtr->valueLength,
-										&dnComponentPtr->valueStringType, 
-										&dnComponentPtr->asn1EncodedStringType,
+			dnComponentInfo = dnAvaPtr->typeInfo;
+			status = getASN1StringInfo( dnAvaPtr->value, 
+										dnAvaPtr->valueLength,
+										&dnAvaPtr->valueStringType, 
+										&dnAvaPtr->asn1EncodedStringType,
 										&dnStringLength, TRUE );
 			if( cryptStatusError( status ) )
 				return( status );
-			dnComponentPtr->encodedAVAdataSize = \
-										sizeofOID( dnComponentInfo->oid ) + \
-										sizeofShortObject( dnStringLength );
-			dnComponentPtr->encodedRDNdataSize = 0;
+			dnAvaPtr->encodedAVAdataSize = \
+									sizeofOID( dnComponentInfo->oid ) + \
+									sizeofShortObject( dnStringLength );
+			dnAvaPtr->encodedRDNdataSize = 0;
 			rdnStartPtr->encodedRDNdataSize += \
-						sizeofShortObject( dnComponentPtr->encodedAVAdataSize );
-			if( !TEST_FLAG( dnComponentPtr->flags, DN_FLAG_CONTINUED ) )
+						sizeofShortObject( dnAvaPtr->encodedAVAdataSize );
+			if( !TEST_FLAG( dnAvaPtr->flags, DN_FLAG_CONTINUED ) )
 				break;
 			}
 		ENSURES( LOOP_BOUND_OK_ALT );
@@ -443,8 +451,8 @@ static int preEncodeDN( INOUT_PTR DN_COMPONENT *dnComponentPtr,
 
 		/* If the inner loop terminated because it reached the end of the DN 
 		   then we need to explicitly exit the outer loop as well before it
-		   tries to follow the 'next' link in the dnComponentPtr */
-		if( dnComponentPtr == NULL )
+		   tries to follow the 'next' link in the dnAvaPtr */
+		if( dnAvaPtr == NULL )
 			break;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -487,8 +495,8 @@ int writeDN( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	REQUIRES_S( DATAPTR_ISVALID( dn ) );
-	REQUIRES_S( tag == DEFAULT_TAG || ( tag >= 0 && tag < MAX_TAG_VALUE ) );
+	REQUIRES( DATAPTR_ISVALID( dn ) );
+	REQUIRES( tag == DEFAULT_TAG || ( tag >= 0 && tag < MAX_TAG_VALUE ) );
 
 	/* Special case for empty DNs */
 	if( DATAPTR_ISNULL( dn ) )
@@ -504,7 +512,9 @@ int writeDN( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Write the DN */
-	writeConstructed( stream, size, tag );
+	status = writeConstructed( stream, size, tag );
+	if( cryptStatusError( status ) )
+		return( status );
 	LOOP_MED( dnComponentPtr = dnComponentList, 
 			  dnComponentPtr != NULL,
 			  dnComponentPtr = DATAPTR_GET( dnComponentPtr->next ) )
@@ -542,7 +552,10 @@ int writeDN( INOUT_PTR STREAM *stream,
 			!dnComponentInfo->ia5OK )
 			{
 			/* If an IA5String isn't allowed in this instance, use a
-			   T61String instead */
+			   T61String instead.  Updating the value here rather than in 
+			   preEncodeDN() is slightly inconsistent, however we can't 
+			   actually tell whether this is necessary without encoding it
+			   first */
 			dnComponentPtr->asn1EncodedStringType = BER_STRING_T61;
 			}
 		status = writeCharacterString( stream, dnString, dnStringLength,

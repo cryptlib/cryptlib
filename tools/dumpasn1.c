@@ -1961,7 +1961,7 @@ static void dumpBitString( FILE *inFile, const int length, const int unused,
 
 /* Display data as a text string up to a maximum of, for standard 80-char
    output, 240 characters (8 lines of 48 chars to match the hex limit of 8
-   lines of 16 bytes) with special treatement for control characters and
+   lines of 16 bytes) with special treatment for control characters and
    other odd things that can turn up in BMPString and UniversalString types.
 
    If the string is less than 40 chars in length, we try to print it on the
@@ -2446,7 +2446,7 @@ static int checkEncapsulate( FILE *inFile, const int length )
 
 	/* It's constructed, make sure that it's something for which it makes
 	   sense as a constructed object.  At worst this will give some false
-	   negatives for really wierd objects (nested constructed strings inside
+	   negatives for really weird objects (nested constructed strings inside
 	   OCTET STRINGs), but these should probably never occur anyway */
 	if( nestedItem.tag == SEQUENCE || \
 		nestedItem.tag == SET )
@@ -2768,9 +2768,9 @@ static void printASN1object( FILE *inFile, ASN1_ITEM *item, int level )
 			}
 
 		/* It'sprimitive, if we're only displaying the ASN.1 in outline
-		   form, supress the display by dumping it with a nesting level that
-		   ensures it won't get output (this clears the data from the input
-		   without displaying it) */
+		   form, suppress the display by dumping it with a nesting level
+		   that ensures it won't get output (this clears the data from the
+		   input without displaying it) */
 		if( nonOutlineObject )
 			{
 			dumpHex( inFile, item->length, 1000, DUMPHEX_NORMAL, 0 );

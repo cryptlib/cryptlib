@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Certificate Function Header File 					*
-*						Copyright Peter Gutmann 1996-2019					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -293,7 +293,7 @@ int getAttributeFieldTime( IN_DATAPTR_OPT const DATAPTR_ATTRIBUTE attributePtr,
    having the hardwired selections is to provide a general-purpose 
    enumeration capability and then have the caller extract whatever's 
    necessary from the attribute and decide whether they want to continue,
-   however this creates really akward attribute-enumeration loops and,
+   however this creates really awkward attribute-enumeration loops and,
    since there are only three cases that we need to handle, really isn't 
    worth the effort */
 
@@ -751,7 +751,7 @@ int writeCertChain( INOUT_PTR STREAM *stream,
 					const CERT_INFO *certInfoPtr );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int copyCertChain( INOUT_PTR CERT_INFO *certInfoPtr, 
-				   IN_HANDLE const CRYPT_HANDLE certChain,
+				   IN_HANDLE const CRYPT_HANDLE iContextOrChain,
 				   IN_BOOL const BOOLEAN isCertCollection );
 
 /* Read/write certificate collections in assorted formats */

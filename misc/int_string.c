@@ -228,11 +228,14 @@ int strExtract( OUT_PTR_PTR_COND const char **newStringPtr,
 	return( strStripWhitespace( newStringPtr, string + startOffset, newLen ) );
 	}
 
-/* Parse a numeric or hex string into an integer value.  Safe conversion of a 
-   numeric string gets a bit problematic because atoi() can't really 
-   indicate an error except by returning 0, which is indistinguishable from 
-   a zero numeric value.  To handle this we have to perform the conversion 
-   ourselves */
+/* Parse a numeric or hex string into an integer value.  There are two 
+   variants of this, one which processes a fixed-length string and one which
+   parses the value out of a longer string and processes that.
+
+   Safe conversion of a numeric string gets a bit problematic because atoi() 
+   can't indicate an error except by returning 0, which is indistinguishable 
+   from a zero numeric value.  To handle this we have to perform the 
+   conversion ourselves */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int strGetNumeric( IN_BUFFER( strLen ) const char *str, 
@@ -258,20 +261,20 @@ int strGetNumeric( IN_BUFFER( strLen ) const char *str,
 	if( strLen < 1 || strLen > 7 )
 		return( CRYPT_ERROR_BADDATA );
 
-	/* Process the numeric string.  In addition the second 
-	   checkOverflowAdd() isn't really necessary because we know that 
-	   value < MAX_INTLENGTH / 10, which means that 
-	   value <= MAX_INTLENGTH / 10 - 1, so value * 10 <= MAX_INTLENGTH - 10, 
-	   therefore value * 10 < MAX_INTLENGTH - 9, so 
-	   value * 10 < MAX_INTLENGTH - ch, however we leave it in to make the 
-	   condition explicit and because the more checks we have the harder it
-	   is for gcc to find an excuse to remove them (see the comments in the
-	   checkOverflowXYZ() functions in misc/safety.h) */
-	LOOP_MAX( ( i = 0, value = 0 ), i < strLen, i++ )
+	/* Process the numeric string.  The second checkOverflowAdd() isn't 
+	   really necessary because we know that value < MAX_INTLENGTH / 10, 
+	   which means that value <= MAX_INTLENGTH / 10 - 1, so 
+	   value * 10 <= MAX_INTLENGTH - 10, therefore 
+	   value * 10 < MAX_INTLENGTH - 9, so value * 10 < MAX_INTLENGTH - ch, 
+	   however we leave it in to make the condition explicit and because the 
+	   more checks we have the harder it is for gcc to find an excuse to 
+	   remove them (see the comments in the checkOverflowXYZ() functions in 
+	   misc/safety.h) */
+	LOOP_LARGE( ( i = 0, value = 0 ), i < strLen, i++ )
 		{
 		int ch;
 
-		ENSURES( LOOP_INVARIANT_MAX( i, 0, strLen - 1 ) );
+		ENSURES( LOOP_INVARIANT_LARGE( i, 0, strLen - 1 ) );
 
 		ch = byteToInt( str[ i ] ) - '0';
 		if( ch < 0 || ch > 9 )
@@ -294,23 +297,59 @@ int strGetNumeric( IN_BUFFER( strLen ) const char *str,
 	return( CRYPT_OK );
 	}
 
+CHECK_RETVAL_LENGTH STDC_NONNULL_ARG( ( 1, 3 ) ) \
+int strParseNumeric( IN_BUFFER( strLen ) const char *str, 
+					 IN_LENGTH_SHORT const int strMaxLen, 
+					 OUT_INT_Z int *numericValue, 
+					 IN_RANGE( 0, 100 ) const int minValue, 
+					 IN_RANGE( minValue, MAX_INTLENGTH ) const int maxValue )
+	{
+	LOOP_INDEX numericStrLen;
+	int status;
+	
+	assert( isReadPtrDynamic( str, strMaxLen ) );
+	assert( isWritePtr( numericValue, sizeof( int ) ) );
+
+	REQUIRES( isShortIntegerRangeNZ( strMaxLen ) );
+	REQUIRES( minValue >= 0 && minValue < maxValue && \
+			  maxValue <= MAX_INTLENGTH );
+
+	/* Clear return value */
+	*numericValue = 0;
+
+	/* Figure out which substring portion of the string is the numeric 
+	   value */
+	LOOP_LARGE( numericStrLen = 0, 
+				numericStrLen < strMaxLen && \
+					isDigit( str[ numericStrLen ] ),
+				numericStrLen++ )
+		{
+		ENSURES( LOOP_INVARIANT_LARGE( numericStrLen, 0, strMaxLen - 1 ) );
+		}
+	ENSURES( LOOP_BOUND_OK );
+	if( numericStrLen < 1 || numericStrLen > 5 )
+		return( CRYPT_ERROR_BADDATA );
+
+	/* Process the extracted numeric string */
+	status = strGetNumeric( str, numericStrLen, numericValue, minValue, 
+							maxValue );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* Let the caller know how much of the string we processed */
+	return( numericStrLen );
+	}
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int strGetHex( IN_BUFFER( strLen ) const char *str, 
 			   IN_LENGTH_SHORT const int strLen, 
 			   OUT_INT_Z int *numericValue, 
 			   IN_RANGE( 0, 100 ) const int minValue, 
-			   IN_RANGE( minValue, MAX_INTLENGTH ) const int maxValue )
+			   IN_RANGE( minValue, 0xFFFF ) const int maxValue )
 	{
-#ifdef SYSTEM_16BIT
 	const int strMaxLen = ( maxValue > 0xFFF ) ? 4 : \
 						  ( maxValue > 0xFF ) ? 3 : \
 						  ( maxValue > 0xF ) ? 2 : 1;
-#else
-	const int strMaxLen = ( maxValue > 0xFFFF ) ? 5 : \
-						  ( maxValue > 0xFFF ) ? 4 : \
-						  ( maxValue > 0xFF ) ? 3 : \
-						  ( maxValue > 0xF ) ? 2 : 1;
-#endif /* SYSTEM_16BIT */
 	LOOP_INDEX i;
 	int value = 0;
 
@@ -318,8 +357,7 @@ int strGetHex( IN_BUFFER( strLen ) const char *str,
 	assert( isWritePtr( numericValue, sizeof( int ) ) );
 
 	REQUIRES( isShortIntegerRangeNZ( strLen ) );
-	REQUIRES( minValue >= 0 && minValue < maxValue && \
-			  maxValue <= MAX_INTLENGTH );
+	REQUIRES( minValue >= 0 && minValue < maxValue && maxValue <= 0xFFFF );
 
 	/* Clear return value */
 	*numericValue = 0;
@@ -449,7 +487,9 @@ char *sanitiseString( INOUT_BUFFER( strMaxLen, strLen ) void *string,
 	ENSURES_EXT( LOOP_BOUND_OK, "(Internal error)" );
 
 	/* If there was more input than we could fit into the buffer and there's 
-	   room for a continuation indicator, add this to the output string.  We 
+	   room for a continuation indicator, add this to the output string (we
+	   silently truncate if the string is eight characters or less since it 
+	   would replace most of the string with the truncation indicator).  We 
 	   check for strLen >= strMaxLen rather than > strMaxLen because we need 
 	   an extra byte for the '\0', since the case of strLen == strMaxLen 
 	   wouldn't leave us any room */
@@ -490,52 +530,78 @@ int mbstowcs_s( OUT_PTR size_t *retval,
 				OUT_BUFFER_FIXED( dstmax ) wchar_t *dst, 
 				IN_LENGTH_SHORT size_t dstmax, 
 				IN_BUFFER( len ) const char *src, 
-				IN_LENGTH_SHORT size_t len )
+				IN_LENGTH_SHORT size_t count )
 	{
 	size_t bytesCopied;
 
 	assert( isWritePtr( retval, sizeof( size_t ) ) );
-	assert( isWritePtrDynamic( dst, dstmax ) );
-	assert( isReadPtrDynamic( src, len ) );
+	assert( dst == NULL );
+	assert( isReadPtrDynamic( src, count ) );
 
+	REQUIRES_EXT( dst == NULL, -1 );	/* See comment below */
 	REQUIRES_EXT( isShortIntegerRangeNZ( dstmax ), -1 );
-	REQUIRES_EXT( ( isShortIntegerRangeNZ( len ) && len <= dstmax ), -1 );
+	REQUIRES_EXT( ( isShortIntegerRangeNZ( count ) && \
+					count <= dstmax ), -1 );
 
 	/* Clear return value */
 	*retval = 0;
 
-	bytesCopied = mbstowcs( dst, src, len );
+	/* We can't really emulate mbstowcs_s() properly because 'count' is the 
+	   number of widechars to store in the destination buffer (up to 
+	   'dstmax'), not a byte count.  The real mbstowcs_s() converts 'count' 
+	   characters to widechars and stores them in 'dst' until 'dstmax' is 
+	   reached, while mbstowcs() just keeps going until it hits a null 
+	   terminator.
+	   
+	   However we're only called from two locations, one is in 
+	   io/net_proxy.c:findProxyUrl() for Windows autoproxy handling where we 
+	   need to use Unicode strings but also know that the real mbstowcs_s() 
+	   is present so the call will never end up here, the other is from 
+	   cert/dn_string:getASN1StringInfo() where we're being called as an 
+	   emulation of the nonexistent mbstrlen() so 'dst' is always NULL (thus
+	   the REQUIRES() statement above).  In this case we're not writing 
+	   anything to the output and the caller will check the range of 
+	   'retVal' when they receive it */
+	bytesCopied = mbstowcs( dst, src, count );
 	if( ( bytesCopied == ( size_t ) -1 ) || ( bytesCopied <= 0 ) )
 		return( -1 );
 	*retval = bytesCopied;
 	return( 0 );
 	}
+
+#ifdef __WINCE__
 
 RETVAL_RANGE( -1, 0 ) \
 int wcstombs_s( OUT_PTR size_t *retval, 
 				OUT_BUFFER_FIXED( dstmax ) char *dst, 
 				IN_LENGTH_SHORT size_t dstmax, 
 				IN_BUFFER( len) const wchar_t *src, 
-				IN_LENGTH_SHORT size_t len )
+				IN_LENGTH_SHORT size_t count )
 	{
 	size_t bytesCopied;
 
 	assert( isWritePtr( retval, sizeof( size_t ) ) );
 	assert( isWritePtrDynamic( dst, dstmax ) );
-	assert( isReadPtrDynamic( src, len ) );
+	assert( isReadPtrDynamic( src, count ) );
 
 	REQUIRES_EXT( isShortIntegerRangeNZ( dstmax ), -1 );
-	REQUIRES_EXT( ( isShortIntegerRangeNZ( len ) && len <= dstmax ), -1 );
+	REQUIRES_EXT( ( isShortIntegerRangeNZ( count ) && \
+					count <= dstmax ), -1 );
 
 	/* Clear return value */
 	*retval = 0;
 
-	bytesCopied = wcstombs( dst, src, len );
+	/* As is the case for mbstowcs_s() above, this is only used under Windows
+	   for which we have the full wcstombs_s() present and never call this 
+	   function, and in one location for Windows CE which is extinct, it's 
+	   just left here for consistency */
+	bytesCopied = wcstombs( dst, src, count );
 	if( ( bytesCopied == ( size_t ) -1 ) || ( bytesCopied <= 0 ) )
 		return( -1 );
 	*retval = bytesCopied;
 	return( 0 );
 	}
+#endif /* __WINCE__ */
 #endif /* !__STDC_LIB_EXT1__ */
 
 /****************************************************************************
@@ -629,6 +695,16 @@ BOOLEAN testIntString( void )
 		strGetNumeric( "x1234", 5, &value, 0, 2000 ) != CRYPT_ERROR_BADDATA || value != 0 || \
 		strGetNumeric( "1000", 4, &value, 0, 1000 ) != CRYPT_OK || value != 1000 || \
 		strGetNumeric( "1001", 4, &value, 0, 1000 ) != CRYPT_ERROR_BADDATA || value != 0 )
+		return( FALSE );
+
+	/* Test strParseNumeric() */
+	if( strParseNumeric( "0", 1, &value, 0, 10 ) != 1 || value != 0 || \
+		strParseNumeric( "00", 2, &value, 0, 10 ) != 2 || value != 0 || \
+		strParseNumeric( "1234", 4, &value, 0, 2000 ) != 4 || value != 1234 || \
+		strParseNumeric( "1234x", 5, &value, 0, 2000 ) != 4 || value != 1234 || \
+		strParseNumeric( "1234.0", 6, &value, 0, 2000 ) != 4 || value != 1234 || \
+		strParseNumeric( ".1000", 5, &value, 0, 1000 ) != CRYPT_ERROR_BADDATA || value != 0 || \
+		strParseNumeric( "1001-0", 6, &value, 0, 2000 ) != 4 || value != 1001 )
 		return( FALSE );
 
 	/* Test strGetHex() */

@@ -137,7 +137,7 @@ void safeBufferFree( const void *buffer )
 	void *startCookiePtr = ( ( BYTE * ) buffer ) - SAFEBUFFER_COOKIE_SIZE;
 	BYTE cookie[ SAFEBUFFER_COOKIE_SIZE + 16 ];
 
-	assert( isWritePtr( buffer, SAFEBUFFER_COOKIE_SIZE ) );
+	assert( isReadPtr( buffer, SAFEBUFFER_COOKIE_SIZE ) );
 
 	/* We can't check the overall buffer state since we don't know its size
 	   in order to locate the end cookie, but we can check at least the 
@@ -534,8 +534,8 @@ void clFreeFn( const char *fileName, const char *fnName,
 	assert( fnName != NULL );
 	assert( lineNo > 0 );
 
-	index = mgetLong( memPtr );
-	memPtr -= sizeof( LONG );		/* mgetLong() changes memPtr */
+	index = mget32( memPtr );
+	memPtr -= sizeof( LONG );		/* mget32() changes memPtr */
 	length = DEBUG_PRINT(( "FREE : %s:%s:%d", debugGetBasePath( fileName ), 
 						   fnName, lineNo ));
 	while( length < 56 )

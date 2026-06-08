@@ -216,7 +216,7 @@ static BOOLEAN checkMonotimer( const MONOTIMER_INFO *timerInfo )
 		return( FALSE );
 		}
 
-	/* Make sure that time ranges are withing bounds.  This can generally 
+	/* Make sure that time ranges are within bounds.  This can generally 
 	   only happen when a time_t over/underflow has occurred */
 	if( timerInfo->endTime < timerInfo->timeRemaining || \
 		timerInfo->origTimeout < timerInfo->timeRemaining )

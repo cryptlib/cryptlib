@@ -12,7 +12,7 @@
    HAL routines and the algorithm template file containing the algorithms.
 
    The best way to understand the algorithm implementation is to look at 
-   equivalent cryto modules in the context subdirectory, context/ctx_aes.c 
+   equivalent crypto modules in the context subdirectory, context/ctx_aes.c 
    for a symmetric crypto module, context/ctx_rsa.c for an asymmetric-crypto 
    module, and context/ctx_sha2.c / context/hsha2.c for a hash/MAC module.
 
@@ -28,7 +28,7 @@
    term storageID in the form of a fixed-length binary string, and an 
    ephemeral storageRef in the form of an integer value.  Personalities are 
    looked up by their long-term storageID, which is mapped to an empeheral 
-   storageRef by the HAL that's then used to acccess the personality from 
+   storageRef by the HAL that's then used to access the personality from 
    then on.  The operation works similar to opening a file (by storageID), 
    which returns a file handle (the storageRef) that's used in subsequent 
    operations.

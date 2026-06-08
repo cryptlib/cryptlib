@@ -108,7 +108,7 @@ static int twoPhaseConfigUpdate( INOUT_PTR USER_INFO *userInfoPtr,
 		ENSURES( rangeCheck( result, 7, 15 ) );
 		}
 
-	/* Determine what we have to do with the configuation information */
+	/* Determine what we have to do with the configuration information */
 	status = getConfigDisposition( userInfoPtr->configOptions, 
 								   userInfoPtr->configOptionsCount, 
 								   userInfoPtr->trustInfo, 

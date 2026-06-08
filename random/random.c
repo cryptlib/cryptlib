@@ -453,7 +453,7 @@ static int tryGetRandomOutput( INOUT_PTR RANDOM_INFO *randomInfo,
 
 	/* Check for stuck-at faults by comparing a short sample from the current
 	   output with samples from the previous RANDOMPOOL_SAMPLES outputs */
-	sample = mgetLong( samplePtr );
+	sample = mget32( samplePtr );
 	LOOP_EXT( i = 0, i < RANDOMPOOL_SAMPLES, i++, RANDOMPOOL_SAMPLES + 1 )
 		{
 		ENSURES( LOOP_INVARIANT_EXT( i, 0, RANDOMPOOL_SAMPLES - 1,
@@ -502,7 +502,7 @@ static int tryGetRandomOutput( INOUT_PTR RANDOM_INFO *randomInfo,
 	   requirements for previous-sample checking, however this is handled by
 	   having the generator cranked twice on init/reinit in 
 	   getRandomOutput(), which provides the necessary zero'th sample */
-	sample = mgetLong( x917SamplePtr );
+	sample = mget32( x917SamplePtr );
 	LOOP_EXT( i = 0, i < RANDOMPOOL_SAMPLES, i++, RANDOMPOOL_SAMPLES + 1 )
 		{
 		ENSURES( LOOP_INVARIANT_EXT( i, 0, RANDOMPOOL_SAMPLES - 1,
@@ -655,9 +655,9 @@ static int getRandomOutput( INOUT_PTR RANDOM_INFO *randomInfo,
 	REQUIRES( randomInfo->prevOutputIndex >= 0 && \
 			  randomInfo->prevOutputIndex < RANDOMPOOL_SAMPLES );
 	samplePtr = randomInfo->randomPool;
-	randomInfo->prevOutput[ randomInfo->prevOutputIndex ] = mgetLong( samplePtr );
+	randomInfo->prevOutput[ randomInfo->prevOutputIndex ] = mget32( samplePtr );
 	samplePtr = exportedRandomInfo.randomPool;
-	randomInfo->x917PrevOutput[ randomInfo->prevOutputIndex ] = mgetLong( samplePtr );
+	randomInfo->x917PrevOutput[ randomInfo->prevOutputIndex ] = mget32( samplePtr );
 	REQUIRES( !checkOverflowAdd( randomInfo->prevOutputIndex, 1 ) );
 	randomInfo->prevOutputIndex = ( randomInfo->prevOutputIndex + 1 ) % \
 								  RANDOMPOOL_SAMPLES;

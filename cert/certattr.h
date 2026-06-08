@@ -292,7 +292,7 @@
    that it's some sort of ASN.1 object.  There are also two cases in which
    an ANY blob is used where it'd be possible to use more specific blobs
    for OBJECT IDENTIFIERs and GeneralNames and that's in { OID, value }
-   selection lists in which the ANY blob acts spefically as an end-of-
+   selection lists in which the ANY blob acts specifically as an end-of-
    list marker as well as being just a catchall type */
 
 #define FIELDTYPE_BLOB_ANY		-3
@@ -435,7 +435,7 @@ typedef struct {
 			example checking that the chars in the string are valid for the
 			given ASN.1 string type.
 
-	FLAG_CRITICAL: The extension containing the field is marked criticial.
+	FLAG_CRITICAL: The extension containing the field is marked critical.
 
 	FLAG_DEFAULTVALUE: The field has a value which is equal to the default
 			for this field, so it doesn't get encoded.  This flag is set
@@ -524,7 +524,7 @@ typedef struct AL {
 	   we store it in { dataValue, dataValueLength }, and if it's a DN we 
 	   store it in a DATAPTR */
 	union { 
-		long intValue;				/* Integer value for simple types */
+		int intValue;				/* Integer value for simple types */
 		struct {					/* Data value for scalar types */
 			BUFFER_OPT_FIXED( dataValueLength ) \
 			void *dataValue;

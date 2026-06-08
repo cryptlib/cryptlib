@@ -106,7 +106,7 @@
 
 #if defined( __APPLE__ )
   /* Apple provides an environment-specific file that provides detailed
-	 information about the target enviroment, defining TARGET_OS_xxx to 1
+	 information about the target environment, defining TARGET_OS_xxx to 1
 	 for a given target environment */
   #include <TargetConditionals.h>
   #if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
@@ -394,10 +394,11 @@
   #endif /* VC++ 2005 or newer */
 
   /* Code analysis generates even more warnings.  C6011 is particularly 
-	 problematic, it's issued whenever a pointer is derefenced without first
-	 checking that it's not NULL, which makes it more or less unusable */
+	 problematic, it's issued whenever a pointer is dereferenced without 
+	 first checking that it's not NULL, which makes it more or less 
+	 unusable */
   #if defined( _MSC_VER ) && defined( _PREFAST_ ) 
-	#pragma warning( disable: 6011 )/* Deferencing NULL pointer */
+	#pragma warning( disable: 6011 )/* Dereferencing NULL pointer */
   #endif /* VC++ with source analysis enabled */
 
   /* Windows DDK free builds treat warnings as errors and the DDK headers 
@@ -415,13 +416,17 @@
 
   /* Conversely, some errors are only reported as warnings, with the 
      compiler continuing with invalid code, so we convert them to actual
-     errors */
+     errors.  Some of these really are just warnings, e.g. C4090, but in
+     that case we want the compiler to stop and tell us about them so we
+     can fix them */
   #pragma warning( error: 4002 )	/* Incorrect number of args to macro */
   #pragma warning( error: 4003 )	/* Also incorrect no.of args to macro */
   #pragma warning( error: 4020 )	/* Incorrect no.of args to function */
   #pragma warning( error: 4024 )	/* Diff.types for declared and actual fn.param */
   #pragma warning( error: 4026 )	/* Also diff.types for fn.params */
+  #pragma warning( error: 4090 )	/* different 'const' qualifiers */
   #pragma warning( error: 4098 )	/* Void function returning a value */
+  #pragma warning( error: 4553 )	/* '==' has no effect; did you mean '=' */
 #endif /* Visual C++ */
 
 /* Under VC++/VS a number of warnings are disabled by default, including 
@@ -875,12 +880,10 @@
    checking LONG_MAX because it won't work correctly with LLP64 systems, 
    luckily this is only Win64 which we can check for explicitly */
 
-#if INT_MAX <= 32768L
-  #define SYSTEM_16BIT
-#elif ( ULONG_MAX > 0xFFFFFFFFUL ) || defined( __WIN64__ )
+#if ( ULONG_MAX > 0xFFFFFFFFUL ) || defined( __WIN64__ )
   #define SYSTEM_64BIT
 #else
   #define SYSTEM_32BIT
-#endif /* 16- vs.32- vs.64-bit system */
+#endif /* 32- vs.64-bit system */
 
 #endif /* _OSDETECT_DEFINED */

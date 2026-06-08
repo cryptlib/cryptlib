@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						ASN.1 Algorithm Identifier Routines					*
-*						Copyright Peter Gutmann 1992-2019					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -719,7 +719,7 @@ static int readAlgoIDparams( INOUT_PTR STREAM *stream,
 	status = readEncodedOID( stream, oidBuffer, MAX_OID_SIZE, &oidLength, 
 							 BER_OBJECT_IDENTIFIER );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( sSetError( stream, status ) );
 	if( oidLength > length )
 		{
 		/* Make sure that the calculations that follow work */
@@ -740,7 +740,7 @@ static int readAlgoIDparams( INOUT_PTR STREAM *stream,
 	status = oidToAlgorithm( oidBuffer, oidLength, cryptAlgo, 
 							 algoIDparamPtr, type );
 	if( cryptStatusError( status ) ) 
-		return( status );
+		return( sSetError( stream, status ) );
 
 	/* If the caller has specified that there should be no parameters 
 	   present, make sure that there's either no data or an ASN.1 NULL 
@@ -907,7 +907,8 @@ int readContextAlgoID( INOUT_PTR STREAM *stream,
 	/* Clear optional return value */
 	memset( queryInfoPtr, 0, sizeof( QUERY_INFO ) );
 
-	/* Read the algorithm info */
+	/* Read the algorithm info.  This sets the stream error status so 
+	   there's no need for an sSetError() */
 	status = readAlgoIDInfo( stream, queryInfoPtr, tag, type );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -923,7 +924,7 @@ int readContextAlgoID( INOUT_PTR STREAM *stream,
 							  IMESSAGE_DEV_CREATEOBJECT, &createInfo, 
 							  OBJECT_TYPE_CONTEXT );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( sSetError( stream, status ) );
 	if( isParameterisedHashAlgo( queryInfoPtr->cryptAlgo ) || \
 		isParameterisedMacAlgo( queryInfoPtr->cryptAlgo ) )
 		{
@@ -933,7 +934,7 @@ int readContextAlgoID( INOUT_PTR STREAM *stream,
 								  &queryInfoPtr->hashParam, 
 								  CRYPT_CTXINFO_BLOCKSIZE );
 		if( cryptStatusError( status ) )
-			return( status );
+			return( sSetError( stream, status ) );
 		}
 	if( !isConvAlgo( queryInfoPtr->cryptAlgo ) )
 		{
@@ -966,8 +967,8 @@ int readContextAlgoID( INOUT_PTR STREAM *stream,
 		   appropriate for the situation */
 		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
 		if( cryptArgError( status ) || cryptParamError( status ) )
-			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
-		return( status );
+			status = CRYPT_ERROR_BADDATA;
+		return( sSetError( stream, status ) );
 		}
 	*iCryptContext = createInfo.cryptHandle;
 
@@ -1113,7 +1114,7 @@ int writeContextAlgoID( INOUT_PTR STREAM *stream,
 	status = krnlSendMessage( iCryptContext, IMESSAGE_GETATTRIBUTE,
 							  &algorithm, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( sSetError( stream, status ) );
 	return( writeAlgoIDparams( stream, algorithm, NULL, DEFAULT_TAG ) );
 	}
 
@@ -1133,7 +1134,7 @@ int writeContextAlgoIDex( INOUT_PTR STREAM *stream,
 	status = krnlSendMessage( iCryptContext, IMESSAGE_GETATTRIBUTE,
 							  &algorithm, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( sSetError( stream, status ) );
 	return( writeAlgoIDparams( stream, algorithm, algoIDparams,	
 							   DEFAULT_TAG ) );
 	}
@@ -1176,6 +1177,9 @@ static int getOIDinfo( const OID_INFO **oidInfoPtrPtr,
 	MESSAGE_CATALOGQUERY_INFO catalogQueryInfo;
 	int status;
 #endif /* CRYPTO_OBJECT_HANDLE != SYSTEM_OBJECT_HANDLE */
+
+	assert( isReadPtr( oidInfoPtrPtr, sizeof( OID_INFO * ) ) );
+	assert( isWritePtr( oidInfoNoEntries, sizeof( int ) ) );
 
 	/* Clear return values */
 	*oidInfoPtrPtr = NULL;
@@ -1249,12 +1253,12 @@ int readECCOID( INOUT_PTR STREAM *stream,
 	/* Read the ECC OID */
 	status = getOIDinfo( &oidInfo, &oidInfoSize );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( sSetError( stream, status ) );
 	status = readOID( stream, oidInfo, oidInfoSize, &selectionID );
 	if( cryptStatusOK( status ) )
 		status = getECCFieldSize( selectionID, fieldSize, FALSE );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( sSetError( stream, status ) );
 	*curveType = selectionID;	/* enum vs.int */
 
 	return( CRYPT_OK );

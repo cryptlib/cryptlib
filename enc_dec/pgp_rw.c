@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				Miscellaneous (Non-ASN.1) Read/Write Routines				*
-*						Copyright Peter Gutmann 1992-2024					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -23,17 +23,16 @@
 
 /* Read a length in OpenPGP or PGP2 format */
 
-CHECK_RETVAL_LENGTH STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int readOpenPGPLength( INOUT_PTR STREAM *stream, 
-							  OUT_LENGTH_Z long *length,
+							  OUT_LENGTH_Z int *length,
 							  OUT_BOOL BOOLEAN *indefiniteLength,
 							  IN_BOOL const BOOLEAN indefOK )
 	{
-	long localLength;
-	int status;
+	int localLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( length, sizeof( long ) ) );
+	assert( isWritePtr( length, sizeof( int ) ) );
 	assert( isWritePtr( indefiniteLength, sizeof( BOOLEAN ) ) );
 
 	REQUIRES_S( isBooleanValue( indefOK ) );
@@ -59,9 +58,11 @@ static int readOpenPGPLength( INOUT_PTR STREAM *stream,
 	   range 192...8383 */
 	if( localLength <= 223 )
 		{
-		const int value = sgetc( stream );
-		if( cryptStatusError( value ) )
-			return( value );
+		int value;
+		
+		status = value = sgetc( stream );
+		if( cryptStatusError( status ) )
+			return( status );
 		localLength = ( ( localLength - 192 ) << 8 ) + value + 192;
 		if( localLength < 192 || localLength > 8383 )
 			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
@@ -93,7 +94,7 @@ static int readOpenPGPLength( INOUT_PTR STREAM *stream,
 		   
 		   The spec says (section 4.2.2.4) that the "length is a power of 2, 
 		   from 1 to 1,073,741,824 (2 to the 30th power)" but it's not clear
-		   that 2^0, or even slighly larger values, should be allowed since
+		   that 2^0, or even slightly larger values, should be allowed since
 		   any odd bits at the end of the data would be included in the
 		   definite-length final sub-segment, so we require a shift amount 
 		   of at least 2, for four bytes of data.
@@ -125,13 +126,13 @@ static int readOpenPGPLength( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readPGP2Length( INOUT_PTR STREAM *stream, 
-						   OUT_LENGTH_Z long *length, 
+						   OUT_LENGTH_Z int *length, 
 						   IN_BYTE const int ctb )
 	{
-	long localLength;
+	int localLength = 0, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( length, sizeof( long ) ) );
+	assert( isWritePtr( length, sizeof( int ) ) );
 
 	REQUIRES_S( ctb >= 0 && ctb <= 0xFF );
 
@@ -142,25 +143,25 @@ static int readPGP2Length( INOUT_PTR STREAM *stream,
 	switch( ctb & 3 )
 		{
 		case 0:
-			localLength = sgetc( stream );
+			status = localLength = sgetc( stream );
 			break;
 
 		case 1:
-			localLength = readUint16( stream );
+			status = localLength = readUint16( stream );
 			break;
 
 		case 2:
-			localLength = readUint32( stream );
+			status = localLength = readUint32( stream );
 			break;
 
 		default:
 			/* A length value of 3 indicates that the data length is 
 			   determined externally, this is a deprecated PGP 2.x value 
 			   that we don't handle */
-			localLength = CRYPT_ERROR_BADDATA;
+			status = CRYPT_ERROR_BADDATA;
 		}
-	if( cryptStatusError( localLength ) )
-		return( sSetError( stream, localLength ) );
+	if( cryptStatusError( status ) )
+		return( sSetError( stream, status ) );
 	if( !isIntegerRange( localLength ) )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	*length = localLength;
@@ -175,18 +176,17 @@ static int readPGP2Length( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int pgpReadLength( INOUT_PTR STREAM *stream, 
-						  OUT_LENGTH_BOUNDED_Z( maxLength ) long *length, 
+						  OUT_LENGTH_BOUNDED_Z( maxLength ) int *length, 
 						  IN_BYTE const int ctb, 
 						  IN_LENGTH_SHORT_Z const int minLength, 
 						  IN_LENGTH const int maxLength, 
 						  IN_BOOL const BOOLEAN indefOK )
 	{
 	BOOLEAN indefiniteLength = FALSE;
-	long localLength;
-	int status;
+	int localLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( length, sizeof( long ) ) );
+	assert( isWritePtr( length, sizeof( int ) ) );
 
 	REQUIRES_S( isShortIntegerRange( minLength ) && \
 				minLength < maxLength && maxLength < MAX_INTLENGTH );
@@ -218,17 +218,16 @@ static int pgpReadLength( INOUT_PTR STREAM *stream,
 CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int readPacketHeader( INOUT_PTR STREAM *stream, 
 							 OUT_OPT_BYTE int *ctb, 
-							 OUT_OPT_LENGTH_Z long *length, 
+							 OUT_OPT_LENGTH_Z int *length, 
 							 IN_LENGTH_SHORT_Z const int minLength, 
 							 IN_LENGTH const int maxLength, 
 							 IN_BOOL const BOOLEAN indefOK )
 	{
-	long localLength;
-	int localCTB, status;
+	int localCTB, localLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( ctb == NULL || isWritePtr( ctb, sizeof( int ) ) );
-	assert( length == NULL || isWritePtr( length, sizeof( long ) ) );
+	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 	
 	REQUIRES_S( isShortIntegerRange( minLength ) && \
 				minLength < maxLength && maxLength < MAX_INTLENGTH );
@@ -321,8 +320,7 @@ int pgpReadShortLength( INOUT_PTR STREAM *stream,
 						OUT_LENGTH_SHORT_Z int *length, 
 						IN_BYTE const int ctb )
 	{
-	long localLength;
-	int status;
+	int localLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -333,7 +331,7 @@ int pgpReadShortLength( INOUT_PTR STREAM *stream,
 							MAX_INTLENGTH_SHORT, FALSE );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( !isIntegerRange( localLength ) )
+	if( !isShortIntegerRange( localLength ) )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 	*length = ( int ) localLength;
 
@@ -342,13 +340,13 @@ int pgpReadShortLength( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int pgpReadPacketHeader( INOUT_PTR STREAM *stream, OUT_OPT_BYTE int *ctb, 
-						 OUT_OPT_LENGTH_Z long *length, 
+						 OUT_OPT_LENGTH_Z int *length, 
 						 IN_LENGTH_SHORT const int minLength,
-						 IN_LENGTH const long maxLength )
+						 IN_LENGTH const int maxLength )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( ctb == NULL || isWritePtr( ctb, sizeof( int ) ) );
-	assert( length == NULL || isWritePtr( length, sizeof( long ) ) );
+	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 	
 	REQUIRES_S( isShortIntegerRange( minLength ) && \
 				maxLength > minLength && maxLength < MAX_INTLENGTH );
@@ -359,12 +357,12 @@ int pgpReadPacketHeader( INOUT_PTR STREAM *stream, OUT_OPT_BYTE int *ctb,
 
 CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1 ) ) \
 int pgpReadPacketHeaderI( INOUT_PTR STREAM *stream, OUT_OPT_BYTE int *ctb, 
-						  OUT_OPT_LENGTH_Z long *length, 
+						  OUT_OPT_LENGTH_Z int *length, 
 						  IN_LENGTH_SHORT const int minLength )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( ctb == NULL || isWritePtr( ctb, sizeof( int ) ) );
-	assert( length == NULL || isWritePtr( length, sizeof( long ) ) );
+	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 	
 	REQUIRES_S( isShortIntegerRange( minLength ) );
 
@@ -372,12 +370,12 @@ int pgpReadPacketHeaderI( INOUT_PTR STREAM *stream, OUT_OPT_BYTE int *ctb,
 							  MAX_INTLENGTH - 1, TRUE ) );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int pgpReadPartialLength( INOUT_PTR STREAM *stream, 
-						  OUT_LENGTH_Z long *length )
+						  OUT_LENGTH_Z int *length )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( length, sizeof( long ) ) );
+	assert( isWritePtr( length, sizeof( int ) ) );
 	
 	/* This is a raw length value so we have to feed in a pseudo-CTB */
 	return( pgpReadLength( stream, length, PGP_CTB_OPENPGP,
@@ -389,7 +387,7 @@ int pgpReadPartialLength( INOUT_PTR STREAM *stream,
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int pgpWriteLength( INOUT_PTR STREAM *stream, 
-					IN_LENGTH const long length )
+					IN_LENGTH const int length )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -406,7 +404,7 @@ int pgpWriteLength( INOUT_PTR STREAM *stream,
 		return( sputc( stream, length ) );
 	if( length <= 8383 )
 		{
-		const long adjustedLength = length - 192;
+		const int adjustedLength = length - 192;
 
 		sputc( stream, ( ( adjustedLength >> 8 ) & 0xFF ) + 192 );
 		return( sputc( stream, ( adjustedLength & 0xFF ) ) );
@@ -418,10 +416,10 @@ int pgpWriteLength( INOUT_PTR STREAM *stream,
 	return( sputc( stream, intToByte( length ) ) );
 	}
 
-RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int pgpWritePacketHeader( INOUT_PTR STREAM *stream, 
 						  IN_ENUM( PGP_PACKET ) const PGP_PACKET_TYPE packetType,
-						  IN_LENGTH const long length )
+						  IN_LENGTH const int length )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	

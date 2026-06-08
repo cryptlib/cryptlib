@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Internal Mechanism Routines					*
-*					  Copyright Peter Gutmann 1992-2019						*
+*					  Copyright Peter Gutmann 1992-2025						*
 *																			*
 ****************************************************************************/
 
@@ -220,7 +220,7 @@ int getHashAlgoParams( IN_HANDLE const CRYPT_CONTEXT hashContext,
 	if( hashParam != NULL )
 		*hashParam = 0;
 
-	/* Get various PKC algorithm parameters */
+	/* Get various hash algorithm parameters */
 	status = krnlSendMessage( hashContext, IMESSAGE_GETATTRIBUTE, 
 							  &value, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )

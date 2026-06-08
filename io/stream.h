@@ -309,7 +309,7 @@ typedef struct ST {
 	FIL fileInfo;				/* File associated with this stream */
 #elif defined( __FileX__ )
 	FX_FILE filePtr;			/* File associated with this stream */
-	long position;				/* Position in file */
+	int position;				/* Position in file */
 #elif defined( __MAC__ )
 	short refNum;				/* File stream reference number */
 	FSSpec fsspec;				/* File system specification */
@@ -331,7 +331,7 @@ typedef struct ST {
 	BOOLEAN isSensitive;		/* Whether stream contains sensitive data */
   #elif defined( __MVS__ ) || defined( __VMCMS__ ) || defined( __TESTIO__ )
 	char name[ MAX_PATH_LENGTH + 8 ];/* Data item associated with stream */
-  #endif /* Nonstandard I/O enviroments */
+  #endif /* Nonstandard I/O environments */
 #elif defined( __Nucleus__ )
 	INT fd;						/* File handle */
 #elif defined( __ZEPHYR__ )
@@ -516,7 +516,7 @@ typedef enum {
 	} STREAM_HTTPREQTYPE_TYPE;
 
 typedef struct {
-	/* Data payload informtion.  On read the { buffer, bufSize } is the 
+	/* Data payload information.  On read the { buffer, bufSize } is the 
 	   amount of buffer space available to read data, with bytesAvail being
 	   the length of the data item being read into the buffer and 
 	   bytesTransferred being the amount of data actually transferred.  On 
@@ -736,7 +736,7 @@ int sMemDisconnect( INOUT_PTR STREAM *stream );
    in the case of a failure */
 
 CHECK_RETVAL_RANGE_NOERROR( 0, MAX_BUFFER_SIZE ) STDC_NONNULL_ARG( ( 1 ) ) \
-int sMemDataLeft( const STREAM *stream );
+int sMemDataLeft( IN_PTR const STREAM *stream );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int sMemGetDataBlock( INOUT_PTR STREAM *stream, 
 					  OUT_BUFFER_ALLOC_OPT( dataSize ) void **dataPtrPtr, 
@@ -816,16 +816,16 @@ void sNetGetErrorInfo( INOUT_PTR STREAM *stream,
 
 #endif /* USE_TCP */
 
-/* Calculate the length of a stream object.  This is used when we've read
-   an object's data after marking its start position and want to know how
-   much data is present between the start position and where we are now.
-   This isn't as simple as stell( &stream ) - startPos because we need to
-   perform quite a bit of error checking */
+/* Calculate the offset in a stream from a given start position.  This is 
+   used when we've read an object's data after marking its start position 
+   and want to know how much data is present between the start position and 
+   where we are now.  This isn't as simple as stell( &stream ) - startPos 
+   because we need to perform quite a bit of error checking */
  
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
-int calculateStreamObjectLength( INOUT_PTR STREAM *stream,
-								 IN_DATALENGTH_Z const int startOffset,
-								 OUT_DATALENGTH_Z int *length );
+int streamOffsetFromPosition( INOUT_PTR STREAM *stream,
+							  IN_DATALENGTH_Z const int startOffset,
+							  OUT_DATALENGTH_Z int *length );
 
 /* Initialisation/shutdown functions for network stream interfaces */
 

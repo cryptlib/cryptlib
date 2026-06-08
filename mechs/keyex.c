@@ -41,6 +41,9 @@ static CRYPT_FORMAT_TYPE getFormatType( IN_BUFFER( dataLength ) const void *data
 	{
 	STREAM stream;
 	long value;
+#ifdef USE_PGP
+	int packetLength;
+#endif /* USE_PGP */
 	int status;
 
 	assert( isReadPtrDynamic( data, dataLength ) );
@@ -108,8 +111,9 @@ static CRYPT_FORMAT_TYPE getFormatType( IN_BUFFER( dataLength ) const void *data
 
 #ifdef USE_PGP
 	/* It's not ASN.1 data, check for PGP data */
-	status = pgpReadPacketHeader( &stream, NULL, &value, 30, 8192 );
-	if( cryptStatusOK( status ) && value > 30 && value < 8192 )
+	status = pgpReadPacketHeader( &stream, NULL, &packetLength, 30, 8192 );
+	if( cryptStatusOK( status ) && \
+		packetLength > 30 && packetLength < 8192 )
 		{
 		sMemDisconnect( &stream );
 		return( CRYPT_FORMAT_PGP );
@@ -146,7 +150,7 @@ static int checkWrapKey( IN_HANDLE int importKey,
 											MESSAGE_CHECK_PKC_ENCRYPT ) );
 		}
 
-	/* For the non-PKC algoriths, we can use a standard external message */
+	/* For the non-PKC algorithms, we can use a standard external message */
 	return( krnlSendMessage( importKey, MESSAGE_CHECK, NULL, 
 							 MESSAGE_CHECK_CRYPT ) );
 	}
@@ -214,11 +218,16 @@ static int checkContextsEncodable( IN_HANDLE const CRYPT_HANDLE exportKey,
 
 			/* Check that the session-key algorithm is encodable */
 			if( sessionIsMAC )
+				{
 				status = sizeofAlgoID( sessionKeyAlgo );
+				if( cryptStatusError( status ) )
+					return( CRYPT_ERROR_PARAM3 );
+				}
 			else
-				status = checkAlgoID( sessionKeyAlgo, sessionKeyMode );
-			if( cryptStatusError( status ) )
-				return( CRYPT_ERROR_PARAM3 );
+				{
+				if( !checkAlgoID( sessionKeyAlgo, sessionKeyMode ) )
+					return( CRYPT_ERROR_PARAM3 );
+				}
 
 			return( CRYPT_OK );
 
@@ -305,7 +314,7 @@ C_RET cryptUnwrapKeyEx( C_IN void C_PTR encryptedKey,
 	status = krnlSendMessage( importKey, MESSAGE_GETATTRIBUTE,
 							  &importAlgo, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( CRYPT_ERROR_PARAM3 );
 
 	/* Check the importing key */
 	status = checkWrapKey( importKey, isPkcAlgo( importAlgo ) ? TRUE : FALSE, 
@@ -533,7 +542,7 @@ C_RET cryptWrapKeyEx( C_OUT_OPT void C_PTR encryptedKey,
 	status = krnlSendMessage( exportKey, MESSAGE_GETATTRIBUTE,
 							  &exportAlgo, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( CRYPT_ERROR_PARAM5 );
 
 	/* Check the exporting key */
 	status = checkWrapKey( exportKey, isPkcAlgo( exportAlgo ) ? TRUE : FALSE, 
@@ -556,7 +565,7 @@ C_RET cryptWrapKeyEx( C_OUT_OPT void C_PTR encryptedKey,
 		   password but doesn't do key wrap) so we can only continue if 
 		   we've been given a PKC context */
 		if( !isPkcAlgo( exportAlgo ) )
-			return( CRYPT_ERROR_PARAM3 );
+			return( CRYPT_ERROR_PARAM5 );
 		}
 	status = krnlSendMessage( sessionKeyContext, MESSAGE_GETATTRIBUTE,
 							  &sessionKeyAlgo, CRYPT_CTXINFO_ALGO );
@@ -766,6 +775,8 @@ int iCryptExportKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
 									   iExportKey, keyexType, errorInfo ) );
 		}
 
+	/* Once we get to this point, where we're doing a PKC export, we need to 
+	   have a valid session key context */
 	REQUIRES( isHandleRangeValid( iSessionKeyContext ) );
 
 	/* Get the keyex format type to use */

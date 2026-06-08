@@ -1,9 +1,13 @@
 /****************************************************************************
 *																			*
 *					  cryptlib Session WebSockets Routines					*
-*						Copyright Peter Gutmann 2015-2017					*
+*						Copyright Peter Gutmann 2015-2025					*
 *																			*
 ****************************************************************************/
+
+/* The following code is purely a test framework used to test the ability to
+   work with WebSockets.  It's not part of cryptlib, and shouldn't be used 
+   as a cryptlib component */
 
 #if defined( INC_ALL )
   #include "crypt.h"
@@ -20,6 +24,10 @@
 #endif /* Compiler-specific includes */
 
 #ifdef USE_WEBSOCKETS
+
+#if defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ ) 
+  #pragma message( "  Warning: The WebSockets implementation is for testing only and should not be used in a production environment." )
+#endif /* Notify insecure keyex use */
 
 /****************************************************************************
 *																			*
@@ -678,7 +686,14 @@ static int closeWebSockets( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 *																			*
 ****************************************************************************/
 
-/* Decode the WebSockets fixed-size header and length information */
+/* Decode the WebSockets fixed-size header and length information:
+
+	byte	type
+	byte	length of payload
+  [	uint16	length16 if length == 126
+    uint64	length64 if length == 127 ]
+  [	uint32	mask if mask bit is set ]
+	byte[]	payload */
 
 CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int processFixedHeader( INOUT_PTR TLS_WS_INFO *wsInfo,
@@ -822,7 +837,7 @@ static int unmaskData( INOUT_BUFFER_FIXED( bufSize ) BYTE *buffer,
 
 CHECK_RETVAL_LENGTH STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int processPayload( INOUT_BUFFER_FIXED( bufSize ) BYTE *buffer,
-						   IN_DATALENGTH_Z const int bufSize,
+						   IN_DATALENGTH const int bufSize,
 						   INOUT_PTR TLS_WS_INFO *wsInfo,
 						   IN_BOOL const BOOLEAN isServer )
 	{
@@ -959,47 +974,59 @@ int processInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 oldHeaderBufPos ) );
 	bytesFromBuffer = wsInfo->headerBytesRequired - oldHeaderBufPos;
 
-	sMemConnect( &stream, wsInfo->headerBuffer + WS_LENGTH_OFFSET,
-				 wsInfo->headerBytesRequired );
-
-	/* Process any additional length information */
-	status = processLength( &stream, wsInfo, SESSION_ERRINFO );
-	if( cryptStatusError( status ) )
+	/* If we're the client then we can get a packet that consists only of 
+	   a type and single-byte length, so we only try and dig into it if
+	   there's more data present */
+	if( isServer || wsInfo->totalLength > WS_LENGTH_THRESHOLD )
 		{
-		sMemDisconnect( &stream );
-		return( status );
-		}
+		if( wsInfo->headerBytesRequired < WS_LENGTH_OFFSET )
+			return( CRYPT_ERROR_UNDERFLOW );
 
-	DEBUG_PRINT(( "Read %s (%X) WebSockets packet, length %d.\n", 
-				  getPacketName( wsInfo->type ), wsInfo->type, 
-				  wsInfo->totalLength ));
+		REQUIRES( !checkOverflowSub( wsInfo->headerBytesRequired, 
+									 WS_LENGTH_OFFSET ) );
+		sMemConnect( &stream, wsInfo->headerBuffer + WS_LENGTH_OFFSET,
+					 wsInfo->headerBytesRequired - WS_LENGTH_OFFSET );
 
-	/* If we're the server, read the client's masking information */
-	if( isServer )
-		{
-		/* Make sure that the data sent by the client has been masked 
-		   (because the spec says so, that's why) */
-		if( !( wsInfo->headerBuffer[ WS_LENGTHCODE_OFFSET ] & WS_MASK_FLAG ) )
-			{
-			sMemDisconnect( &stream );
-			retExt( CRYPT_ERROR_BADDATA,
-					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-					  "Client's WebSockets data isn't masked for %s packet", 
-					  getPacketName( wsInfo->type ) ) );
-			}
-
-		/* Get the mask value */
-		REQUIRES( rangeCheck( TLS_WS_MASKSIZE, 1, TLS_WS_MASKSIZE ) );
-		status = sread( &stream, wsInfo->mask, TLS_WS_MASKSIZE );
+		/* Process any additional length information */
+		status = processLength( &stream, wsInfo, SESSION_ERRINFO );
 		if( cryptStatusError( status ) )
 			{
 			sMemDisconnect( &stream );
 			return( status );
 			}
-		wsInfo->maskPos = 0;
-		}
 
-	sMemDisconnect( &stream );
+		DEBUG_PRINT(( "Read %s (%X) WebSockets packet, length %d.\n", 
+					  getPacketName( wsInfo->type ), wsInfo->type, 
+					  wsInfo->totalLength ));
+
+		/* If we're the server, read the client's masking information */
+		if( isServer )
+			{
+			/* Make sure that the data sent by the client has been masked 
+			   (because the spec says so, that's why) */
+			if( !( wsInfo->headerBuffer[ WS_LENGTHCODE_OFFSET ] & \
+															WS_MASK_FLAG ) )
+				{
+				sMemDisconnect( &stream );
+				retExt( CRYPT_ERROR_BADDATA,
+						( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
+						  "Client's WebSockets data isn't masked for %s "
+						  "packet", getPacketName( wsInfo->type ) ) );
+				}
+
+			/* Get the mask value */
+			REQUIRES( rangeCheck( TLS_WS_MASKSIZE, 1, TLS_WS_MASKSIZE ) );
+			status = sread( &stream, wsInfo->mask, TLS_WS_MASKSIZE );
+			if( cryptStatusError( status ) )
+				{
+				sMemDisconnect( &stream );
+				return( status );
+				}
+			wsInfo->maskPos = 0;
+			}
+	
+		sMemDisconnect( &stream );
+		}
 
 	/* Move any remaining data down in the input buffer */
 	REQUIRES( !checkOverflowSub( bufSize, bytesFromBuffer ) );

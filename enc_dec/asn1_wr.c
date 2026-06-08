@@ -9,10 +9,12 @@
   #include "crypt.h"
   #include "bn.h"
   #include "asn1.h"
+  #include "asn1_ext.h"
 #else
   #include "crypt.h"
   #include "bn/bn.h"
   #include "enc_dec/asn1.h"
+  #include "enc_dec/asn1_ext.h"
 #endif /* Compiler-specific includes */
 
 #ifdef USE_INT_ASN1
@@ -26,7 +28,7 @@
 /* Calculate the size of the encoded length octets */
 
 CHECK_RETVAL_RANGE( 1, 5 ) \
-static int calculateLengthSize( IN_LENGTH_Z const long length )
+static int calculateLengthSize( IN_LENGTH_Z const int length )
 	{
 	REQUIRES( isIntegerRange( length ) );
 
@@ -48,7 +50,7 @@ static int calculateLengthSize( IN_LENGTH_Z const long length )
 /* Write the length octets for an ASN.1 item */
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-static int writeLength( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long length )
+static int writeLength( INOUT_PTR STREAM *stream, IN_LENGTH_Z const int length )
 	{
 	BYTE buffer[ 8 + 8 ];
 	const int noLengthOctets = ( length <= 0xFF ) ? 1 : \
@@ -81,7 +83,8 @@ static int writeLength( INOUT_PTR STREAM *stream, IN_LENGTH_Z const long length 
    and then output them in reverse order to get a big-endian encoding */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-static int writeNumeric( INOUT_PTR STREAM *stream, IN_INT const long integer )
+static int writeNumeric( INOUT_PTR STREAM *stream, 
+						 IN_INT const long integer )
 	{
 	BYTE buffer[ 16 + 8 ], outBuffer[ 16 + 8 ];
 	long intValue = integer;
@@ -177,7 +180,7 @@ static int writeNumeric( INOUT_PTR STREAM *stream, IN_INT const long integer )
    the code */
 
 RETVAL_LENGTH_NOERROR \
-long sizeofObject( IN_LENGTH_Z const long length )
+int sizeofObject( IN_LENGTH_Z const int length )
 	{
 	/* If we've been passed an error code as input or we're about to exceed 
 	   the maximum safe length range, don't try and go any further */
@@ -228,22 +231,22 @@ int sizeofShortObject( IN_LENGTH_SHORT_Z const int length )
 			-> ( length + extraLength, 1, 0, 0 ) */
 
 CHECK_RETVAL_LENGTH \
-static long sizeofObjectChecked( IN_LENGTH_Z const long length )
+static int sizeofObjectChecked( IN_LENGTH_Z const int length )
 	{
 	const int lengthSize = calculateLengthSize( length );
 	
-	if( checkOverflowAddLong( 1 + lengthSize, length ) )
+	if( checkOverflowAdd( 1 + lengthSize, length ) )
 		return( -1 );
 	return( 1 + lengthSize + length );
 	}
 
 CHECK_RETVAL_BOOL \
-BOOLEAN checkEncodeOverflow( IN_LENGTH const long length,
+BOOLEAN checkEncodeOverflow( IN_LENGTH const int length,
 							 IN_RANGE( 0, 5 ) const int lengthNestingLevel,
 							 IN_LENGTH_SHORT_Z const int extraLen,
 							 IN_RANGE( 0, 5 ) const int extraLenNestingLevel )
 	{
-	long calculatedLength = length;
+	int calculatedLength = length;
 	LOOP_INDEX i;
 	
 	REQUIRES_EXT( isIntegerRange( length ), TRUE );
@@ -264,7 +267,7 @@ BOOLEAN checkEncodeOverflow( IN_LENGTH const long length,
 	ENSURES_EXT( LOOP_BOUND_OK, TRUE );
 	
 	/* Check whether the extra length would overflow */
-	if( checkOverflowAddLong( calculatedLength, extraLen ) )
+	if( checkOverflowAdd( calculatedLength, extraLen ) )
 		return( TRUE );
 	calculatedLength += extraLen;
 	
@@ -537,10 +540,10 @@ int writeBitString( INOUT_PTR STREAM *stream, IN_INT_Z const int bitString,
 
 	/* ASN.1 bitstrings start at bit 0 so we need to reverse the order of
 	   the bits before we write them out.  This doesn't assume 32-bit ints
-	   or anything similar but merely extracts the first 32 bits from
-	   whatever we're passed, most bitstrings are only a few bits with the
-	   one exception being CMP's braindamaged error codes which for no
-	   known reason are encoded as a bitstring rather than an enum or int */
+	   but merely extracts the first 32 bits from whatever size int we're 
+	   passed, most bitstrings are only a few bits with the one exception 
+	   being CMP's braindamaged error codes which for no known reason are 
+	   encoded as a bitstring rather than an enum or int */
 	LOOP_MED( i = 0, i < 32, i++ )
 		{
 		ENSURES_S( LOOP_INVARIANT_MED( i, 0, 31 ) );
@@ -607,6 +610,9 @@ static int writeTimeData( INOUT_PTR STREAM *stream,
 		}
 	else
 		{
+		/* We leave the Y10K bug for the year field in here so that 
+		   whatever's using this code in 8,000 years time has something to 
+		   do */
 		result = sprintf_s( buffer + 2, 16, "%04d%02d%02d%02d%02d%02dZ", 
 							timeInfoPtr->tm_year + 1900, 
 							timeInfoPtr->tm_mon + 1, 
@@ -678,7 +684,7 @@ int writeTime( INOUT_PTR STREAM *stream, const time_t timeVal )
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeSequence( INOUT_PTR STREAM *stream, 
-				   IN_LENGTH_Z const long length )
+				   IN_LENGTH_Z const int length )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -702,7 +708,7 @@ int writeSet( INOUT_PTR STREAM *stream,
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeConstructed( INOUT_PTR STREAM *stream, 
-					  IN_LENGTH_Z const long length,
+					  IN_LENGTH_Z const int length,
 					  IN_TAG const int tag )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -717,7 +723,7 @@ int writeConstructed( INOUT_PTR STREAM *stream,
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeOctetStringHole( INOUT_PTR STREAM *stream, 
-						  IN_LENGTH_Z const long length,
+						  IN_LENGTH_Z const int length,
 						  IN_TAG const int tag )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -748,7 +754,7 @@ int writeBitStringHole( INOUT_PTR STREAM *stream,
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeGenericHole( INOUT_PTR STREAM *stream, 
-					  IN_LENGTH_Z const long length,
+					  IN_LENGTH_Z const int length,
 					  IN_TAG const int tag )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );

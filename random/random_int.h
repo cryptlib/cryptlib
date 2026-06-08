@@ -118,7 +118,7 @@ typedef struct {
    both of these values have reached an acceptable level.  In addition to
    the pool state information we keep track of the previous
    RANDOMPOOL_SAMPLES output samples to check for stuck-at faults or (short)
-   cyles */
+   cycles */
 
 typedef struct RI {
 	/* Pool state information */

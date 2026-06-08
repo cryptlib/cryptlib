@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								ASN.1 Read Routines							*
-*						Copyright Peter Gutmann 1992-2022					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -17,12 +17,6 @@
 #endif /* Compiler-specific includes */
 
 #ifdef USE_INT_ASN1
-
-/****************************************************************************
-*																			*
-*								Utility Routines							*
-*																			*
-****************************************************************************/
 
 /* When specifying a tag we can use either the default tag for the object
    (indicated with the value DEFAULT_TAG) or a special-case tag.  The 
@@ -42,13 +36,46 @@
 #define MAX_NUMERIC_DATA_BYTES		( MAX_LEADING_ZEROES + 4 )
 #define MAX_NUMERIC_DATA_BYTES_SHORT ( MAX_LEADING_ZEROES + 2 )
 
+/****************************************************************************
+*																			*
+*								Utility Routines							*
+*																			*
+****************************************************************************/
+
+/* Read and check a tag.  This is broken out into its own function because
+   it's used everywhere and needs special handling to pass the correct error
+   code up to the caller */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int readCheckTag( INOUT_PTR STREAM *stream, 
+						 IN_TAG_EXT const int tag )
+	{
+	int actualTag, status;
+	
+	assert( isWritePtr( stream, sizeof( STREAM ) ) );
+
+	REQUIRES_S( ( tag >= 0 && tag < MAX_TAG_VALUE ) || \
+				( tag >= MAKE_CTAG_PRIMITIVE( 0 ) && \
+				  tag < MAKE_CTAG_PRIMITIVE( MAX_TAG_VALUE ) ) );
+				/* This doesn't cover all possible tags but only the
+				   range actually used here */
+	
+	status = actualTag = readTag( stream );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( actualTag != tag )
+		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+	
+	return( CRYPT_OK );
+	}
+
 /* Read a numeric value, either a length or an integer/enum value, treating
    it as unsigned (in theory ASN.1 INTEGER values should be signed but this 
    is always an encoding error where it occurs) */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readNumericValue( INOUT_PTR STREAM *stream, 
-							 OUT_LENGTH_INDEF long *value,
+							 OUT_LENGTH_INDEF int *value,
 							 IN_RANGE( 1, MAX_NUMERIC_DATA_BYTES ) \
 								const int valueByteCount,
 							 IN_BOOL const BOOLEAN isZeroValueOK,
@@ -61,7 +88,7 @@ static int readNumericValue( INOUT_PTR STREAM *stream,
 	int noBytes = valueByteCount, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( value, sizeof( long ) ) );
+	assert( isWritePtr( value, sizeof( int ) ) );
 
 	REQUIRES_S( noBytes >= 1 && \
 				noBytes <= ( isShortValue ? MAX_NUMERIC_DATA_BYTES_SHORT : \
@@ -178,11 +205,11 @@ static int readNumericValue( INOUT_PTR STREAM *stream,
 	0x84 0xnn 0xnn 0xnn 0xnn	32-bit length
    
    The short-length read is limited to MAX_INTLENGTH_SHORT, which is a sane 
-   limit for most PKI data and one that doesn't cause type conversion 
-   problems on systems where sizeof( int ) != sizeof( long ).  If the caller 
-   indicates that indefinite lengths are OK for short lengths we return 
-   OK_SPECIAL if we encounter one.  Long length reads always allow 
-   indefinite lengths since these are quite likely for large objects */
+   limit for most PKI data and makes sure we never get close to anywhere 
+   where overflow could be a problem.  If the caller indicates that 
+   indefinite lengths are OK for short lengths we return OK_SPECIAL if we 
+   encounter one.  Long length reads always allow indefinite lengths since 
+   these are quite likely for large objects */
 
 typedef enum {
 	READLENGTH_NONE,		/* No length read behaviour */
@@ -194,17 +221,16 @@ typedef enum {
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readLengthValue( INOUT_PTR STREAM *stream, 
-							OUT_LENGTH_INDEF long *length,
+							OUT_LENGTH_INDEF int *length,
 							IN_ENUM( READLENGTH ) const READLENGTH_TYPE readType )
 	{
-	BOOLEAN shortLen = ( readType == READLENGTH_SHORT || \
-						 readType == READLENGTH_SHORT_INDEF ) ? \
-					   TRUE : FALSE;
-	long dataLength;
-	int noLengthOctets, status;
+	const BOOLEAN shortLen = ( readType == READLENGTH_SHORT || \
+							   readType == READLENGTH_SHORT_INDEF ) ? \
+							 TRUE : FALSE;
+	int noLengthOctets, dataLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( length, sizeof( long ) ) );
+	assert( isWritePtr( length, sizeof( int ) ) );
 
 	REQUIRES_S( isEnumRange( readType, READLENGTH ) );
 
@@ -255,8 +281,7 @@ static int readNumeric( INOUT_PTR STREAM *stream,
 	{
 	const int tagToRead = selectTag( tag, isInteger ? \
 									 BER_INTEGER : BER_ENUMERATED );
-	long localValue, length;
-	int status;
+	int localValue, length, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( value == NULL || isWritePtr( value, sizeof( long ) ) );
@@ -271,8 +296,12 @@ static int readNumeric( INOUT_PTR STREAM *stream,
 
 	/* Read the identifier field if necessary and the length, and make sure 
 	   that it's a non-bignum value */
-	if( tag != NO_TAG && readTag( stream ) != tagToRead )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+	if( tag != NO_TAG )
+		{
+		status = readCheckTag( stream, tagToRead );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
 	status = readLengthValue( stream, &length, READLENGTH_SHORT );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -331,7 +360,22 @@ static int readConstrainedData( INOUT_PTR STREAM *stream,
 		}
 	*bufferLength = 0;
 
-	/* If we don't care about the return value, skip it and exit */
+	/* If we don't care about the return value, skip it and exit.  The 
+	   returned length value is a bit odd because it can be bigger than
+	   bufferMaxLength, it's non-orthogonal behaviour that comes about 
+	   because we'd only ever be called with a NULL buffer as part of a 
+	   length check, for a non-NULL buffer the returned length value is 
+	   always <= bufferMaxLength because the rest is skipped.  
+	   
+	   Coverage analysis indicates that, as of 2025, there are only two 
+	   sets of code paths that exercise this case, one in the CMP and SCEP 
+	   servers via readInteger() when they're performing a basic lint check 
+	   that what they've been sent looks approximately like a CMP/SCEP 
+	   request, the other is one that's never called in practice, inside a 
+	   leftover-plaintext-detection check when private key data is encrypted 
+	   for PKCS #15 keysets.  Because of this we leave it as is for now 
+	   rather than trying to Rube-Goldberg an annotation for this one 
+	   special case */
 	if( buffer == NULL )
 		{
 		*bufferLength = length;
@@ -554,9 +598,8 @@ CHECK_RETVAL_LENGTH_SHORT STDC_NONNULL_ARG( ( 1 ) ) \
 static int readIntegerHeader( INOUT_PTR STREAM *stream, 
 							  IN_TAG_EXT const int tag )
 	{
-	long length;
+	int length, value, status;
 	LOOP_INDEX noLeadingZeroes;
-	int value, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -564,8 +607,12 @@ static int readIntegerHeader( INOUT_PTR STREAM *stream,
 				( tag >= 0 && tag < MAX_TAG_VALUE ) );
 
 	/* Read the identifier field if necessary and the length */
-	if( tag != NO_TAG && readTag( stream ) != selectTag( tag, BER_INTEGER ) )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+	if( tag != NO_TAG )
+		{
+		status = readCheckTag( stream, selectTag( tag, BER_INTEGER ) );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
 	status = readLengthValue( stream, &length, READLENGTH_SHORT );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -795,8 +842,7 @@ RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int skipData( INOUT_PTR STREAM *stream,
 					 IN_BOOL const BOOLEAN allowZeroLength )
 	{
-	long length;
-	int status;
+	int length, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -829,18 +875,26 @@ int readUniversalData( INOUT_PTR STREAM *stream )
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readUniversal( INOUT_PTR STREAM *stream )
 	{
+	int status;
+	
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	readTag( stream );
+	status = readTag( stream );
+	if( cryptStatusError( status ) )
+		return( status );
 	return( skipData( stream, FALSE ) );
 	}
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readUniversalOpt( INOUT_PTR STREAM *stream )
 	{
+	int status;
+
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	readTag( stream );
+	status = readTag( stream );
+	if( cryptStatusError( status ) )
+		return( status );
 	return( skipData( stream, TRUE ) );
 	}
 
@@ -893,7 +947,7 @@ int readEnumeratedTag( INOUT_PTR STREAM *stream,
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readNullTag( INOUT_PTR STREAM *stream, IN_TAG_EXT const int tag )
 	{
-	int value;
+	int value, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
@@ -901,8 +955,12 @@ int readNullTag( INOUT_PTR STREAM *stream, IN_TAG_EXT const int tag )
 				( tag >= 0 && tag < MAX_TAG_VALUE ) );
 
 	/* Read the identifier if necessary */
-	if( tag != NO_TAG && readTag( stream ) != selectTag( tag, BER_NULL ) )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+	if( tag != NO_TAG )
+		{
+		status = readCheckTag( stream, selectTag( tag, BER_NULL ) );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
 	value = sgetc( stream );
 	if( cryptStatusError( value ) )
 		return( value );
@@ -932,8 +990,12 @@ int readBooleanTag( INOUT_PTR STREAM *stream,
 	if( boolean != NULL )
 		*boolean = FALSE;
 
-	if( tag != NO_TAG && readTag( stream ) != selectTag( tag, BER_BOOLEAN ) )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+	if( tag != NO_TAG )
+		{
+		status = readCheckTag( stream, selectTag( tag, BER_BOOLEAN ) );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
 	REQUIRES_S( rangeCheck( 2, 1, 2 ) );
 	status = sread( stream, buffer, 2 );
 	if( cryptStatusError( status ) )
@@ -1124,8 +1186,7 @@ static int readString( INOUT_PTR STREAM *stream,
 					   IN_TAG_EXT const int tag, 
 					   IN_BOOL const BOOLEAN isOctetString )
 	{
-	long length;
-	int status;
+	int length, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( string == NULL || isWritePtrDynamic( string, maxLength ) );
@@ -1153,14 +1214,18 @@ static int readString( INOUT_PTR STREAM *stream,
 	   of string length limits in certificates and other PKI-related data */
 	if( isOctetString )
 		{
-		if( tag != NO_TAG && \
-			readTag( stream ) != selectTag( tag, BER_OCTETSTRING ) )
-			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+		if( tag != NO_TAG )
+			{
+			status = readCheckTag( stream, selectTag( tag, BER_OCTETSTRING ) );
+			if( cryptStatusError( status ) )
+				return( status );
+			}
 		}
 	else
 		{
-		if( readTag( stream ) != tag )
-			return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+		status = readCheckTag( stream, tag );
+		if( cryptStatusError( status ) )
+			return( status );
 		}
 	status = readLengthValue( stream, &length, READLENGTH_SHORT );
 	if( cryptStatusError( status ) )
@@ -1253,8 +1318,12 @@ int readBitStringTag( INOUT_PTR STREAM *stream,
 	   bizarre encoding of error subcodes that just provide further 
 	   information above and beyond the main error code and text message, 
 	   and CMP is highly unlikely to be used on a 16-bit machine */
-	if( tag != NO_TAG && readTag( stream ) != selectTag( tag, BER_BITSTRING ) )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+	if( tag != NO_TAG )
+		{
+		status = readCheckTag( stream, selectTag( tag, BER_BITSTRING ) );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
 	status = length = sgetc( stream );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1462,22 +1531,47 @@ static int readTimeData( INOUT_PTR STREAM *stream,
 	utcTime = mktime( &theTime );
 	if( utcTime < 0 )
 		{
-		/* Some Java-based apps with 64-bit times use ridiculous validity
-		   dates (yes, we're going to be keeping the same key in active use
-		   for *forty years*) that postdate the time_t range when time_t is 
-		   a signed 32-bit value.  If we can't convert the time, we check 
-		   for a year a bit under the time_t overflow (2038) and try again.  
-		   In theory we should just reject objects with such broken dates 
-		   but since we otherwise accept all sorts of rubbish we at least 
-		   try and accept these as well */
-		if( theTime.tm_year >= 138 && theTime.tm_year < 180 )
+		/* We've got something that either isn't valid or exceeds the 
+		   system's time_t range.  If it's the latter, clamp the time at
+		   MAX_TIME_VALUE.  This started being a problem long before Y2038
+		   with Java-based apps with 64-bit times (measuring milliseconds
+		   since 1970, because we can't be better than everyone else if we
+		   don't have unnecessary timestamp resolution) that used ridiculous 
+		   validity dates (yes, we're going to be keeping the same key in 
+		   active use for *forty years*) but is slowly becoming more and
+		   more of a problem as we get closer to Y2038.  Most mainstream
+		   systems will never notice this because they went to 64-bit
+		   time_t's some time ago, but a lot of embedded still uses, and 
+		   will continue to use, 32-bit time_t for a long time to come.
+		   
+		   To deal with this, we set the year to a time < Y2038 and retry
+		   the mktime() call, if it succeeds this time then the date is 
+		   valid but outside the representable range and we return a clamped
+		   time value.  This will buy us a few more years until we get close
+		   enough to Y2038 that either start times exceed end times in
+		   certificates or after Y2038 when the clamping produces times 
+		   before the current time, but it's the best that we can do.
+		   
+		   Another option would be to use long long internally for time 
+		   values and implement our own possibly-correct version of mktime() 
+		   and then try and guess the UTC time offset from sample gmtime() 
+		   probes, but this is both asking for trouble with subtle corner-
+		   case bugs and more importantly makes us incompatible with the 
+		   system's handling of time.  Specifically, what it means is that 
+		   if the user is expecting time handling to behave in a predictably 
+		   incorrect way then our handling of it in a possibly-correct but 
+		   unpredictable way is a bug, not a feature.  Or to put it more 
+		   directly, it's no good being right when everyone else is wrong.  
+		   Because of this we stick to doing what the system as a whole 
+		   does, which makes our behaviour match what the user is 
+		   expecting */
+		if( ( sizeof( time_t ) <= 4 ) && \
+			theTime.tm_year >= 138 && theTime.tm_year < 180 )
 			{
 			theTime.tm_year = 136;		/* 2036 */
 			utcTime = mktime( &theTime );
-			if( utcTime < 0 )
+			if( utcTime >= 0 )
 				{
-				/* Another should-never-occur condition, just set the result
-				   to the time equivalent of INT_MAX */
 				*timePtr = MAX_TIME_VALUE - 1;
 				return( CRYPT_OK );
 				}
@@ -1496,6 +1590,9 @@ static int readTimeData( INOUT_PTR STREAM *stream,
 			*timePtr = MIN_STORED_TIME_VALUE + 1;
 			return( CRYPT_OK );
 			}
+		
+		/* It's an actual invalid date, fall through to the error-exit 
+		   below */
 		}
 	if( utcTime < MIN_STORED_TIME_VALUE )
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
@@ -1503,14 +1600,15 @@ static int readTimeData( INOUT_PTR STREAM *stream,
 		{
 		/* The time is dangerously close to Y2038, clamp it at a safe 
 		   value */
-		utcTime = MAX_TIME_VALUE - 1;
+		*timePtr = MAX_TIME_VALUE - 1;
+		return( CRYPT_OK );
 		}
 
 	/* Convert the UTC time to local time.  This is complicated by the fact 
 	   that although the C standard library can convert from local time -> 
 	   UTC it can't convert the time back, so we treat the UTC time as 
 	   local time (gmtime_s() always assumes that the input is local time) 
-	   and covert to GMT and back, which should give the offset from GMT.  
+	   and convert to GMT and back, which should give the offset from GMT.  
 	   Since we can't assume that time_t is signed we have to treat a 
 	   negative and positive offset separately (see the comment in the 
 	   "utcTime < gmTime" portion below).
@@ -1588,6 +1686,8 @@ int readUTCTimeTag( INOUT_PTR STREAM *stream,
 					OUT_PTR time_t *timeVal, 
 					IN_TAG_EXT const int tag )
 	{
+	int status;
+	
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( timeVal, sizeof( time_t ) ) );
 
@@ -1597,8 +1697,12 @@ int readUTCTimeTag( INOUT_PTR STREAM *stream,
 	/* Clear return value */
 	*timeVal = 0;
 	
-	if( tag != NO_TAG && readTag( stream ) != selectTag( tag, BER_TIME_UTC ) )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+	if( tag != NO_TAG )
+		{
+		status = readCheckTag( stream, selectTag( tag, BER_TIME_UTC ) );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
 	return( readTimeData( stream, timeVal, TRUE ) );
 	}
 
@@ -1607,6 +1711,8 @@ int readGeneralizedTimeTag( INOUT_PTR STREAM *stream,
 							OUT_PTR time_t *timeVal, 
 							IN_TAG_EXT const int tag )
 	{
+	int status;
+	
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( timeVal, sizeof( time_t ) ) );
 
@@ -1616,8 +1722,12 @@ int readGeneralizedTimeTag( INOUT_PTR STREAM *stream,
 	/* Clear return value */
 	*timeVal = 0;
 	
-	if( tag != NO_TAG && readTag( stream ) != selectTag( tag, BER_TIME_GENERALIZED ) )
-		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
+	if( tag != NO_TAG )
+		{
+		status = readCheckTag( stream, selectTag( tag, BER_TIME_GENERALIZED ) );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
 	return( readTimeData( stream, timeVal, FALSE ) );
 	}
 
@@ -1739,8 +1849,7 @@ static int readObjectHeader( INOUT_PTR STREAM *stream,
 							 IN_TAG_ENCODED_EXT const int tag, 
 							 IN_FLAGS_Z( READOBJ ) const int flags )
 	{
-	long dataLength;
-	int status;
+	int dataLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
@@ -1817,16 +1926,15 @@ static int readObjectHeader( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int readLongObjectHeader( INOUT_PTR STREAM *stream, 
-								 OUT_OPT_LENGTH_INDEF long *length,
+								 OUT_OPT_LENGTH_INDEF int *length,
 								 IN_LENGTH_SHORT_Z const int minLength, 
 								 IN_TAG_ENCODED_EXT const int tag, 
 								 IN_FLAGS_Z( READOBJ ) const int flags )
 	{
-	long dataLength;
-	int status;
+	int dataLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( length == NULL || isWritePtr( length, sizeof( long ) ) );
+	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 
 	REQUIRES_S( isShortIntegerRange( minLength ) );
 	REQUIRES_S( ( tag == ANY_TAG ) || isValidTag( tag ) );
@@ -2000,20 +2108,20 @@ int readGenericHoleExt( INOUT_PTR STREAM *stream,
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readLongSequence( INOUT_PTR STREAM *stream, 
-					  OUT_OPT_LENGTH_INDEF long *length )
+					  OUT_OPT_LENGTH_INDEF int *length )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( length == NULL || isWritePtr( length, sizeof( long ) ) );
+	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 
 	return( readLongObjectHeader( stream, length, 1, BER_SEQUENCE,
 								  READOBJ_FLAG_NONE ) );
 	}
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int readLongSet( INOUT_PTR STREAM *stream, OUT_OPT_LENGTH_INDEF long *length )
+int readLongSet( INOUT_PTR STREAM *stream, OUT_OPT_LENGTH_INDEF int *length )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( length == NULL || isWritePtr( length, sizeof( long ) ) );
+	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 
 	return( readLongObjectHeader( stream, length, 1, BER_SET, 
 								  READOBJ_FLAG_NONE ) );
@@ -2021,11 +2129,11 @@ int readLongSet( INOUT_PTR STREAM *stream, OUT_OPT_LENGTH_INDEF long *length )
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readLongConstructed( INOUT_PTR STREAM *stream, 
-						 OUT_OPT_LENGTH_INDEF long *length, 
+						 OUT_OPT_LENGTH_INDEF int *length, 
 						 IN_TAG const int tag )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( length == NULL || isWritePtr( length, sizeof( long ) ) );
+	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 
 	REQUIRES_S( ( tag == DEFAULT_TAG ) || ( tag >= 0 && tag < MAX_TAG_VALUE ) );
 
@@ -2036,13 +2144,13 @@ int readLongConstructed( INOUT_PTR STREAM *stream,
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readLongGenericHoleExt( INOUT_PTR STREAM *stream, 
-							OUT_OPT_LENGTH_INDEF long *length, 
+							OUT_OPT_LENGTH_INDEF int *length, 
 							IN_TAG_ENCODED const int tag,
 							IN_ENUM( LENGTH_CHECK ) \
 								const LENGTH_CHECK_TYPE lengthCheckType )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( length == NULL || isWritePtr( length, sizeof( long ) ) );
+	assert( length == NULL || isWritePtr( length, sizeof( int ) ) );
 
 	ENSURES_S( ( tag == DEFAULT_TAG ) || isValidTag( tag ) );
 			   /* We use MAX_TAG rather than MAX_TAG_VALUE since we don't
@@ -2061,11 +2169,11 @@ int readLongGenericHoleExt( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readGenericObjectHeader( INOUT_PTR STREAM *stream, 
-							 OUT_LENGTH_INDEF long *length, 
+							 OUT_LENGTH_INDEF int *length, 
 							 IN_BOOL const BOOLEAN isLongObject )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( length, sizeof( long ) ) );
+	assert( isWritePtr( length, sizeof( int ) ) );
 
 	REQUIRES_S( isBooleanValue( isLongObject ) );
 

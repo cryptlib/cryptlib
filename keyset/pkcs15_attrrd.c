@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib PKCS #15 Attribute Read Routines				*
-*						Copyright Peter Gutmann 1996-2014					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -93,13 +93,12 @@ static int readKeyIdentifiers( INOUT_PTR STREAM *stream,
 			  identifierCount++ )
 		{
 		long value;
-		int payloadLength;
 
 		ENSURES( LOOP_INVARIANT_MED( identifierCount, 0, 31 ) );
 
 		/* Read each identifier type and copy the useful ones into the PKCS
 		   #15 information */
-		readSequence( stream, &payloadLength );
+		readSequence( stream, NULL );
 		status = readShortInteger( stream, &value );
 		if( cryptStatusError( status ) )
 			return( status );
@@ -601,7 +600,7 @@ static int readTypeAttributes( INOUT_PTR STREAM *stream,
 	if( checkStatusPeekTag( stream, status, tag ) && \
 		tag == MAKE_CTAG( CTAG_OV_DIRECT ) )
 		{
-		status = readConstructed( stream, &length, CTAG_OV_DIRECT );
+		status = readConstructed( stream, NULL, CTAG_OV_DIRECT );
 		}
 	if( cryptStatusError( status ) )
 		return( status );

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib CMP Session Management					*
-*						Copyright Peter Gutmann 1999-2011					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -231,11 +231,11 @@ void debugDumpCMP( IN_ENUM( CMP_MESSAGE ) const CMP_MESSAGE_TYPE type,
 	static const char *kurStrings[] = \
 		{ "cmpk1_kur", "cmpk2_kup", "cmpk3_conf", "cmpk4_confack" };
 	static const char *rrStrings[] = \
-		{ "cmpr1_rr", "cmpr2_rp" };
+		{ "cmpr1_rr", "cmpr2_rp", "cmp_interror", "cmp_interror" };
 	static const char *gmStrings[] = \
-		{ "cmpg1_gr", "cmpg2_gp" };
+		{ "cmpg1_gr", "cmpg2_gp", "cmp_interror", "cmp_interror" };
 	static const char *errorStrings[] = \
-		{ "cmpe1_error" };
+		{ "cmpe1_error", "cmp_interror", "cmp_interror", "cmp_interror" };
 	static const char *unkStrings[] = \
 		{ "cmp_unknown1", "cmp_unknown2", "cmp_unknown3", "cmp_unknown4" };
 	const char **fnStringPtr = ( type == CTAG_PB_IR ) ? irStrings : \
@@ -246,6 +246,8 @@ void debugDumpCMP( IN_ENUM( CMP_MESSAGE ) const CMP_MESSAGE_TYPE type,
 							   ( type == CTAG_PB_ERROR ) ? errorStrings : \
 							  unkStrings;
 	char fileName[ 1024 + 8 ];
+	
+	assert( phase >= 1 && phase <= 4 );
 
 #ifndef DUMP_SERVER_MESSAGES
 	/* Server messages have complex names based on the server DN so we only 
@@ -256,9 +258,12 @@ void debugDumpCMP( IN_ENUM( CMP_MESSAGE ) const CMP_MESSAGE_TYPE type,
 	if( isServer( sessionInfoPtr ) )
 		{
 		MESSAGE_DATA msgData;
-		const int pathLength = strnlen_s( fileName, MAX_PATH_LENGTH );
+		int pathLength;
 		LOOP_INDEX i;
 
+		strcpy_s( fileName, 1024, fnStringPtr[ phase - 1 ] );
+		strlcat_s( fileName, 1024, "_" );
+		pathLength = strnlen_s( fileName, MAX_PATH_LENGTH );
 		setMessageData( &msgData, fileName + pathLength, 1024 - pathLength );
 		krnlSendMessage( sessionInfoPtr->privateKey, IMESSAGE_GETATTRIBUTE_S, 
 						 &msgData, CRYPT_CERTINFO_DN );
@@ -275,8 +280,6 @@ void debugDumpCMP( IN_ENUM( CMP_MESSAGE ) const CMP_MESSAGE_TYPE type,
 				fileName[ pathLength + i ] = '_';
 			}
 		ENSURES( LOOP_BOUND_OK );
-		strlcat_s( fileName, 1024, "_" );
-		strlcat_s( fileName, 1024, fnStringPtr[ phase - 1 ] );
 		}
 	else
 #endif /* DUMP_SERVER_MESSAGES */
@@ -368,14 +371,14 @@ int setCMPprotocolInfo( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,
 	assert( ( userID == NULL && userIDlength == 0 ) || \
 			isReadPtrDynamic( userID, userIDlength ) );
 
-	REQUIRES( ( !( flags & CMP_INIT_FLAG_USERID ) && userID == NULL && \
-				userIDlength == 0 ) || \
-			  ( ( flags & CMP_INIT_FLAG_USERID ) && userID != NULL && \
-				isShortIntegerRangeNZ( userIDlength ) ) );
+	REQUIRES( ( ( flags & CMP_INIT_FLAG_USERID ) && userID != NULL && \
+				isShortIntegerRangeNZ( userIDlength ) ) || \
+			  ( !( flags & CMP_INIT_FLAG_USERID ) && userID == NULL && \
+				userIDlength == 0 ) );
 	REQUIRES( isFlagRangeZ( flags, CMP_INIT ) );
 	REQUIRES( isBooleanValue( isCryptlib ) );
 
-	/* Initalise the protocol state information.  The sender nonce is 
+	/* Initialise the protocol state information.  The sender nonce is 
 	   refreshed on each message read (i.e. at each round of the protocol),
 	   but its initial value has to be set here at startup */
 	setMessageData( &msgData, protocolInfo->senderNonce, CMP_NONCE_SIZE );
@@ -388,7 +391,7 @@ int setCMPprotocolInfo( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,
 	/* Set fixed identification information */
 	if( flags & CMP_INIT_FLAG_USERID )
 		{
-		REQUIRES( rangeCheck( userIDlength, 0, CRYPT_MAX_TEXTSIZE ) );
+		REQUIRES( rangeCheck( userIDlength, 1, CRYPT_MAX_TEXTSIZE ) );
 		memcpy( protocolInfo->userID, userID, userIDlength );
 		protocolInfo->userIDsize = userIDlength;
 		DEBUG_PRINT(( "%s: Set userID.\n",
@@ -536,19 +539,6 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		*( ( int * ) data ) = cmpOption;
 		return( CRYPT_OK );
 		}
-	if( type == -1 )
-		{
-		if( cmpInfo->iExtraCerts == CRYPT_ERROR )
-			{
-			setObjectErrorInfo( sessionInfoPtr, 
-								-1,
-								CRYPT_ERRTYPE_ATTR_ABSENT );
-			return( CRYPT_ERROR_NOTFOUND );
-			}
-		krnlSendNotifier( cmpInfo->iExtraCerts, IMESSAGE_INCREFCOUNT );
-		*cmpResponsePtr = cmpInfo->iExtraCerts;
-		return( CRYPT_OK );
-		}
 
 	/* If we didn't get a response there's nothing to return */
 	if( sessionInfoPtr->iCertResponse == CRYPT_ERROR )
@@ -565,8 +555,8 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 IN_PTR const void *data,
 								 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
+	CRYPT_CERTIFICATE cryptCert;
 	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
-	CRYPT_CERTIFICATE cryptCert = *( ( CRYPT_CERTIFICATE * ) data );
 	int certReqType, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -724,6 +714,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   operation being performed.  The requirements for this are somewhat 
 	   more complex than the basic ACL-based check can manage, so we handle 
 	   it here with custom code */
+	cryptCert = *( ( CRYPT_CERTIFICATE * ) data );
 	status = krnlSendMessage( cryptCert, IMESSAGE_GETATTRIBUTE, &certReqType, 
 							  CRYPT_CERTINFO_CERTTYPE );
 	if( cryptStatusError( status ) )
@@ -751,6 +742,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 			/* The request type is already present, make sure that it 
 			   matches the request object */
+			status = CRYPT_OK;
 			if( certReqType == CRYPT_CERTTYPE_REQUEST_CERT )
 				{
 				if( cmpReqType != CRYPT_REQUESTTYPE_INITIALISATION && \

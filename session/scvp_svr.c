@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib SCVP Server Management					*
-*						Copyright Peter Gutmann 2009-2021					*
+*						Copyright Peter Gutmann 2009-2025					*
 *																			*
 ****************************************************************************/
 
@@ -240,7 +240,10 @@ static int readScvpRequest( INOUT_PTR STREAM *stream,
 	/* Read the wrapper and certificate ID information.  The outer SEQUENCE
 	   isn't present because it's been removed by the de-enveloping process */
 	clearErrorInfo( &localErrorInfo );
-	if( peekTag( stream ) == BER_INTEGER )
+	status = tag = peekTag( stream );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( tag == BER_INTEGER )
 		{
 		/* There's only one version possible and that's DEFAULT 1 but some
 		   implementations still encode the default value so we skip it if
@@ -275,7 +278,7 @@ static int readScvpRequest( INOUT_PTR STREAM *stream,
 	   B are specified then A is already performed as part of B.
 
 	   A second factor is that all of SCVP is designed around the digital
-	   ancestor-worship design of X.509's blacklist-based thinking.  Since
+	   ancestor-worship design of X.509's blocklist-based thinking.  Since
 	   we're using whitelists, there's no need to specify which of a dozen 
 	   different types of checking is wanted since there's only one check 
 	   possible that covers all cases, "is this certificate valid right 
@@ -480,7 +483,7 @@ static int processScvpRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( protocolInfo->wantBacks & ( SCVP_WANTBACK_FLAG_BESTCERTPATH | \
 									SCVP_WANTBACK_FLAG_ALLCERTPATHS ) )
 		{
-		/* We need to return something other than what the requestor sent 
+		/* We need to return something other than what the requester sent 
 		   us, perform an actual fetch rather than just a status check */
 		getItemFlag = KEYMGMT_FLAG_NONE;
 		}
@@ -509,7 +512,7 @@ static int processScvpRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   the message string ourselves */
 		textLength = sprintf_s( textBuffer, 64 + CRYPT_MAX_TEXTSIZE,
 								"Warning: Couldn't find certificate for '%s'", 
-								getCertHolderName( sessionInfoPtr->privateKey, 
+								getCertHolderName( sessionInfoPtr->iCertRequest, 
 												   certName, 
 												   CRYPT_MAX_TEXTSIZE ) );
 		ENSURES( rangeCheck( textLength, 17, 64 + CRYPT_MAX_TEXTSIZE - 1 ) );
@@ -719,7 +722,7 @@ static void sendErrorResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	( void ) writePkiDatagram( sessionInfoPtr, SCVP_CONTENTTYPE_RESPONSE, 
 							   SCVP_CONTENTTYPE_RESPONSE_LEN,
-							   MK_ERRTEXT( "Couldnt send SCVP error response "
+							   MK_ERRTEXT( "Couldn't send SCVP error response "
 										   "to client" ) );
 	}
 
@@ -791,6 +794,7 @@ static int writeReplyObjects( INOUT_PTR STREAM *stream,
 			{
 			protocolInfo->wbCertSize = \
 				sizeofWantbackCert( sessionInfoPtr->iCertRequest );
+			ENSURES( isShortIntegerRangeNZ( protocolInfo->wbCertSize ) );
 			protocolInfo->wbTotalSize += \
 				sizeofObject( protocolInfo->wbCertSize );
 			}
@@ -799,6 +803,7 @@ static int writeReplyObjects( INOUT_PTR STREAM *stream,
 			{
 			protocolInfo->wbBestCertPathSize = \
 				sizeofWantbackBestCertPath( protocolInfo->iWantbackCertPath );
+			ENSURES( isShortIntegerRangeNZ( protocolInfo->wbBestCertPathSize ) );
 			protocolInfo->wbTotalSize += \
 				sizeofObject( protocolInfo->wbBestCertPathSize );
 			}
@@ -896,7 +901,7 @@ static int createScvpResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 
 	/* Write the request reference.  Yet another optional-but-mandatory 
-	   field, this is reqired to check that the request, which is sent 
+	   field, this is required to check that the request, which is sent 
 	   unprotected, hasn't been tampered with */
 	status = writeRequestRef( &stream, protocolInfo );
 	if( cryptStatusError( status ) )
@@ -1003,7 +1008,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	   response at the initial read stage to prevent scanning/DOS attacks 
 	   (vir sapit qui pauca loquitur) */
 	status = readPkiDatagram( sessionInfoPtr, MIN_CRYPT_OBJECTSIZE,
-							  MK_ERRTEXT( "Couldnt read SCVP request from "
+							  MK_ERRTEXT( "Couldn't read SCVP request from "
 										  "client" ) );
 	if( cryptStatusError( status ) )
 		{
@@ -1035,6 +1040,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	if( cryptStatusError( status ) )
 		{
 		sendCertErrorResponse( sessionInfoPtr, CRYPT_ERROR_BADDATA );
+		destroySCVPprotocolInfo( &protocolInfo );
 		retExt( status, 
 				( status, SESSION_ERRINFO, 
 				  "Invalid SCVP request header" ) );
@@ -1080,7 +1086,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		}
 	status = writePkiDatagram( sessionInfoPtr, SCVP_CONTENTTYPE_RESPONSE, 
 							   SCVP_CONTENTTYPE_RESPONSE_LEN,
-							   MK_ERRTEXT( "Couldnt send SCVP response to "
+							   MK_ERRTEXT( "Couldn't send SCVP response to "
 										   "client" ) );
 	destroySCVPprotocolInfo( &protocolInfo );
 	if( cryptStatusError( status ) )

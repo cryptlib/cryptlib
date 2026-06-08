@@ -73,10 +73,10 @@ static BOOLEAN checkMagnitude25519( IN_BUFFER( CURVE25519_SIZE ) \
 	if( !isPublicValue )
 		{
 		LOOP_MED_REV( i = CURVE25519_SIZE - 1, \
-					  i > CURVE25519_SIZE - NO_CHECK_BYTES, i-- )
+					  i >= CURVE25519_SIZE - NO_CHECK_BYTES, i-- )
 			{
 			ENSURES_EXT( \
-				LOOP_INVARIANT_REV( i, CURVE25519_SIZE - ( NO_CHECK_BYTES - 1 ), 
+				LOOP_INVARIANT_REV( i, CURVE25519_SIZE - NO_CHECK_BYTES, 
 									CURVE25519_SIZE - 1 ), TRUE );
 
 			if( value[ i ] != 0 )
@@ -100,10 +100,10 @@ static BOOLEAN checkMagnitude25519( IN_BUFFER( CURVE25519_SIZE ) \
 	if( ( value[ CURVE25519_SIZE - 1 ] & 0x7F ) != 0 )
 		return( TRUE );
 	LOOP_MED_REV( i = CURVE25519_SIZE - 2, \
-				  i > CURVE25519_SIZE - NO_CHECK_BYTES, i-- )
+				  i >= CURVE25519_SIZE - NO_CHECK_BYTES, i-- )
 		{
 		ENSURES_EXT( \
-			LOOP_INVARIANT_REV( i, CURVE25519_SIZE - ( NO_CHECK_BYTES - 1 ), 
+			LOOP_INVARIANT_REV( i, CURVE25519_SIZE - NO_CHECK_BYTES, 
 								CURVE25519_SIZE - 2 ), TRUE );
 
 		if( value[ i ] != 0 )
@@ -490,6 +490,7 @@ static int checkCurve25519PrivateKey( INOUT_PTR PKC_INFO *pkcInfo,
 		}
 
 	/* Clean up */
+	zeroise( buffer, CURVE25519_SIZE );
 	zeroise( privKey, CURVE25519_SIZE );
 	zeroise( pubKey, CURVE25519_SIZE );
 

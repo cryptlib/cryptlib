@@ -109,10 +109,12 @@ typedef enum {
 #define FAULTACTION_MECH_CORRUPT_HASH_1 \
 		if( signature != NULL ) \
 			{ \
-			krnlSendMessage( iHashContext, IMESSAGE_DELETEATTRIBUTE, NULL, \
-							 CRYPT_CTXINFO_HASHVALUE ); \
-			krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, "1234", 4 ); \
-			krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, "", 0 ); \
+			krnlSendMessage( sigDataInfo->hashContext, IMESSAGE_DELETEATTRIBUTE, \
+							 NULL, CRYPT_CTXINFO_HASHVALUE ); \
+			krnlSendMessage( sigDataInfo->hashContext, IMESSAGE_CTX_HASH, \
+							 "1234", 4 ); \
+			krnlSendMessage( sigDataInfo->hashContext, IMESSAGE_CTX_HASH, \
+							 "", 0 ); \
 			}
 #define FAULTACTION_MECH_CORRUPT_SIG_1 \
 		if( signature != NULL ) \
@@ -423,21 +425,16 @@ typedef enum {
 #define FAULTACTION_SESSION_CORRUPT_NONCE_CMP_1 \
 		protocolInfo.senderNonce[ 4 ]++
 
-/* Corrupt the CMP request data (offset 25 = part of the DN), MAC, or 
-   signature */
+/* Corrupt the CMP response (so the client returns the error code, since the
+   server is running in a background thread).  BADSIG_DATA is for testing the
+   MAC protection, BADSIG_HASH is for testing the signature protection */
 
-#define FAULTACTION_SESSION_BADSIG_DATA_CMP_1 \
+#define FAULTACTION_SESSION_BADSIG_DATA_CMP \
 		if( !isServer( sessionInfoPtr ) ) \
-			sessionInfoPtr->receiveBuffer[ 25 ]++
-#define FAULTACTION_SESSION_BADSIG_HASH_CMP_1 \
+			sessionInfoPtr->receiveBuffer[ protPartStart + 10 ]++;
+#define FAULTACTION_SESSION_BADSIG_HASH_CMP \
 		if( !isServer( sessionInfoPtr ) ) \
-			sessionInfoPtr->receiveBuffer[ 16 ]++
-#define FAULTACTION_SESSION_BADSIG_HASH_CMP_2 \
-		if( !isServer( sessionInfoPtr ) ) \
-			sessionInfoPtr->receiveBuffer[ 16 ]--
-#define FAULTACTION_SESSION_BADSIG_SIG_CMP_1 \
-		if( cryptStatusOK( status ) && !isServer( sessionInfoPtr ) ) \
-			sessionInfoPtr->receiveBuffer[ stell( &stream ) - 16 ]++
+			sessionInfoPtr->receiveBuffer[ protPartStart + 10 ]++;
 
 /* SCEP session fault types */
 
@@ -586,7 +583,7 @@ void injectMemoryFaults( void );
 #else
 
 #ifdef CONFIG_FAULTS
-  #error Fault injection shouldn't be enabled in a relase build
+  #error Fault injection shouldnt be enabled in a release build
 #endif /* CONFIG_FAULTS */
 #define INJECT_FAULT( type, action )
 #define INJECT_MEMORY_FAULTS()

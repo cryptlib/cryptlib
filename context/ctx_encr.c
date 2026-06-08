@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Encryption Context Action Routines				*
-*						Copyright Peter Gutmann 1992-2016					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -42,7 +42,7 @@ static BOOLEAN checkContextStateData( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 
 	REQUIRES_B( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES_B( contextInfoPtr->type == CONTEXT_CONV || \
-				contextInfoPtr->type == CONTEXT_PKC )
+				contextInfoPtr->type == CONTEXT_PKC );
 
 	/* Get the capability info for the context */
 	capabilityInfoPtr = DATAPTR_GET( contextInfoPtr->capabilityInfo );
@@ -100,36 +100,69 @@ static void sanitiseFailedData( INOUT_BUFFER_FIXED( dataLength ) void *data,
 	REQUIRES_V( message >= MESSAGE_CTX_ENCRYPT && message <= MESSAGE_CTX_HASH );
 	REQUIRES_V( isEnumRange( cryptAlgo, CRYPT_ALGO ) );
 
-	/* If it's a PKC algorithm then the input may be structured data, so we 
+	/* If it's a PKC algorithm then the input may be structured data so we 
 	   have to extract the reference to the actual data being processed from
-	   it.  This gets a bit complicated because, depending on the point at 
-	   which the operation failed, the output-length may have been cleared 
-	   (alongside the output data).  To deal with this we use the maximum
-	   length possible for keyex, and either the full output length (if it's
-	   available) or at least the minimum permitted length for a DLP/ECDLP 
-	   operation (2 * SHA-1 size) if it's not */
-	if( isPkcAlgo( cryptAlgo ) )
+	   it.  This gets a bit complicated because the output length is 
+	   typically cleared during processing until the final output is actually
+	   available.  To deal with this we use the maximum length possible for 
+	   the fixed-size buffers */
+	switch( cryptAlgo )
 		{
-		if( isKeyexAlgo( cryptAlgo ) )
+		case CRYPT_ALGO_DH:
+		case CRYPT_ALGO_ECDH:
+#ifdef USE_X25519
+		case CRYPT_ALGO_25519:
+#endif /* USE_X25519 */
+#ifdef USE_MLKEM
+		case CRYPT_ALGO_MLKEM:
+#endif /* USE_MLKEM */
 			{
 			KEYAGREE_PARAMS *keyAgreeParams = ( KEYAGREE_PARAMS * ) data;
 
-			dataPtr = ( message == MESSAGE_CTX_ENCRYPT ) ? \
-					  keyAgreeParams->publicValue : keyAgreeParams->wrappedKey;
-			length = CRYPT_MAX_PKCSIZE;
-			}
-		else
-			{
-			/* Note that the keyex algorithms are also DLP algorithms so the 
-			   following check must follow the isKeyxAlgo() check */
-			if( isDlpAlgo( cryptAlgo ) || isEccAlgo( cryptAlgo ) )
+			if( message == MESSAGE_CTX_ENCRYPT )
 				{
-				DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) data;
+				static_assert( sizeof( keyAgreeParams->publicValue ) >= \
+														KEYAGREE_DATA_SIZE,
+							   "KEYAGREE_PARAMS publicValue size" );
 
-				dataPtr = dlpParams->outParam;
-				length = max( dlpParams->outLen, 20 + 20 );
+				dataPtr = keyAgreeParams->publicValue;
+				length = KEYAGREE_DATA_SIZE;
 				}
+			else
+				{
+				static_assert( sizeof( keyAgreeParams->wrappedKey ) >= \
+														KEYAGREE_DATA_SIZE,
+							   "KEYAGREE_PARAMS wrappedKey size" );
+
+				dataPtr = keyAgreeParams->wrappedKey;
+				length = KEYAGREE_DATA_SIZE;
+				}
+			break;
 			}
+			
+		case CRYPT_ALGO_DSA:
+#ifdef USE_ELGAMAL
+		case CRYPT_ALGO_ELGAMAL:
+#endif /* USE_ELGAMAL */
+		case CRYPT_ALGO_ECDSA:
+#ifdef USE_ED25519
+		case CRYPT_ALGO_ED25519:
+#endif /* USE_ED25519 */
+			{
+			DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) data;
+
+			static_assert( sizeof( dlpParams->outParam ) >= DLP_DATA_SIZE,
+						   "DLP_PARAMS wrappedKey size" );
+
+			dataPtr = dlpParams->outParam;
+			length = DLP_DATA_SIZE;
+			break;
+			}
+
+		default:
+			/* It's either a conventional algorithm or RSA, which need no 
+			   special handling */
+			break;
 		}
 
 	/* If it's a failed en/decrypt then we replace the data with random 
@@ -174,7 +207,7 @@ static void sanitiseFailedData( INOUT_BUFFER_FIXED( dataLength ) void *data,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int encryptDataConv( INOUT_PTR CONTEXT_INFO *contextInfoPtr, 
 							INOUT_BUFFER_FIXED( dataLength ) void *data, 
-							IN_LENGTH_Z const int dataLength )
+							IN_LENGTH const int dataLength )
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr;
 	CTX_ENCRYPT_FUNCTION encryptFunction;
@@ -188,7 +221,7 @@ static int encryptDataConv( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( contextInfoPtr->type == CONTEXT_CONV );
 	REQUIRES( !needsKey( contextInfoPtr ) );
-	REQUIRES( isIntegerRange( dataLength ) );
+	REQUIRES( isIntegerRangeNZ( dataLength ) );
 
 	/* Get the capability info for the context */
 	capabilityInfoPtr = DATAPTR_GET( contextInfoPtr->capabilityInfo );
@@ -315,6 +348,7 @@ static int encryptDataPKC( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			REQUIRES( dataLength == sizeof( DLP_PARAMS ) );
 
 			/* Save a copy of the plaintext, and encrypt it */
+			REQUIRES( dlpParams->inLen1 >= ENCRYPT_CHECKSIZE );
 			memcpy( savedData, dlpParams->inParam1, ENCRYPT_CHECKSIZE );
 			status = encryptFunction( contextInfoPtr, data, dataLength );
 			if( cryptStatusError( status ) )
@@ -352,7 +386,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int processActionMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr, 
 						  IN_MESSAGE const MESSAGE_TYPE message,
 						  INOUT_BUFFER_FIXED( dataLength ) void *data, 
-						  IN_LENGTH_PKC const int dataLength )
+						  IN_LENGTH_Z const int dataLength )
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr;
 	int status;
@@ -426,7 +460,11 @@ int processActionMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			status = capabilityInfoPtr->signFunction( contextInfoPtr,
 													  data, dataLength );
 			if( !TEST_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_DUMMY ) )
+				{
+				/* We can do this unconditionally since a sign operation 
+				   can only be used with a PKC context */
 				clearTempBignums( contextInfoPtr->ctxPKC );
+				}
 			if( cryptStatusOK( status ) && \
 				!checkContextStateData( contextInfoPtr ) )
 				status = CRYPT_ERROR_FAILED;
@@ -444,7 +482,11 @@ int processActionMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			status = capabilityInfoPtr->sigCheckFunction( contextInfoPtr,
 														  data, dataLength );
 			if( !TEST_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_DUMMY ) )
+				{
+				/* We can do this unconditionally since a sign operation 
+				   can only be used with a PKC context */
 				clearTempBignums( contextInfoPtr->ctxPKC );
+				}
 			if( cryptStatusOK( status ) && \
 				!checkContextStateData( contextInfoPtr ) )
 				status = CRYPT_ERROR_FAILED;

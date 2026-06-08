@@ -34,7 +34,7 @@
 
 #define EAP_PEAP_BUFFER_SIZE		256
 
-/* Additional debugging suppport when we're built in debug mode */
+/* Additional debugging support when we're built in debug mode */
 
 #ifdef NDEBUG
   #define DEBUG_PUTS( x )

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Certificate Routines Header File 					*
-*						Copyright Peter Gutmann 1996-2019					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -434,7 +434,7 @@ typedef struct {
 	CRYPT_ATTRIBUTE_TYPE dnComponent;	/* Selected component of DN */
 	int dnComponentCount;				/* Iterator for DN components */
 	BOOLEAN dnInExtension;				/* Whether DN is in extension */
-	BOOLEAN updateCursor;				/* Whether to upate attr.cursor */
+	BOOLEAN updateCursor;				/* Whether to update attr.cursor */
 	} SELECTION_INFO;
 
 #define initSelectionInfo( certInfoPtr ) \
@@ -461,7 +461,7 @@ typedef struct {
 typedef struct {
 	int savedChainPos;					/* Current cert.chain position */
 	SELECTION_INFO savedSelectionInfo;	/* Current DN/GN selection info */
-	DATAPTR_ATTRIBUTE savedAttributeCursor;/* Atribute cursor pos.*/
+	DATAPTR_ATTRIBUTE savedAttributeCursor;/* Attribute cursor pos.*/
 	} SELECTION_STATE;
 
 #define saveSelectionState( savedState, certInfoPtr ) \
@@ -659,7 +659,7 @@ typedef struct {
 	BUFFER_FIXED( 16 ) \
 	BYTE pkiRevPW[ 16 + 8 ];
 
-	/* Additional PKI user inforation: Whether this PKI user can act as an
+	/* Additional PKI user information: Whether this PKI user can act as an
 	   RA */
 	BOOLEAN isRA;
 	} CERT_PKIUSER_INFO;
@@ -686,9 +686,10 @@ typedef struct {
 
 	/* The allowed usage for a certificate can be further controlled by the
 	   user.  The trustedUsage value is a mask which is applied to the key
-	   usage extension to further constrain usage, alongside this there is
-	   an additional implicit trustImplicit value that acts as a boolean 
-	   flag and indicates whether the user implicitly trusts this 
+	   usage extension to further constrain usage, so a value of CRYPT_ERROR
+	   allows all usage, down to 0 which allows no usage.  Alongside this 
+	   there is an additional implicit trustImplicit value that acts as a 
+	   boolean flag and indicates whether the user implicitly trusts this 
 	   certificate (without requiring further checking upstream).  This 
 	   value isn't stored with the certificate since it's a property of any 
 	   instantiation of the certificate rather than just the current one so 
@@ -727,7 +728,7 @@ typedef struct {
 	   component-manipulation functions.  This is set to CRYPT_ERROR if the 
 	   current certificate is the leaf certificate */
 	ARRAY( MAX_CHAINLENGTH, chainEnd ) \
-	CRYPT_CERTIFICATE chain[ MAX_CHAINLENGTH + 8 ];
+	CRYPT_CERTIFICATE chain[ MAX_CHAINLENGTH + 4 ];
 	int chainEnd;					/* Length of certificate chain */
 	int chainPos;					/* Currently selected certificate in chain */
 

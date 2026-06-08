@@ -34,8 +34,8 @@
    For FILEVERSION a,b,c displays as "a.b.c.0", for PRODUCTVERSION it
    displays as "a.b.c" */
 
-#define VERSION		3,4,9,1
-#define VERSION_STR	"3.4.9.1\0"
+#define VERSION		3,4,9,2
+#define VERSION_STR	"3.4.9.2\0"
 
 /* The version information resource */
 

@@ -458,7 +458,7 @@ typedef struct NS {
 	FNPTR readFunction, writeFunction;
 
 	/* Transport-layer network functions.  These can be replaced with user-
-	   defined transport mechanisms if required.  Curently they are set in
+	   defined transport mechanisms if required.  Currently they are set in
 	   tcp.c for TCP transport, net_trans.c for virtual transport, and, as
 	   an oddity, in tcp_err.c for ICMP probes for failed connections */
 	FNPTR transportConnectFunction, transportDisconnectFunction;
@@ -567,7 +567,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileFlush( INOUT_PTR STREAM *stream );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int fileSeek( INOUT_PTR STREAM *stream,
-			  IN_DATALENGTH_Z const long position );
+			  IN_DATALENGTH_Z const int position );
 #endif /* USE_FILES */
 
 #ifdef USE_TCP

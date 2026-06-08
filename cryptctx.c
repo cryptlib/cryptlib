@@ -1443,7 +1443,7 @@ int createContextFromCapability( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 	   Note that the typeInfo and subtypeInfo have different alignment 
 	   handling, the typeInfo is aligned relative to the CTX_INFO at a 
 	   multiple of CONTEXT_INFO_ALIGN_SIZE bytes and the subtypeInfo is 
-	   aligned at an absolute memory postion at a multiple of 
+	   aligned at an absolute memory position at a multiple of 
 	   CAPABILITY_INFO_STATEALIGNTYPE bytes.  The latter is necessary 
 	   because the subtypeInfo holds low-level algorithm state information 
 	   that can require specific memory alignment when used with exotic 

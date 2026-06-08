@@ -266,7 +266,7 @@ int peekTag( INOUT_PTR STREAM *stream );
    length */
 
 RETVAL_LENGTH_NOERROR \
-long sizeofObject( IN_LENGTH_Z const long length );
+int sizeofObject( IN_LENGTH_Z const int length );
 RETVAL_LENGTH_SHORT_NOERROR \
 int sizeofShortObject( IN_LENGTH_SHORT_Z const int length );
 
@@ -540,7 +540,7 @@ int readOctetStringTag( INOUT_PTR STREAM *stream,
 
 /* Routines for handling character strings.  There are a number of oddball
    character string types that are all handled through the same functions -
-   it's not worth having a seperate function to handle each of the half-dozen
+   it's not worth having a separate function to handle each of the half-dozen
    types */
 
 RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
@@ -721,17 +721,17 @@ int readGenericHoleExt( INOUT_PTR STREAM *stream,
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeSequence( INOUT_PTR STREAM *stream, 
-				   IN_LENGTH_Z const long length );
+				   IN_LENGTH_Z const int length );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeSet( INOUT_PTR STREAM *stream, 
 			  IN_LENGTH_SHORT_Z const int length );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeConstructed( INOUT_PTR STREAM *stream, 
-					  IN_LENGTH_Z const long length,
+					  IN_LENGTH_Z const int length,
 					  IN_TAG const int tag );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeOctetStringHole( INOUT_PTR STREAM *stream, 
-						  IN_LENGTH_Z const long length,
+						  IN_LENGTH_Z const int length,
 						  IN_TAG const int tag );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeBitStringHole( INOUT_PTR STREAM *stream, 
@@ -739,7 +739,7 @@ int writeBitStringHole( INOUT_PTR STREAM *stream,
 						IN_TAG const int tag );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeGenericHole( INOUT_PTR STREAM *stream, 
-					  IN_LENGTH_Z const long length,
+					  IN_LENGTH_Z const int length,
 					  IN_TAG const int tag );
 
 /* Read a generic object header, used to find the length of an object being
@@ -747,7 +747,7 @@ int writeGenericHole( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readGenericObjectHeader( INOUT_PTR STREAM *stream, 
-							 OUT_LENGTH_INDEF long *length, 
+							 OUT_LENGTH_INDEF int *length, 
 							 IN_BOOL const BOOLEAN isLongObject );
 
 /* Read an arbitrary-length constructed object's data into a memory buffer.  
@@ -823,17 +823,17 @@ int getObjectLength( IN_BUFFER( objectLength ) \
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readLongSequence( INOUT_PTR STREAM *stream, 
-					  OUT_OPT_LENGTH_INDEF long *length );
+					  OUT_OPT_LENGTH_INDEF int *length );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int readLongSet( INOUT_PTR STREAM *stream, OUT_OPT_LENGTH_INDEF long *length );
+int readLongSet( INOUT_PTR STREAM *stream, OUT_OPT_LENGTH_INDEF int *length );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readLongConstructed( INOUT_PTR STREAM *stream, 
-						 OUT_OPT_LENGTH_INDEF long *length, 
+						 OUT_OPT_LENGTH_INDEF int *length, 
 						 IN_TAG const int tag );
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int readLongGenericHoleExt( INOUT_PTR STREAM *stream, 
-							OUT_OPT_LENGTH_INDEF long *length, 
+							OUT_OPT_LENGTH_INDEF int *length, 
 							IN_TAG_ENCODED const int tag,
 							IN_ENUM( LENGTH_CHECK ) \
 								const LENGTH_CHECK_TYPE lengthCheckType );
@@ -844,11 +844,11 @@ int readLongGenericHoleExt( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int getLongStreamObjectLength( INOUT_PTR STREAM *stream, 
-							   OUT_DATALENGTH_Z long *length );
+							   OUT_DATALENGTH_Z int *length );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int getLongObjectLength( IN_BUFFER( objectLength ) const void *objectPtr, 
-						 IN_DATALENGTH const long objectLength,
-						 OUT_DATALENGTH_Z long *length );
+						 IN_DATALENGTH const int objectLength,
+						 OUT_DATALENGTH_Z int *length );
 
 #endif /* USE_INT_ASN1 */
 #endif /* !_ASN1_DEFINED */

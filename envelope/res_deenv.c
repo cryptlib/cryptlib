@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib De-enveloping Information Management			*
-*						Copyright Peter Gutmann 1996-2023					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -726,7 +726,7 @@ static int checkCmsSignatureInfo( INOUT_PTR CONTENT_LIST *contentListPtr,
 	int status;
 
 	assert( isWritePtr( contentListPtr, sizeof( CONTENT_LIST ) ) );
-	assert( isWritePtr( errorInfo, sizeof( ENVELOPE_INFO ) ) );
+	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( isHandleRangeValid( iHashContext ) );
 	REQUIRES( isHandleRangeValid( iSigCheckContext ) );
@@ -1020,16 +1020,28 @@ static int initSessionKeyDecryption( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 	/* Add the recovered session encryption action to the action list */
 	status = addActionToList( envelopeInfoPtr, iCryptContext, ACTION_CRYPT );
-	if( cryptStatusOK( status ) && isAuthEnc )
-		status = addActionToList( envelopeInfoPtr, iMacContext, ACTION_MAC );
 	if( cryptStatusError( status ) )
 		{
 		if( isAuthEnc )
 			{
+			/* Neither of the newly-created contexts was added, we need to 
+			   clean them both up */
 			krnlSendNotifier( iCryptContext, IMESSAGE_DECREFCOUNT );
 			krnlSendNotifier( iMacContext, IMESSAGE_DECREFCOUNT );
 			}
 		return( status );
+		}
+	if( isAuthEnc )
+		{
+		status = addActionToList( envelopeInfoPtr, iMacContext, ACTION_MAC );
+		if( cryptStatusError( status ) )
+			{
+			/* The newly-created encryption context has already been added 
+			   to the action list so we only need to clean up the new MAC 
+			   context */
+			krnlSendNotifier( iMacContext, IMESSAGE_DECREFCOUNT );
+			return( status );
+			}
 		}
 
 	/* If we're using authenticated encryption (via CMS's encrypt-then-MAC
@@ -1308,7 +1320,7 @@ static int addSignatureInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	   match the PSS parameters in the signature.  This requirement is 
 	   mitigated by the fact that RSA-PSS certificates don't exist, but even
 	   if they did it doesn't make any sense to apply the requirement 
-	   because it could lead to a sitaution where, for example, signature
+	   because it could lead to a situation where, for example, signature
 	   made with SHA-2 is rejected because the signing certificate used 
 	   SHA-1.  In other words if applied as per the RFC it would prevent the 
 	   use of a hash algorithm stronger than the one used in the signing 
@@ -1350,6 +1362,7 @@ static int addSignatureInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		   wants to query it later */
 		if( contentListPtr->formatType != CRYPT_FORMAT_PGP )
 			{
+			REQUIRES( sigInfo->iSigCheckKey == CRYPT_ERROR );
 			krnlSendNotifier( sigCheckContext, IMESSAGE_INCREFCOUNT );
 			sigInfo->iSigCheckKey = sigCheckContext;
 			if( isExternalKey )
@@ -1540,7 +1553,7 @@ static int addPasswordInfo( IN_PTR const CONTENT_LIST *contentListPtr,
 	assert( ( isHandleRangeValid( iMacContext ) && iNewContext == NULL ) || \
 			( iMacContext == CRYPT_UNUSED && \
 			  isWritePtr( iNewContext, sizeof( CRYPT_CONTEXT ) ) ) );
-	assert( isWritePtr( errorInfo, sizeof( ENVELOPE_INFO ) ) );
+	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( ( isHandleRangeValid( iMacContext ) && iNewContext == NULL ) || \
 			  ( iMacContext == CRYPT_UNUSED && iNewContext != NULL ) );

@@ -194,7 +194,8 @@ static int transportVirtualReadFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 	   speculative read to fill the buffering system with any data that may
 	   be available on the network.  In the case of a virtual stream the 
 	   data is always available in the virtual stream, and an attempt to
-	   peform a nonblocking read is meaningless, so we turn it into a no-op.
+	   perform a nonblocking read is meaningless, so we turn it into a 
+	   no-op.
 
 	   In practice it's a bit more complicated than this, the virtual 
 	   stream is typically backed by some form of physical stream, but we 
@@ -547,7 +548,7 @@ int bufferedTransportRead( INOUT_PTR STREAM *stream,
    non-portable that they often don't even work across different versions of 
    the same OS (e.g. different versions of the Linux kernel) let alone 
    variants of one OS type (e.g. OpenBSD vs. FreeBSD).  The least nonportable
-   one is using writev() to combine a seperate header and body, which exists
+   one is using writev() to combine a separate header and body, which exists
    in most Unix versions and Win32.  Easier-to-use but almost totally non-
    portable are facilities like TCP_CORK (newer Linux kernels) and 
    TCP_NOPUSH (some *BSDs) which delay sending buffer contents until the 

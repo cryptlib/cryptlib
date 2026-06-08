@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Kernel Message Dispatcher						*
-*						Copyright Peter Gutmann 1997-2020					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -57,7 +57,7 @@ static const MESSAGE_ACL messageParamACLTbl[] = {
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int checkTargetType( IN_HANDLE const CRYPT_HANDLE originalObjectHandle, 
 					 OUT_HANDLE_OPT CRYPT_HANDLE *targetObjectHandle,
-					 const long targets )
+					 const int targets )
 	{
 	const OBJECT_TYPE target = targets & 0xFF;
 	const OBJECT_TYPE altTarget = targets >> 8;
@@ -161,7 +161,7 @@ static const OBJECT_NAME_INFO objectNameInfo[] = {
 	{ SUBTYPE_CERT_REQ_REV, "CRMF rev.request" },
 	{ SUBTYPE_CERT_CERTCHAIN, "cert.chain" },
 	{ SUBTYPE_CERT_ATTRCERT, "attribute cert." },
-	{ SUBTYPE_CERT_CRL, "CRK" },
+	{ SUBTYPE_CERT_CRL, "CRL" },
 	{ SUBTYPE_CERT_CMSATTR, "CMS attributes" },
 	{ SUBTYPE_CERT_RTCS_REQ, "RTCS request" },
 	{ SUBTYPE_CERT_RTCS_RESP, "RTCS response" },
@@ -196,7 +196,7 @@ static const OBJECT_NAME_INFO objectNameInfo[] = {
 	{ SUBTYPE_SESSION_CMP_SVR, "CMP server" },
 	{ SUBTYPE_SESSION_SCEP, "SCEP" },
 	{ SUBTYPE_SESSION_SCEP_SVR, "SCEP server" },
-	{ SUBTYPE_SESSION_CERT_SVR, "cerificate store" },
+	{ SUBTYPE_SESSION_CERT_SVR, "certificate store" },
 	{ SUBTYPE_USER_SO, "SO user" },
 	{ SUBTYPE_USER_NORMAL, "standard user" },
 	{ SUBTYPE_USER_CA, "CA user" },
@@ -412,7 +412,7 @@ int waitForObject( IN_HANDLE const int objectHandle,
 	   
 	   This seems somewhat unlikely, but it's cropped up on multicore 
 	   hyperthreaded Linux machines running large numbers of threads, 
-	   probably because of the thread-scheduling pecularities of HT CPUs
+	   probably because of the thread-scheduling peculiarities of HT CPUs
 	   combined with the thread-scheduling peculiarities of Linux (it
 	   doesn't occur on the same systems running Windows or other OSes).  
 	   The problem seems to be that if a thread yields on a CPU other than
@@ -434,6 +434,10 @@ int waitForObject( IN_HANDLE const int objectHandle,
 		ENSURES( LOOP_INVARIANT_EXT( waitCount, 0, MAX_WAITCOUNT - 1,
 									 MAX_WAITCOUNT + 1 ) );
 
+		/* The following sequence of operations aren't the problem that 
+		   they appear to be, the first is a pointer to the object table, 
+		   the second is a reference to the object table mutex which is an 
+		   entirely different thing */
 		objectTable = NULL;
 		MUTEX_UNLOCK( objectTable );
 		THREAD_YIELD();
@@ -505,7 +509,7 @@ int waitForObject( IN_HANDLE const int objectHandle,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int findTargetType( IN_HANDLE const CRYPT_HANDLE originalObjectHandle, 
 					OUT_HANDLE_OPT CRYPT_HANDLE *targetObjectHandle,
-					const long targets )
+					const int targets )
 	{
 	const OBJECT_TYPE target = targets & 0xFF;
 	const OBJECT_TYPE altTarget1 = ( targets >> 8 ) & 0xFF;
@@ -603,7 +607,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 static int routeCompareMessageTarget( IN_HANDLE const CRYPT_HANDLE originalObjectHandle, 
 									  OUT_HANDLE_OPT CRYPT_HANDLE *targetObjectHandle,
 									  IN_ENUM( MESSAGE_COMPARE ) \
-											const long messageValue )
+											const int messageValue )
 	{
 	const OBJECT_INFO *objectTable = \
 							getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
@@ -766,7 +770,7 @@ typedef struct {
 	   OBJECT_TYPE_NONE; if the target is explicitly determined, the routing
 	   target is identified in the target.  If the routing function is null,
 	   the message isn't routed */
-	const long routingTarget;			/* Target type if routable */
+	const int routingTarget;			/* Target type if routable */
 	ROUTING_FUNCTION routingFunction;
 
 	/* Object type checking information: Object subtypes for which this
@@ -1042,7 +1046,7 @@ static const MESSAGE_HANDLING_INFO messageHandlingInfo[] = {
    job of the full ACL checks.
    
    Since the check for non-null pointers isn't very comprehensive, for 
-   example it wont catch a call using &fooPtr->cryptHandle where fooPtr is 
+   example it won't catch a call using &fooPtr->cryptHandle where fooPtr is 
    NULL, we also assert on the non-null pointer pointing to at least an 
    integer's worth of memory in the debug version */
 
@@ -1778,7 +1782,11 @@ static int dispatchMessage( IN_HANDLE const int localObjectHandle,
 	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
 	objectInfoPtr = &objectTable[ localObjectHandle ];
 	if( !isValidType( objectInfoPtr->type ) )
-		retIntError();	/* Something catastrophic happened while unlocked */
+		{
+		/* Something catastrophic happened while unlocked, exit immediately
+		   without trying to perform any further operations on the object */
+		retIntError();
+		}
 	if( !( mayUnlock && isMessageObjectUnlocked( &messageExtInfo ) ) )
 		{
 		REQUIRES( !checkOverflowDec( objectInfoPtr->lockCount ) );
@@ -1982,7 +1990,8 @@ int krnlSendMessage( IN_HANDLE const int objectHandle,
 	   access it */
 	MUTEX_LOCK( objectTable );
 	objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
-	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+	REQUIRES_MUTEX( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ),
+					objectTable );
 
 	/* The first line of defence: Make sure that the message is being sent
 	   to a valid object and that the object is externally visible and
@@ -2217,14 +2226,6 @@ int krnlSendMessage( IN_HANDLE const int objectHandle,
 	if( isInUse( localObjectHandle ) && !isObjectOwner( localObjectHandle ) )
 		{
 		status = waitForObject( localObjectHandle, &objectInfoPtr );
-#if !defined( NDEBUG ) && defined( USE_THREADS )
-		if( cryptStatusOK( status ) && isInUse( localObjectHandle ) )
-			{
-			/* dispatchMessage() expects us to be the lock owner if the
-			   object is in use, however if the object has been */
-			objectInfoPtr->lockOwner = THREAD_SELF();
-			}
-#endif /* !NDEBUG && USE_THREADS */
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -2312,8 +2313,10 @@ int krnlSendMessage( IN_HANDLE const int objectHandle,
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
 		if( isInvalidObjectState( localObjectHandle ) && \
 			!isConvertedDestroy && \
-			!( localMessage == MESSAGE_SETATTRIBUTE && \
-			   messageValue == CRYPT_IATTRIBUTE_COMMITNOTIFY && \
+			!( ( enqueuedMessageData.message & \
+								MESSAGE_MASK ) == MESSAGE_SETATTRIBUTE && \
+			   enqueuedMessageData.messageValue == \
+								CRYPT_IATTRIBUTE_COMMITNOTIFY && \
 			   TEST_FLAG( objectInfoPtr->flags, OBJECT_FLAG_SIGNALLED ) ) )
 #else
 		if( isInvalidObjectState( localObjectHandle ) && !isConvertedDestroy )
@@ -2348,8 +2351,10 @@ int krnlSendMessage( IN_HANDLE const int objectHandle,
 		REQUIRES_MUTEX( !isInvalidObjectState( localObjectHandle ) || \
 						( isDestroy && \
 						  ( enqueuedMessageData.messageValue == TRUE ) ) || \
-						( localMessage == MESSAGE_SETATTRIBUTE && \
-						  messageValue == CRYPT_IATTRIBUTE_COMMITNOTIFY && \
+						( ( enqueuedMessageData.message & \
+									MESSAGE_MASK ) == MESSAGE_SETATTRIBUTE && \
+						  enqueuedMessageData.messageValue == \
+									CRYPT_IATTRIBUTE_COMMITNOTIFY && \
 						  TEST_FLAG( objectInfoPtr->flags, \
 									 OBJECT_FLAG_SIGNALLED ) ), \
 						objectTable );

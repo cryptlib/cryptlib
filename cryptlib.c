@@ -121,7 +121,7 @@ const FNPTR FNPTR_NULL = FNPTR_INIT;
 					Session			Drivers - networking
 
    The complete-init step is needed because the full setup of the user 
-   object and crypto object can't be done while the initialistion isn't
+   object and crypto object can't be done while the initialisation isn't
    complete yet.  Specifically both the user and crypto objects need to 
    create keyset objects (configuration data for the user object, backing
    storage for the crypto object) which aren't available when the user/
@@ -256,13 +256,13 @@ static int dispatchManagementAction( IN_ARRAY( mgmtFunctionCount ) \
 	}
 
 /* Under various OSes we bind to a number of drivers at runtime.  We can
-   either do this sychronously or asynchronously depending on the setting of 
-   a config option.  By default we use the async init since it speeds up the 
-   startup.  Synchronisation is achieved by having the open/init functions 
-   in the modules that require the drivers call krnlWaitSemaphore() on the 
-   driver binding semaphore, which blocks until the drivers are bound if an 
-   async bind is in progress, or returns immediately if no bind is in 
-   progress.
+   either do this synchronously or asynchronously depending on the setting 
+   of a config option.  By default we use the async init since it speeds up 
+   the startup.  Synchronisation is achieved by having the open/init 
+   functions in the modules that require the drivers call 
+   krnlWaitSemaphore() on the driver binding semaphore, which blocks until 
+   the drivers are bound if an async bind is in progress, or returns 
+   immediately if no bind is in progress.
    
    Note that this will produce a warning from some leak-checkers if 
    krnlWaitSemaphore() is never called, for example because no code path 
@@ -314,7 +314,7 @@ static void displayBuildParams( void )
 #else
 	DEBUG_PUTS(( "big-endian." ));
 #endif /* DATA_LITTLEENDIAN */
-	DEBUG_PRINT(( "Long long size = %d, long size = %d, int size = %d, "
+	DEBUG_PRINT(( "long long size = %d, long size = %d, int size = %d, "
 				  "pointer size = %d.\n", sizeof( LONGLONG_TYPE ) * 8,
 				  sizeof( long ) * 8, sizeof( int ) * 8, 
 				  sizeof( void * ) * 8 ));
@@ -323,6 +323,17 @@ static void displayBuildParams( void )
 				  sizeof( char ) * 8, ( ( char ) -1 < 0 ) ? "" : "un", 
 				  sizeof( wchar_t ) * 8, ( ( wchar_t ) -1 < 0 ) ? "" : "un",
 				  sizeof( time_t ) * 8, ( ( time_t ) -1 < 0 ) ? "" : "un" ));
+#ifdef TIMET_64BIT
+	DEBUG_PRINT_COND( sizeof( time_t ) > 4, \
+					  ( "sizeof( time_t ) == 8, TIMET_64BIT is defined.\n" ) );
+	DEBUG_PRINT_COND( sizeof( time_t ) < 8, \
+					  ( "sizeof( time_t ) == 4 but TIMET_64BIT is defined!\n" ) );
+#else
+	DEBUG_PRINT_COND( sizeof( time_t ) > 4, \
+					  ( "sizeof( time_t ) == 8 but TIMET_64BIT is not defined!\n" ) );
+	DEBUG_PRINT_COND( sizeof( time_t ) < 8, \
+					  ( "sizeof( time_t ) == 4, TIMET_64BIT is not defined.\n" ) );
+#endif /* TIMET_64BIT */
 	DEBUG_PRINT(( "Bignum options: " ));
 #if defined( SIXTY_FOUR_BIT_LONG )
 	DEBUG_PRINT(( "SIXTY_FOUR_BIT_LONG, " ));
@@ -338,13 +349,13 @@ static void displayBuildParams( void )
 #endif /* BN_DIV2W */
 	DEBUG_PRINT(( "BN_ULONG size = %d, ", sizeof( BN_ULONG ) * 8 ));
 #ifdef BN_ULLONG
-	DEBUG_PRINT(( "BN_ULLONG size = %d, ", sizeof( BN_ULLONG ) * 8 ));
+	DEBUG_PRINT(( "BN_ULLONG size = %d.\n", sizeof( BN_ULLONG ) * 8 ));
 #else
-	DEBUG_PRINT(( "BN_ULLONG not used, " ));
+	DEBUG_PRINT(( "BN_ULLONG not used.\n" ));
 #endif /* BN_ULLONG */
-	DEBUG_PRINT(( "BIGNUM_BASE_ALLOCSIZE = %d, BIGNUM_ALLOC_WORDS = %d.\n", 
+	DEBUG_PRINT(( "  BIGNUM_BASE_ALLOCSIZE = %d, BIGNUM_ALLOC_WORDS = %d.\n", 
 				  BIGNUM_BASE_ALLOCSIZE, BIGNUM_ALLOC_WORDS ));
-	DEBUG_PRINT(( "BIGNUM size = %d, BN_CTX size = %d, BN_MONT_CTX size = %d.\n", 
+	DEBUG_PRINT(( "  BIGNUM size = %d, BN_CTX size = %d, BN_MONT_CTX size = %d.\n", 
 				  sizeof( BIGNUM ), sizeof( BN_CTX ), sizeof( BN_MONT_CTX ) ));
 
 	/* Dump system data information */
@@ -363,15 +374,22 @@ static void displayBuildParams( void )
 				  ( uintptr_t ) getBuiltinStorage( BUILTIN_STORAGE_TRUSTMGR ),
 				  getBuiltinStorageSize( BUILTIN_STORAGE_TRUSTMGR ) ));
 #endif /* USE_CERTIFICATES */
+	DEBUG_PRINT(( ".\n  " ));
 #ifdef USE_TCP
-	DEBUG_PRINT(( ", socket pool = 0x%lX, %d bytes", 
+	DEBUG_PRINT(( "Socket pool = 0x%lX, %d bytes", 
 				  ( uintptr_t ) getBuiltinStorage( BUILTIN_STORAGE_SOCKET_POOL ), 
 				  getBuiltinStorageSize( BUILTIN_STORAGE_SOCKET_POOL ) ));
 #endif /* USE_TCP */
 #ifdef USE_TLS
+  #ifdef USE_TCP
 	DEBUG_PRINT(( ", session scoreboard = 0x%lX, %d bytes", 
 				  ( uintptr_t ) getBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ), 
 				  getBuiltinStorageSize( BUILTIN_STORAGE_SCOREBOARD ) ));
+  #else
+	DEBUG_PRINT(( "Session scoreboard = 0x%lX, %d bytes", 
+				  ( uintptr_t ) getBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ), 
+				  getBuiltinStorageSize( BUILTIN_STORAGE_SCOREBOARD ) ));
+  #endif /* USE_TCP */
 #endif /* USE_TLS */
 	DEBUG_PRINT(( ", option info = 0x%lX, %d bytes.\n", 
 				  ( uintptr_t ) getBuiltinStorage( BUILTIN_STORAGE_OPTION_INFO ), 
@@ -739,8 +757,10 @@ static void displayConfigParams( void )
 
 static BOOLEAN sanityCheckBuild( void )
 	{
-	static const long intVal = 1;
+	static const int intVal = 1;
+	ALIGN_DATA( testData, 16, 16 );
 	BYTE data[ 16 ];
+	const void *testDataPtr;
 
 	/* Perform a sanity check to make sure that the endianness was set 
 	   right.  The crypto self-test that's performed a bit later on will 
@@ -756,7 +776,7 @@ static BOOLEAN sanityCheckBuild( void )
 			/* We should probably sound klaxons as well at this point */
 			DEBUG_PUTS(( "Error in build: CPU endianness is configured "
 						 "incorrectly, see the cryptlib manual for "
-						 "details." ));
+						 "details.\n" ));
 			return( FALSE );
 			}
 
@@ -767,7 +787,7 @@ static BOOLEAN sanityCheckBuild( void )
 		{
 		DEBUG_PUTS(( "Error in build: isValidPointer() macro reports data "
 					 "or code pointer is invalid when it's valid, see "
-					 "misc/safety.h." ));
+					 "misc/safety.h.\n" ));
 		return( FALSE );
 		}
 #ifndef NDEBUG		/* Only visible in the debug build */
@@ -780,6 +800,15 @@ static BOOLEAN sanityCheckBuild( void )
 		}
 #endif /* !NDEBUG */
 
+	/* Make sure that the memory-alignment system works */
+	testDataPtr = ALIGN_GET_PTR( testData, 16 );
+	if( testDataPtr != ptr_align( testDataPtr, 16 ) )
+		{
+		DEBUG_PRINT(( "Error in build: Memory alignment specifiers aren't "
+					  "aligning data correctly, see misc/os_spec.h.\n" ));
+		return( FALSE );
+		}
+
 	/* Warn if unsafe build options are enabled in a release build.  For 
 	   debug builds this is done through displayBuildParams().  Since this 
 	   is going to stderr from an unexpected source we identify what's
@@ -790,11 +819,29 @@ static BOOLEAN sanityCheckBuild( void )
 			 "testing and never in production.\n\n" );
 #endif /* NDEBUG && USE_UNSAFE_BUILD_OPTIONS */
 
-	/* If we're working with a maximum time value beyond Y2038, make sure 
-	   that the system time functions can actually handle this.
-	   
-	   To test this under Visual Studio 32-bit, enable the define at the 
-	   start of this module */
+	/* Perform various checks around time_t and Y2038.  Alongside runtime 
+	   checks in debug mode we also use C99 static_assert() if available to
+	   alert at compile time */
+#if defined( __STDC_VERSION__ ) && ( __STDC_VERSION__ >= 199901L ) && \
+	!defined( TIMET_64BIT )
+	static_assert( sizeof( time_t ) <= 4,
+				   "This system appears to support 64-bit time_t, please let the cryptlib developers know" );
+#endif /* C99 && !TIMET_64BIT */
+#ifdef TIMET_64BIT
+	if( sizeof( time_t ) < 8 )
+		{
+		DEBUG_PUTS(( "TIMET_64BIT to indicate 64-bit time_t is defined but"
+					 "it appears to only be 32 bits.\n" ));
+		return( FALSE );
+		}
+#else
+	if( sizeof( time_t ) > 4 )
+		{
+		DEBUG_PUTS(( "TIMET_64BIT to indicate 64-bit time_t isn't defined but"
+					 "time_t appears to be 64 bits, consider adding detection"
+					 "support to misc/os_spec.h.\n" ));
+		}
+#endif /* TIMET_64BIT */
 #if MAX_TIME_VALUE > MAX_TIME_VALUE_Y2038
 	if( sizeof( time_t ) < 8 )
 		{
@@ -802,8 +849,17 @@ static BOOLEAN sanityCheckBuild( void )
 		static const time_t time3 = 0xEFFFFFFFUL;
 		struct tm tmStruct, *tmStructPtr = &tmStruct;
 		time_t theTime;
+		long long llTime;
 
-        tmStructPtr = gmTime_s( &time1, tmStructPtr );
+		theTime = YEARS_TO_SECONDS( 2050 - 1970 );
+		llTime = YEARS_TO_SECONDS( 2050 - 1970 );
+		if( theTime < MIN_TIME_VALUE || theTime != llTime )
+			{
+			DEBUG_PUTS(( "Time values above Y2038 are enabled but time_t "
+						 "can't represent values in this range.\n" ));
+			return( FALSE );
+			}
+		tmStructPtr = gmTime_s( &time1, tmStructPtr );
 		if( tmStructPtr == NULL || \
 			tmStructPtr->tm_year != 138 || \
 			tmStructPtr->tm_mon != 0 || \
@@ -814,7 +870,7 @@ static BOOLEAN sanityCheckBuild( void )
 						 "range.\n" ));
 			return( FALSE );
 			}
-        tmStructPtr = gmTime_s( &time2, tmStructPtr );
+		tmStructPtr = gmTime_s( &time2, tmStructPtr );
 		if( tmStructPtr == NULL || \
 			tmStructPtr->tm_year != 138 || \
 			tmStructPtr->tm_mon != 0 || \
@@ -825,7 +881,7 @@ static BOOLEAN sanityCheckBuild( void )
 						 "range.\n" ));
 			return( FALSE );
 			}
-        tmStructPtr = gmTime_s( &time3, tmStructPtr );
+		tmStructPtr = gmTime_s( &time3, tmStructPtr );
 		if( tmStructPtr == NULL || \
 			tmStructPtr->tm_year != 197 || \
 			tmStructPtr->tm_mon != 7 || \

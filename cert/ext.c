@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					Certificate Attribute Management Routines				*
-*						Copyright Peter Gutmann 1996-2021					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -78,7 +78,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 		if( attributeListPtr->dataValue == NULL || \
 			!isIntegerRangeNZ( attributeListPtr->dataValueLength ) )
 			{
-			DEBUG_PUTS(( "sanityCheckEnvelope: Blob data" ));
+			DEBUG_PUTS(( "sanityCheckAttribute: Blob data" ));
 			return( FALSE );
 			}
 		if( attributeListPtr->oid == NULL || \
@@ -93,7 +93,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 		if( !DATAPTR_ISVALID( attributeListPtr->prev ) || \
 			!DATAPTR_ISVALID( attributeListPtr->next ) )
 			{
-			DEBUG_PUTS(( "sanityCheckEnvelope: Blob prev/next links" ));
+			DEBUG_PUTS(( "sanityCheckAttribute: Blob prev/next links" ));
 			return( FALSE );
 			}
 
@@ -150,10 +150,11 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 		case BER_TIME_GENERALIZED:
 		case BER_TIME_UTC:
 			{
-			time_t timeValue;
+			time_t timeValue = 0;
 
 			/* Time value */
-			timeValue = *( ( time_t * ) attributeListPtr->dataValue );
+			if( attributeListPtr->dataValue != NULL )
+				timeValue = *( ( time_t * ) attributeListPtr->dataValue );
 			if( timeValue < MIN_STORED_TIME_VALUE || \
 				timeValue > MAX_TIME_VALUE )
 				{
@@ -170,7 +171,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 			if( attributeListPtr->dataValue == NULL || \
 				!isIntegerRangeNZ( attributeListPtr->dataValueLength ) )
 				{
-				DEBUG_PUTS(( "sanityCheckEnvelope: String data" ));
+				DEBUG_PUTS(( "sanityCheckAttribute: String data" ));
 				return( FALSE );
 				}
 			break;
@@ -191,7 +192,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 
 			if( !DATAPTR_ISVALID( dn ) )
 				{
-				DEBUG_PUTS(( "sanityCheckEnvelope: DN data" ));
+				DEBUG_PUTS(( "sanityCheckAttribute: DN data" ));
 				return( FALSE );
 				}
 			break;
@@ -208,7 +209,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 			if( attributeListPtr->dataValue == NULL || \
 				!isIntegerRangeNZ( attributeListPtr->dataValueLength ) )
 				{
-				DEBUG_PUTS(( "sanityCheckEnvelope: String data" ));
+				DEBUG_PUTS(( "sanityCheckAttribute: String data" ));
 				return( FALSE );
 				}
 			}
@@ -217,7 +218,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 	if( !DATAPTR_ISVALID( attributeListPtr->prev ) || \
 		!DATAPTR_ISVALID( attributeListPtr->next ) )
 		{
-		DEBUG_PUTS(( "sanityCheckEnvelope: Prev/next links" ));
+		DEBUG_PUTS(( "sanityCheckAttribute: Prev/next links" ));
 		return( FALSE );
 		}
 
@@ -1159,6 +1160,15 @@ int getAttributeIdInfo( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 
 	REQUIRES( DATAPTR_ISSET( attributePtr ) );
 	REQUIRES( attributeID != NULL || fieldID != NULL || subFieldID != NULL );
+
+	/* Clear return values */
+	if( attributeID != NULL )
+		*attributeID = CRYPT_ATTRIBUTE_NONE;
+	if( fieldID != NULL )
+		*fieldID = CRYPT_ATTRIBUTE_NONE;
+	if( subFieldID != NULL )
+		*subFieldID = CRYPT_ATTRIBUTE_NONE;
+
 	attributeListPtr = DATAPTR_GET( attributePtr );
 	REQUIRES( attributeListPtr != NULL );
 
@@ -1297,6 +1307,8 @@ int getAttributeDataValue( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 						   OUT_INT_Z int *value )
 	{
 	const ATTRIBUTE_LIST *attributeListPtr;
+	
+	assert( isWritePtr( value, sizeof( int ) ) );
 
 	REQUIRES( DATAPTR_ISSET( attributePtr ) );
 	attributeListPtr = DATAPTR_GET( attributePtr );
@@ -1322,6 +1334,8 @@ int getAttributeDataTime( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 	{
 	const ATTRIBUTE_LIST *attributeListPtr;
 
+	assert( isWritePtr( value, sizeof( time_t ) ) );
+
 	REQUIRES( DATAPTR_ISSET( attributePtr ) );
 	attributeListPtr = DATAPTR_GET( attributePtr );
 	ENSURES( attributeListPtr != NULL );
@@ -1340,6 +1354,8 @@ int getAttributeDataDN( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 	{
 	const ATTRIBUTE_LIST *attributeListPtr;
 
+	assert( isWritePtr( dnPtr, sizeof( DATAPTR_DN ) ) );
+
 	REQUIRES( DATAPTR_ISSET( attributePtr ) );
 	attributeListPtr = DATAPTR_GET( attributePtr );
 	ENSURES( attributeListPtr != NULL );
@@ -1356,6 +1372,8 @@ int getAttributeDataDNPtr( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 						   OUT_PTR_DATAPTR DATAPTR_DN **dnPtrPtr )
 	{
 	const ATTRIBUTE_LIST *attributeListPtr;
+
+	assert( isWritePtr( dnPtrPtr, sizeof( DATAPTR_DN * ) ) );
 
 	REQUIRES( DATAPTR_ISSET( attributePtr ) );
 	attributeListPtr = DATAPTR_GET( attributePtr );
@@ -1377,6 +1395,9 @@ int getAttributeDataPtr( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 						 OUT_LENGTH_SHORT_Z int *dataLength )
 	{
 	const ATTRIBUTE_LIST *attributeListPtr;
+
+	assert( isWritePtr( dataPtrPtr, sizeof( void ** ) ) );
+	assert( isWritePtr( dataLength, sizeof( int ) ) );
 
 	REQUIRES( DATAPTR_ISSET( attributePtr ) );
 	attributeListPtr = DATAPTR_GET( attributePtr );
@@ -1409,6 +1430,9 @@ int getBlobAttributeDataPtr( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 							 OUT_LENGTH_SHORT_Z int *dataLength )
 	{
 	const ATTRIBUTE_LIST *attributeListPtr;
+
+	assert( isWritePtr( dataPtrPtr, sizeof( void ** ) ) );
+	assert( isWritePtr( dataLength, sizeof( int ) ) );
 
 	/* This function is identical to getAttributeDataPtr() except for a 
 	   type-checking issue, it returns a pointer to a blob attribute's 
@@ -1445,6 +1469,8 @@ int getAttributeFieldValue( IN_DATAPTR_OPT const DATAPTR_ATTRIBUTE attributePtr,
 			  ( subFieldID >= CRYPT_CERTINFO_FIRST_NAME && \
 				subFieldID <= CRYPT_CERTINFO_LAST_GENERALNAME ) );
 
+	assert( isWritePtr( value, sizeof( int ) ) );
+
 	/* Clear return value */
 	*value = 0;
 
@@ -1470,6 +1496,8 @@ int getAttributeFieldTime( IN_DATAPTR_OPT const DATAPTR_ATTRIBUTE attributePtr,
 	REQUIRES( subFieldID == CRYPT_ATTRIBUTE_NONE || \
 			  ( subFieldID >= CRYPT_CERTINFO_FIRST_NAME && \
 				subFieldID <= CRYPT_CERTINFO_LAST_GENERALNAME ) );
+
+	assert( isWritePtr( value, sizeof( time_t ) ) );
 
 	/* Clear return value */
 	*value = 0;
@@ -1672,6 +1700,8 @@ int fixAttributes( INOUT_PTR CERT_INFO *certInfoPtr )
 	int status;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
+
+	REQUIRES( sanityCheckCert( certInfoPtr ) );
 
 	/* Try and locate email addresses wherever they might be stashed and move
 	   them to the certificate altNames */

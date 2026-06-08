@@ -233,8 +233,8 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 
 	REQUIRES( isShortIntegerRangeNZ( urlLen ) );
 	REQUIRES( defaultPort == CRYPT_UNUSED || \
-			  ( defaultPort >= MIN_PORT_NUMBER && \
-				defaultPort <= MAX_DEST_PORT_NUMBER ) );
+			  ( rangeCheck( defaultPort, MIN_PORT_NUMBER, \
+							MAX_DEST_PORT_NUMBER ) ) );
 	REQUIRES( isEnumRangeOpt( urlTypeHint, URL_TYPE ) );
 	REQUIRES( isBooleanValue( preParseOnly ) );
 
@@ -463,20 +463,11 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 		if( strLen < 2 || strLen > MAX_URL_SIZE )
 			return( CRYPT_ERROR_BADDATA );
 
-		/* Get the port to connect to */
-		LOOP_LARGE( portStrLen = 0, 
-					portStrLen < strLen && isDigit( strPtr[ portStrLen ] ),
-					portStrLen++ )
-			{
-			ENSURES( LOOP_INVARIANT_LARGE( portStrLen, 0, strLen - 1 ) );
-			}
-		ENSURES( LOOP_BOUND_OK );
+		/* Extract the port number */
+		portStrLen = strParseNumeric( strPtr, strLen, &port, MIN_PORT_NUMBER, 
+									  MAX_DEST_PORT_NUMBER );
 		if( portStrLen < 2 || portStrLen > 6 )
 			return( CRYPT_ERROR_BADDATA );
-		status = strGetNumeric( strPtr, portStrLen, &port, 
-								MIN_PORT_NUMBER, MAX_DEST_PORT_NUMBER );
-		if( cryptStatusError( status ) )
-			return( status );
 		urlInfo->port = port;
 
 		/* If there's nothing beyond the port, we're done */

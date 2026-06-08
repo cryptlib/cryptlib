@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				Miscellaneous (Non-ASN.1) Routines Header File				*
-*					  Copyright Peter Gutmann 1992-2024						*
+*					  Copyright Peter Gutmann 1992-2025						*
 *																			*
 ****************************************************************************/
 
@@ -36,11 +36,12 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int pgpReadShortLength( INOUT_PTR STREAM *stream, 
 						OUT_LENGTH_SHORT_Z int *length, 
 						IN_BYTE const int ctb );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int pgpReadPartialLength( INOUT_PTR STREAM *stream, 
-						  OUT_LENGTH_Z long *length );
+						  OUT_LENGTH_Z int *length );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int pgpWriteLength( INOUT_PTR STREAM *stream, IN_LENGTH const long length );
+int pgpWriteLength( INOUT_PTR STREAM *stream, 
+					IN_LENGTH const int length );
 
 /* Read/write PGP packet headers.  The difference between 
    pgpReadPacketHeader() and pgpReadPacketHeaderI() is that the latter 
@@ -50,17 +51,17 @@ int pgpWriteLength( INOUT_PTR STREAM *stream, IN_LENGTH const long length );
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int pgpReadPacketHeader( INOUT_PTR STREAM *stream, OUT_OPT_BYTE int *ctb, 
-						 OUT_OPT_LENGTH_Z long *length, 
+						 OUT_OPT_LENGTH_Z int *length, 
 						 IN_LENGTH_SHORT const int minLength,
-						 IN_LENGTH const long maxLength );
+						 IN_LENGTH const int maxLength );
 CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1 ) ) \
 int pgpReadPacketHeaderI( INOUT_PTR STREAM *stream, OUT_OPT_BYTE int *ctb, 
-						  OUT_OPT_LENGTH_Z long *length, 
+						  OUT_OPT_LENGTH_Z int *length, 
 						  IN_LENGTH_SHORT const int minLength );
-RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int pgpWritePacketHeader( INOUT_PTR STREAM *stream, 
 						  IN_ENUM( PGP_PACKET ) \
 							const PGP_PACKET_TYPE packetType,
-						  IN_LENGTH const long length );
+						  IN_LENGTH const int length );
 
 #endif /* _PGPRW_DEFINED */

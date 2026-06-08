@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					 cryptlib PGP Enveloping Routines						*
-*					 Copyright Peter Gutmann 1996-2024						*
+*					 Copyright Peter Gutmann 1996-2025						*
 *																			*
 ****************************************************************************/
 
@@ -114,8 +114,7 @@ static int copyToEnvelopeAlt( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		};
 	ENV_COPYTOENVELOPE_FUNCTION copyToEnvelopeFunction;
 	STREAM stream;
-	long contentLength;
-	int ctb DUMMY_INIT, version, packetType, value, status;
+	int ctb DUMMY_INIT, version, packetType, contentLength, value, status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( length == 0 || isReadPtrDynamic( buffer, length ) );
@@ -269,9 +268,11 @@ static int writeSignatureInfoPacket( INOUT_PTR STREAM *stream,
 	/* Write the signature info packet.  Note that the version 3 value is 
 	   normally used to identify a legal-kludged PGP 2.0 but in this case it 
 	   denotes OpenPGP, which usually has the version 4 value rather than 3 */
-	pgpWritePacketHeader( stream, PGP_PACKET_SIGNATURE_ONEPASS, \
-						  PGP_VERSION_SIZE + 1 + PGP_ALGOID_SIZE + \
-							PGP_ALGOID_SIZE + PGP_KEYID_SIZE + 1 );
+	status = pgpWritePacketHeader( stream, PGP_PACKET_SIGNATURE_ONEPASS, \
+								   PGP_VERSION_SIZE + 1 + PGP_ALGOID_SIZE + \
+								   PGP_ALGOID_SIZE + PGP_KEYID_SIZE + 1 );
+	if( cryptStatusError( status ) )
+		return( status );
 	sputc( stream, 3 );		/* Version = 3 (OpenPGP) */
 	sputc( stream, 0 );		/* Binary document signature */
 	sputc( stream, pgpHashAlgo );
@@ -380,10 +381,14 @@ static int writeHeaderPacket( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			   opaque content, a zero-length filename, and no date */
 			REQUIRES( !checkOverflowAdd( envelopeInfoPtr->payloadSize,
 										 PGP_DATA_HEADER_SIZE ) );
-			pgpWritePacketHeader( &stream, PGP_PACKET_DATA, 
-								  envelopeInfoPtr->payloadSize + \
-									PGP_DATA_HEADER_SIZE );
-			status = swrite( &stream, PGP_DATA_HEADER, PGP_DATA_HEADER_SIZE );
+			status = pgpWritePacketHeader( &stream, PGP_PACKET_DATA, 
+										   envelopeInfoPtr->payloadSize + \
+											PGP_DATA_HEADER_SIZE );
+			if( cryptStatusOK( status ) )
+				{
+				status = swrite( &stream, PGP_DATA_HEADER, 
+								 PGP_DATA_HEADER_SIZE );
+				}
 
 			/* The header state remains at ENVSTATE_HEADER, which means that
 			   it'll be finalised to ENVSTATE_DONE at the end of this 
@@ -570,7 +575,8 @@ static int writeEncryptedContentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr
 									 envelopeInfoPtr->payloadSize ) );
 		sMemNullOpen( &stream );
 		status = pgpWritePacketHeader( &stream, PGP_PACKET_DATA, 
-						PGP_DATA_HEADER_SIZE + envelopeInfoPtr->payloadSize );
+									   PGP_DATA_HEADER_SIZE + \
+											envelopeInfoPtr->payloadSize );
 		if( cryptStatusOK( status ) )
 			status = swrite( &stream, PGP_DATA_HEADER, PGP_DATA_HEADER_SIZE );
 		if( cryptStatusOK( status ) )
@@ -621,24 +627,30 @@ static int writeEncryptedContentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr
 		{
 		/* The content is an MDC-protected packet consisting of a version 
 		   number, the special-snowflake IV, the data, and an MDC packet */
-		pgpWritePacketHeader( &stream, PGP_PACKET_ENCR_MDC, 
-							  1 + ( ivSize + 2 ) + payloadDataSize + \
-												   PGP_MDC_PACKET_SIZE );
-		sputc( &stream, 1 );	/* Version number */
+		status = pgpWritePacketHeader( &stream, PGP_PACKET_ENCR_MDC, 
+									   1 + ( ivSize + 2 ) + \
+											payloadDataSize + \
+											PGP_MDC_PACKET_SIZE );
+		if( cryptStatusOK( status ) )
+			status = sputc( &stream, 1 );	/* Version number */
 		}
 	else
 		{
 		/* It's a standard encrypted data packet consisting of the special-
 		   snowflake IV and the data */ 
-		pgpWritePacketHeader( &stream, PGP_PACKET_ENCR, 
-							  ( ivSize + 2 ) + payloadDataSize );
+		status = pgpWritePacketHeader( &stream, PGP_PACKET_ENCR, 
+									   ( ivSize + 2 ) + payloadDataSize );
 		}
-	status = swrite( &stream, ivInfoBuffer, ivSize + 2 );
+	if( cryptStatusOK( status ) )
+		status = swrite( &stream, ivInfoBuffer, ivSize + 2 );
 	if( cryptStatusOK( status ) )
 		{
-		REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, 
-									 stell( &stream ) ) );
-		envelopeInfoPtr->bufPos += stell( &stream );
+		const int streamPos = stell( &stream );
+		
+		REQUIRES( !cryptStatusError( streamPos ) && \
+				  !checkOverflowAdd( envelopeInfoPtr->bufPos, 
+									 streamPos ) );
+		envelopeInfoPtr->bufPos += streamPos;
 		}
 	sMemDisconnect( &stream );
 
@@ -805,7 +817,7 @@ static int preEnvelopeEncrypt( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-static int preEnvelopeSign( ENVELOPE_INFO *envelopeInfoPtr )
+static int preEnvelopeSign( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	{
 	ACTION_LIST *postActionListPtr = \
 					DATAPTR_GET( envelopeInfoPtr->postActionList );
@@ -815,7 +827,7 @@ static int preEnvelopeSign( ENVELOPE_INFO *envelopeInfoPtr )
 	ERROR_INFO localErrorInfo;
 	int status;
 
-	assert( isReadPtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
+	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( postActionListPtr == NULL || \
 			isWritePtr( postActionListPtr, sizeof( ACTION_LIST ) ) );
 
@@ -853,7 +865,7 @@ static int preEnvelopeInit( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	{
 	int status = CRYPT_OK;
 
-	assert( isReadPtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
+	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 
 	/* If there's no nested content type set, default to plain data */
 	if( envelopeInfoPtr->contentType == CRYPT_CONTENT_NONE )
@@ -1118,19 +1130,23 @@ static int emitPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 									 envelopeInfoPtr->payloadSize ) );
 		sMemOpen( &stream, headerBuffer, 64 );
 		status = pgpWritePacketHeader( &stream, PGP_PACKET_DATA, 
-						PGP_DATA_HEADER_SIZE + envelopeInfoPtr->payloadSize );
+									   PGP_DATA_HEADER_SIZE + \
+											envelopeInfoPtr->payloadSize );
 		if( cryptStatusOK( status ) )
 			status = swrite( &stream, PGP_DATA_HEADER, PGP_DATA_HEADER_SIZE );
 		if( cryptStatusOK( status ) )
 			{
+			const int streamPos = stell( &stream );
+			
 			/* Adjust the running total count by the size of the additional 
 			   header that's been prepended and copy the header to the
 			   envelope */
-			REQUIRES( !checkOverflowAdd( envelopeInfoPtr->segmentSize,
-										 stell( &stream ) ) );
-			envelopeInfoPtr->segmentSize += stell( &stream );
+			REQUIRES( !cryptStatusError( streamPos ) && \
+					  !checkOverflowAdd( envelopeInfoPtr->segmentSize, 
+										 streamPos ) );
+			envelopeInfoPtr->segmentSize += streamPos;
 			status = copyToEnvelopeFunction( envelopeInfoPtr, headerBuffer, 
-											 stell( &stream ) );
+											 streamPos );
 			}
 		sMemClose( &stream );
 		if( cryptStatusError( status ) )
@@ -1155,7 +1171,11 @@ static int emitPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 
 	/* If we're processing a nested content-type that isn't plain data, 
 	   temporarily enable an alternate processing function that deals with 
-	   PGP's way of handling this */
+	   PGP's way of handling this.  This is safe because the code that calls
+	   us drops through to the copyToEnvelopeFunction() which, before it 
+	   exits, resets the processing function.  If it doesn't get to that 
+	   point then it's encountered an error and exits before trying to perform
+	   any content processing */
 	if( envelopeInfoPtr->contentType != CRYPT_CONTENT_DATA )
 		{
 		FNPTR_SET( envelopeInfoPtr->copyToEnvelopeFunction, 

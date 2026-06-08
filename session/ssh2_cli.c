@@ -143,8 +143,8 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										  &packetOffset );
 		if( cryptStatusOK( status ) )
 			{
-			streamBookmarkSet( stream, keyexInfoLength );
-			ENSURES( streamBookmarkOK( keyexInfoLength ) );
+			status = streamBookmarkSet( stream, &keyexInfoLength );
+			ENSURES( cryptStatusOK( status ) );
 			status = writeUint32( stream, bytesToBits( SSH2_DEFAULT_KEYSIZE ) );
 			}
 		}
@@ -154,8 +154,8 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										  &packetOffset );
 		if( cryptStatusOK( status ) )
 			{
-			streamBookmarkSet( stream, keyexInfoLength );
-			ENSURES( streamBookmarkOK( keyexInfoLength ) );
+			status = streamBookmarkSet( stream, &keyexInfoLength );
+			ENSURES( cryptStatusOK( status ) );
 			writeUint32( stream, bytesToBits( MIN_PKCSIZE ) );
 			writeUint32( stream, bytesToBits( SSH2_DEFAULT_KEYSIZE ) );
 			status = writeUint32( stream, bytesToBits( CRYPT_MAX_PKCSIZE ) );
@@ -370,8 +370,8 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = openPacketStreamSSH( &stream, sessionInfoPtr, SSH_MSG_KEXINIT );
 	if( cryptStatusError( status ) )
 		return( status );
-	streamBookmarkSetFullPacket( &stream, clientHelloLength );
-	ENSURES( streamBookmarkOK( clientHelloLength ) );
+	status = streamBookmarkSetFullPacket( &stream, &clientHelloLength );
+	ENSURES( cryptStatusOK( status ) );
 	status = exportVarsizeAttributeToStream( &stream, SYSTEM_OBJECT_HANDLE,
 											 CRYPT_IATTRIBUTE_RANDOM_NONCE,
 											 SSH2_COOKIE_SIZE );
@@ -423,7 +423,10 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( cryptStatusOK( status ) )
 		status = writeAlgoClassList( &stream, SSH_ALGOCLASS_COPR );
 	if( cryptStatusError( status ) )
+		{
+		sMemDisconnect( &stream );
 		return( status );
+		}
 	writeUint32( &stream, 0 );	/* No language tag */
 	writeUint32( &stream, 0 );
 	sputc( &stream, 0 );		/* Tell the server not to discard the packet */
@@ -454,8 +457,8 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   clientHelloPtr, clientHelloLength );
 	if( cryptStatusOK( status ) )
 		{
-		REQUIRES( rangeCheck( serverHelloLength, 1,
-							  sessionInfoPtr->receiveBufSize ) );
+		REQUIRES( boundsCheck( serverHelloLength, 1,
+							   sessionInfoPtr->receiveBufSize ) );
 		memmove( sessionInfoPtr->receiveBuffer + 1, 
 				 sessionInfoPtr->receiveBuffer, serverHelloLength );
 		sessionInfoPtr->receiveBuffer[ 0 ] = SSH_MSG_KEXINIT;
@@ -534,6 +537,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   further input is processed after this point */
 	FUZZ_SET( handshakeInfo->clientKeyexValueLength,
 			  handshakeInfo->serverKeySize );
+	FUZZ_SET( handshakeInfo->completedHSstate, HANDSHAKE_STATE_BEGIN );
 	FUZZ_SKIP_REMAINDER();
 
 	/*	...
@@ -566,8 +570,8 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusOK( status ) )
 		{
-		streamBookmarkSet( &stream, keyexLength );
-		ENSURES( streamBookmarkOK( keyexLength ) );
+		status = streamBookmarkSet( &stream, &keyexLength );
+		ENSURES( cryptStatusOK( status ) );
 		if( handshakeInfo->isECDH )
 			{
 			status = writeString32( &stream, keyAgreeParams.publicValue,
@@ -628,6 +632,8 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	ENSURES( CFI_CHECK_SEQUENCE_5( "processHelloSSH", "writeClientHello", 
 								   "processDHE", "SSH_MSG_KEXDH_INIT", 
 								   "IMESSAGE_DEV_CREATEOBJECT" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_BEGIN;
+
 	return( CRYPT_OK );
 	}
 
@@ -862,8 +868,8 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Prepare to process the handshake packet signature ("What are you 
 	   preparing?! You're always preparing! Just go!") */
-	streamBookmarkSet( &stream, sigLength );
-	ENSURES( streamBookmarkOK( sigLength ) );
+	status = streamBookmarkSet( &stream, &sigLength );
+	ENSURES( cryptStatusOK( status ) );
 	status = length = readUint32( &stream );
 	if( !cryptStatusError( status ) && !isShortIntegerRangeNZ( length ) )
 		status = CRYPT_ERROR_BADDATA;
@@ -913,6 +919,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_DSA
 	if( TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_SIGFORMAT ) && \
 		( pubkeyAlgo == CRYPT_ALGO_DSA ) && \
+		( sigLength >= LENGTH_SIZE + LENGTH_SIZE + 15 ) && \
 		( memcmp( ( BYTE * ) sigPtr + LENGTH_SIZE + LENGTH_SIZE,
 				  "ssh-dss", 7 ) && \
 		  memcmp( ( BYTE * ) sigPtr + LENGTH_SIZE + LENGTH_SIZE,
@@ -927,7 +934,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* Rewrite the signature to fix up the overall length at the start 
 		   and insert the algorithm name and signature length.  We can 
 		   safely reuse the receive buffer for this because the start 
-		   contains the complete server key/certificate and DH keyex value 
+		   contains the complete server key/certificate and keyex value 
 		   which is far longer than the 12 bytes of header plus signature 
 		   that we'll be writing there */
 		REQUIRES( !checkOverflowAdd( LENGTH_SIZE + sizeofString32( 7 ),
@@ -945,7 +952,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		ENSURES( isShortIntegerRangeNZ( fixedSigLength ) );
 
 		/* The rewritten signature is now at the start of the buffer, update
-		   the signature pointer and size to accomodate the added header */
+		   the signature pointer and size to accommodate the added header */
 		sigPtr = sessionInfoPtr->receiveBuffer;
 		sigLength = fixedSigLength;
 		}
@@ -994,6 +1001,8 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	ENSURES( CFI_CHECK_SEQUENCE_4( "SSH_MSG_KEXDH_REPLY", "completeKeyex", 
 								   "iCryptCheckSignature", "cleanup" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_KEYEX;
+
 	return( CRYPT_OK );
 	}
 
@@ -1296,6 +1305,8 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   "readHSPacketSSH2", "serviceAccept",
 								   "processClientAuth", 
 								   "sendChannelOpen" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_COMPLETE;
+
 	return( CRYPT_OK );
 #else	/* Test handling of OpenSSH "no-more-sessions@openssh.com" */
 	status = sendChannelOpen( sessionInfoPtr );

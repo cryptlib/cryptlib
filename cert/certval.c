@@ -426,7 +426,7 @@ int checkRTCSResponse( INOUT_PTR CERT_INFO *certInfoPtr,
 *																			*
 ****************************************************************************/
 
-/* Read RTCS resquest entries:
+/* Read RTCS request entries:
 
 	Entry ::= SEQUENCE {
 		certHash		OCTET STRING SIZE(20),
@@ -499,8 +499,8 @@ int readRTCSRequestEntries( INOUT_PTR STREAM *stream,
 		status = readRtcsRequestEntry( stream, listHeadPtr );
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, innerStartPos, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, innerStartPos, 
+											   &objectSize );
 			}
 		if( cryptStatusError( status ) )
 			{
@@ -533,7 +533,7 @@ int readRTCSRequestEntries( INOUT_PTR STREAM *stream,
 *																			*
 ****************************************************************************/
 
-/* Write RTCS resquest entries */
+/* Write RTCS request entries */
 
 CHECK_RETVAL_LENGTH_SHORT STDC_NONNULL_ARG( ( 1 ) ) \
 static int sizeofRtcsRequestEntry( STDC_UNUSED const VALIDITY_INFO *rtcsEntry )
@@ -785,8 +785,8 @@ int readRTCSResponseEntries( INOUT_PTR STREAM *stream,
 										errorType );
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, innerStartPos, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, innerStartPos, 
+											   &objectSize );
 			}
 		if( cryptStatusError( status ) )
 			{

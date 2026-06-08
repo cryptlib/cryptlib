@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					Certificate Attribute Checking Routines					*
-*						Copyright Peter Gutmann 1996-2018					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -70,7 +70,7 @@
    t1 and finally encode the OID using t4.
 
    At this point we also evaluate the encoded size of each attribute.  For
-   invidual fields we just store their encoded size.  For constructed 
+   individual fields we just store their encoded size.  For constructed 
    objects we stack the attribute list entry where the constructed object
    starts and, until we reach the end of the constructed object, accumulate
    the total size of the fields that make up the object.  When we reach the
@@ -213,6 +213,14 @@ static BOOLEAN sanityCheckAttributeCheckInfo( const ATTRIBUTE_CHECK_INFO *attrib
 		attributeCheckInfo->stackMarkerPos > attributeCheckInfo->stackPos )
 		{
 		DEBUG_PUTS(( "sanityCheckAttributeCheckInfo: Stack information" ));
+		return( FALSE );
+		}
+
+	/* Make sure that the attribute list is valid */
+	if( attributeCheckInfo->attributeListPtr != NULL && \
+		!sanityCheckAttributePtr( attributeCheckInfo->attributeListPtr ) )
+		{
+		DEBUG_PUTS(( "sanityCheckAttributeCheckInfo: Attribute list" ));
 		return( FALSE );
 		}
 
@@ -587,7 +595,10 @@ static int checkAttributeEntry( INOUT_PTR ATTRIBUTE_CHECK_INFO *attributeCheckIn
 
 			/* Switch to the new encoding table, record the fact that
 			   we've done this, and set the new stack top to the level at
-			   which we start encoding the subtype */
+			   which we start encoding the subtype.  Note that since we're
+			   swapping out the encoding table we call checkAttribute(),
+			   swap the original table back in, and only then act on the
+			   return status from checkAttribute() */
 			if( attributeInfoPtr->fieldType == FIELDTYPE_CHOICE )
 				{
 				/* Stack the value start position in the attribute list and
@@ -675,7 +686,8 @@ static int checkAttributeEntry( INOUT_PTR ATTRIBUTE_CHECK_INFO *attributeCheckIn
 			if( attributeCheckInfo->choiceState == CHOICE_DONE )
 				{
 				/* If we've already processed one of the CHOICE options then 
-				   there can't be another one present */
+				   there can't be another one present.  We only set the error
+				   type as the caller sets the locus */
 				attributeCheckInfo->errorType = CRYPT_ERRTYPE_ATTR_PRESENT;
 				return( CRYPT_ERROR_INVALID );
 				}
@@ -803,8 +815,8 @@ static int checkAttributeEntry( INOUT_PTR ATTRIBUTE_CHECK_INFO *attributeCheckIn
 	/* If it's a non-optional field and the attribute field doesn't match,
 	   it's an error - attribute attributeID is missing field
 	   attributeInfoPtr->fieldID (optional subfield
-	   attributeInfoPtr->subFieldID) (set by the error handler in the calling
-	   code) */
+	   attributeInfoPtr->subFieldID).  We only set the error type as the 
+	   caller sets the locus */
 	if( !( attributeInfoPtr->encodingFlags & FL_OPTIONAL ) )
 		{
 		attributeCheckInfo->errorType = CRYPT_ERRTYPE_ATTR_ABSENT;
@@ -881,6 +893,8 @@ static int checkAttribute( INOUT_PTR ATTRIBUTE_CHECK_INFO *attributeCheckInfo )
 				restartEntry = attributeListNextPtr;
 				restartPoint = attributeCheckInfo->attributeInfoPtr;
 				restartStackPos = attributeCheckInfo->stackPos + 1;
+				ENSURES( rangeCheck( restartStackPos, 0, 
+									 ATTRIBUTE_STACKSIZE - 1 ) );
 				}
 			}
 

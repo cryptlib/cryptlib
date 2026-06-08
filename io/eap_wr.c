@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib Session EAP-TLS/TTLS/PEAP Write Routines			*
-*						Copyright Peter Gutmann 2016-2021 					*
+*						Copyright Peter Gutmann 2016-2025 					*
 *																			*
 ****************************************************************************/
 
@@ -103,8 +103,13 @@ static int writeRADIUS( INOUT_PTR STREAM *stream,
 
 		ENSURES( isShortIntegerRangeNZ( currBytesToWrite ) );
 
+		static_assert( RADIUS_TLV_HEADER_SIZE + RADIUS_MAX_TLV_SIZE,
+					   "RADIUS packet length overflow" );
+
 		/* Write as much of the payload data as we can from the current 
-		   buffer */
+		   buffer.  We know that the length can never overflow a byte 
+		   because it's capped at RADIUS_TLV_HEADER_SIZE + 
+		   min( x, RADIUS_MAX_TLV_SIZE ), which is <= 255 */
 		sputc( stream, type );
 		REQUIRES( !checkOverflowAdd( RADIUS_TLV_HEADER_SIZE, packetLength ) );
 		sputc( stream, RADIUS_TLV_HEADER_SIZE + packetLength );
@@ -217,8 +222,9 @@ static int completeRADIUSMessage( INOUT_PTR STREAM *stream )
 	REQUIRES( isShortIntegerRangeNZ( length ) );
 
 	/* Insert the RADIUS packet length into the packet data */
-	sseek( stream, RADIUS_LENGTH_OFFSET );
-	status = writeUint16( stream, length );
+	status = sseek( stream, RADIUS_LENGTH_OFFSET );
+	if( cryptStatusOK( status ) )
+		status = writeUint16( stream, length );
 	if( cryptStatusError( status ) )
 		return( status );
 	return( sseek( stream, length ) );
@@ -251,7 +257,7 @@ static int completeRADIUSMessage( INOUT_PTR STREAM *stream )
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
 int writeRADIUSMessage( INOUT_PTR STREAM *stream,
 						INOUT_PTR EAP_INFO *eapInfo,
-						const EAP_PARAMS *eapParams,
+						IN_PTR const EAP_PARAMS *eapParams,
 						IN_BUFFER( dataLength ) const void *data,
 						IN_LENGTH_SHORT const int dataLength )
 	{
@@ -289,7 +295,7 @@ int writeRADIUSMessage( INOUT_PTR STREAM *stream,
 							&clientAddrLen, sizeof( int ) );
 		if( cryptStatusOK( status ) )
 			{
-			ENSURES( clientAddrLen > 0 && clientAddrLen <= 16 );
+			ENSURES( clientAddrLen >= 1 && clientAddrLen <= 16 );
 
 			status = sioctlGet( stream, STREAM_IOCTL_GETCLIENTADDR,
 								clientAddr, 16 );
@@ -424,7 +430,11 @@ int writeRADIUSMessage( INOUT_PTR STREAM *stream,
 		{
 		/* Remember the Message Authenticator position and write an empty
 		   TLV that'll be filled later with the authenticator */
-		messageAuthPos = stell( &radiusStream ) + RADIUS_TLV_HEADER_SIZE;
+		status = messageAuthPos = stell( &radiusStream );
+		ENSURES( !cryptStatusError( status ) );
+		REQUIRES( !checkOverflowAdd( messageAuthPos, 
+									 RADIUS_TLV_HEADER_SIZE ) );
+		messageAuthPos += RADIUS_TLV_HEADER_SIZE;
 		status = writeRADIUS( &radiusStream, RADIUS_SUBTYPE_MESSAGEAUTH, 
 							  "\x00\x00\x00\x00\x00\x00\x00\x00"
 							  "\x00\x00\x00\x00\x00\x00\x00\x00", 16, 
@@ -564,9 +574,11 @@ int writeRADIUSPing( INOUT_PTR STREAM *stream,
 		{
 		/* Remember the Message Authenticator position and write an empty
 		   TLV that'll be filled later with the authenticator */
-		REQUIRES( !checkOverflowAdd( stell( &radiusStream ), 
+		status = messageAuthPos = stell( &radiusStream );
+		ENSURES( !cryptStatusError( status ) );
+		REQUIRES( !checkOverflowAdd( messageAuthPos, 
 									 RADIUS_TLV_HEADER_SIZE ) );
-		messageAuthPos = stell( &radiusStream ) + RADIUS_TLV_HEADER_SIZE;
+		messageAuthPos += RADIUS_TLV_HEADER_SIZE;
 		status = writeRADIUS( &radiusStream, RADIUS_SUBTYPE_MESSAGEAUTH, 
 							  "\x00\x00\x00\x00\x00\x00\x00\x00"
 							  "\x00\x00\x00\x00\x00\x00\x00\x00", 16, 
@@ -717,9 +729,9 @@ static int writeRADIUSEAP( INOUT_PTR STREAM *stream,
 		status = sputc( &headerStream, eapParams->paramOpt );
 	if( cryptStatusOK( status ) )
 		headerLength = stell( &headerStream );
+	sMemDisconnect( &headerStream );
 	if( cryptStatusError( status ) )
 		return( status );
-	sMemDisconnect( &headerStream );
 	ENSURES( isShortIntegerRangeNZ( headerLength ) );
 
 	/* Write the EAP packet encapsulated inside a RADIUS EAP-Message */
@@ -796,7 +808,7 @@ static int writeFunction( INOUT_PTR STREAM *stream,
 
 	/* In some cases the caller may need to send a RADIUS or EAP-level 
 	   message rather than an EAP-TLS/TTLS/PEAP level message (because the 
-	   RFC says so).  Since we're supposed to be tunelling over EAP as a 
+	   RFC says so).  Since we're supposed to be tuneling over EAP as a 
 	   transport layer there's no way to directly interact with the EAP 
 	   layer, however to accommodate the RFC requirements we recognise 
 	   various special-case data values to indicate the use of signalling
@@ -821,7 +833,7 @@ static int writeFunction( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Since transport is over UDP, writes are all-or-nothing so if the 
-	   write suceeds then all of the data has been written */
+	   write succeeds then all of the data has been written */
 	*length = maxLength;
 
 	ENSURES( sanityCheckNetStreamEAP( netStream ) );

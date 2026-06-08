@@ -208,9 +208,8 @@ static int processVendorSpecific( INOUT_PTR STREAM *stream,
 								  INOUT_PTR EAP_INFO *eapInfo,
 								  IN_LENGTH_SHORT const int tlvLength )
 	{
-	long vendorID;
 	const int extraDataLength = tlvLength - UINT32_SIZE;
-	int status;
+	int vendorID, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( eapInfo, sizeof( EAP_INFO ) ) );
@@ -262,7 +261,7 @@ static int processVendorSpecific( INOUT_PTR STREAM *stream,
 		}
 	DEBUG_OP( else )
 		{
-		DEBUG_PRINT(( "    Read vendor %ld TLV, length %d.\n", vendorID, 
+		DEBUG_PRINT(( "    Read vendor %d TLV, length %d.\n", vendorID, 
 					  extraDataLength ));
 		}
 
@@ -514,8 +513,9 @@ int readRADIUSMessage( INOUT_PTR STREAM *stream,
 	REQUIRES( !checkOverflowSub( totalLength, 
 								 bytesRead - RADIUS_HEADER_SIZE ) );
 			  /* checkOverflowSub3() has different precedence of operands 
-			     so we can't use it here, but bytesRead - R_H_S overflow
-			     will be detected so we can use the two-operand form */
+			     so we can't use it here, but bytesRead - R_H_S was both
+			     checker earlier and overflow to a negative value will be 
+			     detected so we can use the two-operand form */
 	totalLength -= bytesRead - RADIUS_HEADER_SIZE;
 	ENSURES( totalLength >= 0 && \
 			 totalLength <= RADIUS_MAX_PACKET_SIZE - RADIUS_HEADER_SIZE );
@@ -680,7 +680,7 @@ int readRADIUSPingResponse( INOUT_PTR STREAM *stream,
 				  getRADIUSPacketName( eapInfo->radiusType ), 
 				  eapInfo->radiusType, totalLength, counter ));
 #ifdef DEBUG_TRACE_RADIUS
-	DEBUG_DUMP_DATA( stream->buffer, eapInfo->radiusLength );
+	DEBUG_DUMP_DATA( stream->buffer, totalLength );
 #endif /* DEBUG_TRACE_RADIUS */
 	DEBUG_PRINT_END();
 
@@ -1022,8 +1022,8 @@ static int readRADIUSEAP( INOUT_PTR STREAM *stream,
 		DEBUG_DUMP_STREAM( stream, stell( stream ), length );
 #endif /* DEBUG_TRACE_RADIUSEAP */
 		DEBUG_PRINT_END();
-		return( calculateStreamObjectLength( stream, startPos, 
-											 bytesProcessed ) );
+		return( streamOffsetFromPosition( stream, startPos, 
+										  bytesProcessed ) );
 		}
 	DEBUG_PRINT(( "    Read %s (%d) EAP packet, subtype %s (%d), "
 				  "length %d, ID %d.\n", getEAPPacketName( type ), type, 
@@ -1108,6 +1108,16 @@ static int readRADIUSEAP( INOUT_PTR STREAM *stream,
 					subType != EAP_SUBTYPE_IDENTITY )
 					return( CRYPT_ERROR_BADDATA );
 
+				/* A wakeup packet shouldn't be large enough to be fragmented
+				   across multiple RADIUS TLVs so the earlier length-adjust 
+				   for totalLength > radiusEncapsLength shouldn't have taken
+				   place, in case it did we warn in debug mode and update the
+				   EAP length.  This doesn't actually matter in practice 
+				   since it's a dummy packet that we don't do anything with,
+				   it's done purely so that the accounting is correct */
+				assert( eapInfo->eapLength == length );
+				eapInfo->eapLength = length;
+
 				break;
 				}
 
@@ -1121,8 +1131,7 @@ static int readRADIUSEAP( INOUT_PTR STREAM *stream,
 #ifdef DEBUG_TRACE_RADIUSEAP
 	DEBUG_DUMP_STREAM( stream, stell( stream ), length );
 #endif /* DEBUG_TRACE_RADIUSEAP */
-	return( calculateStreamObjectLength( stream, startPos, 
-										 bytesProcessed ) );
+	return( streamOffsetFromPosition( stream, startPos, bytesProcessed ) );
 	}
 
 /****************************************************************************
@@ -1131,9 +1140,9 @@ static int readRADIUSEAP( INOUT_PTR STREAM *stream,
 *																			*
 ****************************************************************************/
 
-/* Read data from an EAP stream.  Because of RADIUS' crazy fragementation we
+/* Read data from an EAP stream.  Because of RADIUS' crazy fragmentation we
    have to be able to handle multiple layers of encapsulation, all with 
-   their own fragementation requirements.  A read of a typical RADIUS packet
+   their own fragmentation requirements.  A read of a typical RADIUS packet
    that illustrates each of the operation types might be:
 
    0 = readRADIUSMessage().
@@ -1339,7 +1348,7 @@ static int readFunction( INOUT_PTR STREAM *stream,
 		{
 		retExt( CRYPT_ERROR_OVERFLOW,
 				( CRYPT_ERROR_OVERFLOW, NETSTREAM_ERRINFO, 
-				  "Encountered more than %d RADIUS packets to comunicate "
+				  "Encountered more than %d RADIUS packets to communicate "
 				  "one EAP packet", noPackets ) );
 		}
 	REQUIRES( !checkOverflowSub( maxLength, bufSize ) );

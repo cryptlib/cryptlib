@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Certificate Read Routines						*
-*						Copyright Peter Gutmann 1996-2024					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -386,7 +386,7 @@ static int readUniqueID( INOUT_PTR STREAM *stream,
 		void *bufPtr;
 
 		REQUIRES( isShortIntegerRangeNZ( length ) );
-		if( ( bufPtr = clDynAlloc( "readUniqueID", length ) ) == NULL )
+		if( ( bufPtr = clDynAlloc( "readUniqueID", length + 8 ) ) == NULL )
 			return( CRYPT_ERROR_MEMORY );
 		if( type == CRYPT_CERTINFO_SUBJECTUNIQUEID )
 			{
@@ -762,9 +762,7 @@ static int readAttributeCertInfo( INOUT_PTR STREAM *stream,
 		nextUpdate				UTCTime/GeneralisedTime OPTIONAL,
 		revokedCertificates		SEQUENCE OF RevokedCerts,
 		extensions		  [ 0 ]	Extensions OPTIONAL
-		}
-
-   We read various lengths as long values since CRLs can get quite large */
+		} */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readCRLInfo( INOUT_PTR STREAM *stream, 
@@ -773,8 +771,7 @@ static int readCRLInfo( INOUT_PTR STREAM *stream,
 	CRYPT_ALGO_TYPE dummyAlgo;
 	CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
 	ALGOID_PARAMS algoIDparams;
-	long length, endPos;
-	int tag, status;
+	int tag, length, endPos, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
@@ -900,8 +897,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readCertRequestInfo( INOUT_PTR STREAM *stream, 
 								INOUT_PTR CERT_INFO *certInfoPtr )
 	{
-	long endPos;
-	int tag, length, status;
+	int tag, length, endPos, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
@@ -955,7 +951,7 @@ static int readCertRequestInfo( INOUT_PTR STREAM *stream,
 
 /* Read validity information.  Despite being a post-Y2K standard, CRMF still
    allows the non-Y2K UTCTime format to be used for dates so we have to 
-   accomodate both date types.  In addition both values are optional so we
+   acccomodate both date types.  In addition both values are optional so we
    only try and read them if we see their tags */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
@@ -1215,7 +1211,7 @@ static int readCrmfRequestInfo( INOUT_PTR STREAM *stream,
 					  "mechanism %d", tag ) );
 			}
 		}
-	return( readConstructed( stream, NULL, EXTRACT_CTAG( tag ) ) );
+	return( readConstructed( stream, NULL, tag ) );
 	}
 
 /* Read CRMF revocation request information:
@@ -1454,7 +1450,7 @@ static int readOcspRequestInfo( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( certErrorReturn( certInfoPtr, "version", status ) );
 
-	/* Skip the optional requestor name */
+	/* Skip the optional requester name */
 	if( checkStatusPeekTag( stream, status, tag ) && \
 		tag == MAKE_CTAG( CTAG_OR_DUMMY ) )
 		status = readUniversal( stream );
@@ -1573,7 +1569,7 @@ static int readOcspResponseInfo( INOUT_PTR STREAM *stream,
 	   certificates but there are so many incompatible ways to delegate 
 	   trust and signing authority mentioned in the RFC (one for each vendor
 	   that contributed and an additional catchall in case any option got 
-	   missed) without any indication of which one implementors will follow 
+	   missed) without any indication of which one implementers will follow 
 	   that we require the user to supply the signature check certificate 
 	   rather than assuming that some particular trust delegation mechanism 
 	   will happen to be in place */
@@ -1680,7 +1676,7 @@ static int readPkiUserInfo( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		{
 		return( certErrorReturn( userInfoPtr, 
-								 "encrypted authenticaton data", status ) );
+								 "encrypted authentication data", status ) );
 		}
 
 	/* Clone the CA data storage key for our own use, load the IV from the 

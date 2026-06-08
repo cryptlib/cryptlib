@@ -329,10 +329,10 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	   this complex way of handling things we can't write the signature 
 	   packet in one go but instead have to write the part that we can 
 	   create now, hash the portion that's hashed (all but the last 16 bits, 
-	   the length of the unathenticated attributes), and then go back and 
+	   the length of the unauthenticated attributes), and then go back and 
 	   assemble the whole thing including the length and signature later on 
 	   from the pre-hashed data and the length, hash check, and signature */
-	status = writePgpSigPacketHeader( extraData, extraDataLength, 
+	status = writePgpSigPacketHeader( extraDataPtr, extraDataLength, 
 									  &extraDataLength, iSignContext,
 									  sigDataInfo->hashAlgo, 
 									  sigAttributes, sigAttributeLength, 
@@ -340,7 +340,7 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	if( cryptStatusOK( status ) )
 		{
 		status = krnlSendMessage( sigDataInfo->hashContext, 
-								  IMESSAGE_CTX_HASH, extraData, 
+								  IMESSAGE_CTX_HASH, extraDataPtr, 
 								  extraDataLength - UINT16_SIZE );
 								  /* Checked earlier */
 		if( status == CRYPT_ERROR_COMPLETE )
@@ -393,8 +393,10 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 								  extraTrailer, extraTrailerLength );
 		}
 	if( cryptStatusOK( status ) )
+		{
 		status = krnlSendMessage( sigDataInfo->hashContext, 
 								  IMESSAGE_CTX_HASH, "", 0 );
+		}
 	if( cryptStatusOK( status ) )
 		{
 		setMessageData( &msgData, hash, CRYPT_MAX_HASHSIZE );
@@ -431,6 +433,7 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 		}
 	if( cryptStatusError( status ) )
 		{
+		zeroise( hash, CRYPT_MAX_HASHSIZE );
 		REQUIRES( isShortIntegerRangeNZ( extraDataLength ) ); 
 		zeroise( extraDataPtr, extraDataLength );
 		if( extraDataPtr != extraData )
@@ -447,16 +450,21 @@ int createSignaturePGP( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 	  Since we've already had to write half the packet earlier on in order
 	  to hash it we copy this pre-encoded information across and add the 
 	  header and trailer around it */
-	sMemOpen( &stream, signature, totalLength + 64 );
-	pgpWritePacketHeader( &stream, PGP_PACKET_SIGNATURE,
-						  extraDataLength + 2 + signatureDataLength );
-						  /* Checked earlier */
-	swrite( &stream, extraData, extraDataLength );
-	swrite( &stream, hash, 2 );			/* Hash check */
-	status = swrite( &stream, signatureData, signatureDataLength );
+	sMemOpen( &stream, signature, sigMaxLength );
+	status = pgpWritePacketHeader( &stream, PGP_PACKET_SIGNATURE,
+								   extraDataLength + 2 + \
+									signatureDataLength );
+									/* Checked earlier */
+	if( cryptStatusOK( status ) )
+		{
+		swrite( &stream, extraDataPtr, extraDataLength );
+		swrite( &stream, hash, 2 );		/* Hash check */
+		status = swrite( &stream, signatureData, signatureDataLength );
+		}
 	if( cryptStatusOK( status ) )
 		*signatureLength = stell( &stream );
 	sMemDisconnect( &stream );
+	zeroise( hash, CRYPT_MAX_HASHSIZE );
 	REQUIRES( isShortIntegerRangeNZ( extraDataLength ) ); 
 	zeroise( extraDataPtr, extraDataLength );
 	zeroise( signatureData, CRYPT_MAX_PKCSIZE + 128 );
@@ -527,7 +535,10 @@ int checkSignaturePGP( IN_BUFFER( signatureLength ) const void *signature,
 								CRYPT_IATTRIBUTE_KEYID_PGP2 : \
 								CRYPT_IATTRIBUTE_KEYID_OPENPGP );
 	if( cryptStatusError( status ) )
+		{
+		zeroise( &queryInfo, sizeof( QUERY_INFO ) );
 		return( cryptArgError( status ) ? CRYPT_ARGERROR_NUM1 : status );
+		}
 
 	/* After hashing the content, PGP also hashes in extra authenticated
 	   attributes, see the earlier comment in createSignaturePGP() */

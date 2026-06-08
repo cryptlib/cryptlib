@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							cryptlib Session Scoreboard						*
-*						Copyright Peter Gutmann 1998-2016					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -240,7 +240,12 @@ static int findEntry( INOUT_PTR SCOREBOARD_INFO *scoreboardInfo,
 									 scoreboardInfo->lastEntry - 1,
 									 SCOREBOARD_ENTRIES + 1 ) );
 
-		/* If this entry has expired, delete it */
+		/* If this entry has expired, delete it.  This will still work on
+		   systems vulnerable to the Y2038 problem because for signed time_t
+		   it'll wrap to a negative value and always be cleared and for 
+		   unsigned time_t it's not a problem for awhile yet.  It's ugly, 
+		   but all it means is that there'll be less efficient caching of
+		   values */
 		scoreboardEntryPtr = &scoreboardInfo->index[ i ];
 		if( scoreboardEntryPtr->timeStamp + SCOREBOARD_TIMEOUT < currentTime )
 			zeroise( scoreboardEntryPtr, sizeof( SCOREBOARD_ENTRY ) );
@@ -455,8 +460,7 @@ static int addEntry( INOUT_PTR SCOREBOARD_INFO *scoreboardInfo,
 							   &altPosition );
 		if( cryptStatusError( altStatus ) && altStatus != OK_SPECIAL )
 			return( altStatus );
-		ENSURES( altPosition >= 0 && \
-				 altPosition < SCOREBOARD_ENTRIES );
+		ENSURES( altPosition >= 0 && altPosition < SCOREBOARD_ENTRIES );
 		}
 	ENSURES( cryptStatusOK( status ) || status == OK_SPECIAL );
 	ENSURES( altKey == NULL || \
@@ -464,7 +468,8 @@ static int addEntry( INOUT_PTR SCOREBOARD_INFO *scoreboardInfo,
 	scoreboardIndex = scoreboardInfo->index;
 
 	/* We've done the match-checking, now we have to act on the results.  
-	   The different result-value settings and corresponding actions are:
+	   The different result-value settings and corresponding actions are
+	   (s = status, aS = altStatus, x = position, y = altPosition):
 
 		  Case	|		sessID		|		FQDN		| Action
 		--------+-------------------+-------------------+-----------------
@@ -490,6 +495,11 @@ static int addEntry( INOUT_PTR SCOREBOARD_INFO *scoreboardInfo,
 			/* Cases 5-C + 7-C, clear */
 			zeroise( &scoreboardIndex[ position ], 
 					 sizeof( SCOREBOARD_ENTRY ) );
+			if( cryptStatusOK( altStatus ) )
+				{ 
+				zeroise( &scoreboardIndex[ altPosition ], 
+						 sizeof( SCOREBOARD_ENTRY ) );
+				}
 			return( CRYPT_ERROR_NOTFOUND );
 			}
 
@@ -615,7 +625,18 @@ static int lookupScoreboard( INOUT_PTR SCOREBOARD_INFO *scoreboardInfo,
 	REQUIRES( sanityCheckScoreboardEntry( scoreboardEntryPtr ) );
 
 	/* We've found a match, return a pointer to the data (which avoids 
-	   copying it out of secure memory) and the unique ID for it */
+	   copying it out of secure memory) and the unique ID for it.
+	   
+	   This in theory creates a race condition in which another thread may
+	   modify the scoreboard entry before the caller uses it, however since
+	   access is controlled by the search key the second thread would have
+	   to have access to the first one's key.  The only other possibility is
+	   if the scoreboard is heavily loaded and/or the existing entry is 
+	   within a fraction of a second of expiring and one or more other 
+	   threads add entries forcing the existing one to LRU or it expires 
+	   before the caller can access it.  This would require 
+	   SCOREBOARD_ENTRIES threads simultaneously handling connections and 
+	   using the scoreboard which seems unlikely on an STM32 */
 	scoreboardEntryInfo->key = scoreboardEntryPtr->sessionID;
 	scoreboardEntryInfo->keySize = scoreboardEntryPtr->sessionIDlength;
 	scoreboardEntryInfo->data = scoreboardEntryPtr->data;

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib SSH Session Management						*
-*					   Copyright Peter Gutmann 1998-2021					*
+*					   Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -53,8 +53,8 @@ BOOLEAN sanityCheckSessionSSH( IN_PTR const SESSION_INFO *sessionInfoPtr )
 		}
 	if( sshInfo->packetType < 0x00 || sshInfo->packetType > 0xFF || \
 		sshInfo->padLength < 0 || sshInfo->padLength > 255 || \
-		sshInfo->readSeqNo < 0 || sshInfo->readSeqNo > LONG_MAX / 2 || \
-		sshInfo->writeSeqNo < 0 || sshInfo->writeSeqNo > LONG_MAX / 2 )
+		!isIntegerRange( sshInfo->readSeqNo ) || \
+		!isIntegerRange( sshInfo->writeSeqNo ) )
 		{
 		DEBUG_PUTS(( "sanityCheckSessionSSH: Session parameters" ));
 		return( FALSE );
@@ -178,11 +178,8 @@ void debugDumpSSH( IN_PTR const SESSION_INFO *sessionInfoPtr,
 		  ( !isRead && \
 			TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE ) ) ) ? \
 		TRUE : FALSE;
-	const BOOLEAN isClientID = \
+	const BOOLEAN isSSHID = \
 		( !encryptionActive && length >= 7 && \
-		  !memcmp( buffer, "SSH-2.0", 7 ) ) ? TRUE : FALSE;
-	const BOOLEAN isServerID = \
-		( !encryptionActive && length > 7 && \
 		  !memcmp( buffer, "SSH-2.0", 7 ) ) ? TRUE : FALSE;
 	char fileName[ 1024 + 8 ], *slashPtr;
 	int result;
@@ -202,10 +199,23 @@ void debugDumpSSH( IN_PTR const SESSION_INFO *sessionInfoPtr,
 	result = sprintf_s( fileName, 1024, "ssh%02d%c_", messageCount++, 
 						isRead ? 'r' : 'w' );
 	assert( rangeCheck( result, 1, 1023 ) );
-	if( isClientID || isServerID )
+	if( isSSHID )
 		{
+		const char *fileNameString;
+		
+		if( isRead )
+			{
+			fileNameString = isServer( sessionInfoPtr ) ? \
+							 "client_ID" : "server_ID";
+			}
+		else
+			{	
+			fileNameString = isServer( sessionInfoPtr ) ? \
+							 "server_ID" : "client_ID";
+			}
+			
 		/* The initial server-ID messages don't have defined packet names */
-		strlcat_s( fileName, 1024, isClientID ? "client_ID" : "server_ID" );
+		strlcat_s( fileName, 1024, fileNameString );
 		}
 	else
 		{
@@ -236,7 +246,7 @@ void debugDumpSSH( IN_PTR const SESSION_INFO *sessionInfoPtr,
 	strlcat_s( fileName, 1024, ".dat" );
 	debugSanitiseFilename( fileName );
 
-	if( isRead && !isServerID )
+	if( isRead && !isSSHID )
 		{
 		STREAM stream;
 		BYTE lengthBuffer[ UINT32_SIZE + 8 ];
@@ -379,24 +389,29 @@ static int completeHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( shutdownFunction != NULL );
 
 	status = handshakeFunction( sessionInfoPtr, handshakeInfo );
-	destroyHandshakeInfo( handshakeInfo );
 	if( cryptStatusError( status ) )
 		{
+		ENSURES( handshakeInfo->completedHSstate != \
+									HANDSHAKE_STATE_COMPLETE );
+		destroyHandshakeInfo( handshakeInfo );
+
 		/* If we need confirmation from the user before continuing, let
 		   them know */
 		if( status == CRYPT_ENVELOPE_RESOURCE )
 			return( status );
 
 		/* At this point we could be in the secure state so we have to
-		   keep the security information around until after we've called 
-		   the shutdown function, which could require sending secured 
-		   data */
+		   keep the session security information around until after we've 
+		   called the shutdown function, which could require sending 
+		   secured data */
 		disableErrorReporting( sessionInfoPtr );
 		delayRandom();	/* Dither error timing info */
 		shutdownFunction( sessionInfoPtr );
 		destroySecurityContextsSSH( sessionInfoPtr );
 		return( status );
 		}
+	ENSURES( handshakeInfo->completedHSstate == HANDSHAKE_STATE_COMPLETE );
+	destroyHandshakeInfo( handshakeInfo );
 
 	return( CRYPT_OK );
 	}
@@ -495,12 +510,14 @@ static int completeStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		/* If we run into an error at this point we need to disable error-
 		   reporting during the shutdown phase since we've already got 
 		   status information present from the already-encountered error */
+		ENSURES( handshakeInfo.completedHSstate != HANDSHAKE_STATE_BEGIN );
 		destroyHandshakeInfo( &handshakeInfo );
 		disableErrorReporting( sessionInfoPtr );
 		delayRandom();	/* Dither error timing info */
 		shutdownFunction( sessionInfoPtr );
 		return( status );
 		}
+	ENSURES( handshakeInfo.completedHSstate == HANDSHAKE_STATE_BEGIN );
 
 	/* Exchange a key with the server */
 	handshakeFunction = ( SSH_HANDSHAKE_FUNCTION ) \
@@ -510,12 +527,14 @@ static int completeStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	if( cryptStatusError( status ) )
 		{
 		destroySecurityContextsSSH( sessionInfoPtr );
+		ENSURES( handshakeInfo.completedHSstate != HANDSHAKE_STATE_KEYEX );
 		destroyHandshakeInfo( &handshakeInfo );
 		disableErrorReporting( sessionInfoPtr );
 		delayRandom();	/* Dither error timing info */
 		shutdownFunction( sessionInfoPtr );
 		return( status );
 		}
+	ENSURES( handshakeInfo.completedHSstate == HANDSHAKE_STATE_KEYEX );
 
 	/* If we're fuzzing the input then we're reading static data for which 
 	   we can't go beyond this point */
@@ -693,8 +712,8 @@ static int checkAttributeFunction( SESSION_INFO *sessionInfoPtr,
 	STREAM stream;
 	BYTE buffer[ 128 + ( CRYPT_MAX_PKCSIZE * 4 ) + 8 ];
 	BYTE fingerPrint[ CRYPT_MAX_HASHSIZE + 8 ];
-	void *blobData DUMMY_INIT_PTR;
-	int blobDataLength DUMMY_INIT, hashSize, pkcAlgo, status;
+	void *pubKeyData DUMMY_INIT_PTR;
+	int pubKeyDataLength DUMMY_INIT, hashSize, pkcAlgo, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
@@ -732,45 +751,48 @@ static int checkAttributeFunction( SESSION_INFO *sessionInfoPtr,
 	if( !isServer( sessionInfoPtr ) )
 		return( CRYPT_OK );
 
-	/* The original (1990s) specifications used MD5 for the key fingerprint
-	   but pretty much everything now uses the de facto standard SHA-256
-	   even though it's not required by any RFC.  We formerly reported the
-	   historic MD5 hash as a SHA-1 fingerprint (since MD5 fingerprints had
-	   been removed) until 3.4.8 but switched to SHA-256 after that */
+	/* The original (1990s) specifications used MD5 for the key fingerprint,
+	   standardised in RFC 4716, but pretty much everything now uses the de 
+	   facto standard SHA-256 even though it's not required by any RFC.  We 
+	   formerly reported the historic MD5 hash as a SHA-1 fingerprint (since 
+	   MD5 fingerprints had been removed) until cryptlib 3.4.8 but switched 
+	   to SHA-256 after that */
 	getHashAtomicParameters( CRYPT_ALGO_SHA2, 32, &hashFunctionAtomic, 
 							 &hashSize );
 
-	/* The fingerprint is computed from the "key blob", which is different
-	   from the server key.  The server key is the full key while the "key
-	   blob" is only the raw key components (e, n for RSA, p, q, g, y for
-	   DSA) so we have to skip the key header before we hash the key data:
-
+	/* The fingerprint is computed from "the public key data as specified by 
+	   RFC4253" (RFC 4716), which is different from the SSH key that we get
+	   from CRYPT_IATTRIBUTE_KEY_SSH:
+	   
 		uint32		length
 			string	algorithm
 			byte[]	key_blob
+	   
+	   By trial and error this is:
 
-	   Note that, as with the old PGP 2.x key hash mechanism, this allows
-	   key spoofing (although it isn't quite as bad as the PGP 2.x key
-	   fingerprint mechanism) since it doesn't hash an indication of the key
-	   type or format */
+		string		algorithm
+		byte[]		key_blob
+      
+	   and not the "key blob" which is just the parameters without the 
+	   algorithm name, so we have to skip the length value before we hash 
+	   the remaining data */
 	setMessageData( &msgData, buffer, 128 + ( CRYPT_MAX_PKCSIZE * 4 ) );
 	status = krnlSendMessage( cryptContext, IMESSAGE_GETATTRIBUTE_S,
 							  &msgData, CRYPT_IATTRIBUTE_KEY_SSH );
 	if( cryptStatusError( status ) )
 		return( status );
 	sMemConnect( &stream, buffer, msgData.length );
-	readUint32( &stream );					/* Length */
-	status = readUniversal32( &stream );	/* Algorithm ID */
-	if( cryptStatusOK( status ) )
+	status = readUint32( &stream );			/* Length */
+	if( !cryptStatusError( status ) )
 		{
-		status = sMemGetDataBlockRemaining( &stream, &blobData, 
-											&blobDataLength );
+		status = sMemGetDataBlockRemaining( &stream, &pubKeyData, 
+											&pubKeyDataLength );
 		}
 	sMemDisconnect( &stream );
 	if( cryptStatusError( status ) )
 		return( status );
-	hashFunctionAtomic( fingerPrint, CRYPT_MAX_HASHSIZE, blobData, 
-						blobDataLength );
+	hashFunctionAtomic( fingerPrint, CRYPT_MAX_HASHSIZE, pubKeyData, 
+						pubKeyDataLength );
 
 	/* Add the fingerprint */
 	return( addSessionInfoS( sessionInfoPtr,

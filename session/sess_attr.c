@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Session Attribute Routines					*
-*						Copyright Peter Gutmann 1998-2019					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -99,7 +99,7 @@ static BOOLEAN checkAttributePresent( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* If multiple keys for the same server are allowed then adding more
 		   than one key isn't an error */
 		if( TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_MULTIPLEKEYS ) )
-			return( CRYPT_OK );
+			return( FALSE );
 		return( ( sessionInfoPtr->privateKey != CRYPT_ERROR ) ? \
 				TRUE : FALSE );
 		}
@@ -122,10 +122,12 @@ static BOOLEAN checkAttributePresent( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #if defined( USE_TLS ) || defined( USE_SSH )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 5 ) ) \
-static int checkAuthToken( IN_BUFFER( credentialLength ) const void *credential,
-						   IN_LENGTH_TEXT const int credentialLength,
-						   IN_BUFFER( authTokenSize ) const void *authToken,
-						   IN_LENGTH_SHORT_MIN( 16 ) const int authTokenSize,
+static int checkAuthToken( IN_BUFFER( totpValueLength ) const void *totpValue,
+						   IN_LENGTH_TEXT const int totpValueLength,
+						   IN_BUFFER( authTokenSeedSize ) \
+								const void *authTokenSeed,
+						   IN_LENGTH_SHORT_MIN( 16 ) \
+								const int authTokenSeedSize,
 						   INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	MECHANISM_DERIVE_INFO mechanismInfo;
@@ -134,30 +136,30 @@ static int checkAuthToken( IN_BUFFER( credentialLength ) const void *credential,
 	const time_t currentTime = getTime( GETTIME_NONE );
 	int totpSeedSize, status;
 
-	assert( isReadPtrDynamic( credential, credentialLength ) );
-	assert( isReadPtrDynamic( authToken, authTokenSize ) );
+	assert( isReadPtrDynamic( totpValue, totpValueLength ) );
+	assert( isReadPtrDynamic( authTokenSeed, authTokenSeedSize ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
-	REQUIRES( credentialLength > 0 && \
-			  credentialLength <= CRYPT_MAX_TEXTSIZE );
-	REQUIRES( authTokenSize >= 16 && authTokenSize <= CRYPT_MAX_TEXTSIZE );
+	REQUIRES( totpValueLength > 0 && totpValueLength <= CRYPT_MAX_TEXTSIZE );
+	REQUIRES( authTokenSeedSize >= 16 && \
+			  authTokenSeedSize <= CRYPT_MAX_TEXTSIZE );
 
 	/* If the time is screwed up then we can't continue */
 	if( currentTime <= MIN_TIME_VALUE )
 		return( CRYPT_ERROR_NOTINITED );
 
 	/* Make sure that the TOTP value is of the correct length */
-	if( credentialLength != 6 )
+	if( totpValueLength != 6 )
 		{
 		retExt( CRYPT_ERROR_WRONGKEY,
 				( CRYPT_ERROR_WRONGKEY, errorInfo, 
 				  "Client TOTP value is %d characters, should be 6 "
-				  "characters", credentialLength ) );
+				  "characters", totpValueLength ) );
 		}
 
 	/* Extract the seed value from the Base32-encoded authentication token */
-	status = decodeBase32Value( totpSeed, 64, &totpSeedSize, authToken, 
-								authTokenSize );
+	status = decodeBase32Value( totpSeed, 64, &totpSeedSize, authTokenSeed, 
+								authTokenSeedSize );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -166,7 +168,7 @@ static int checkAuthToken( IN_BUFFER( credentialLength ) const void *credential,
 	   into X-second intervals and uses the interval number, with the 
 	   default interval duration being 30 seconds.  This conveniently means 
 	   that we can use a 32-bit value for the foreseeable future (about a 
-	   thousand years), but also menas that we need to use writeUint32() 
+	   thousand years), but also means that we need to use writeUint32() 
 	   rather than writeUint32Time() since we're not writing a valid time 
 	   value */
 	sMemOpen( &stream, counter, 8 );
@@ -187,13 +189,15 @@ static int checkAuthToken( IN_BUFFER( credentialLength ) const void *credential,
 		return( status );
 
 	/* Make sure that the HOTP value matches the value supplied as the 
-	   password */
-	if( compareDataConstTime( credential, totpBuffer, 6 ) != TRUE )
+	   password.  The TOTP values are tokens unrelated to the secret value 
+	   that are only valid for 30 seconds so there shouldn't be any problem 
+	   putting them in an error message */
+	if( compareDataConstTime( totpValue, totpBuffer, 6 ) != TRUE )
 		{
 		retExtSan( CRYPT_ERROR_WRONGKEY,
 				   ( CRYPT_ERROR_WRONGKEY, errorInfo, 
 					 "Invalid client TOTP value '%s', should have been '%s'", 
-					 credential, 6, totpBuffer, 6, NULL, 0 ) );
+					 totpValue, 6, totpBuffer, 6, NULL, 0 ) );
 		}
 
 	return( CRYPT_OK );
@@ -400,7 +404,7 @@ static int addCredential( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				break;
 
 			/* We're adding a username, make sure that the last attribute 
-			   added wasn't also a username and that what we're addig 
+			   added wasn't also a username and that what we're adding 
 			   doesn't duplicate an existing name */
 			attributeListPtr = DATAPTR_GET( sessionInfoPtr->attributeListCurrent );
 			REQUIRES( attributeListPtr != NULL );
@@ -454,7 +458,9 @@ static int addCredential( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		case CRYPT_SESSINFO_AUTHTOKEN:
 			/* We're checking an authentication token against a password 
 			   value from the client, make sure that there's a password 
-			   present */
+			   present.  Currently this is actually a TOTP value that the
+			   client has submitted, being checked against credentials
+			   that the caller has provided */
 			if( cryptStatusError( status ) )
 				{
 				return( exitErrorNotInited( sessionInfoPtr, 
@@ -885,7 +891,7 @@ int getSessionAttributeS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				}
 #endif /* USE_ERRMSGS */
 
-			/* We don't set extended error information for this atribute 
+			/* We don't set extended error information for this attribute 
 			   because it's usually read in response to an existing error, 
 			   which would overwrite the existing error information */
 			return( CRYPT_ERROR_NOTFOUND );

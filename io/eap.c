@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Session EAP-TLS/TTLS/PEAP Routines				*
-*						Copyright Peter Gutmann 2016-2021					*
+*						Copyright Peter Gutmann 2016-2025					*
 *																			*
 ****************************************************************************/
 
@@ -198,6 +198,7 @@ int radiusMD5HashBuffer( OUT_BUFFER_FIXED( 16 ) BYTE *hashValue,
 	hashFunction( hashInfo, NULL, 0, data, dataLength, HASH_STATE_START );
 	hashFunction( hashInfo, hashValue, hashSize, keyData, keyDataLength, 
 				  HASH_STATE_END );
+	zeroise( hashInfo, sizeof( HASHINFO ) );
 
 	return( CRYPT_OK );
 	}
@@ -221,7 +222,7 @@ static int initEAPInfo( OUT_PTR EAP_INFO *eapInfo,
 	eapInfo->radiusCtr = 0xFF;
 	eapInfo->eapCtr = 0;
 
-	/* Copy across the RADIUS authentication inforation */
+	/* Copy across the RADIUS authentication information */
 	REQUIRES( rangeCheck( connectInfo->authNameLength, 1, 
 						  CRYPT_MAX_TEXTSIZE ) );
 	memcpy( eapInfo->userName, connectInfo->authName, 
@@ -583,7 +584,13 @@ static int activateEAPClient( INOUT_PTR STREAM *stream,
 	   EAP-TLS/TTLS/PEAP response, an EAP_SUBTYPE_IDENTITY packet containing 
 	   the user name as payload.  Because only the server is allowed to
 	   send requests, our request is encoded as a response to an imaginary
-	   request from the server */
+	   request from the server.
+	   
+	   Note that the diagnostic below prints the password in plaintext, this
+	   is useful to debug the mass of authenticators and magic values used in
+	   RADIUS and in any case has no value since we're tunelling everything 
+	   over TLS, the RADIUS-level stuff is present purely to get it past the
+	   RADIUS layer */
 	DEBUG_PRINT(( "Connecting to RADIUS server with username = '%s', "
 				  "password = '%s'\n", eapInfo->userName, 
 				  eapInfo->password ));
@@ -614,7 +621,12 @@ static int activateEAPClient( INOUT_PTR STREAM *stream,
 	/* Read the server's EAP-TLS/TTLS/PEAP authentication response.  As per
 	   the previous comment, the server sends requests, not responses, so 
 	   what we're reading is encoded as a request even though it's a 
-	   response */
+	   response.
+	   
+	   What we're interested in at this point is the RADIUS and EAP metadata
+	   around the initial exchange, specifically the sub-protocol response
+	   to our request, so we don't look at any returned data, of which there
+	   shouldn't be any present at this stage in any case  */
 	status = readRADIUSMessage( stream, eapInfo, FALSE );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -630,19 +642,24 @@ static int activateEAPClient( INOUT_PTR STREAM *stream,
 				  "form of a RADIUS Access-Reject message" ) );
 		}
 	sMemConnect( &radiusStream, stream->buffer, eapInfo->radiusLength );
-	status = processRADIUSTLVs( &radiusStream, eapInfo, buffer, RADIUS_BUFFER_SIZE, 
-								&bytesCopied, NETSTREAM_ERRINFO );
+	status = processRADIUSTLVs( &radiusStream, eapInfo, buffer, 
+								RADIUS_BUFFER_SIZE, &bytesCopied, 
+								NETSTREAM_ERRINFO );
 	sMemDisconnect( &radiusStream );
 	if( cryptStatusError( status ) )
 		return( status );
 
 	/* If the server responded with the protocol that we're expecting, we're
-	   done */
+	   done.  The mapValue() below maps our requested cryptlib sub-protocol
+	   type to the corresponding EAP subtype so that we can compare it to 
+	   the server's response, since this is coming from our own data the 
+	   call should always succeed */
 	status = mapValue( netStream->subProtocol, &eapSubType, 
 					   subProtocolMapTable,
 					   FAILSAFE_ARRAYSIZE( subProtocolMapTable, \
 										   MAP_TABLE ) );
-	if( cryptStatusOK( status ) && eapSubType == eapInfo->eapSubtypeRead )
+	ENSURES( cryptStatusOK( status ) );
+	if( eapSubType == eapInfo->eapSubtypeRead )
 		{
 		eapInfo->eapSubtypeWrite = eapInfo->eapSubtypeRead;
 		return( CRYPT_OK );
@@ -656,7 +673,10 @@ static int activateEAPClient( INOUT_PTR STREAM *stream,
 
 	/* The server responded with something other than what we're expecting, 
 	   send an EAP NAK requesting the protocol that we want and retry the 
-	   read of the resonse */
+	   read of the response.
+	   
+	   As before, we're interested in the RADIUS / EAP metadata, not whether
+	   there's any payload present */
 	setEAPParamsExt( &eapParams, EAP_TYPE_RESPONSE, EAP_SUBTYPE_NAK, 
 					 eapSubType );
 	status = writeRADIUSMessage( stream, eapInfo, &eapParams,
@@ -674,8 +694,9 @@ static int activateEAPClient( INOUT_PTR STREAM *stream,
 				  "form of a RADIUS Access-Reject message" ) );
 		}
 	sMemConnect( &radiusStream, stream->buffer, eapInfo->radiusLength );
-	status = processRADIUSTLVs( &radiusStream, eapInfo, buffer, RADIUS_BUFFER_SIZE, 
-								&bytesCopied, NETSTREAM_ERRINFO );
+	status = processRADIUSTLVs( &radiusStream, eapInfo, buffer, 
+								RADIUS_BUFFER_SIZE, &bytesCopied, 
+								NETSTREAM_ERRINFO );
 	sMemDisconnect( &radiusStream );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -708,7 +729,9 @@ static int activateEAPClient( INOUT_PTR STREAM *stream,
 	return( CRYPT_OK );
 	}
 
-/* Activate an EAP server  session */
+/* Activate an EAP server session.  This is a minimal session for loopback
+   testing purposes, not a full-blown RADIUS/EAP server which would require 
+   a full authorisation database to operate */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int activateEAPServer( INOUT_PTR STREAM *stream,
@@ -754,6 +777,13 @@ static int activateEAPServer( INOUT_PTR STREAM *stream,
 	status = readRADIUSMessage( stream, eapInfo, TRUE );
 	if( cryptStatusError( status ) )
 		return( status );
+	if( eapInfo->radiusLength <= 0 )
+		{
+		retExt( CRYPT_ERROR_PERMISSION,
+				( CRYPT_ERROR_PERMISSION, NETSTREAM_ERRINFO, 
+				  "Client responded with a generic error response in the "
+				  "form of a RADIUS Access-Reject message" ) );
+		}
 	sMemConnect( &radiusStream, stream->buffer, eapInfo->radiusLength );
 	status = processRADIUSTLVs( &radiusStream, eapInfo, buffer, 
 								RADIUS_BUFFER_SIZE, &bytesCopied, 

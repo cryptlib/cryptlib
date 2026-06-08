@@ -55,6 +55,10 @@ static int adjustPKIUserValue( INOUT_BUFFER( valueMaxLength, *valueLength ) \
 	REQUIRES( isShortIntegerRangeMin( valueMaxLength, 32 ) );
 	REQUIRES( noCodeGroups == 3 || noCodeGroups == 4 );
 
+	/* Clear return value.  The buffer is an INOUT parameter so we don't 
+	   clear it because there's already data present */
+	*valueLength = 0;
+
 	/* Mask off any bits at the end of the data that can't be encoded using
 	   the given number of code groups */
 	if( noCodeGroups == 3 )
@@ -118,6 +122,7 @@ int encodePKIUserValue( OUT_BUFFER( encValMaxLen, *encValLen ) char *encVal,
 
 	/* Copy across the data bytes, leaving a gap at the start for the
 	   checksum */
+	memset( valBuf, 0, 128 );
 	REQUIRES( boundsCheck( 1, dataBytes - 1, 128 ) );
 	memcpy( valBuf + 1, value, dataBytes - 1 );
 	status = adjustPKIUserValue( valBuf + 1, 128 - 1, &length, 
@@ -161,7 +166,7 @@ int encodePKIUserValue( OUT_BUFFER( encValMaxLen, *encValLen ) char *encVal,
 								 loMask[ bitCount ] ) >> ( 11 - bitCount ) );
 				}
 			}
-		ENSURES( chunkValue >= 0 && chunkValue <= 0x20 );
+		ENSURES( chunkValue >= 0 && chunkValue <= 0x1F );
 		encVal[ length++ ] = codeTable[ chunkValue ];
 		if( length < encValMaxLen && ( i % 5 ) == 0 && i < noCodeGroups * 5 )
 			encVal[ length++ ] = '-';
@@ -193,13 +198,13 @@ int encodePKIUserValue( OUT_BUFFER( encValMaxLen, *encValLen ) char *encVal,
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN isPKIUserValue( IN_BUFFER( encValLength ) const char *encVal, 
-						IN_LENGTH_SHORT_MIN( 10 ) const int encValLength )
+						IN_LENGTH_SHORT_MIN( 16 ) const int encValLength )
 	{
 	LOOP_INDEX i;
 
 	assert( isReadPtrDynamic( encVal, encValLength ) );
 
-	REQUIRES_B( isShortIntegerRangeMin( encValLength, 12 ) );
+	REQUIRES_B( isShortIntegerRangeMin( encValLength, 16 ) );
 
 	/* Check whether a user value is of the form XXXXX-XXXXX-XXXXX{-XXXXX}.  
 	   Although we shouldn't be seeing O/0 or I/1 in the input we don't
@@ -297,10 +302,14 @@ int decodePKIUserValue( OUT_BUFFER( valueMaxLen, *valueLen ) BYTE *value,
 			ENSURES( LOOP_INVARIANT_SMALL_ALT( j, 0, 4 ) );
 
 			/* Note that we increment 'i' as part of reading ch so the range 
-			   check is '>' rather than '>=' */
+			   check is '>' rather than '>='.  In addition we know that 
+			   length can never overflow encBuf because encValLength is 
+			   smaller than or equal to the size of encBuf, and length will 
+			   always be smaller than encValLength */
 			ch = byteToInt( encVal[ i++ ] );
 			if( !isAlnum( ch ) || i > encValLength )
 				return( CRYPT_ERROR_BADDATA );
+			REQUIRES( rangeCheck( length, 0, CRYPT_MAX_TEXTSIZE - 1 ) );
 			encBuf[ length++ ] = intToByte( toUpper( ch ) );
 			}
 		ENSURES( LOOP_BOUND_OK_ALT );
@@ -308,7 +317,8 @@ int decodePKIUserValue( OUT_BUFFER( valueMaxLen, *valueLen ) BYTE *value,
 			return( CRYPT_ERROR_BADDATA );
 		}
 	ENSURES( LOOP_BOUND_OK );
-	if( ( length % 5 ) != 0 || length > CRYPT_MAX_TEXTSIZE )
+	if( !rangeCheck( length, 5, CRYPT_MAX_TEXTSIZE ) || \
+		( length % 5 ) != 0 )
 		return( CRYPT_ERROR_BADDATA );
 
 	/* Decode the text data into binary */
@@ -347,6 +357,8 @@ int decodePKIUserValue( OUT_BUFFER( valueMaxLen, *valueLen ) BYTE *value,
 				}
 			else
 				{
+				REQUIRES( bitCount >= 4 && bitCount < 8 );
+
 				/* The data spans two bytes, shift the bits from the high
 				   byte down and the bits from the low byte up */
 				valBuf[ byteCount ] |= \
@@ -366,7 +378,7 @@ int decodePKIUserValue( OUT_BUFFER( valueMaxLen, *valueLen ) BYTE *value,
 			byteCount++;
 			}
 		ENSURES( bitCount >= 0 && bitCount < 8 );
-		ENSURES( byteCount >= 0 && byteCount < 64 );
+		ENSURES( byteCount >= 0 && byteCount < valueMaxLen );
 		}
 	ENSURES( LOOP_BOUND_OK );
 
@@ -374,9 +386,9 @@ int decodePKIUserValue( OUT_BUFFER( valueMaxLen, *valueLen ) BYTE *value,
 	   value at the start of the data bytes */
 	if( bitCount > 0 )
 		byteCount++;	/* More bits in the last partial byte */
+	REQUIRES( byteCount >= 2 && byteCount - 1 <= valueMaxLen );
 	if( valBuf[ 0 ] != ( checksumData( valBuf + 1, byteCount - 1 ) & 0xFF ) )
 		return( CRYPT_ERROR_BADDATA );
-	ENSURES( byteCount >= 2 && byteCount - 1 <= valueMaxLen );
 
 	/* Return the decoded value to the caller */
 	REQUIRES( boundsCheck( 1, byteCount - 1, valueMaxLen ) );

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Private-Key Wrap Mechanism Routines			*
-*						Copyright Peter Gutmann 1992-2008					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -40,8 +40,8 @@ static int pgpReadDecryptMPI( INOUT_PTR STREAM *stream,
 							  IN_LENGTH_PKC const int maxLength )
 	{
 	void *mpiDataPtr DUMMY_INIT_PTR;
-	const long mpiDataStartPos = stell( stream ) + UINT16_SIZE;
-	int mpiLength DUMMY_INIT, dummy, status;
+	int mpiDataStartPos = stell( stream ), mpiLength DUMMY_INIT;
+	int dummy, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	
@@ -49,8 +49,11 @@ static int pgpReadDecryptMPI( INOUT_PTR STREAM *stream,
 	REQUIRES( minLength >= bitsToBytes( 155 ) && \
 			  minLength <= maxLength && \
 			  maxLength <= CRYPT_MAX_PKCSIZE );
-	REQUIRES( !checkOverflowAdd( stell( stream ), UINT16_SIZE ) );
-	ENSURES( isIntegerRangeMin( mpiDataStartPos, UINT16_SIZE ) );
+	REQUIRES( isIntegerRangeNZ( mpiDataStartPos ) );
+
+	/* Find the start of the MPI data */
+	REQUIRES( !checkOverflowAdd( mpiDataStartPos, UINT16_SIZE ) );
+	mpiDataStartPos += UINT16_SIZE;
 
 	/* Get the MPI length and decrypt the payload data.  We have to be 
 	   careful how we handle this because readInteger16Ubits() returns the 
@@ -72,8 +75,8 @@ static int pgpReadDecryptMPI( INOUT_PTR STREAM *stream,
 								 maxLength, BIGNUM_CHECK_VALUE );
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, mpiDataStartPos, 
-											  &mpiLength );
+		status = streamOffsetFromPosition( stream, mpiDataStartPos, 
+										   &mpiLength );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -170,8 +173,13 @@ static int checkKeyIntegrity( IN_BUFFER( dataLength ) const void *data,
 
 	assert( isReadPtrDynamic( data, dataLength ) );
 
+	static_assert( MIN_IVSIZE == CRYPT_MAX_IVSIZE / 4,
+				   "Power-of-two IV size range check" );
+
 	REQUIRES( isShortIntegerRangeMin( dataLength, MIN_PRIVATE_KEYSIZE ) );
-	REQUIRES( blockSize >= MIN_IVSIZE && blockSize <= CRYPT_MAX_IVSIZE );
+	REQUIRES( blockSize == MIN_IVSIZE || blockSize == MIN_IVSIZE * 2 || \
+			  blockSize == CRYPT_MAX_IVSIZE );
+			  /* Power-of-two required for use as a bitmask */
 
 	/* Get the length of the encapsulated ASN.1 object.  Alongside using the
 	   length check as an indication of wrong-key use we also perform a 

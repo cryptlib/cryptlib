@@ -69,18 +69,22 @@ static int getServiceType( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				( status, SESSION_ERRINFO, 
 				  "Missing channel type for channel activation" ) );
 		}
-	if( !strCompare( typeString, "subsystem", 9 ) )
+	if( typeLen == 9 && \
+		!strCompare( typeString, "subsystem", 9 ) )
 		{
 		*serviceType = SERVICE_SUBSYSTEM;
 		return( CRYPT_OK );
 		}
-	if( !strCompare( typeString, "direct-tcpip", 12 ) || \
-		!strCompare( typeString, "forwarded-tcpip", 15 ) )
+	if( ( typeLen == 12 && \
+		  !strCompare( typeString, "direct-tcpip", 12 ) ) || \
+		( typeLen == 15 && \
+		  !strCompare( typeString, "forwarded-tcpip", 15 ) ) )
 		{
 		*serviceType = SERVICE_PORTFORWARD;
 		return( CRYPT_OK );
 		}
-	if( !strCompare( typeString, "exec", 4 ) )
+	if( typeLen == 4 && \
+		!strCompare( typeString, "exec", 4 ) )
 		{
 		*serviceType = SERVICE_EXEC;
 		return( CRYPT_OK );
@@ -118,7 +122,9 @@ static int getOpenFailInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		uint32	reason_code
 		string	additional_text */
 	readUint32( stream );		/* Skip channel number */
-	errorCode = readUint32( stream );
+	status = errorCode = readUint32( stream );
+	if( cryptStatusError( status ) )
+		errorCode = 0;	/* Convert to a no-op value so that we can continue */
 	status = readString32( stream, stringBuffer, CRYPT_MAX_TEXTSIZE, 
 						   &stringLen );
 	if( cryptStatusError( status ) || \
@@ -291,7 +297,8 @@ static int createOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		sputc( stream, 0 );
 		writeString32( stream, urlInfo.host, urlInfo.hostLen );
 		writeUint32( stream, urlInfo.port );
-		return( wrapPacketSSH2( sessionInfoPtr, stream, packetOffset ) );
+		return( wrapPacketSSH2( sessionInfoPtr, stream, packetOffset, 
+								FALSE ) );
 		}		/* If re-enabled, need to do wrapPacketSSH2() in caller */
 #endif /* 0 */
 
@@ -737,8 +744,8 @@ int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		{
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-				  "Invalid channel open confirmation window informaton for "
-				  "channel %lX", channelNo ) );
+				  "Invalid channel open confirmation window information "
+				  "for channel %lX", channelNo ) );
 		}
 
 	/* The channel has been successfully created, mark it as active and

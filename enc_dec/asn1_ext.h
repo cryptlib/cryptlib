@@ -243,13 +243,17 @@ typedef struct {
 #define initAlgoIDparams( params ) \
 		memset( ( params ), 0, sizeof( ALGOID_PARAMS ) )
 #define initAlgoIDparamsHash( params, algo, param ) \
+		{ \
 		memset( ( params ), 0, sizeof( ALGOID_PARAMS ) ); \
 		( params )->hashAlgo = algo; \
-		( params )->hashParam = param
+		( params )->hashParam = param; \
+		}
 #define initAlgoIDparamsCrypt( params, mode, size ) \
+		{ \
 		memset( ( params ), 0, sizeof( ALGOID_PARAMS ) ); \
 		( params )->cryptMode = mode; \
-		( params )->cryptKeySize = size
+		( params )->cryptKeySize = size; \
+		}
 
 #ifdef USE_INT_ASN1
 
@@ -273,7 +277,7 @@ typedef struct {
 		-> ( length + extraLength, 1, 0, 0 ) */
 
 CHECK_RETVAL_BOOL \
-BOOLEAN checkEncodeOverflow( IN_LENGTH const long length,
+BOOLEAN checkEncodeOverflow( IN_LENGTH const int length,
 							 IN_RANGE( 0, 5 ) const int lengthNestingLevel,
 							 IN_LENGTH_SHORT_Z const int extraLen,
 							 IN_RANGE( 0, 5 ) const int extraLenNestingLevel );
@@ -414,7 +418,7 @@ int setGenericSecretParams( IN_HANDLE const CRYPT_CONTEXT iGenericSecret,
 			available.  Note that this changes processing in the calling
 			code because it can no longer use the length to determine 
 			whether it should perform EOC checks if there's an indefinite
-			length somwwhere in the header.
+			length somewhere in the header.
 
 	READCMS_FLAG_DEFINITELENGTH_OPT: As READCMS_FLAG_DEFINITELENGTH but 
 			return a length of CRYPT_UNUSED if there's no definite length
@@ -442,20 +446,20 @@ int readCMSheader( INOUT_PTR STREAM *stream,
 						const OID_INFO *oidInfo, 
 				   IN_RANGE( 1, 50 ) const int noOidInfoEntries, 
 				   OUT_OPT_INT_Z int *selectionID,
-				   OUT_OPT_LENGTH_INDEF long *dataSize, 
+				   OUT_OPT_LENGTH_INDEF int *dataSize, 
 				   IN_FLAGS_Z( READCMS ) const int flags );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeCMSheader( INOUT_PTR STREAM *stream, 
 					IN_BUFFER( contentOIDlength ) \
 						const BYTE *contentOID, 
 					IN_LENGTH_OID const int contentOIDlength,
-					IN_LENGTH_INDEF const long dataSize, 
+					IN_LENGTH_INDEF const int dataSize, 
 					IN_BOOL const BOOLEAN isInnerHeader );
 CHECK_RETVAL_LENGTH STDC_NONNULL_ARG( ( 1 ) ) \
 int sizeofCMSencrHeader( IN_BUFFER( contentOIDlength ) \
 							const BYTE *contentOID, 
 						 IN_LENGTH_OID const int contentOIDlength,
-						 IN_LENGTH_INDEF const long dataSize, 
+						 IN_LENGTH_INDEF const int dataSize, 
 						 IN_HANDLE const CRYPT_CONTEXT iCryptContext );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readCMSencrHeader( INOUT_PTR STREAM *stream, 
@@ -471,7 +475,7 @@ int writeCMSencrHeader( INOUT_PTR STREAM *stream,
 						IN_BUFFER( contentOIDlength ) \
 							const BYTE *contentOID, 
 						IN_LENGTH_OID const int contentOIDlength,
-						IN_LENGTH_INDEF const long dataSize,
+						IN_LENGTH_INDEF const int dataSize,
 						IN_HANDLE const CRYPT_CONTEXT iCryptContext );
 
 #endif /* USE_INT_ASN1 */

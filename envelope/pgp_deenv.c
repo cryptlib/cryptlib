@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					 cryptlib PGP De-enveloping Routines					*
-*					 Copyright Peter Gutmann 1996-2024						*
+*					 Copyright Peter Gutmann 1996-2025						*
 *																			*
 ****************************************************************************/
 
@@ -95,7 +95,7 @@ static int getPacketInfo( INOUT_PTR STREAM *stream,
 						  INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 						  OUT_ENUM_OPT( PGP_PACKET ) \
 								PGP_PACKET_TYPE *packetType, 
-						  OUT_LENGTH_Z long *length, 
+						  OUT_LENGTH_Z int *length, 
 						  OUT_OPT_ENUM( PGP_LENGTH ) \
 								PGP_LENGTH_TYPE *lengthType,
 						  IN_LENGTH_SHORT int minPacketSize,
@@ -106,7 +106,7 @@ static int getPacketInfo( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( isWritePtr( packetType, sizeof( PGP_PACKET_TYPE ) ) );
-	assert( isWritePtr( length, sizeof( long ) ) );
+	assert( isWritePtr( length, sizeof( int ) ) );
 	assert( lengthType == NULL || \
 			isWritePtr( lengthType, sizeof( PGP_LENGTH_TYPE ) ) );
 
@@ -228,7 +228,6 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	const ACTION_LIST *actionListPtr = \
 					DATAPTR_GET( envelopeInfoPtr->actionList );
 	CONTENT_LIST *contentListItem DUMMY_INIT;
-	BOOLEAN isOnepassSignature = FALSE;
 	void *object = NULL;
 	int objectSize = 0, status;
 
@@ -301,6 +300,7 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	if( queryInfo.type == CRYPT_OBJECT_NONE )
 		{
 		SET_FLAG( envelopeInfoPtr->flags, ENVELOPE_FLAG_ATTRSKIPPED );
+		ENSURES( isIntegerRangeNZ( queryInfo.size ) );
 		return( sSkip( stream, ( int ) queryInfo.size, 
 					   MAX_INTLENGTH_SHORT ) );
 		}
@@ -369,7 +369,7 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				queryInfo.keyIDlength );
 		contentListItem->keyIDsize = queryInfo.keyIDlength;
 		}
-	if( queryInfo.type == CRYPT_OBJECT_SIGNATURE && !isOnepassSignature )
+	if( queryInfo.type == CRYPT_OBJECT_SIGNATURE )
 		{
 		CONTENT_SIG_INFO *sigInfo = &contentListItem->clSigInfo;
 		const BYTE *objectPtr = DATAPTR_GET( contentListItem->object );
@@ -695,7 +695,7 @@ static int adjustNestedDataInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 								 const IN_ENUM( PGP_PACKET ) \
 									PGP_PACKET_TYPE encapsPacketType,
 								 IN_LENGTH_OPT \
-									const long encapsPacketLength )
+									const int encapsPacketLength )
 	{
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( isReadPtr( stream, sizeof( STREAM ) ) );
@@ -765,7 +765,7 @@ static int adjustNestedDataInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				retExt( CRYPT_ERROR_SIGNATURE,
 						( CRYPT_ERROR_SIGNATURE, ENVELOPE_ERRINFO,
 						  "MDC packet is missing or incomplete, expected "
-						  "%d bytes but got %ld", PGP_MDC_PACKET_SIZE, 
+						  "%d bytes but got %d", PGP_MDC_PACKET_SIZE, 
 						  envelopeInfoPtr->segmentSize ) );
 				}
 			REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentSize, 
@@ -819,7 +819,7 @@ static int adjustNestedDataInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				retExt( CRYPT_ERROR_SIGNATURE,
 						( CRYPT_ERROR_SIGNATURE, ENVELOPE_ERRINFO,
 						  "MDC packet is missing or incomplete, expected "
-						  "%d bytes but got %ld", PGP_MDC_PACKET_SIZE, 
+						  "%d bytes but got %d", PGP_MDC_PACKET_SIZE, 
 						  envelopeInfoPtr->segmentSize ) );
 				}
 			REQUIRES( !checkOverflowSub( envelopeInfoPtr->segmentSize, 
@@ -876,8 +876,7 @@ static int processEncapsDataHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	BYTE buffer[ 8 + 8 ];
 	PGP_PACKET_TYPE encapsPacketType;
 	PGP_LENGTH_TYPE encapsLengthType;
-	long encapsPacketLength;
-	int value, length, status;
+	int value, encapsPacketLength, length, status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( isWritePtr( state, sizeof( PGP_DEENV_STATE ) ) );
@@ -1078,8 +1077,7 @@ static int processPacketHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	const int streamPos = stell( stream );
 	PGP_PACKET_TYPE packetType;
 	PGP_LENGTH_TYPE lengthType;
-	long packetLength;
-	int value, status;
+	int packetLength, value, status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -1165,8 +1163,7 @@ static int processPacketHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		{
 		case PGP_PACKET_DATA:
 			{
-			long payloadSize;
-			int length;
+			int payloadSize, length;
 
 			/* Skip the content-type, filename, and date */
 			sSkip( stream, 1, 1 );
@@ -1231,13 +1228,13 @@ static int processPacketHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			SET_FLAG( envelopeInfoPtr->flags, ENVELOPE_FLAG_ZSTREAMINITED );
 			if( lengthType != PGP_LENGTH_UNKNOWN )
 				{
-				const long payloadSize = packetLength - 1;
+				const int payloadSize = packetLength - 1;
 
 				/* All known implementations use the PGP 2.x "keep going 
 				   until you run out of data" non-length encoding that's 
 				   neither a definite- nor an indefinite length, but it's 
 				   possible that something somewhere will use a proper 
-				   definite length so we accomodate this here */
+				   definite length so we accommodate this here */
 				if( !isIntegerRangeNZ( payloadSize ) )
 					return( CRYPT_ERROR_BADDATA );
 				envelopeInfoPtr->payloadSize = payloadSize;
@@ -1516,7 +1513,7 @@ static int processEncryptedPacket( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							  CRYPT_CTXINFO_IVSIZE );
 	if( cryptStatusOK( status ) )
 		{
-		REQUIRES( boundsCheck( 2, ivSize, CRYPT_MAX_IVSIZE + 2 ) );
+		REQUIRES( boundsCheck( ivSize, 2, CRYPT_MAX_IVSIZE + 2 ) );
 		status = sread( stream, ivInfoBuffer, ivSize + 2 );
 		}
 	if( !cryptStatusError( status ) )
@@ -1855,7 +1852,7 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 					[		 Length						| Data ]
 
 				   so we can't simply undo the read of the start of the 
-				   first packet and treat it as a standard segement because 
+				   first packet and treat it as a standard segment because 
 				   the encoding for the first segment and the remaining 
 				   segments is different, so an attempt to treat them 
 				   identically will lead to a decoding error.  Instead we 
@@ -2060,7 +2057,7 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 	/* PGP 2.x prepended (!!) signatures to the signed data, OpenPGP fixed 
 	   this by splitting the signature into a header with signature 
-	   information (the one-pass signature paket) and  a trailer with the 
+	   information (the one-pass signature packet) and  a trailer with the 
 	   actual signature.  If we're processing a PGP 2.x signature we'll 
 	   already have the signature data present so we only check for 
 	   signature data if it's not already available */
@@ -2078,7 +2075,7 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		{
 		STREAM stream;
 		PGP_PACKET_TYPE packetType;
-		long packetLength;
+		int packetLength;
 
 		/* It's an OpenPGP signature, there's nothing already present.  
 		   First we make sure that there's enough data left in the stream 

@@ -32,7 +32,7 @@
    entries are supposed to work, both in terms of how to interpret the format 
    and what to do with things like MACing, which can only use a single key 
    even if there are multiple different encryption keys used for the data.  
-   In addition because of the complete abscence of key indexing information 
+   In addition because of the complete absence of key indexing information 
    there's no easy way to sort out which key or other object is used for 
    what.
    

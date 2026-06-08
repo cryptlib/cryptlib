@@ -142,7 +142,7 @@ static BOOLEAN checkDataPointers( IN_PTR_OPT const void *certificatePtr,
 
 /****************************************************************************
 *																			*
-*						Check Certifcate Subtype Data						*
+*						Check Certificate Subtype Data						*
 *																			*
 ****************************************************************************/
 
@@ -150,6 +150,7 @@ CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN sanityCheckCertificate( const CERT_INFO *certInfoPtr )
 	{
 	const CERT_CERT_INFO *certInfo = certInfoPtr->cCertCert;
+	LOOP_INDEX i;
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isReadPtr( certInfo, sizeof( CERT_CERT_INFO ) ) );
@@ -190,6 +191,18 @@ static BOOLEAN sanityCheckCertificate( const CERT_INFO *certInfoPtr )
 			return( FALSE );
 			}
 		}
+	LOOP_SMALL( i = 0, i < MAX_CHAINLENGTH, i++ )
+		{
+		ENSURES( LOOP_INVARIANT_SMALL( i, 0, MAX_CHAINLENGTH - 1 ) );
+		
+		if( certInfo->chain[ i ] != CRYPT_ERROR && \
+			!isHandleRangeValid( certInfo->chain[ i ] ) )
+			{
+			DEBUG_PUTS(( "sanityCheckCert: Certificate chain entry" ));
+			return( FALSE );
+			}
+		}
+	ENSURES( LOOP_BOUND_OK );
 	if( certInfo->hashAlgo != CRYPT_ALGO_NONE )
 		{
 		if( !isHashAlgo( certInfo->hashAlgo ) || \
@@ -387,7 +400,7 @@ static BOOLEAN sanityCheckCertPKIUser( const CERT_INFO *certInfoPtr )
 
 /****************************************************************************
 *																			*
-*							Check Certifcate Data							*
+*							Check Certificate Data							*
 *																			*
 ****************************************************************************/
 

@@ -152,6 +152,20 @@ int checkDatabaseKeysetAvailable( void )
 	return( FALSE );
 	}
 
+/* Set up information for the fault-injection tests */
+
+#ifdef CONFIG_FAULTS
+
+int expectedFaultType, expectedFaultStatus;
+
+void setFaultInfo( const int faultType, const int faultStatus )
+	{
+	cryptSetFaultType( faultType );
+	expectedFaultType = faultType;
+	expectedFaultStatus = faultStatus;
+	}
+#endif /* CONFIG_FAULTS */
+
 /****************************************************************************
 *																			*
 *							Error-handling Functions						*

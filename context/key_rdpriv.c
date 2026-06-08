@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Private Key Read Routines						*
-*						Copyright Peter Gutmann 1992-2024					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -57,7 +57,7 @@ static int readCheckSPKIHash( INOUT_PTR STREAM *stream,
 	status = readOctetString( stream, readSPKIhash, &length, 32, 32 );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( length != 32 )
+	if( length != 32 )		/* Already implicitly checked above */
 		return( CRYPT_ERROR_BADDATA );
 
 	/* Get the hash of the SPKI for the current context data.  The keyID 
@@ -571,16 +571,16 @@ static int readRsaPrivateKeyOld( INOUT_PTR STREAM *stream,
 		if( value & ( KEYUSAGE_SIGN | KEYUSAGE_CA ) )
 			{
 			actionFlags |= MK_ACTION_PERM( MESSAGE_CTX_SIGN, \
-										   ACTION_PERM_ALL ) | \
+										   ACTION_PERM_NONE_EXTERNAL ) | \
 						   MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, \
-										   ACTION_PERM_ALL );
+										   ACTION_PERM_NONE_EXTERNAL );
 			}
 		if( value & KEYUSAGE_CRYPT )
 			{
 			actionFlags |= MK_ACTION_PERM( MESSAGE_CTX_ENCRYPT, \
-										   ACTION_PERM_ALL ) | \
+										   ACTION_PERM_NONE_EXTERNAL ) | \
 						   MK_ACTION_PERM( MESSAGE_CTX_DECRYPT, \
-										   ACTION_PERM_ALL );
+										   ACTION_PERM_NONE_EXTERNAL );
 			}
 #if 0	/* 11/6/13 Windows sets these flags to what are effectively
 				   gibberish values (dataEncipherment for a signing key,

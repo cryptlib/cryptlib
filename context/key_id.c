@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Public-key ID Generation Routines					*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2026					*
 *																			*
 ****************************************************************************/
 
@@ -115,6 +115,7 @@ static int createStaticContext( OUT_PTR CONTEXT_INFO *staticContextInfo,
 			  ( !isEccAlgo( cryptAlgo ) && \
 				isShortIntegerRangeMin( publicKeyDataLength,
 										MIN_PKCSIZE ) ) );
+	ENSURES( capabilityInfoPtr != NULL );
 
 	/* Clear return values */
 	memset( staticContextInfo, 0, sizeof( CONTEXT_INFO ) );
@@ -171,7 +172,6 @@ static int createStaticContext( OUT_PTR CONTEXT_INFO *staticContextInfo,
 		default:
 			retIntError();
 		}
-	ENSURES( capabilityInfoPtr != NULL );
 
 	/* Initialise a static context to read the key data into */
 	status = staticInitContext( staticContextInfo, CONTEXT_PKC,
@@ -407,6 +407,9 @@ static int calculateOpenPGPKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	sMemClose( &stream );
 	SET_FLAG( contextInfoPtr->ctxPKC->flags, 
 			  PKCINFO_FLAG_OPENPGPKEYID_SET );
+	zeroise( buffer, ( CRYPT_MAX_PKCSIZE * 4 ) + 50 );
+	zeroise( hashInfo, sizeof( HASHINFO ) );
+	zeroise( hash, CRYPT_MAX_HASHSIZE );
 
 	return( CRYPT_OK );
 	}
@@ -577,7 +580,7 @@ static int calculateKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		status = calculateFlatKeyID( buffer, stell( &stream ), 
 									 keyIDptr, keyIDsize, hashAlgo );
 		}
-	sMemClose( &stream );
+	sMemClose( &stream );	/* zeroises the stream buffer */
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -614,10 +617,11 @@ void initKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 #else
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-static int calculateKeyIDDummy( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
-								IN_ALGO const CRYPT_ALGO_TYPE hashAlgo )
+static int calculateKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
+						   OUT_BUFFER_OPT_FIXED( 32 ) BYTE *keyID,
+						   IN_LENGTH_SHORT_Z const int keyIDlength, 
+						   IN_ALGO const CRYPT_ALGO_TYPE hashAlgo )
 	{
-	PKC_INFO *publicKey = contextInfoPtr->ctxPKC;
 	MESSAGE_DATA msgData;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -629,7 +633,7 @@ static int calculateKeyIDDummy( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	/* If we're not using ASN.1 then we can't calculate keyIDs, but then no 
 	   code that requires keyIDs is actually enabled so we just set a dummy
 	   value for the ID */
-	setMessageData( &msgData, publicKey->keyID, KEYID_SIZE );
+	setMessageData( &msgData, keyID, keyIDlength );
 	return( krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_GETATTRIBUTE_S,
 							 &msgData, CRYPT_IATTRIBUTE_RANDOM_NONCE ) );
 	}

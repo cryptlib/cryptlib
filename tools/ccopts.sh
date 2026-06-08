@@ -320,7 +320,7 @@ fi
 #
 # In addition the STACK analyser uses an ancient version of clang on a
 # static path which is accessed via a wrapper that looks like an equally
-# ancient vesion of gcc, so we detect it with a check for the static path
+# ancient version of gcc, so we detect it with a check for the static path
 # as part of $CC.
 #
 # The AFL wrapper also hides the use of clang but since we're compiling with
@@ -970,7 +970,7 @@ fi
 #
 #	-Winfinite-recursion: All paths through this function call itself.
 #
-#	-Wjump-misses-init: goto/switch bypasses intialisation of a local
+#	-Wjump-misses-init: goto/switch bypasses initialisation of a local
 #		variable.
 #
 #	-Wkeyword-macro: Keyword hidden by macro definition.
@@ -1043,7 +1043,7 @@ fi
 #
 #	-Wdisabled-macro-expansion: Expansion of recursive macro, this produces
 #		false positives with system headers that rely on the compiler
-#		stopping expension of recursive macros.
+#		stopping expansion of recursive macros.
 #
 #	-Wextra-semi-stmt: Warns about semicolons on function-like macros.
 #
@@ -1373,7 +1373,7 @@ fi
 # null pointers that may exist beyond the point where the UB can occur.
 # Compilers like MSVC assume that they're running on a two's-complement
 # machine and act accordingly, while gcc knows that it's also running on a
-# two's-complement machine but nevertheless can't exlude the theoretical
+# two's-complement machine but nevertheless can't exclude the theoretical
 # possibility that it's running on a one's-complement CDC 6600 from 1965 and
 # therefore can't assume two's-complement behaviour.
 #
@@ -1406,7 +1406,7 @@ if [ "$COMPILER_VER" -ge 40 ] && [ "$ISDEVELOPMENT" -le 0 ] ; then
 	CCARGS="$CCARGS -fwrapv -fno-delete-null-pointer-checks" ;
 fi
 
-# The AES code uses 64-bit data types, which older vesions of gcc don't
+# The AES code uses 64-bit data types, which older versions of gcc don't
 # support (at least via limits.h) unless they're operating in C99 mode.  So
 # in order to have the AES auto-config work we have to explicitly run gcc
 # in C99 (or newer) mode, which isn't the default for the gcc 3.x and some
@@ -1427,12 +1427,21 @@ if [ "$COMPILER_VER" -ge 47 ] && [ "$COMPILER_VER" -le 49 ] ; then
 fi
 
 # Enable stack protection and extra checking for buffer overflows if it's
-# available.  This was introduced (in a slightly hit-and-miss fashion) in
-# later versions of gcc 4.1.x, to be on the safe side we only enable it
-# for gcc 4.2 and newer.  gcc 4.9 introduced a slightly more comprehensive
-# version so we use that if it's available.  Some people like to add
+# available.  There are several stack-protection options available which are
+# all intertwingled.  It was introduced (in a slightly hit-and-miss fashion)
+# in later versions of gcc 4.1.x as -fstack-protector, to be on the safe
+# side we only enable it for gcc 4.2 and newer.  gcc 4.9 introduced a
+# slightly more comprehensive version -fstack-protector-strong so we use
+# that if it's available.  Some people like to add
 # '--param=ssp-buffer-size=4' (the default size is 8), but this isn't
 # necessary for cryptlib since it doesn't allocate any 4-byte buffers.
+# Finally, there's -fstack-protector-all which protects "all functions"
+# although it's not clear whether this is the same as the (unnecessary,
+# see above) --param=ssp-buffer-size=1 or something else but forum comments
+# indicate that it's the same.
+#
+# It's also possible to build with -Wstack-protector which will warn about
+# functions that aren't being protected.
 #
 # gcc 12 added a FORTIFY_SOURCE=3 but this changes compile-time checks into
 # runtime ones whose performance overhead has had little evaluation beyond
@@ -1545,7 +1554,7 @@ fi
 #
 # -Wformat-security: Check for potential security problems in format strings.
 #
-# -Wformat-truncation: Chek for problems with truncation in arguments to
+# -Wformat-truncation: Check for problems with truncation in arguments to
 #		sprintf() (-Wall).
 #
 # -Wimplicit-int: Typeless variable declaration (-Wall).
@@ -1587,14 +1596,14 @@ fi
 # -Wnonnull-compare: Checking an argument marked __nonnull for NULL
 #		(-Wall).
 #
-# -Wnull-dereference: Guess at potential derefencing of null pointers, only
+# -Wnull-dereference: Guess at potential dereferencing of null pointers, only
 #		enabled if -fdelete-null-pointer-checks is active, which it is if
 #		optimisation is enabled (note however that we disable this in order
 #		to limit the braindamage that it causes, see the comment earlier).
 #		This option appears to be a grudging admission of the braindamage of
 #		existing nonnull behaviour.
 #
-# -Wparentheses: Missing parantheses so that the resulting expression is
+# -Wparentheses: Missing parentheses so that the resulting expression is
 #		ambiguous (or at least nonobvious) (-Wall).
 #
 # -Wpointer-arith: Expression depends on the sizeof a function type or of

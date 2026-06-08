@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TLS Signing Routines						*
-*					 Copyright Peter Gutmann 1998-2024						*
+*					 Copyright Peter Gutmann 1998-2025						*
 *																			*
 ****************************************************************************/
 
@@ -27,13 +27,17 @@
 
 /* Check whether the certificate that we've been given by the client or 
    server is in a permitted-certificates whitelist.  This is a blocking 
-   check in that it will only respond with an error if there's a whitelist 
-   present and the certificate isn't in it.  If there's no whitelist present 
-   then use of the certificate won't be blocked */
+   check in that it will only respond with an error if the caller has 
+   provided a whitelist and the certificate isn't in it (so it's really a
+   blocklist rather than a whitelist, but it's named as a whitelist because
+   it short-circuits other checks if the check passes).  If there's no 
+   whitelist present then use of the certificate won't be blocked and it's 
+   up to the caller to decide whether they want to accept it */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int checkCertWhitelist( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
+						OUT_BOOL BOOLEAN *isInWhitelist,
 						IN_BOOL const BOOLEAN isServer )
 	{
 	MESSAGE_KEYMGMT_INFO getkeyInfo;
@@ -41,14 +45,18 @@ int checkCertWhitelist( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	BYTE certID[ KEYID_SIZE + 8 ];
 	int status;
 
-	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+	assert( isWritePtr( isInWhitelist, sizeof( BOOLEAN ) ) );
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( isHandleRangeValid( iCryptCert ) );
 	REQUIRES( isBooleanValue( isServer ) );
 
+	/* Clear return value */
+	*isInWhitelist = FALSE;
+
 	/* If there's no whitelist present then there's nothing to check 
-	   against */
+	   against, and we return with isInWhitelist = FALSE */
 	if( sessionInfoPtr->cryptKeyset == CRYPT_ERROR ) 
 		return( CRYPT_OK );
 
@@ -83,7 +91,8 @@ int checkCertWhitelist( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  getCertHolderName( iCryptCert, certName, 
 									 CRYPT_MAX_TEXTSIZE ), certIDText ) );
 		}
-	
+	*isInWhitelist = TRUE;
+
 	return( CRYPT_OK );
 	}
 
@@ -239,6 +248,7 @@ int createSessionHash( IN_PTR const SESSION_INFO *sessionInfoPtr,
 	CRYPT_CONTEXT iHashContext;
 	int status;
 
+	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
@@ -324,7 +334,7 @@ int createCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	SIG_DATA_INFO sigDataInfo;
 	ERROR_INFO localErrorInfo;
 #if defined( USE_TLS13 ) && defined( USE_ED25519 )
-	BYTE transcriptDataBuffer[ 256 ];
+	BYTE transcriptDataBuffer[ 256 + 8 ];
 #endif /* USE_TLS13 && USE_ED25519 */
 #ifdef USE_ERRMSGS
 	char certName[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -436,7 +446,7 @@ int checkCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	SIG_DATA_INFO sigDataInfo;
 	ERROR_INFO localErrorInfo;
 #if defined( USE_TLS13 ) && defined( USE_ED25519 )
-	BYTE transcriptDataBuffer[ 256 ];
+	BYTE transcriptDataBuffer[ 256 + 8 ];
 #endif /* USE_TLS13 && USE_ED25519 */
 #ifdef USE_ERRMSGS
 	char certName[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -526,7 +536,13 @@ int checkCertVerify( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   require the entire message to be present, which for pre-1.3 TLS would 
 	   mean storing every handshake message somewhere, but the special-
 	   snowflakes aren't defined for pre-TLS 1.3 so we should never encounter 
-	   their use here */
+	   their use here.
+	   
+	   For the signature check, we use CRYPT_IFORMAT_TLS12 for both TLS 1.2 
+	   and TLS 1.3 signatures which are handled identically in the signature
+	   check code, it's only when creating a signature that we need to 
+	   distinguish between the two since TLS 1.2 uses PKCS #1 signatures 
+	   while TLS 1.3 uses PSS signatures */
 #if defined( USE_TLS13 ) && defined( USE_ED25519 )
 	if( isBernsteinAlgo( handshakeInfo->authAlgo ) )
 		{
@@ -968,8 +984,10 @@ int checkKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  bytesToBits( sigKeySize ) ) );
 			}
 #ifdef CONFIG_SUITEB
-		if( ( sessionInfoPtr->protocolFlags & TLS_PFLAG_SUITEB ) && \
-			sigKeySize > keyexKeySize + bitsToBytes( 8 ) )
+		if( TEST_FLAG( sessionInfoPtr->protocolFlags, \
+					   TLS_PFLAG_SUITEB ) && \
+			( checkOverflowAdd( keyexKeySize, bitsToBytes( 8 ) ) || \
+			  sigKeySize > keyexKeySize + bitsToBytes( 8 ) ) )
 			return( CRYPT_ERROR_NOSECURE );
   #ifdef CONFIG_SUITEB_TESTS 
 		DEBUG_PRINT(( "Verified server's P%d keyex with P%d signature.\n", 

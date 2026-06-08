@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib PKCS #12 Read Routines						*
-*						Copyright Peter Gutmann 1997-2020					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -227,7 +227,7 @@ static int findObjectEntryLocation( OUT_PTR_PTR_COND \
 			pkcs12infoPtr = &pkcs12info[ i ];
 			}
 		ENSURES( LOOP_BOUND_OK );
-		ENSURES( pkcs12infoPtr != NULL )
+		ENSURES( pkcs12infoPtr != NULL );
 				 /* There's always a zero-th entry present to act as the 
 					known elephant in Cairo */
 
@@ -280,8 +280,7 @@ static int importCertificate( const PKCS12_OBJECT_INFO *certObjectInfo,
 	{
 	CRYPT_CONTEXT iWrapContext;
 	STREAM stream;
-	long length DUMMY_INIT;
-	int certDataSize, status;
+	int length DUMMY_INIT, certDataSize, status;
 
 	assert( isReadPtr( certObjectInfo, sizeof( PKCS12_OBJECT_INFO ) ) );
 	assert( isReadPtrDynamic( password, passwordLen ) );
@@ -389,7 +388,8 @@ static int importCertificate( const PKCS12_OBJECT_INFO *certObjectInfo,
 											   READCMS_FLAG_DEFINITELENGTH );
 		}
 	if( cryptStatusOK( status ) && \
-		( length < MIN_P12_OBJECT_SIZE || length > certObjectDataLen ) )
+		( !isShortIntegerRangeMin( length, MIN_CERTSIZE ) || \
+		  length > certObjectDataLen ) )
 		status = CRYPT_ERROR_BADDATA;
 	if( cryptStatusError( status ) )
 		{
@@ -398,12 +398,10 @@ static int importCertificate( const PKCS12_OBJECT_INFO *certObjectInfo,
 				( status, errorInfo, 
 				  "Invalid CMS header on decrypted certificate" ) );
 		}
-	ENSURES( isIntegerRange( length ) );
+	ENSURES( isShortIntegerRangeMin( length, MIN_CERTSIZE ) );
 	status = importCertFromStream( &stream, iDataCert, cryptOwner,
-								   CRYPT_CERTTYPE_CERTIFICATE, 
-								   ( int ) length, 
-								   KEYMGMT_FLAG_DATAONLY_CERT, 
-								   errorInfo );
+							CRYPT_CERTTYPE_CERTIFICATE, ( int ) length, 
+							KEYMGMT_FLAG_DATAONLY_CERT, errorInfo );
 	sMemDisconnect( &stream );
 
 	return( status );
@@ -471,7 +469,7 @@ static int importPrivateKey( const PKCS12_OBJECT_INFO *keyObjectInfo,
 		}
 
 	/* Import the encrypted private key into the PKC context */
-	setMechanismWrapInfo( &mechanismInfo, ( MESSAGE_CAST * ) keyObjectData, 
+	setMechanismWrapInfo( &mechanismInfo, ( MESSAGE_CAST ) keyObjectData, 
 						  keyObjectDataLen, NULL, 0, iPrivKeyContext, 
 						  iWrapContext );
 	status = krnlSendMessage( MECHANISM_OBJECT_HANDLE, IMESSAGE_DEV_IMPORT, 
@@ -495,7 +493,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 6 ) ) \
 static int readObjects( INOUT_PTR STREAM *stream, 
 						INOUT_ARRAY( maxNoPkcs12objects ) PKCS12_INFO *pkcs12info, 
 						IN_LENGTH_SHORT const int maxNoPkcs12objects, 
-						IN_LENGTH_MIN( 32 ) const long endPos,
+						IN_LENGTH_MIN( 32 ) const int endPos,
 						IN_BOOL const BOOLEAN isEncryptedCert,
 						INOUT_PTR ERROR_INFO *errorInfo )
 	{
@@ -539,6 +537,7 @@ static int readObjects( INOUT_PTR STREAM *stream,
 			{
 			pkcs12freeObjectEntry( isCertificate ? \
 					&localPkcs12Info.certInfo : &localPkcs12Info.keyInfo );
+			zeroise( &localPkcs12Info, sizeof( PKCS12_INFO ) );
 			if( status == CRYPT_ERROR_OVERFLOW )
 				{
 				retExt( CRYPT_ERROR_OVERFLOW, 
@@ -560,6 +559,7 @@ static int readObjects( INOUT_PTR STREAM *stream,
 			{
 			pkcs12freeObjectEntry( isCertificate ? \
 					&localPkcs12Info.certInfo : &localPkcs12Info.keyInfo );
+			zeroise( &localPkcs12Info, sizeof( PKCS12_INFO ) );
 			retExt( CRYPT_ERROR_BADDATA, 
 					( CRYPT_ERROR_BADDATA, errorInfo, 
 					  "Multiple conflicting %s found in keyset",
@@ -690,8 +690,8 @@ int pkcs12ReadKeyset( INOUT_PTR STREAM *stream,
 						cryptStatusOK( status ) && \
 							stell( stream ) < endPos - MIN_P12_OBJECT_SIZE )
 		{
-		long payloadLength;
-		int tag, length, innerEndPos = CRYPT_ERROR, isEncrypted, noEOCs = 0;
+		int tag, length, payloadLength, innerEndPos = CRYPT_ERROR;
+		int isEncrypted, noEOCs = 0;
 
 		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
 
@@ -1040,6 +1040,7 @@ static int importDataOnlyCertificate( const PKCS12_INFO *pkcs12infoPtr,
 	REQUIRES( iCryptUser == DEFAULTUSER_OBJECT_HANDLE || \
 			  isHandleRangeValid( iCryptUser ) );
 	REQUIRES( isShortIntegerRangeNZ( certIDlength ) );
+	REQUIRES( isShortIntegerRangeMin( certDataSize, MIN_CERTSIZE ) );
 
 	/* Clear return values */
 	*iCryptContext = *iDataCert = CRYPT_ERROR;
@@ -1250,6 +1251,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 					  "PKCS #12 keyset doesn't contain a readable "
 					  "certificate" ) );
 			}
+		ENSURES( isShortIntegerRangeMin( certDataSize, MIN_CERTSIZE ) );
 		sMemConnect( &stream, ( BYTE * ) certObjectInfo->data + \
 										 certObjectInfo->payloadOffset, 
 					 certDataSize );
@@ -1334,8 +1336,10 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	if( cryptStatusError( status ) )
 		{
 		krnlSendNotifier( iCryptContext, IMESSAGE_DECREFCOUNT );
+#ifdef USE_CERTIFICATES
 		if( iDataCert != CRYPT_ERROR )
 			krnlSendNotifier( iDataCert, IMESSAGE_DECREFCOUNT );
+#endif /* USE_CERTIFICATES */
 		retExt( status, 
 				( status, KEYSET_ERRINFO, 
 				  "Couldn't unwrap and import private key" ) );

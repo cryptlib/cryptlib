@@ -55,7 +55,7 @@ static int getCryptoStorageObject( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset )
 		status = krnlSendNotifier( iHWKeyset, IMESSAGE_INCREFCOUNT );
 	if( cryptStatusError( status ) )
 		{
-		/* Rather than returning some possible low-level permssion error or 
+		/* Rather than returning some possible low-level permission error or 
 		   similar we report the problem as a CRYPT_ERROR_NOTINITED since 
 		   the most likely issue is that the storage object isn't set up for 
 		   use */
@@ -158,7 +158,10 @@ int openDeviceStorageObject( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 	   HAL device but an explicitly-created external reference to the HAL 
 	   then we don't want to open the storage object a second time but 
 	   merely obtain a reference to the existing storage object from the 
-	   internal HAL device */
+	   internal HAL device.
+	   
+	   See the code comment in device/hardware.c:initDevice() before 
+	   changing this behaviour */
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
 	if( iCryptDevice != CRYPTO_OBJECT_HANDLE )
 		{

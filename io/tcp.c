@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib TCP/IP Interface Routines					*
-*						Copyright Peter Gutmann 1998-2016					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -228,7 +228,7 @@ static int my_getsockopt( int socket, int level, int option,
 	/* It's unclear whether the following getsockopt actually does anything
 	   under BeOS or not.  If it fails, the alternative below may work */
 #if 1
-	return( getsockopt( socket, level, option, data, *size ) );
+	return( getsockopt( socket, level, option, data, size ) );
 #else
 	BYTE buffer[ 8 + 8 ];
 	int count;
@@ -238,6 +238,7 @@ static int my_getsockopt( int socket, int level, int option,
 	printf( "recv( 0 ) = %d, errno = %d.\n", count, errno );
 	if( count < 0 )
 		*( ( int * ) data ) = errno;
+	return( 0 );
 #endif /* 1 */
 	}
 #endif /* BeOS without BONE */
@@ -296,8 +297,8 @@ int my_getsockopt( int sockfd, int level, int optname, void *optval,
 
 /* embOS/IP doesn't have inet_ntoa() or inet_addr() so we have to provide 
    our own.  Note that the following isn't thread-safe, the classic 
-   inet_ntoa() problem, but it'll only be called from a single task so
-   this isn't an issue */
+   inet_ntoa() problem, but it'll only be called from a single embOS task 
+   so this isn't an issue */
 
 char *inet_ntoa( const struct in_addr in )
 	{
@@ -397,13 +398,19 @@ int my_select( int socket_range, rtcs_fd_set *read_bits,
 		timeout_ms = 0;
 		}
 	else
-		timeout_ms = ( timeout->tv_sec * 1000 ) + ( timeout->tv_usec / 1000 );
+		{
+		REQUIRES_EXT( !checkOverflowMul( timeout->tv_sec, 1000 ), -1 );
+		REQUIRES_EXT( !checkOverflowDiv( timeout->tv_usec, 1000 ), -1 );
+		timeout_ms = ( timeout->tv_sec * 1000 ) + \
+					 ( timeout->tv_usec / 1000 );
 
-	/* The rounding from microseconds to milliseconds can leave the timeout
-	   set to zero, which is bad for MQX sinze a value of zero means wait
-	   indefinitely.  If we get a zero timeout we make it one */
-	if( timeout_ms == 0 )
-		timeout_ms = 1;
+		/* The rounding from microseconds to milliseconds can leave the 
+		   timeout set to zero which is bad for MQX sinze a value of zero 
+		   means wait indefinitely.  If we get a zero timeout we make it 
+		   one */
+		if( timeout_ms == 0 )
+			timeout_ms = 1;
+		}
 
 	/* Pass the call down to the native select() */
 	return( select( socket_range, read_bits, write_bits, exception_bits, 

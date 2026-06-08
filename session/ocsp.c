@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib OCSP Session Management					*
-*						Copyright Peter Gutmann 1999-2019					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -197,7 +197,7 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	   bytes and then later explicitly check for a valid length if we get a 
 	   non-error response */
 	status = readPkiDatagram( sessionInfoPtr, 4,
-							  MK_ERRTEXT( "Couldnt read OCSP response from "
+							  MK_ERRTEXT( "Couldn't read OCSP response from "
 										  "server" ) );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -253,7 +253,12 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			status = CRYPT_ERROR_PERMISSION;
 			break;
 
+		case OCSP_RESP_MALFORMEDREQUEST:
+		case OCSP_RESP_INTERNALERROR: 
 		default:
+			/* The remaining defined error codes aren't mapped to anything
+			   useful, in particular because the two given above would be
+			   mistaken for cryptlib-equivalent error codes */
 			status = CRYPT_ERROR_INVALID;
 			break;
 		}
@@ -310,6 +315,7 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	   length and not the OCSP response length */
 	if( sessionInfoPtr->receiveBufEnd < MIN_CRYPT_OBJECTSIZE )
 		{
+		sMemDisconnect( &stream );
 		retExt( CRYPT_ERROR_UNDERFLOW,
 				( CRYPT_ERROR_UNDERFLOW, SESSION_ERRINFO, 
 				  "Invalid PKI message length %d", 
@@ -439,7 +445,7 @@ static int readClientRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	   response at this initial stage to prevent scanning/DOS attacks
 	   (vir sapit qui pauca loquitur) */
 	status = readPkiDatagram( sessionInfoPtr, MIN_CRYPT_OBJECTSIZE,
-							  MK_ERRTEXT( "Couldnt read OCSP request from "
+							  MK_ERRTEXT( "Couldn't read OCSP request from "
 										  "client" ) );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -525,7 +531,9 @@ static int readClientRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		/* Add a nonce as a response attribute.  This is required because 
 		   OCSP will sign identical data if two requests are received within
 		   one second of each other, leading to an opening for a fault 
-		   attack */
+		   attack.  Note that this is a CMS nonce that gets attached to the 
+		   signed data to make each message unique, not an OCSP nonce that's 
+		   used for the protocol messaging as a whole */
 		setMessageData( &msgData, nonceBuffer, 8 );
 		status = krnlSendMessage( SYSTEM_OBJECT_HANDLE,
 								  IMESSAGE_GETATTRIBUTE_S, &msgData,

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  Certificate Chain Checking Routines					*
-*						Copyright Peter Gutmann 1996-2019					*
+*						Copyright Peter Gutmann 1996-2026					*
 *																			*
 ****************************************************************************/
 
@@ -301,6 +301,10 @@ static int findTrustAnchor( INOUT_PTR CERT_INFO *certInfoPtr,
 									 certChainInfo->chainEnd,
 									 MAX_CHAINLENGTH + 1 ) );
 
+		/* Try and get a reference to a trusted issuer of the certificate at
+		   the given level.  This returns a reference to an existing object
+		   rather than instantiating a new object so there's no need to free
+		   it after we're done with it */
 		status = performAbsTrustOperation( certInfoPtr, 
 										   MESSAGE_TRUSTMGMT_GETISSUER, 
 										   trustAnchorIndex - 1, 
@@ -687,7 +691,10 @@ static int createPolicySet( OUT_PTR POLICY_INFO *policyInfo,
 										  subjectCertInfoPtr->attributes,
 										  certIndex );
 			if( cryptStatusError( status ) )
+				{
+				krnlReleaseObject( subjectCertInfoPtr->objectHandle );
 				return( status );
+				}
 			if( policyInfo->noPolicies > 0 )
 				addImplicitPolicy = FALSE;
 			}
@@ -734,7 +741,7 @@ static int createPolicySet( OUT_PTR POLICY_INFO *policyInfo,
    Name constraints are a bit more difficult, the abstract description
    requires building and maintaining a (potentially enormous) name 
    constraint tree which is applied to each certificate in turn as it's 
-   processed.  Since name constraints are practically nonexistant and chains 
+   processed.  Since name constraints are practically nonexistent and chains 
    are short it's more efficient to walk down the certificate chain when a 
    constraint is encountered and check each certificate in turn, which 
    avoids having to maintain massive amounts of state information and is no 
@@ -789,7 +796,7 @@ static int createPolicySet( OUT_PTR POLICY_INFO *policyInfo,
    state space explosion that occurred after that point) which indicates 
    that the issue is more or less incomprehensible.  However since it's only 
    applied at the CRYPT_COMPLIANCELEVEL_PKIX_FULL compliance level it's 
-   reasonably safe since users should be expecting all sorts of wierd 
+   reasonably safe since users should be expecting all sorts of weird 
    behaviour at this level anyway. 
 
    The requireExplicitPolicy constraint is particularly bizarre, it 
@@ -1112,7 +1119,7 @@ int checkCertChain( INOUT_PTR CERT_INFO *certInfoPtr )
 	{
 	CRYPT_CERTIFICATE iIssuerCert;
 	CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
-	CERT_INFO *issuerCertInfoPtr, *subjectCertInfoPtr;
+	CERT_INFO *issuerCertInfoPtr, *subjectCertInfoPtr = NULL;
 #ifdef USE_CERTLEVEL_PKIX_FULL
 	POLICY_INFO policyInfo;
 	BOOLEAN explicitPolicy = TRUE;
@@ -1274,17 +1281,20 @@ int checkCertChain( INOUT_PTR CERT_INFO *certInfoPtr )
 		/* Move on to the next certificate */
 		krnlReleaseObject( issuerCertInfoPtr->objectHandle );
 		issuerCertInfoPtr = subjectCertInfoPtr;
+		subjectCertInfoPtr = NULL;
 		}
 	ENSURES( LOOP_BOUND_EXT_REV_OK( MAX_CHAINLENGTH + 1 ) );
 	CFI_CHECK_UPDATE( "checkCertDetails" );
 
 	/* If we stopped before we processed all of the certificates in the 
 	   chain, select the one that caused the problem.  We also have to 
-	   unlock the last certificate that we got to if it wasn't the leaf, 
-	   which corresponds to the chain itself */
+	   release the subject and issuer certificates depending on what was set 
+	   at the time that we early-exited the loop */
 	if( cryptStatusError( status ) )
 		{
 		certChainInfo->chainPos = certIndex ;
+		if( subjectCertInfoPtr != NULL && subjectCertInfoPtr != certInfoPtr )
+			krnlReleaseObject( subjectCertInfoPtr->objectHandle );
 		if( issuerCertInfoPtr != certInfoPtr )
 			krnlReleaseObject( issuerCertInfoPtr->objectHandle );
 		retExtErr( status,
@@ -1292,6 +1302,10 @@ int checkCertChain( INOUT_PTR CERT_INFO *certInfoPtr )
 					 "Error processing certificate at chain position %d", 
 					 certIndex + 1 ) );
 		}
+
+	/* We've terminated at the leaf certificate, which we don't need to
+	   unlock */	
+	REQUIRES( issuerCertInfoPtr == certInfoPtr );
 
 	ENSURES( CFI_CHECK_SEQUENCE_3( "findTrustAnchor", 
 								   "checkRootCertDetails", 

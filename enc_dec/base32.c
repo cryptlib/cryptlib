@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					 cryptlib Base32 En/Decoding Routines					*
-*						Copyright Peter Gutmann 1998-2018					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -49,13 +49,12 @@ BOOLEAN isBase32Value( IN_BUFFER( encValLength ) const char *encVal,
 	   corresponding to 40 bits, and a minimum of 80 bits */
 	if( encValLength != 16 && encValLength != 24 && encValLength != 32 )
 		return( FALSE );
-	LOOP_MED_INITCHECK( i = 0, i < encValLength )
+	LOOP_MED( i = 0, i < encValLength, i++ )
 		{
-		int ch;
+		const int ch = byteToInt( encVal[ i ] );
 
 		ENSURES_B( LOOP_INVARIANT_MED( i, 0, encValLength - 1 ) );
 
-		ch = byteToInt( encVal[ i++ ] );
 		if( !isAlnum( ch ) || ch == '0' || ch == '1' || ch == '8' || \
 			ch == '9' )
 			return( FALSE );
@@ -143,6 +142,8 @@ int decodeBase32Value( OUT_BUFFER( valueMaxLen, *valueLen ) BYTE *value,
 				}
 			else
 				{
+				REQUIRES( bitCount >= 4 && bitCount < 8 );
+
 				/* The data spans two bytes, shift the bits from the high
 				   byte down and the bits from the low byte up */
 				value[ byteCount ] |= \
@@ -162,7 +163,7 @@ int decodeBase32Value( OUT_BUFFER( valueMaxLen, *valueLen ) BYTE *value,
 			byteCount++;
 			}
 		ENSURES( bitCount >= 0 && bitCount < 8 );
-		ENSURES( byteCount >= 0 && byteCount < 64 );
+		ENSURES( byteCount >= 0 && byteCount < valueMaxLen );
 		}
 	ENSURES( LOOP_BOUND_OK );
 

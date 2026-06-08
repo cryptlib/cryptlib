@@ -416,7 +416,7 @@ int sendHTTPError( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	REQUIRES( httpStatus >= 0 && httpStatus < 600 );
+	REQUIRES( httpStatus >= MIN_HTTP_STATUS && httpStatus < 600 );
 	REQUIRES( netStream != NULL && sanityCheckNetStream( netStream ) );
 
 	/* Find the HTTP error information that corresponds to the HTTP status

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib TSP Session Management					*
-*						Copyright Peter Gutmann 1999-2011					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -22,7 +22,7 @@
 /* TSP constants */
 
 #define TSP_VERSION					1	/* Version number */
-#define MIN_MSGIMPRINT_SIZE			( 2 + 10 + 16 )	/* SEQ + MD5 OID + MD5 hash */
+#define MIN_MSGIMPRINT_SIZE			( 2 + 11 + 20 )	/* SEQ + SHA-1 OID + SHA-1 hash */
 #define MAX_MSGIMPRINT_SIZE			( 32 + CRYPT_MAX_HASHSIZE )
 
 /* TSP HTTP content types */
@@ -531,7 +531,7 @@ static int sendClientRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Send the request to the server */
 	return( writePkiDatagram( sessionInfoPtr, TSP_CONTENT_TYPE_REQ,
 							  TSP_CONTENT_TYPE_REQ_LEN,
-							  MK_ERRTEXT( "Couldnt send TSP request to "
+							  MK_ERRTEXT( "Couldn't send TSP request to "
 										  "server" ) ) );
 	}
 
@@ -563,7 +563,7 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				}
 			} */
 	status = readPkiDatagram( sessionInfoPtr, min( 11, MIN_CRYPT_OBJECTSIZE ),
-							  MK_ERRTEXT( "Couldnt read TSP response from "
+							  MK_ERRTEXT( "Couldn't read TSP response from "
 										  "server" ) );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -699,7 +699,7 @@ static int sendErrorResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	sessionInfoPtr->receiveBufEnd = respSize( errorResponse );
 	( void ) writePkiDatagram( sessionInfoPtr, TSP_CONTENT_TYPE_RESP,
 							   TSP_CONTENT_TYPE_RESP_LEN,
-							   MK_ERRTEXT( "Couldnt send error response to "
+							   MK_ERRTEXT( "Couldn't send error response to "
 										   "client" ) );
 	return( status );
 	}
@@ -720,7 +720,7 @@ static int readClientRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   an OID and a hash, so we specify a minimum length shorter than
 	   MIN_CRYPT_OBJECTSIZE */
 	status = readPkiDatagram( sessionInfoPtr, 32,
-							  MK_ERRTEXT( "Couldnt read TSP request fron "
+							  MK_ERRTEXT( "Couldn't read TSP request from "
 										  "client" ) );
 	if( cryptStatusError( status ) )
 		{
@@ -754,7 +754,7 @@ static int sendServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	{
 	MESSAGE_DATA msgData;
 	STREAM stream;
-	BYTE tstBuffer[ 1024 ];
+	BYTE tstBuffer[ 1024 + 8 ];
 	BYTE serialNo[ 16 + 8 ];
 	BYTE *bufPtr = sessionInfoPtr->receiveBuffer;
 	const time_t currentTime = getReliableTime( sessionInfoPtr->privateKey, 
@@ -832,7 +832,7 @@ static int sendServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 sessionInfoPtr->receiveBufEnd );
 	return( writePkiDatagram( sessionInfoPtr, TSP_CONTENT_TYPE_RESP,
 							  TSP_CONTENT_TYPE_RESP_LEN,
-							  MK_ERRTEXT( "Couldnt send TSP response to "
+							  MK_ERRTEXT( "Couldn't send TSP response to "
 										  "client" ) ) );
 	}
 
@@ -966,7 +966,10 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								  IMESSAGE_ENV_PUSHDATA, &msgData, 0 );
 		}
 	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
 		return( status );
+		}
 	sessionInfoPtr->iCertResponse = createInfo.cryptHandle;
 
 	/* Return the information to the caller */

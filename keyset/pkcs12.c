@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  cryptlib PKCS #12 Routines						*
-*						Copyright Peter Gutmann 1997-2020					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -174,7 +174,9 @@ static BOOLEAN sanityCheckPKCS12( const PKCS12_INFO *pkcs12infoPtr )
 	}
 #endif /* !CONFIG_CONSERVE_MEMORY_EXTRA */
 
-/* Locate a PKCS #12 object based on an ID */
+/* Locate a PKCS #12 object based on an ID.  This returns a non-const pointer
+   from a const object, required because we're doing a lookup in the object
+   array but not actually changing any part of it */
 
 #define matchID( src, srcLen, dest, destLen ) \
 		( ( srcLen ) > 0 && ( srcLen ) == ( destLen ) && \
@@ -257,7 +259,8 @@ PKCS12_INFO *pkcs12FindEntry( IN_ARRAY( noPkcs12objects ) \
 	return( NULL );
 	}
 
-/* Find a free PKCS #12 entry */
+/* Find a free PKCS #12 entry, with the same non-const cast process as for 
+   pkcs12FindEntry() */
 
 CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1 ) ) \
 PKCS12_INFO *pkcs12FindFreeEntry( IN_ARRAY( noPkcs12objects ) \
@@ -358,11 +361,11 @@ static int readPkcs12header( INOUT_PTR STREAM *stream,
 							 OUT_INT_Z int *endPosPtr,
 							 INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	long payloadLength DUMMY_INIT, version;
-	int tag, endPos, currentPos, status;
+	long version;
+	int tag, payloadLength DUMMY_INIT, endPos, currentPos, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( endPosPtr, sizeof( long ) ) );
+	assert( isWritePtr( endPosPtr, sizeof( int ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	/* Clear return value */
@@ -382,7 +385,7 @@ static int readPkcs12header( INOUT_PTR STREAM *stream,
 		if( cryptStatusOK( status ) && payloadLength != CRYPT_UNUSED )
 			{
 			/* If we've got length data present make sure that it's valid
-* 			   before we use it in calculations further on */
+ 			   before we use it in calculations further on */
 			if( payloadLength < MIN_CRYPT_OBJECTSIZE || \
 				payloadLength > MAX_INTLENGTH_SHORT ) 
 				status = CRYPT_ERROR_BADDATA;
@@ -396,7 +399,7 @@ static int readPkcs12header( INOUT_PTR STREAM *stream,
 		}
 	REQUIRES( payloadLength == CRYPT_UNUSED || \
 			  isIntegerRange( payloadLength ) );
-	endPos = ( int ) payloadLength;
+	endPos = payloadLength;
 			 /* May be CRYPT_UNUSED, checked below */
 
 	/* PKCS #12 files created by the Norwegian Buypass CA use constructed 
@@ -437,8 +440,8 @@ static int readPkcs12header( INOUT_PTR STREAM *stream,
 		status = readSequence( stream, NULL );
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, startPos, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, startPos, 
+											   &objectSize );
 			}
 		if( cryptStatusOK( status ) )
 			{
@@ -525,7 +528,9 @@ static int initDeriveParams( IN_HANDLE const CRYPT_USER cryptOwner,
 	return( CRYPT_OK );
 	}
 
-/* Set up an encryption/MAC context */
+/* Set up an encryption/MAC context.  There are two forms of this, the 
+   original PKCS #12 form and the mutant PKCS #15 form that some PKCS #12 
+   implementations use */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4, 6 ) ) \
 static int initContext( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
@@ -543,7 +548,7 @@ static int initContext( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 	MECHANISM_DERIVE_INFO deriveInfo;
 	MESSAGE_DATA msgData;
 	BYTE key[ CRYPT_MAX_KEYSIZE + 8 ], iv[ CRYPT_MAX_IVSIZE + 8 ];
-	BYTE saltData[ 1 + CRYPT_MAX_IVSIZE + 8 ];
+	BYTE saltData[ 1 + CRYPT_MAX_HASHSIZE + 8 ];
 	int ivSize DUMMY_INIT, localKeySize = keySize, status;
 
 	assert( isWritePtr( iCryptContext, sizeof( CRYPT_CONTEXT ) ) );
@@ -587,7 +592,7 @@ static int initContext( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 
 	/* Since the salt also includes a diversifier as its first byte we copy 
 	   it to a working buffer with room for the extra data byte */
-	REQUIRES( boundsCheck( saltLength, 1, CRYPT_MAX_IVSIZE ) );
+	REQUIRES( boundsCheck( saltLength, 1, CRYPT_MAX_HASHSIZE ) );
 	memcpy( saltData + 1, salt, saltLength );
 
 	/* Derive the encryption/MAC key and optional IV from the password */
@@ -904,15 +909,14 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 							   KEYSET_ERRINFO );
 	if( cryptStatusError( status ) )
 		{
+		/* Reset the stream position to account for the header information 
+		   that we've already read */
+		sseek( stream, 0 ) ;
+
 		clFree( "initFunction", pkcs12info );
 		DATAPTR_SET( keysetInfoPtr->keyData, NULL );
 		keysetInfoPtr->keyDataSize = 0;
-		if( options != CRYPT_KEYOPT_CREATE )
-			{
-			/* Reset the stream position to account for the header 
-			   information that we've already read */
-			sseek( stream, 0 ) ;
-			}
+
 		return( status );
 		}
 
@@ -923,7 +927,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 
 /* Shut down the PKCS #12 state, flushing information to disk if necessary */
 
-STDC_NONNULL_ARG( ( 1 ) ) \
+RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	{
 	PKCS12_INFO *pkcs12info = DATAPTR_GET( keysetInfoPtr->keyData );

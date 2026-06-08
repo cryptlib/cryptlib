@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Keyset Attribute Routines					*
-*						Copyright Peter Gutmann 1995-2007					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -63,6 +63,10 @@ static int exitErrorIncomplete( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( isAttribute( errorLocus ) || \
 			  isInternalAttribute( errorLocus ) );
 
+	/* The error type here appears a bit odd but makes sense in the context 
+	   of how we got here, setting an attribute like CRYPT_KEYINFO_QUERY when
+	   one is already active means that there's logically another attribute 
+	   of the same type already present */
 	return( exitError( keysetInfoPtr, errorLocus, CRYPT_ERRTYPE_ATTR_PRESENT,
 					   CRYPT_ERROR_INCOMPLETE ) );
 	}

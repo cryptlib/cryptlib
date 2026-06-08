@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib Data Size and Crypto-related Constants 			*
-*						Copyright Peter Gutmann 1992-2021					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -168,7 +168,7 @@
    have no obvious significance).
 
    In addition to GPG's constantly-changing behaviour, PGP Desktop 9
-   (apparently) in its default config uses values up to 4M, and there's a
+   (apparently) in its default config used values up to 4M, and there's a
    mutant GPG build used with loop-AES that uses 8M setup iterations for PGP
    private keys.  Why this is used and why it writes PGP keys with this
    setting is uncertain.
@@ -196,7 +196,7 @@
    which means that we can see counts close to 2^26, working out to
    1,015,808 with the / 64 factor taken into account */
 
-#define MAX_KEYSETUP_HASHSPECIFIER	min( INT_MAX - 256, ( 65011712L / 64 ) )
+#define MAX_KEYSETUP_HASHSPECIFIER		( 65011712L / 64 )
 
 /* The HMAC input and output padding values.  These are defined here rather
    than in context.h because they're needed by some PRF mechanisms that
@@ -243,11 +243,7 @@
    length defined as a generally sensible upper bound for values that
    shouldn't require arbitrary-length data quantities */
 
-#ifdef SYSTEM_16BIT
-  #define MAX_INTLENGTH_DELTA	8192
-#else
-  #define MAX_INTLENGTH_DELTA	1048576
-#endif /* 16- vs. 32/64-bit systems */
+#define MAX_INTLENGTH_DELTA		1048576
 #define MAX_INTLENGTH			( INT_MAX - MAX_INTLENGTH_DELTA )
 #define MAX_INTLENGTH_SHORT		16384
 
@@ -316,15 +312,16 @@
 
 #define MIN_ASCII_OIDSIZE		7
 
-/* Some object types interact with exteral services that can return detailed
-   error messages when problems occur, the following is the maximum length
-   error string that we store.  Anything beyond this size is truncated */
+/* Some object types interact with external services that can return 
+   detailed error messages when problems occur, the following is the maximum 
+   length error string that we store.  Anything beyond this size is 
+   truncated */
 
 #define MAX_ERRMSG_SIZE			512
 
 /****************************************************************************
 *																			*
-*							Miscellaneous Constants							*
+*							Time-related Constants							*
 *																			*
 ****************************************************************************/
 
@@ -340,7 +337,7 @@
 		associated certificates that have been hanging around for years.
 
 	MAX_TIME_VALUE: The maximum time value that we can safely use while
-		avoiding the Y2038 problem.  This issue only affects systens with
+		avoiding the Y2038 problem.  This issue only affects systems with
 		a 32-bit time_t so we only clip the time value on those systems.
 
 	CURRENT_TIME_VALUE: An approximation of the current time with the
@@ -399,16 +396,17 @@
 		  	( ( ( __DATE__[ 4 ] - '0' ) * 10 ) + ( __DATE__[ 5 ] - '0' ) ) ) )
 #endif /* 0 */
 
-#ifdef SYSTEM_64BIT
+#ifdef TIMET_64BIT
   #define YEARS_TO_SECONDS( years ) ( ( years ) * 365 * 86400LL )
 #else
   #define YEARS_TO_SECONDS( years ) ( ( years ) * 365 * 86400UL )
 #endif /* 64- vs. 32-bit systems */
 #define MIN_TIME_VALUE			( CURRENT_TIME_VALUE - YEARS_TO_SECONDS( 2 ) )
 #define MIN_STORED_TIME_VALUE	( YEARS_TO_SECONDS( 1995 - 1970 ) )
-#define MAX_TIME_VALUE_Y2038	( YEARS_TO_SECONDS( 2036 - 1970 ) )
-#ifdef SYSTEM_64BIT
-  #define MAX_TIME_VALUE		( YEARS_TO_SECONDS( 2100 - 1970 ) )
+#define MAX_TIME_VALUE_Y2038	( YEARS_TO_SECONDS( 2038 - 1970 ) + 864000 )
+								  /* 10 January 2038, Y2038 = 19 January */
+#ifdef TIMET_64BIT
+  #define MAX_TIME_VALUE		( YEARS_TO_SECONDS( 2150 - 1970 ) )
 #else
   #define MAX_TIME_VALUE		MAX_TIME_VALUE_Y2038
 #endif /* 64- vs. 32-bit systems */
@@ -424,32 +422,39 @@
 #elif defined( __GNUC__ ) && ( __GNUC__ > 7 )
   #define CURRENT_TIME_VALUE	( ( DATE_YEAR + DATE_MONTH - 30 ) * 86400UL )
 #else
-  #define CURRENT_TIME_VALUE	( YEARS_TO_SECONDS( 2021 - 1970 ) )
+  #define CURRENT_TIME_VALUE	( YEARS_TO_SECONDS( 2026 - 1970 ) )
   #define CHECK_CURRENT_TIME
 #endif /* Compilers that aren't tough enough for the above */
 
 /* Check that there are no (obvious) under- or overflows in the time
    constant calculations.  We explicitly check for the value going negative
    alongside the general range check just to make it obvious.  The two
-   constants are a value less then MAX_TIME_VALUE_Y2038 for the
-   MAX_TIME_VALUE check and 1/1/2020 for the CURRENT_TIME_VALUE check.
+   constants are a value less then MAX_TIME_VALUE_Y2038 (0x7FDEDD00) for 
+   the MAX_TIME_VALUE check and 1/1/2025 (0x67621080) for the 
+   CURRENT_TIME_VALUE check.
 
-   Since the CURRENT_TIME_VALUE when calcuated via __DATE__ requires the
+   Since the CURRENT_TIME_VALUE when calculated via __DATE__ requires the
    compiler rather than the preprocessor, we only perform the check if
    we're using the preprocessor-safe derivation of CURRENT_TIME_VALUE.
    This is OK because the place where overflow is likely to occur is with
    MAX_TIME_VALUE, not CURRENT_TIME_VALUE, it's merely a belt-and-
    suspenders check */
 
-#if ( MAX_TIME_VALUE < 0 ) || ( MAX_TIME_VALUE < 0x7C000000 )
+#if ( MAX_TIME_VALUE < 0 ) || ( MAX_TIME_VALUE < 0x7FDEDD00 )
   #error Overflow/underflow in MAX_TIME_VALUE calculation
 #endif /* Range check for MAX_TIME_VALUE calculation */
 #ifdef CHECK_CURRENT_TIME
   #undef CHECK_CURRENT_TIME
-  #if ( CURRENT_TIME_VALUE < 0 ) || ( CURRENT_TIME_VALUE < 0x5DFC0F00L )
+  #if ( CURRENT_TIME_VALUE < 0 ) || ( CURRENT_TIME_VALUE < 0x67621080L )
 	#error Overflow/underflow in CURRENT_TIME_VALUE calculation
   #endif /* Range check for CURRENT_TIME_VALUE calculation */
 #endif /* CHECK_CURRENT_TIME */
+
+/****************************************************************************
+*																			*
+*							Miscellaneous Constants							*
+*																			*
+****************************************************************************/
 
 /* The minimum and maximum network port numbers.  Note that we allow ports
    down to 21 (= FTP) rather than the more obvious 22 (= SSH) provided by
@@ -560,9 +565,9 @@ typedef enum {
 
    Init actions are split into two classes, standard and deferred.  This
    distinction is necessary because some initialisation actions such as
-   driver binding may be performed asychronously, so we need to distinguish
-   between init actions that need to be performed sychronously and ones that
-   can be performed asynchronously */
+   driver binding may be performed asynchronously, so we need to distinguish
+   between init actions that need to be performed synchronously and ones 
+   that can be performed asynchronously */
 
 typedef enum {
 	MANAGEMENT_ACTION_NONE,				/* No management action */

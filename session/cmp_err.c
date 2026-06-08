@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					Read CMP (and TSP) Status Information					*
-*					  Copyright Peter Gutmann 1999-2019						*
+*					  Copyright Peter Gutmann 1999-2025						*
 *																			*
 ****************************************************************************/
 
@@ -251,7 +251,7 @@ static const MAP_TABLE pkiStatusMapTbl[] = {
 	{ CRYPT_OK, CMPFAILINFO_OK }, { CRYPT_OK, CMPFAILINFO_OK }
 	};
 
-static long getFailureBitString( IN_STATUS const int pkiStatus )
+static int getFailureBitString( IN_STATUS const int pkiStatus )
 	{
 	LOOP_INDEX i;
 
@@ -326,9 +326,9 @@ int readPkiStatusInfo( INOUT_PTR STREAM *stream,
 	BYTE errorMessage[ MAX_ERRMSG_SIZE + 1 + 8 ];
 	BOOLEAN hasErrorMessage = FALSE;
 	const char *failureString;
-	long endPos, value;
+	long value;
 	int bitString = 0, bitPos, failureStringLength, failureStatus;
-	int errorCode, tag, length, status;
+	int endPos, errorCode, tag, length, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
@@ -358,7 +358,7 @@ int readPkiStatusInfo( INOUT_PTR STREAM *stream,
 	errorCode = ( int ) value;
 
 	/* Read the status string if there's one present.  As usual with CMP 
-	   there's no explanation why this is a SQEUENCE OF UTF8String rather 
+	   there's no explanation why this is a SEQUENCE OF UTF8String rather 
 	   than a single UTF8String or what we're supposed to do if more than 
 	   one string is present.  For now we read the first one, skip the 
 	   second one if present, and treat more than two as an error (although 
@@ -366,7 +366,7 @@ int readPkiStatusInfo( INOUT_PTR STREAM *stream,
 	if( checkStatusLimitsPeekTag( stream, status, tag, endPos ) && \
 		tag == BER_SEQUENCE )
 		{
-		long innerEndPos;
+		int innerEndPos;
 
 		status = readSequence( stream, &length );
 		if( cryptStatusError( status ) )
@@ -423,7 +423,7 @@ int readPkiStatusInfo( INOUT_PTR STREAM *stream,
 		{
 		/* If we haven't been given any specific details for the problem, 
 		   there's not much more that we can report.  Note that we need to
-		   peform this operation after calling getFailureInfo() because
+		   perform this operation after calling getFailureInfo() because
 		   even though there's no returned detailed error information we're
 		   still using the failure status value that's returned */
 		retExt( failureStatus,
@@ -467,9 +467,10 @@ int readPkiStatusInfo( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL_LENGTH_SHORT_NOERROR \
 int sizeofPkiStatusInfo( IN_STATUS const int pkiStatus,
-						 IN_ENUM_OPT( CMPFAILINFO ) const long pkiFailureInfo )
+						 IN_ENUM_OPT( CMPFAILINFO ) \
+							const int pkiFailureInfo )
 	{
-	long localPKIFailureInfo;
+	int localPKIFailureInfo;
 
 	REQUIRES( cryptStatusOK( pkiStatus ) || cryptStatusError( pkiStatus ) );
 	REQUIRES( pkiFailureInfo >= CMPFAILINFO_OK && \
@@ -497,9 +498,10 @@ int sizeofPkiStatusInfo( IN_STATUS const int pkiStatus,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writePkiStatusInfo( INOUT_PTR STREAM *stream, 
 						IN_STATUS const int pkiStatus,
-						IN_ENUM_OPT( CMPFAILINFO ) const long pkiFailureInfo )
+						IN_ENUM_OPT( CMPFAILINFO ) \
+							const int pkiFailureInfo )
 	{
-	long localPKIFailureInfo;
+	int localPKIFailureInfo;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 

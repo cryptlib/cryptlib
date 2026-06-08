@@ -30,10 +30,18 @@
    unqualified names and/or can be present as full URLs rather than just 
    domain names, so we use sNetParseURL() on them before doing anything else 
    with them.  Secondly, PKIX tries to pretend that wildcard certificates 
-   don't exist, and so there are no official guidelines for how they should 
-   be laid out.  To minimise the potential for mischief we only allow a
-   wildcard at the start of the domain, and don't allow wildcards for the 
-   first- or second-level names.
+   don't exist and so there are no official guidelines for how they should 
+   be laid out.  There is a TLS-specific RFC, RFC 6125, presumably created 
+   as a reaction to PKIX' refusal to accommodate the real world, but that's 
+   for the web PKI and goes on for 55 pages with all manner of web-mandated 
+   crazyness in it like a requirement to work with and convert punycode 
+   domain names as well as allowing regex-style wildcards and other things, 
+   which pretty much guarantees breakage due to its enormous complexity and 
+   attack surface.
+   
+   To follow the principle of least surprise and minimise the potential for 
+   mischief we only allow a wildcard at the start of the domain, and don't 
+   allow wildcards for the first- or second-level names.  
    
    Since this code is going to result in server names (and therefore 
    connections) being rejected, it's unusually loquacious about the reasons 
@@ -158,9 +166,9 @@ static int matchName( IN_BUFFER( serverNameLength ) const BYTE *serverName,
 		const int delta = serverNameLength - ( certNameLength - 1 );
 											 /* Range checked above */
 
-		ENSURES_B( !checkOverflowSub( serverNameLength, 
-									  certNameLength - 1 ) );
-		ENSURES_B( delta > 0 && delta < serverNameLength );
+		ENSURES( !checkOverflowSub( serverNameLength, 
+									certNameLength - 1 ) );
+		ENSURES( delta > 0 && delta < serverNameLength );
 
 		/* Match the suffix past the wildcard */
 		if( !memcmp( certName + 1, serverName + delta, 
@@ -347,6 +355,7 @@ int checkTLSCertificateInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 				GET_FLAGS( sessionInfoPtr->protocolFlags,
 						   TLS_PFLAG_DISABLE_NAMEVERIFY | \
 						   TLS_PFLAG_DISABLE_CERTVERIFY );
+	BOOLEAN isInWhitelist;
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -355,9 +364,19 @@ int checkTLSCertificateInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	/* There is one check that overrides all others and that's when an 
 	   explicit permitted-certificates whitelist has been provided */
-	status = checkCertWhitelist( sessionInfoPtr, iCryptCert, FALSE );
+	status = checkCertWhitelist( sessionInfoPtr, iCryptCert, 
+								 &isInWhitelist, FALSE );
 	if( cryptStatusError( status ) )
+		{
+		/* There's a whitelist present but the certificate isn't in it */
 		return( status );
+		}
+	if( isInWhitelist )
+		{
+		/* There's a whitelist present and the certificate is in it */
+		return( CRYPT_OK );
+		}
+	ENSURES( !isInWhitelist );
 
 	/* If all verification has been disabled then there's nothing to do */
 	if( verifyFlags == ( TLS_PFLAG_DISABLE_NAMEVERIFY | \
@@ -389,12 +408,12 @@ int checkTLSCertificateInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		   their own PKIs and definitely won't want anything from a 
 		   commercial CA to be accepted, and noncommercial users who won't 
 		   be buying certificates from a commercial CA.  In neither of these 
-		   cases is trusting certs from a commercial CA useful, in the 
-		   former case it leads to a serious security breach (as some US 
-		   government agencies have discovered), in the latter case it leads 
-		   to all certificates being rejected since they weren't bought from 
-		   a commercial CA.  The recommended solutions to this problem are 
-		   covered in the cryptlib manual.
+		   cases is automatically trusting all certificates from a 
+		   commercial CA useful, in the former case it leads to a serious 
+		   security breach (as some US government users have discovered), in 
+		   the latter case it leads to all certificates being rejected since 
+		   they weren't bought from a commercial CA.  The recommended 
+		   solutions to this problem are covered in the cryptlib manual.
 		   
 		   Another lesser problem that this deals with is that it defeats 
 		   root store fingerprinting.  To do this, you MITM the target and 

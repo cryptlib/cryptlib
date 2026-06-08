@@ -24,7 +24,7 @@
 /* Sanity-check the X9.17 randomness state */
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
-static BOOLEAN sanityCheckRandom( const RANDOM_INFO *randomInfo )
+static BOOLEAN sanityCheckRandomX917( const RANDOM_INFO *randomInfo )
 	{
 	const BYTE *keyDataPtr;
 
@@ -33,7 +33,7 @@ static BOOLEAN sanityCheckRandom( const RANDOM_INFO *randomInfo )
 	/* Check safe pointers */
 	if( !DATAPTR_ISSET( randomInfo->x917Key ) )
 		{
-		DEBUG_PUTS(( "sanityCheckRandom: Safe pointers" ));
+		DEBUG_PUTS(( "sanityCheckRandomX917: Safe pointers" ));
 		return( FALSE );
 		}
 
@@ -42,7 +42,7 @@ static BOOLEAN sanityCheckRandom( const RANDOM_INFO *randomInfo )
 	keyDataPtr = DATAPTR_GET( randomInfo->x917Key );
 	if( keyDataPtr != ptr_align( keyDataPtr, 16 ) )
 		{
-		DEBUG_PUTS(( "sanityCheckRandom: X.917 key alignment" ));
+		DEBUG_PUTS(( "sanityCheckRandomX917: X.917 key alignment" ));
 		return( FALSE );
 		}
 
@@ -52,7 +52,7 @@ static BOOLEAN sanityCheckRandom( const RANDOM_INFO *randomInfo )
 		randomInfo->x917Count > X917_MAX_CYCLES + \
 								( MAX_RANDOM_BYTES / X917_POOLSIZE ) )
 		{
-		DEBUG_PUTS(( "sanityCheckRandom: X9.17 count" ));
+		DEBUG_PUTS(( "sanityCheckRandomX917: X9.17 count" ));
 		return( FALSE );
 		}
 
@@ -135,7 +135,7 @@ int setKeyX917( INOUT_PTR RANDOM_INFO *randomInfo,
 
 	/* Precondition: the key and seed aren't being taken from the same 
 	   location */
-	REQUIRES( sanityCheckRandom( randomInfo ) );
+	REQUIRES( sanityCheckRandomX917( randomInfo ) );
 	REQUIRES( memcmp( key, state, X917_POOLSIZE ) );
 
 	/* Remember that we're about to reset the generator state */
@@ -176,7 +176,7 @@ int setKeyX917( INOUT_PTR RANDOM_INFO *randomInfo,
 	randomInfo->x917Inited = TRUE;
 	randomInfo->x917Count = 0;
 
-	ENSURES( sanityCheckRandom( randomInfo ) );
+	ENSURES( sanityCheckRandomX917( randomInfo ) );
 
 	return( CRYPT_OK );
 	}
@@ -209,7 +209,7 @@ int setKeyX917( INOUT_PTR RANDOM_INFO *randomInfo,
 
 	/* Precondition: the key and seed aren't being taken from the same 
 	   location */
-	REQUIRES( sanityCheckRandom( randomInfo ) );
+	REQUIRES( sanityCheckRandomX917( randomInfo ) );
 	REQUIRES( memcmp( key, state, X917_POOLSIZE ) );
 
 	/* Remember that we're about to reset the generator state */
@@ -239,7 +239,7 @@ int setKeyX917( INOUT_PTR RANDOM_INFO *randomInfo,
 	randomInfo->x917Inited = TRUE;
 	randomInfo->x917Count = 0;
 
-	ENSURES( sanityCheckRandom( randomInfo ) );
+	ENSURES( sanityCheckRandomX917( randomInfo ) );
 
 	return( CRYPT_OK );
 	}
@@ -266,7 +266,7 @@ int generateX917( INOUT_PTR RANDOM_INFO *randomInfo,
 	   for more data than the maximum that should be needed (in fact we're 
 	   only ever called in stereotyped form with one of two lengths), and 
 	   the cryptovariables aren't past their use-by date */
-	REQUIRES( sanityCheckRandom( randomInfo ) );
+	REQUIRES( sanityCheckRandomX917( randomInfo ) );
 	REQUIRES( randomInfo->x917Inited == TRUE );
 	REQUIRES( length == X917_POOLSIZE || length == RANDOMPOOL_ALLOCSIZE );
 	REQUIRES( randomInfo->x917Count >= 0 && \
@@ -421,7 +421,7 @@ int generateX917( INOUT_PTR RANDOM_INFO *randomInfo,
 	FORALL( i, 0, X917_POOLSIZE,
 			encTime[ i ] == 0 );
 
-	ENSURES( sanityCheckRandom( randomInfo ) );
+	ENSURES( sanityCheckRandomX917( randomInfo ) );
 
 	return( CRYPT_OK );
 	}
@@ -442,7 +442,7 @@ int initX917( INOUT_PTR RANDOM_INFO *randomInfo )
 	keyDataPtr = ALIGN_GET_PTR( randomInfo->x917KeyData, 16 );
 	DATAPTR_SET( randomInfo->x917Key, keyDataPtr );
 
-	ENSURES( sanityCheckRandom( randomInfo ) );
+	ENSURES( sanityCheckRandomX917( randomInfo ) );
 
 	return( CRYPT_OK );
 	}

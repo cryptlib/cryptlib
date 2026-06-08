@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								Write CMP Messages							*
-*						Copyright Peter Gutmann 1999-2021					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -21,7 +21,7 @@
 
 /* Enabling the following define forces the use of full headers at all times.
    cryptlib always sends minimal headers once it detects that the other side 
-   is using cryptlib, ommitting as much of the unnecessary junk as possible, 
+   is using cryptlib, omitting as much of the unnecessary junk as possible, 
    which significantly reduces the overall message size */
 
 /* #define USE_FULL_HEADERS */
@@ -245,7 +245,7 @@ static int initDNInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   usually won't know their DN yet.  That's the theory anyway, 
 		   some X.500-obsessive servers will reject a message with no 
 		   sender name but there isn't really anything that we can do about 
-		   this, particularly since we can't tell in advance what beaviour 
+		   this, particularly since we can't tell in advance what behaviour 
 		   the server will exhibit */
 		if( sessionInfoPtr->iCertResponse == CRYPT_ERROR )
 			{
@@ -650,8 +650,11 @@ static int writePkiHeader( INOUT_PTR STREAM *stream,
 			SET_FLAG( sessionInfoPtr->protocolFlags, CMP_PFLAG_CERTIDSENT );
 			status = writeCertIDs( stream, protocolInfo->authContext );
 			}
+		if( cryptStatusError( status ) )
+			return( status );
 		}
-	return( status );
+
+	return( CRYPT_OK );
 	}
 
 /****************************************************************************
@@ -713,13 +716,10 @@ int writePkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Generate the MAC or signature as appropriate */
 	if( protocolInfo->useMACsend )
 		{
-		INJECT_FAULT( BADSIG_HASH, SESSION_BADSIG_HASH_CMP_1 );
 		status = writeMacProtinfo( protocolInfo->iMacContext,
 						sessionInfoPtr->receiveBuffer, stell( &stream ),
 						protInfo, 64 + MAX_PKCENCRYPTED_SIZE, &protInfoSize,
 						SESSION_ERRINFO );
-		INJECT_FAULT( BADSIG_HASH, SESSION_BADSIG_HASH_CMP_2 );
-		INJECT_FAULT( BADSIG_DATA, SESSION_BADSIG_DATA_CMP_1 );
 		}
 	else
 		{
@@ -728,7 +728,6 @@ int writePkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						sessionInfoPtr->receiveBuffer, stell( &stream ),
 						protInfo, 64 + MAX_PKCENCRYPTED_SIZE, &protInfoSize,
 						SESSION_ERRINFO );
-		INJECT_FAULT( BADSIG_SIG, SESSION_BADSIG_SIG_CMP_1 );
 		}
 	if( cryptStatusError( status ) )
 		{

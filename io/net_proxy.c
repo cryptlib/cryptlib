@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 Network Stream Proxy Management					*
-*						Copyright Peter Gutmann 1993-2007					*
+*						Copyright Peter Gutmann 1993-2025					*
 *																			*
 ****************************************************************************/
 
@@ -19,10 +19,11 @@
 *																			*
 ****************************************************************************/
 
-/* Open a connection through a Socks proxy.  This was added in 3.0 in 2002
-   but disabled in 3.1 in 2003 since it didn't appear to be used by anyone,
-   since then there haven't been any requests to enable it in response to 
-   the config option being present so there's presumably no need for it */
+/* Open a connection through a SOCKSv4 proxy.  This was added in cryptlib 
+   3.0 in 2002 but disabled in cryptlib 3.1 in 2003 since it didn't appear 
+   to be used by anyone, since then there haven't been any requests to 
+   enable it in response to the config option being present so there's 
+   presumably no need for it */
 
 #if 0
 
@@ -306,8 +307,8 @@ int findProxyUrl( OUT_BUFFER( proxyMaxLen, *proxyLen ) char *proxy,
 	HINTERNET hSession;
 	char urlBuffer[ MAX_DNS_SIZE + 1 + 8 ];
 	wchar_t unicodeURL[ MAX_DNS_SIZE + 1 + 8 ];
-	size_t unicodeUrlLen, wcsProxyLen;
-	int offset, length, proxyStatus;
+	size_t unicodeUrlLen, wcsProxyLen DUMMY_INIT;
+	int offset, proxyStatus = -1;
 
 	assert( isWritePtrDynamic( proxy, proxyMaxLen ) );
 	assert( isWritePtr( proxyLen, sizeof( int ) ) );
@@ -316,6 +317,10 @@ int findProxyUrl( OUT_BUFFER( proxyMaxLen, *proxyLen ) char *proxy,
 	REQUIRES( proxyMaxLen >= 10 && proxyMaxLen <= MAX_DNS_SIZE );
 	REQUIRES( urlLen > 0 && urlLen <= MAX_DNS_SIZE );
 
+	/* Clear return values */
+	memset( proxy, 0, min( 16, proxyMaxLen ) );
+	*proxyLen = 0;
+	
 	/* Under Win2K SP3 and Windows XP and newer (2003, Vista, etc), or at 
 	   least Windows versions with WinHTTP 5.1 installed in some way (it 
 	   officially shipped with the versions mentioned earlier) we can use 
@@ -362,42 +367,46 @@ int findProxyUrl( OUT_BUFFER( proxyMaxLen, *proxyLen ) char *proxy,
 	   for example on servers where the admin has set the proxy config
 	   directly with ProxyCfg.exe */
 	if( pWinHttpGetDefaultProxyConfiguration != NULL && \
-		pWinHttpGetDefaultProxyConfiguration( &proxyInfo ) && \
-		proxyInfo.lpszProxy != NULL )
+		pWinHttpGetDefaultProxyConfiguration( &proxyInfo ) )
 		{
-		proxyStatus = wcstombs_s( &wcsProxyLen, proxy, proxyMaxLen,
-								  proxyInfo.lpszProxy, MAX_DNS_SIZE );
-		GlobalFree( proxyInfo.lpszProxy );
+		if( proxyInfo.lpszProxy != NULL )
+			{
+			proxyStatus = wcstombs_s( &wcsProxyLen, proxy, proxyMaxLen,
+									  proxyInfo.lpszProxy, MAX_DNS_SIZE );
+			GlobalFree( proxyInfo.lpszProxy );
+			}
 		if( proxyInfo.lpszProxyBypass != NULL )
 			GlobalFree( proxyInfo.lpszProxyBypass );
 		if( proxyStatus == 0 )
 			{
-			*proxyLen = wcsProxyLen;
+			*proxyLen = wcsProxyLen - 1;	/* Exclude '\0' */
 			return( CRYPT_OK );
 			}
 		}
 
-	/* The next fallback is to get the proxy info from MSIE.  This is also
-	   usually much quicker than WinHttpGetProxyForUrl() although sometimes
-	   it seems to fall back to that, based on the longish delay involved.
-	   Another issue with this is that it won't work in a service process
-	   that isn't impersonating an interactive user (since there isn't a
-	   current user), but in that case we just fall back to
-	   WinHttpGetProxyForUrl() */
+	/* The next fallback is to get the proxy info from MSIE, which is used 
+	   if WPAD isn't available.  This is also usually much quicker than 
+	   WinHttpGetProxyForUrl() although sometimes it seems to fall back to 
+	   that, based on the longish delay involved.  Another issue with this 
+	   is that it won't work in a service process that isn't impersonating 
+	   an interactive user (since there isn't a current user), but in that 
+	   case we just fall back to WinHttpGetProxyForUrl() */
 	if( pWinHttpGetIEProxyConfigForCurrentUser != NULL && \
 		pWinHttpGetIEProxyConfigForCurrentUser( &ieProxyInfo ) )
 		{
-		proxyStatus = wcstombs_s( &wcsProxyLen, proxy, proxyMaxLen,
-								  ieProxyInfo.lpszProxy, MAX_DNS_SIZE );
+		if( ieProxyInfo.lpszProxy != NULL )
+			{
+			proxyStatus = wcstombs_s( &wcsProxyLen, proxy, proxyMaxLen,
+									  ieProxyInfo.lpszProxy, MAX_DNS_SIZE );
+			GlobalFree( ieProxyInfo.lpszProxy );
+			}
 		if( ieProxyInfo.lpszAutoConfigUrl != NULL )
 			GlobalFree( ieProxyInfo.lpszAutoConfigUrl );
-		if( ieProxyInfo.lpszProxy != NULL )
-			GlobalFree( ieProxyInfo.lpszProxy );
 		if( ieProxyInfo.lpszProxyBypass != NULL )
 			GlobalFree( ieProxyInfo.lpszProxyBypass );
 		if( proxyStatus == 0 )
 			{
-			*proxyLen = wcsProxyLen;
+			*proxyLen = wcsProxyLen - 1;	/* Exclude '\0' */
 			return( CRYPT_OK );
 			}
 		}
@@ -411,19 +420,16 @@ int findProxyUrl( OUT_BUFFER( proxyMaxLen, *proxyLen ) char *proxy,
 		{
 		strlcpy_s( urlBuffer, MAX_DNS_SIZE, "http://" );
 		offset = 7;
-		REQUIRES( !checkOverflowSub( MAX_DNS_SIZE, offset ) );
-		length = MAX_DNS_SIZE - offset;
 		}
 	else
 		{
 		/* There's already a schema present, not need to manually add one */
 		offset = 0;
-		length = urlLen;
 		}
-	REQUIRES( boundsCheck( offset, length, MAX_DNS_SIZE ) );
-	memcpy( urlBuffer + offset, url, length );
-	REQUIRES( !checkOverflowAdd( offset, length ) );
-	urlBuffer[ offset + length ] = '\0';
+	REQUIRES( boundsCheck( offset, urlLen, MAX_DNS_SIZE ) );
+	memcpy( urlBuffer + offset, url, urlLen );
+	REQUIRES( !checkOverflowAdd( offset, urlLen ) );
+	urlBuffer[ offset + urlLen ] = '\0';
 
 	/* Locate the proxy used for accessing the resource at the supplied URL.
 	   We have to convert to and from Unicode because the WinHTTP functions
@@ -446,7 +452,6 @@ int findProxyUrl( OUT_BUFFER( proxyMaxLen, *proxyLen ) char *proxy,
 		pWinHttpCloseHandle( hSession );
 		return( CRYPT_ERROR_NOTFOUND );
 		}
-	unicodeURL[ unicodeUrlLen ] = L'\0';
 	memset( &proxyInfo, 0, sizeof( WINHTTP_PROXY_INFO ) );
 	if( pWinHttpGetProxyForUrl( hSession, unicodeURL, &autoProxyOptions,
 								&proxyInfo ) != TRUE )
@@ -454,115 +459,21 @@ int findProxyUrl( OUT_BUFFER( proxyMaxLen, *proxyLen ) char *proxy,
 		pWinHttpCloseHandle( hSession );
 		return( CRYPT_ERROR_NOTFOUND );
 		}
-	proxyStatus = wcstombs_s( &wcsProxyLen, proxy, proxyMaxLen,
-							  proxyInfo.lpszProxy, MAX_DNS_SIZE );
-	GlobalFree( proxyInfo.lpszProxy );
+	if( proxyInfo.lpszProxy != NULL )
+		{
+		proxyStatus = wcstombs_s( &wcsProxyLen, proxy, proxyMaxLen,
+								  proxyInfo.lpszProxy, MAX_DNS_SIZE );
+		GlobalFree( proxyInfo.lpszProxy );
+		}
 	if( proxyInfo.lpszProxyBypass != NULL )
 		GlobalFree( proxyInfo.lpszProxyBypass );
 	pWinHttpCloseHandle( hSession );
 	if( proxyStatus != 0 )
 		return( CRYPT_ERROR_NOTFOUND );
-	*proxyLen = wcsProxyLen;
+	*proxyLen = wcsProxyLen - 1;		/* Exclude '\0' */
 
 	return( CRYPT_OK );
 	}
-
-#if 0
-
-typedef BOOL ( WINAPI *INTERNETGETPROXYINFO )( LPCSTR lpszUrl, DWORD dwUrlLength,
-							LPSTR lpszUrlHostName, DWORD dwUrlHostNameLength,
-							LPSTR* lplpszProxyHostName,
-							LPDWORD lpdwProxyHostNameLength );
-typedef BOOL ( WINAPI *INTERNETINITIALIZEAUTOPROXYDLL )( DWORD dwVersion,
-							LPSTR lpszDownloadedTempFile, LPSTR lpszMime,
-							AutoProxyHelperFunctions* lpAutoProxyCallbacks,
-							LPAUTO_PROXY_SCRIPT_BUFFER lpAutoProxyScriptBuffer );
-
-static int findProxyUrl( char *proxy, const int proxyMaxLen, 
-						 const char *url, const int urlLen )
-	{
-	static INTERNETGETPROXYINFO pInternetGetProxyInfo = NULL;
-	static INTERNETINITIALIZEAUTOPROXYDLL pInternetInitializeAutoProxyDll = NULL;
-	URL_INFO urlInfo;
-	char urlHost[ MAX_DNS_SIZE + 8 ];
-	char *proxyHost = NULL;
-	int proxyHostLen, status;
-
-	assert( isWritePtrDynamic( proxy, proxyMaxLen ) );
-	assert( isReadPtrDynamic( url, urlLen ) );
-
-	REQUIRES( isShortIntegerRangeMin( proxyMaxLen, 16 ) );
-	REQUIRES( isShortIntegerRangeNZ( urlLen ) );
-
-	/* This gets somewhat complicated, under Win2K SP3 and XP and newer (or 
-	   at least Windows versions with WinHTTP 5.1 installed in some way, it
-	   officially shipped with the versions mentioned earlier) we can use
-	   WinHTTP AutoProxy support, which implements the Web Proxy Auto-
-	   Discovery (WPAD) protocol from an internet draft that expired in May
-	   2001.  Under older versions of Windows we have to use the WinINet
-	   InternetGetProxyInfo.
-
-	   These functions were never meant to be used by the general public
-	   (see the comment below) so they work in an extremely peculiar way
-	   and only with the exact calling sequence that's used by MS code - it
-	   looks like they were only intended as components of Windows-internal
-	   implementation of proxy support since they require manual handling
-	   of proxy config script downloading, parsing, and all manner of other
-	   stuff that really doesn't concern us.  Because of the extreme
-	   difficulty in doing anything with these functions we use the WinHTTP
-	   approach instead */
-	if( pInternetGetProxyInfo == NULL )
-		{
-		HMODULE hModJS;
-
-		if( ( hModJS = DynamicLoad( "JSProxy.dll" ) ) == NULL )
-			return( CRYPT_ERROR_NOTFOUND );
-
-		pInternetGetProxyInfo = ( INTERNETGETPROXYINFO ) \
-					GetProcAddress( hModJS, "InternetGetProxyInfo" );
-		pInternetInitializeAutoProxyDll = ( INTERNETINITIALIZEAUTOPROXYDLL ) \
-					GetProcAddress( hModJS, "InternetInitializeAutoProxyDll" );
-		if( pInternetGetProxyInfo == NULL || \
-			pInternetInitializeAutoProxyDll == NULL )
-			{
-			DynamicUnload( hModJS );
-			return( CRYPT_ERROR_NOTFOUND );
-			}
-
-		pInternetInitializeAutoProxyDll( 0, TempFile, NULL,
-										 &HelperFunctions, NULL )
-		}
-
-	/* InternetGetProxyInfo() is a somewhat screwball undocumented function
-	   that was crowbarred out of MS as part of the DoJ consent decree.  It
-	   takes as input four parameters that do the work of a single
-	   parameter, the null-terminated target URL string.  The documentation
-	   for the function was initially wrong but has since been partially
-	   corrected in places after user complaints, although there are still 
-	   missing parts as well as possible errors (why is it necessary to 
-	   specify a length for a supposedly null-terminated string?).  In order 
-	   to meet the strange input-parameter requirements we have to pre-
-	   parse the target URL in order to provide the various bits and pieces 
-	   that InternetGetProxyInfo() requires */
-	status = parseURL( &urlInfo, url, urlLen, 80, URL_TYPE_HTTP );
-	if( cryptStatusError( status ) )
-		return( status );
-	if( urlInfo.hostLen > MAX_DNS_SIZE )
-		return( CRYPT_ERROR_OVERFLOW );
-	REQUIRES( rangeCheck( urlInfo.hostLen, 1, MAX_DNS_SIZE );
-	memcpy( urlHost, urlInfo.host, urlInfo.hostLen );
-	urlHost[ urlInfo.hostLen ] = '\0';
-	if( !pInternetGetProxyInfo( url, urlLen, urlHost, urlInfo.hostLen,
-								&proxyHost, &proxyHostLen ) )
-		return( CRYPT_ERROR_NOTFOUND );
-	REQUIRES( rangeCheck( proxyHostLen, 1, CRYPT_MAX_TEXTSIZE ) );
-	memcpy( proxy, proxyHost, proxyHostLen );
-	proxy[ proxyHostLen ] = '\0';
-	GlobalFree( proxyHost );
-	return( CRYPT_OK );
-	}
-#endif /* 0 */
-
 #endif /* Win32 */
 
 #endif /* USE_TCP */

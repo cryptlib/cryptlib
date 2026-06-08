@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib Internal Attribute-list Manipulation API			*
-*						Copyright Peter Gutmann 1992-2008					*
+*						Copyright Peter Gutmann 1992-2024					*
 *																			*
 ****************************************************************************/
 

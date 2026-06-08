@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Plug-and-play PKI Routines					*
-*						 Copyright Peter Gutmann 1999-2008					*
+*						 Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -176,10 +176,12 @@ static int getCACert( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iNewCert,
 	/* Step through the certificate trust list checking each certificate in 
 	   turn to see if it's the identified CA/RA certificate.  Some CAs may 
 	   only send a single certificate in the CTL and not explicitly identify 
-	   it so if there's no certificate ID present we just use the first 
-	   one.  Note that the limit is given as FAILSAFE_ITERATIONS_MED since 
-	   we're using it as a fallback check on the maximum chain length allowed
-	   by the certificate-import code.  In other words anything over the
+	   it so if there's no certificate ID present then we just use the first 
+	   one.
+	   
+	   The loop limit is given as FAILSAFE_ITERATIONS_MED since we're using 
+	   it as a fallback check on the maximum chain length allowed by the 
+	   certificate-import code.  In other words anything over the 
 	   certificate-handling code's maximum chain length is handled as a 
 	   normal error and it's only if we exceed this that we have an internal 
 	   error */
@@ -195,11 +197,11 @@ static int getCACert( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iNewCert,
 
 		setMessageData( &msgData, ( MESSAGE_CAST ) certIDv2, 
 						certIDv2length );
-		LOOP_MED_CHECKINC( cryptStatusOK( status ),
-						   status = krnlSendMessage( iCTL, 
-										IMESSAGE_SETATTRIBUTE,
-										MESSAGE_VALUE_CURSORNEXT,
-										CRYPT_CERTINFO_CURRENT_CERTIFICATE ) )
+		LOOP_MED( status = CRYPT_OK, cryptStatusOK( status ),
+				  status = krnlSendMessage( iCTL, 
+									IMESSAGE_SETATTRIBUTE,
+									MESSAGE_VALUE_CURSORNEXT,
+									CRYPT_CERTINFO_CURRENT_CERTIFICATE ) )
 			{
 			ENSURES( LOOP_INVARIANT_MED_GENERIC() );
 
@@ -210,6 +212,7 @@ static int getCACert( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iNewCert,
 				/* We've found the identified certificate, we're done */
 				break;
 				}
+			status = CRYPT_OK;	/* Allow the loop to continue */
 			}
 		ENSURES( LOOP_BOUND_OK );
 		if( cryptStatusError( status ) )
@@ -274,7 +277,7 @@ static int generateKey( OUT_HANDLE_OPT CRYPT_CONTEXT *iPrivateKey,
 		/* The default algorithm type isn't available for this device, try 
 		   and fall back to an alternative.  Note that we don't have to
 		   create an #ifdef maze to handle optional algorithms because any 
-		   problems will be caught by the availablility check at the end */
+		   problems will be caught by the availability check at the end */
 		switch( pkcAlgo )
 			{
 			case CRYPT_ALGO_RSA:
@@ -537,6 +540,7 @@ static int updateSessionPrivateKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
    root.  This ensures that we can still build a full certificate chain even 
    if the PKIBoot trusted certificates aren't preserved */
 
+RETVAL \
 static int updateTrustedCerts( IN_HANDLE const CRYPT_HANDLE iCryptHandle,
 							   IN_HANDLE const CRYPT_HANDLE iLeafCert )
 	{
@@ -857,6 +861,11 @@ int pnpPkiSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		   signature key and certificates set up */
 		updateTrustedCerts( sessionInfoPtr->privKeyset, iPrivateKey1 );
 		krnlSendNotifier( iPrivateKey1, IMESSAGE_DECREFCOUNT );
+
+		ENSURES( CFI_CHECK_SEQUENCE_7( "isNamedObjectPresent", "transactFunction", 
+									   "getCACert", "createCertRequest", 
+									   "transactFunction", "updateKeys",
+									   "singleCert" ) );
 		return( CRYPT_OK );
 		}
 	if( cryptStatusError( status ) )

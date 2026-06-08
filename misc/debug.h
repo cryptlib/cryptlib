@@ -73,6 +73,15 @@
    recent compilers support this we have to enable it as required, in some
    cases using preprocessor kludges.
    
+   These kludges unfortunately don't fully emulate static_assert() since 
+   they can't display a message if the static assertion fails but will only
+   display a somewhat confusing compile-time error.  In theory to deal with 
+   this we could make the emulated static_assert() conditional on NDEBUG 
+   being defined so that the odd compile-time error isn't unexpected, but 
+   this both makes its behaviour incompatible with the actual 
+   static_assert() which is active regardless of the NDEBUG state, and also 
+   means we can miss conditions where it really would be needed.
+   
    In addition to the standard static_assert() we also define an alternative,
    static_assert_opt(), for cases where the compiler isn't tough enough to
    handle the standard static_assert().  This occurs with expressions like
@@ -144,7 +153,7 @@
      _ALL_SOURCE being defined, however using it produces an error
 	 "Undefined symbol: .static_assert" indicating it's not recognised by 
 	 the compiler even when the -qlanglvl=extended0x or 
-	 -qlanglvl=static_assert options are explicitly used.  Another suppposed
+	 -qlanglvl=static_assert options are explicitly used.  Another supposed
 	 way to test for this is via __IBMC_STATIC_ASSERT, but it seems to be 
 	 possible to enable it by mapping it to _Static_assert as for clang
 	 above */
@@ -257,7 +266,7 @@ void vsAssert( const char *exprString, const char *fileName,
   #define DEBUG_OP( x )				x
 #endif /* !DEBUG_PRINT */
 
-/* Output an I-am-here to the debugging outout (see above), useful when 
+/* Output an I-am-here to the debugging output (see above), useful when 
    tracing errors in code without debug symbols available.  Because __func__ 
    is a predefined string literal rather than a predefined macro/
    preprocessor symbol, it's a native-charset string on non-ASCII systems so 

@@ -3450,7 +3450,7 @@ static const ATTRIBUTE_ACL subACL_SessinfoUsername[] = {
 	MKACL_S(	/* TLS server: RW for client auth */
 		/* For TLS the username doesn't work like a standard user name but
 		   instead acts as a magic value to identify a shared secret in the
-		   session cache which is used to peform an TLS resume when the
+		   session cache which is used to perform a TLS resume when the
 		   client connects.  Multiple username/password combinations can be
 		   added, what's read back is either the last one added if the
 		   session hasn't been activated, or the one that was used to provide
@@ -4155,8 +4155,8 @@ static const ATTRIBUTE_ACL internalACL[] = {
 #else
 	MKACL_S_EX(	/* Ctx: SubjectPublicKeyInfo */
 		/* ECC keys are somewhat different, the lower bound is much smaller 
-		   but the key data consists of a point on a curve so it's calcuated
-		   as twice the minimum key size */
+		   but the key data consists of a point on a curve so it's 
+		   calculated as twice the minimum key size */
 		CRYPT_IATTRIBUTE_KEY_SPKI,
 		ST_CTX_PKC, ST_NONE, ST_NONE, 
 		MKPERM_INT( Rxx_xWx ), ATTRIBUTE_FLAG_TRIGGER,
@@ -4337,7 +4337,7 @@ static const ATTRIBUTE_ACL internalACL[] = {
 		/* Although we never need to extract the SPKI from a CRMF request, we
 		   have to be able to read it so we can do a presence check since we
 		   can't issue a cert without having a public key present (although
-		   this would be detcted later on, it allows us to report the error
+		   this would be detected later on, it allows us to report the error
 		   at an earlier stage by explicitly checking).  Since the same
 		   checks are also applied to PKCS #10 cert requests, we also have to
 		   make it readable for those */
@@ -4905,7 +4905,7 @@ static BOOLEAN aclConsistent( const ATTRIBUTE_ACL *attributeACL,
 				}
 			ENSURES_B( LOOP_BOUND_OK );
 
-			/* Make sure that all subtypes and acess settings in the main
+			/* Make sure that all subtypes and access settings in the main
 			   attribute are handled in the sub-attributes */
 			LOOP_MED( attributeACLPtr = getSpecialRangeInfo( attributeACL ), 
 					  attributeACLPtr->valueType != ATTRIBUTE_VALUE_NONE,

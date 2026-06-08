@@ -388,7 +388,7 @@ int createUser( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 				STDC_UNUSED const int auxValue )
 	{
 	CRYPT_USER iCryptUser;
-	const USER_INFO *userInfoPtr;
+	USER_INFO *userInfoPtr;
 #ifdef USE_KEYSETS
 	char userFileName[ 16 + 8 ];
 #endif /* USE_KEYSETS */

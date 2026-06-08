@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib OS-specific Support Routines					*
-*					  Copyright Peter Gutmann 1992-2024						*
+*					  Copyright Peter Gutmann 1992-2025						*
 *																			*
 ****************************************************************************/
 
@@ -251,7 +251,7 @@ int asciiToEbcdic( char *dest, const char *src, const int length )
 		{
 		ENSURES( LOOP_INVARIANT_MAX( i, 0, length - 1 ) );
 
-		dest[ i ] = asciiToEbcdicTbl[ ( unsigned int ) src[ i ] ];
+		dest[ i ] = asciiToEbcdicTbl[ byteToInt( src[ i ] ) ];
 		}
 	ENSURES( LOOP_BOUND_OK );
 
@@ -270,7 +270,7 @@ int ebcdicToAscii( char *dest, const char *src, const int length )
 		{
 		ENSURES( LOOP_INVARIANT_MAX( i, 0, length - 1 ) );
 
-		dest[ i ] = ebcdicToAsciiTbl[ ( unsigned int ) src[ i ] ];
+		dest[ i ] = ebcdicToAsciiTbl[ byteToInt( src[ i ] ) ];
 		}
 	ENSURES( LOOP_BOUND_OK );
 
@@ -436,6 +436,11 @@ int vsPrintf_s( INOUT_BUFFER_FIXED( bufSize ) char *buffer,
 
 	REQUIRES( isShortIntegerRangeNZ( bufSize ) );
 
+	/* In the following we assume (well, know since we're providing the 
+	   format string ourselves) that the string is well-formed, so we don't
+	   have to check for unusual conditions like a '\0' in the middle of a
+	   format specifier or similar.  This means that we can increment the 
+	   index value without a check at each point */
 	LOOP_LARGE( ( bufPos = 0, index = 0 ), \
 				bufPos < bufSize && ( ch = format[ index ] ) && ( ch != 0 ), 
 				index++ )
@@ -634,8 +639,8 @@ int sPrintf_s( char *buffer, const int bufSize, const char *format, ... )
 #ifdef __IAR_SYSTEMS_ICC__
   /* The IAR libraries don't provide any time functions, and since 
      gmtime_r() is a non-ANSI function there's no prototype for it in the
-	 IAR headers, although it is in the MQX headers but the IAR comiler can't
-	 seem to see it.  Because of this we have to provide it ourselves, 
+	 IAR headers, although it is in the MQX headers but the IAR compiler 
+	 can't seem to see it.  Because of this we have to provide it ourselves, 
 	 matching the MQX prototype */
   struct tm *gmtime_r( const time_t *timep, struct tm *result );
 #endif /* IAR compiler */
@@ -1907,11 +1912,11 @@ int asciiToUnicode( wchar_t *dest, const int destMaxLen,
 	assert( isReadPtrDynamic( src, length ) );
 	assert( isWritePtrDynamic( dest, destMaxLen ) );
 
-	/* Note that this function doens't terminate the string if the output is 
+	/* Note that this function doesn't terminate the string if the output is 
 	   filled, so it's essential that the caller check the return value to 
 	   ensure that they're getting a well-formed string */
-	status = MultiByteToWideChar( GetACP(), 0, src, destMaxLen, dest, 
-								  length );
+	status = MultiByteToWideChar( GetACP(), 0, src, length, dest, 
+								  destMaxLen );
 	return( status <= 0 ? CRYPT_ERROR_BADDATA : status * sizeof( wchar_t ) );
 	}
 
@@ -2042,10 +2047,10 @@ int stricmp( const char *src, const char *dest )
    to manually implement them in their code, as we do here.
    
    Note that these aren't completely identical to the OpenBSD functions, in 
-   order to fit the TR 24731 pattern we make the length the second paramter, 
-   and give them a TR 24731-like _s suffix to make them distinct from the 
-   standard OpenBSD ones (a macro in os_spec.h is sufficient to map this to 
-   the proper functions where they're available in libc).
+   order to fit the TR 24731 pattern we make the length the second 
+   parameter, and give them a TR 24731-like _s suffix to make them distinct 
+   from the standard OpenBSD ones (a macro in os_spec.h is sufficient to map 
+   this to the proper functions where they're available in libc).
    
    In addition they always return 1, since the length value isn't checked
    anywhere in the code  */
@@ -2735,13 +2740,23 @@ int initSysVars( void )
 
 /* Check for the presence of crypto hardware support.  This is something of 
    an exercise in futility because the crypto hardware is anything from 
-   slightly slower (very large data blocks) to much, much slower (more 
-   standard small data blocks) than software due to the overhead of getting
-   the data to and from the cryptologic and the cryptologic overhead. 
+   slightly slower (large data blocks) to much, much slower (more standard 
+   small data blocks) than software due to the overhead of getting the data 
+   through the API to and from the cryptologic, the cryptologic startup/
+   shutdown overhead, and in the case of /dev/crypto, in and out of the 
+   kernel.  The only place where it does matter is things like Cortex M3-
+   level SoCs, so a combination of lower-power CPUs, no instruction-level 
+   assist for crypto, and direct hardware access from the RTOS with no 
+   overhead where you just point the cryptologic at a block of memory and 
+   say "process this".
+   
    However, people really want to see the fancy crypto hardware used even if
    it yields a net loss in performance so we try and enable it if possible
-   unless it really is pointless, a slow software emulation of a slow 
-   hardware interface.
+   unless it really is pointless, just a software emulation (many 
+   /dev/crypto instances) where, assuming the crypto is provided by OpenSSL, 
+   you can end up in a situation where OpenSSL is calling into a kernel 
+   interface that then provides access to another, older and possibly 
+   unpatched, copy of OpenSSL code that's doing the crypto.
    
    Beyond this is the fact that although both the *BSDs and Linux have a
    /dev/crypto, the interface to it is completely different so that 
@@ -3127,7 +3142,7 @@ void unlockMemory( IN_BUFFER( size ) void *address,
    under some newer Linux variants the caller needs the specific 
    CAP_IPC_LOCK privilege rather than just generally being root).  
    
-   OSF/1 has mlock(), but this is defined to the nonexistant memlk() so we 
+   OSF/1 has mlock(), but this is defined to the nonexistent memlk() so we 
    need to special-case it out.  
    
    QNX (depending on the version) either doesn't have mlock() at all or it's 
@@ -3276,19 +3291,19 @@ int getBlockListInfo( IN_PTR_OPT const void *currentBlockPtr,
    In fact with older Windows incarnations like NT, their somewhat strange 
    paging strategy meant that it could potentially get paged even on a 
    completely unloaded system.  Even on relatively recent systems the 
-   gradual creeping takeover of free memory for disk buffers/cacheing can
+   gradual creeping takeover of free memory for disk buffers/caching can
    cause problems, something that was still affecting Win64 systems during
    the Windows 7 time frame.  Ironically the 1GB cache size limit on Win32
    systems actually helped here because the cache couldn't grow beyond this
    size and most systems had more than 1GB of RAM, while on Win64 systems 
    without this limit there was more scope for excessive reads and writes to 
-   consume all available memory due to cacheing.
+   consume all available memory due to caching.
 
    The lock-into-working-set approach was the original intention, however 
    the memory manager developers never got around to implementing the 
    unlock-if-all-threads idle part.  The behaviour of VirtualLock() was 
    evaluated back under Win2K and XP by trying to force data to be paged 
-   under various conditions, which were unsuccesful, so VirtualLock() under 
+   under various conditions, which were unsuccessful, so VirtualLock() under 
    these OSes seems to be fairly effective in keeping data off disk.  In 
    newer versions of Windows the contract for VirtualLock() was changed to 
    match the actual implemented behaviour, so that now "pages are guaranteed 
@@ -3389,7 +3404,12 @@ void unlockMemory( IN_BUFFER( size ) void *address,
 		{
 		VirtualUnlock( address, size );
 		if( pWerUnregisterExcludedMemoryBlock != NULL )
-			( void ) pWerUnregisterExcludedMemoryBlock( address );
+			{
+			HRESULT hResult;
+			
+			hResult = pWerUnregisterExcludedMemoryBlock( address );
+			assert( hResult == S_OK );
+			}
 		return;
 		}
 
@@ -3474,11 +3494,26 @@ void unlockMemory( IN_BUFFER( size ) void *address,
 	   irrelevant since the entire page that the memory block is in is 
 	   unlocked */
 	if( firstPageAddress )
-		VirtualUnlock( ( void * ) firstPageAddress, 16 );
+		{
+		BOOL result;
+		
+		result = VirtualUnlock( ( void * ) firstPageAddress, 16 );
+		assert( result );
+		}
 	if( secondPageAddress )
-		VirtualUnlock( ( void * ) secondPageAddress, 16 );
+		{
+		BOOL result;
+		
+		result = VirtualUnlock( ( void * ) secondPageAddress, 16 );
+		assert( result );
+		}
 	if( pWerUnregisterExcludedMemoryBlock != NULL )
-		( void ) pWerUnregisterExcludedMemoryBlock( address );
+		{
+		HRESULT hResult;
+			
+		hResult = pWerUnregisterExcludedMemoryBlock( address );
+		assert( hResult == S_OK );
+		}
 	}
 #endif /* OS-specific page-locking handling */
 
@@ -3501,10 +3536,12 @@ void unlockMemory( IN_BUFFER( size ) void *address,
    aligned malloc  */
 
 STDC_NONNULL_ARG( ( 1 ) ) \
-void *ptr_align( const void *ptr, const int units )
+void *ptr_align( const void *ptr, 
+				 IN_RANGE( 4, 16 ) const int units )
 	{
 	assert( isReadPtr( ptr, 1 ) );
-	assert( isShortIntegerRangeNZ( units ) );
+	assert( units == 4 || units == 8 || units == 16 );
+			/* Power of 2 required for the units - 1 bitmask */
 
 	return( ( void * ) ( ( BYTE * ) ptr + ( -( ( intptr_t )( ptr ) ) & ( units - 1 ) ) ) );
 	}
@@ -3532,6 +3569,13 @@ void *ptr_align( const void *ptr, const int units )
    compiler hasn't revealed any compiler braindamage in the handling of 
    this, so it should be handled correctly */
 
+#ifndef PTRDIFF_MIN
+  /* Some systems don't define PTRDIFF_MIN despite it having been around 
+     since C99, these are typically ancient 32-bit systems in which case it's
+     the same as INT_MIN */ 
+  #define PTRDIFF_MIN	INT_MIN
+#endif /* PTRDIFF_MIN */
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int ptr_diff( const void *ptr1, const void *ptr2 )
 	{
@@ -3544,12 +3588,15 @@ int ptr_diff( const void *ptr1, const void *ptr2 )
 	diff = ( const BYTE * ) ptr1 - ( const BYTE * ) ptr2;
 	if( diff < 0 )
 		{
-		/* The following can in theory overflow on PTRDIFF_MIN, which would 
-		   be INT_MIN for a signed integer, however we're only using this to
-		   check for small shifts due to alignment considerations via 
-		   ptr_align() so the two pointers shouldn't even be anywhere near 
-		   MAX_INTLENGTH_SHORT apart */
-		diff = -diff;
+		/* We have to check the following since it can in theory overflow on 
+		   PTRDIFF_MIN, which would be INT_MIN for a signed integer, however 
+		   we're only using this to check for small shifts due to alignment 
+		   considerations via ptr_align() so the two pointers shouldn't be 
+		   more than a few dozen bytes apart */
+		if( diff <= PTRDIFF_MIN )
+			diff = -1;
+		else
+			diff = -diff;
 		}
 	if( diff < 0 || diff >= MAX_INTLENGTH_SHORT )
 		return( -1 );

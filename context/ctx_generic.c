@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Generic-Secret Object Routines					*
-*						Copyright Peter Gutmann 1995-2009					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -45,8 +45,9 @@ static int selfTest( void )
    does anything */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
-static int initKey( CONTEXT_INFO *contextInfoPtr, const void *key, 
-					const int keyLength )
+static int initKey( CONTEXT_INFO *contextInfoPtr, 
+					IN_BUFFER( keyLength ) const void *key, 
+					IN_LENGTH_KEY const int keyLength )
 	{
 	GENERIC_INFO *genericInfo = contextInfoPtr->ctxGeneric;
 

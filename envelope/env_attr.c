@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Envelope Attribute Routines					*
-*					  Copyright Peter Gutmann 1996-2016						*
+*					  Copyright Peter Gutmann 1996-2025						*
 *																			*
 ****************************************************************************/
 
@@ -494,7 +494,7 @@ static int getCurrentAttributeInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		status = CRYPT_ERROR_NOTFOUND;
 		}
 
-	/* If we managed to get the private key (either bcause it wasn't 
+	/* If we managed to get the private key (either because it wasn't 
 	   protected by a password if it's in a keyset or because it came from a 
 	   device), push it into the envelope.  If the call succeeds this will 
 	   import the session key and delete the required-information list.
@@ -569,7 +569,6 @@ static int getSignatureResult( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	const ENV_ADDINFO_FUNCTION addInfoFunction = \
 					( ENV_ADDINFO_FUNCTION ) \
 					FNPTR_GET( envelopeInfoPtr->addInfoFunction );
-	CRYPT_HANDLE iCryptHandle;
 	const CONTENT_SIG_INFO *sigInfo;
 	CONTENT_LIST *contentListItem = \
 					DATAPTR_GET( envelopeInfoPtr->contentListCurrent );
@@ -654,7 +653,10 @@ static int getSignatureResult( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		{
 		/* Add the signature-check key with the special type 
 		   CRYPT_ENVINFO_SIGNATURE_RESULT to indicate that it's been 
-		   provided internally rather than being supplied by the user */
+		   provided internally rather than being supplied by the user.
+		   This triggers a signature check using the existing key and
+		   doesn't increment the reference count, so there's no need to
+		   perform a compensatory decrement after adding it */
 		*valuePtr = addInfoFunction( envelopeInfoPtr, 
 									 CRYPT_ENVINFO_SIGNATURE_RESULT, 
 									 sigInfo->iSigCheckKey );
@@ -701,26 +703,17 @@ static int getSignatureResult( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				     envelopeInfoPtr->iSigCheckKeyset,
 					 "Couldn't retrieve signature-check key from keyset" ) );
 		}
-	iCryptHandle = getkeyInfo.cryptHandle;
 
-	/* Push the public key into the envelope, which performs the signature 
-	   check.  Adding the key increments its reference count since the key 
-	   is usually user-supplied and we need to keep a reference for use by 
-	   the envelope, however since the key that we're using here is an 
-	   internal-use-only key we don't want to do this so we decrement it 
-	   again after it's been added.  In addition we add the signature-check 
-	   key with the special type CRYPT_ENVINFO_SIGNATURE_RESULT to indicate 
-	   that it's been provided internally rather than being user-supplied */
+	/* Add the public key that we've just fetched, which initiates the 
+	   signature check.  We add the signature-check key with the special 
+	   type CRYPT_ENVINFO_SIGNATURE_RESULT to indicate that it's been 
+	   provided internally rather than being user-supplied, and since we're 
+	   using an ephemeral internal-use-only key we delete it it again after 
+	   it's been added */
 	*valuePtr = addInfoFunction( envelopeInfoPtr, 
 								 CRYPT_ENVINFO_SIGNATURE_RESULT, 
-								 iCryptHandle );
-	krnlSendNotifier( iCryptHandle, IMESSAGE_DECREFCOUNT );
-
-	/* If the key wasn't used for the signature check (i.e. it wasn't stored 
-	   in the content list for later use, which means it isn't needed any 
-	   more), discard it */
-	if( sigInfo->iSigCheckKey == CRYPT_ERROR )
-		krnlSendNotifier( iCryptHandle, IMESSAGE_DECREFCOUNT );
+								 getkeyInfo.cryptHandle );
+	krnlSendNotifier( getkeyInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
 
 	return( CRYPT_OK );
 	}
@@ -801,7 +794,9 @@ static int getSignatureKey( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	   distinct from the externally-supplied original, replace the existing 
 	   one with the new one and return it to the caller */
 	krnlSendNotifier( sigInfo->iSigCheckKey, IMESSAGE_DECREFCOUNT );
-	*valuePtr = sigInfo->iSigCheckKey = sigCheckCert;
+	sigInfo->iSigCheckKey = sigCheckCert;
+	CLEAR_FLAG( contentListItem->flags, CONTENT_FLAG_EXTERNALKEY );
+	*valuePtr = sigInfo->iSigCheckKey;
 
 	return( CRYPT_OK );
 	}
@@ -1375,9 +1370,9 @@ int getEnvelopeAttributeS( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			}
 #endif /* USE_ERRMSGS */
 
-		/* We don't set extended error information for this atribute because 
-		   it's usually read in response to an existing error, which would 
-		   overwrite the existing error information */
+		/* We don't set extended error information for this attribute 
+		   because it's usually read in response to an existing error, 
+		   which would overwrite the existing error information */
 		return( CRYPT_ERROR_NOTFOUND );
 		}
 	if( attribute == CRYPT_ENVINFO_PRIVATEKEY_LABEL )
@@ -1634,7 +1629,7 @@ int setEnvelopeAttribute( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		}
 
 	/* Make sure that the attribute is valid for the envelope usage type.
-	   A useage of ACTION_NONE means that the attribute requires special-
+	   A usage of ACTION_NONE means that the attribute requires special-
 	   case checking that's outside the scope of the basic ACL */
 	if( usage != ACTION_NONE )
 		{
@@ -1668,7 +1663,7 @@ int setEnvelopeAttribute( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		/* Make sure that the object corresponds to a representable algorithm
 		   type.  Note that this check isn't totally foolproof on de-
 		   enveloping PGP data since the user can push in the hash context 
-		   before they push in the signed data (to signifiy the use of a 
+		   before they push in the signed data (to signify the use of a 
 		   detached signature) so it'd be checked using the default (CMS) 
 		   algorithm values rather than the PGP ones */
 		if( checkType == MESSAGE_CHECK_PKC_ENCRYPT || \
@@ -1919,7 +1914,14 @@ int setEnvelopeAttributeS( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 						  "Key for recipient can't be used for encryption" ) );
 				}
 
-			/* We got the key, add it to the envelope */
+			/* We got the key, add it to the envelope.  Passing the key to 
+			   addInfoFunction() increments its reference count since the 
+			   key is usually user-supplied and we need to keep a reference 
+			   for use by the envelope, however since the key that we're 
+			   using here is an ephemeral internal-use-only one we don't 
+			   want to do this so we decrement it again after it's been
+			   added.  This doesn't delete it but keeps it internal to the
+			   envelope at its original reference count */
 			status = addInfoFunction( envelopeInfoPtr, 
 									  CRYPT_ENVINFO_PUBLICKEY,
 									  getkeyInfo.cryptHandle );

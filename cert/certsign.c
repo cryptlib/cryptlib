@@ -609,7 +609,7 @@ static int checkSigningKey( INOUT_PTR CERT_INFO *certInfoPtr,
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO,
 					  "Issuer certificate ECC domain parameters don't "
-					  "match %s domain parameteres",
+					  "match %s domain parameters",
 					  getCertTypeNameLC( certInfoPtr->type ) ) );
 			}
 		}
@@ -1548,7 +1548,7 @@ int signCert( INOUT_PTR CERT_INFO *certInfoPtr,
 				  getCertTypeNameLC( certInfoPtr->type ) ) );
 		}
 
-	/* Create the signed certifcate object */
+	/* Create the signed certificate object */
 	status = createSignedObject( certInfoPtr, issuerCertInfoPtr, 
 								 iSignContext, signatureLevel, 
 								 extraDataLength, hashAlgo, hashParam,

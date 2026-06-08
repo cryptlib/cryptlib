@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								Kernel Self-Test							*
-*						Copyright Peter Gutmann 1997-2020					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -185,7 +185,9 @@ static BOOLEAN testSafetyMechanisms( void )
 
 	/* Test the function-call CFI protection mechanism */
 	if( !testCFITrue( MK_TOKEN( "testCFITrue" ) ) || \
-		!testCFIFalse( MK_TOKEN( "testCFITrue" ) ) ) 
+		testCFITrue( MK_TOKEN( "testCFIFalse" ) ) || \
+		!testCFIFalse( MK_TOKEN( "testCFITrue" ) ) || \
+		testCFIFalse( MK_TOKEN( "testCFIFalse" ) ) ) 
 		return( FALSE );
 	CFI_CHECK_UPDATE( "CFI" ); 
 
@@ -287,7 +289,8 @@ static BOOLEAN testSafetyMechanisms( void )
 		return( FALSE ); - No LOOP_SMALL_REV_ALT */
 	CFI_CHECK_UPDATE( "loops" ); 
 
-	/* Test the buffer overrun protection */
+	/* Test the buffer overrun protection.  The entire cookie is checked so
+	   we only need to corrupt one byte to test the mechanism */
 	memset( buffer, 0, SAFE_BUFFER_COOKIE_SIZE + SAFE_BUFFER_SIZE + \
 					   SAFE_BUFFER_COOKIE_SIZE );
 	bufPtr = SAFEBUFFER_PTR( buffer );
@@ -304,9 +307,13 @@ static BOOLEAN testSafetyMechanisms( void )
 	bufPtr[ -1 ] = savedValue;
 	if( !safeBufferCheck( bufPtr, SAFE_BUFFER_SIZE ) )
 		return( FALSE );	/* Redo basic check */
+	savedValue = bufPtr[ SAFE_BUFFER_SIZE + 2 ];
 	bufPtr[ SAFE_BUFFER_SIZE + 2 ]++;
 	if( safeBufferCheck( bufPtr, SAFE_BUFFER_SIZE ) )
 		return( FALSE );	/* Corrupt buffer end */
+	bufPtr[ SAFE_BUFFER_SIZE + 2 ] = savedValue;
+	if( !safeBufferCheck( bufPtr, SAFE_BUFFER_SIZE ) )
+		return( FALSE );	/* Redo basic check */
 	CFI_CHECK_UPDATE( "buffers" ); 
 
 	/* Test the sequence-point CFI mechanism */
@@ -461,14 +468,14 @@ static BOOLEAN checkNumericRange( IN_HANDLE const CRYPT_CONTEXT iCryptContext )
 						 CRYPT_CTXINFO_KEYING_ITERATIONS ) != CRYPT_OK )
 		return( FALSE );
 	value = MAX_KEYSETUP_ITERATIONS / 2;	/* Mid-range */
-	krnlSendMessage( iCryptContext, IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CTXINFO_KEYING_ITERATIONS );
+	( void ) krnlSendMessage( iCryptContext, IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CTXINFO_KEYING_ITERATIONS );
 	if( krnlSendMessage( iCryptContext, IMESSAGE_SETATTRIBUTE, &value,
 						 CRYPT_CTXINFO_KEYING_ITERATIONS ) != CRYPT_OK )
 		return( FALSE );
 	value = MAX_KEYSETUP_ITERATIONS;		/* Upper bound */
-	krnlSendMessage( iCryptContext, IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CTXINFO_KEYING_ITERATIONS );
+	( void ) krnlSendMessage( iCryptContext, IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CTXINFO_KEYING_ITERATIONS );
 	if( krnlSendMessage( iCryptContext, IMESSAGE_SETATTRIBUTE, &value,
 						 CRYPT_CTXINFO_KEYING_ITERATIONS ) != CRYPT_OK )
 		return( FALSE );
@@ -519,15 +526,15 @@ static BOOLEAN checkStringRange( IN_HANDLE const CRYPT_CONTEXT iCryptContext )
 		return( FALSE );
 	/* Mid-range */
 	setMessageData( &msgData, buffer, CRYPT_MAX_HASHSIZE / 2 );
-	krnlSendMessage( iCryptContext, IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CTXINFO_KEYING_SALT );
+	( void ) krnlSendMessage( iCryptContext, IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CTXINFO_KEYING_SALT );
 	if( krnlSendMessage( iCryptContext, IMESSAGE_SETATTRIBUTE_S, &msgData,
 						 CRYPT_CTXINFO_KEYING_SALT ) != CRYPT_OK )
 		return( FALSE );
 	/* Upper bound */
 	setMessageData( &msgData, buffer, CRYPT_MAX_HASHSIZE );
-	krnlSendMessage( iCryptContext, IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CTXINFO_KEYING_SALT );
+	( void ) krnlSendMessage( iCryptContext, IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CTXINFO_KEYING_SALT );
 	if( krnlSendMessage( iCryptContext, IMESSAGE_SETATTRIBUTE_S, &msgData,
 						 CRYPT_CTXINFO_KEYING_SALT ) != CRYPT_OK )
 		return( FALSE );
@@ -694,26 +701,26 @@ static BOOLEAN checkTimeRange( IN_HANDLE const CRYPT_CONTEXT iCryptCertificate )
 		return( FALSE );
 	timeVal = MAX_TIME_VALUE - ( ( MAX_TIME_VALUE - MIN_TIME_VALUE ) / 2 );	
 									/* Mid-range */
-	krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CERTINFO_VALIDFROM );
+	( void ) krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CERTINFO_VALIDFROM );
 	if( krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE_S, &msgData,
 						 CRYPT_CERTINFO_VALIDFROM ) != CRYPT_OK )
 		return( FALSE );
 	timeVal = MAX_TIME_VALUE - 1;	/* Upper bound */
-	krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CERTINFO_VALIDFROM );
+	( void ) krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CERTINFO_VALIDFROM );
 	if( krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE_S, &msgData,
 						 CRYPT_CERTINFO_VALIDFROM ) != CRYPT_OK )
 		return( FALSE );
 	timeVal = MAX_TIME_VALUE;		/* Upper bound fencepost error */
-	krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CERTINFO_VALIDFROM );
+	( void ) krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CERTINFO_VALIDFROM );
 	if( krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE_S, &msgData,
 						 CRYPT_CERTINFO_VALIDFROM ) != CRYPT_ARGERROR_STR1 )
 		return( FALSE );
 	timeVal = MAX_TIME_VALUE + ( 365 * 86400 );	/* Above */
-	krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CERTINFO_VALIDFROM );
+	( void ) krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CERTINFO_VALIDFROM );
 	if( krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE_S, &msgData,
 						 CRYPT_CERTINFO_VALIDFROM ) != CRYPT_ARGERROR_STR1 )
 		return( FALSE );
@@ -744,8 +751,8 @@ static BOOLEAN checkAllowedValuesRange( IN_HANDLE const CRYPT_CONTEXT iCryptCert
 	if( krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE_S, &msgData,
 						 CRYPT_CERTINFO_IPADDRESS ) != CRYPT_OK )
 		return( FALSE );
-	krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CERTINFO_IPADDRESS );
+	( void ) krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CERTINFO_IPADDRESS );
 	krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE, &value,
 					 CRYPT_ATTRIBUTE_CURRENT );
 	setMessageData( &msgData, buffer, 5 );	/* Above, allowed value 1 */
@@ -760,10 +767,10 @@ static BOOLEAN checkAllowedValuesRange( IN_HANDLE const CRYPT_CONTEXT iCryptCert
 	if( krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE_S, &msgData,
 						 CRYPT_CERTINFO_IPADDRESS ) != CRYPT_OK )
 		return( FALSE );
-	krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CERTINFO_IPADDRESS );
-	krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE, &value,
-					 CRYPT_ATTRIBUTE_CURRENT );
+	( void ) krnlSendMessage( iCryptCertificate, IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CERTINFO_IPADDRESS );
+	( void ) krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE, &value,
+							  CRYPT_ATTRIBUTE_CURRENT );
 	setMessageData( &msgData, buffer, 17 );	/* Above, allowed value 2 */
 	if( krnlSendMessage( iCryptCertificate, IMESSAGE_SETATTRIBUTE_S, &msgData,
 						 CRYPT_CERTINFO_IPADDRESS ) != CRYPT_ARGERROR_NUM1 )
@@ -846,7 +853,7 @@ static BOOLEAN testKernelMechanisms( void )
 		{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 	static const int blockSize = 8, keySize = 24;
 #endif /* DEFAULT_ALGO_AES */
-	BYTE buffer[ 128 + 8 ];
+	BYTE buffer[ 64 + 8 ];
 	int value, status;
 
 	/* Verify object creation */
@@ -1073,7 +1080,7 @@ static BOOLEAN testKernelMechanisms( void )
 		return( FALSE );
 		}
 
-	/* Verify functioning of kernel range-checking, phase 6: Special-case
+	/* Verify functioning of kernel range-checking, phase 5: Special-case
 	   checks, allowed values */
 	if( !checkAllowedValuesRange( iCryptHandle ) )
 		{

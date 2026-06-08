@@ -307,11 +307,12 @@ static int addSigningTime( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttributes,
 						   IN_HANDLE const CRYPT_DEVICE iTimeSource )
 	{
 	MESSAGE_DATA msgData;
-	const time_t currentTime = getReliableTime( iTimeSource, 
-												GETTIME_MINUTES );
+	time_t currentTime;
 
 	REQUIRES( isHandleRangeValid( iCmsAttributes ) );
+	REQUIRES( isHandleRangeValid( iTimeSource ) );
 
+	currentTime = getReliableTime( iTimeSource, GETTIME_MINUTES );
 	if( currentTime < MIN_TIME_VALUE )
 		return( CRYPT_ERROR_NOTINITED );
 	setMessageData( &msgData, ( MESSAGE_CAST ) &currentTime,
@@ -414,7 +415,7 @@ static void addSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttribu
 
 CHECK_RETVAL \
 static int checkSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttributes,
-									IN_HANDLE const CRYPT_CERTIFICATE iSignContext )
+									IN_HANDLE const CRYPT_CERTIFICATE iSigCheckContext )
 	{
 	CRYPT_CERTIFICATE iCryptCert;
 	MESSAGE_DATA msgData DUMMY_INIT_STRUCT;
@@ -424,7 +425,7 @@ static int checkSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttrib
 	int hashSize DUMMY_INIT, status;
 
 	REQUIRES( isHandleRangeValid( iCmsAttributes ) );
-	REQUIRES( isHandleRangeValid( iSignContext ) );
+	REQUIRES( isHandleRangeValid( iSigCheckContext ) );
 
 	/* Try and get the signingCertificate identifier */
 	setMessageData( &msgData, essCertID, 
@@ -444,8 +445,9 @@ static int checkSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttrib
 		}
 	if( cryptStatusError( status ) )
 		{
-		/* Neither of the two types of ESSCertID is present, there's nothing
-		   to do */
+		/* Neither of the two types of ESSCertID is present or, for the v2 
+		   ID, it's present in some form that we can't work with, there's 
+		   nothing to do */
 		return( CRYPT_OK );
 		}
 
@@ -457,7 +459,8 @@ static int checkSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttrib
 		return( CRYPT_ERROR_SIGNATURE );
 
 	/* If it's an ESSCertIDv2, make sure that it's a form that we can 
-	   handle */
+	   handle.  This isn't necessary for the basic ESSCertID because only
+	   one form is possible */
 	if( isESSCertIDv2 && \
 		memcmp( essCertID, ESSCERTIDv2_HEADER, ESSCERTIDv2_HEADER_SIZE ) )
 		{
@@ -467,8 +470,15 @@ static int checkSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttrib
 
 	/* Lock the certificate for our exclusive use, select the first 
 	   certificate in the chain, get its cert hash, and unlock it again to 
-	   allow others access */
-	status = krnlSendMessage( iSignContext, IMESSAGE_GETDEPENDENT, 
+	   allow others access.
+	   
+	   What to return in case of an error in these internal functions is a
+	   bit unclear particularly since they're should-never-occur cases, we
+	   haven't failed the comparison so technically it's not a signature-
+	   validation failure but it also means that we've got a certificate ID
+	   that we should be checking but couldn't, so we mark it as a signature
+	   error */
+	status = krnlSendMessage( iSigCheckContext, IMESSAGE_GETDEPENDENT, 
 							  &iCryptCert, OBJECT_TYPE_CERTIFICATE );
 	if( cryptStatusOK( status ) )
 		{
@@ -477,7 +487,7 @@ static int checkSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttrib
 								  CRYPT_IATTRIBUTE_LOCKED );
 		}
 	if( cryptStatusError( status ) )
-		return( CRYPT_OK );
+		return( CRYPT_ERROR_SIGNATURE );
 	status = krnlSendMessage( iCryptCert, IMESSAGE_SETATTRIBUTE, 
 							  MESSAGE_VALUE_CURSORFIRST, 
 							  CRYPT_CERTINFO_CURRENT_CERTIFICATE );
@@ -494,7 +504,7 @@ static int checkSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttrib
 	( void ) krnlSendMessage( iCryptCert, IMESSAGE_SETATTRIBUTE, 
 							  MESSAGE_VALUE_FALSE, CRYPT_IATTRIBUTE_LOCKED );
 	if( cryptStatusError( status ) )
-		return( CRYPT_OK );
+		return( CRYPT_ERROR_SIGNATURE );
 
 	/* We've now got a copy of the required certificate hash and the actual
 	   certificate hash, make sure that they match up */
@@ -509,10 +519,11 @@ static int checkSigningCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttrib
    fact that the signing algorithm information in the signerInfo is an 
    unauthenticated attribute so it can be swapped out by an attacker for a 
    different one.  This isn't a problem for PKCS #1 RSA which encodes the
-   algorithm information in the signature, but it is for (EC)DLP signatures.  
+   algorithm information in the signature, but it is for PSS RSA and (EC)DLP 
+   signatures.  
    
    The chance of this being exploitable for the vulnerable signature types 
-   is minmal for cryptlib since the supported hash algorithms all have 
+   is minimal for cryptlib since the supported hash algorithms all have 
    different lengths, but other implementations may not have this safety 
    margin */
 
@@ -544,6 +555,21 @@ static int addAlgorithmProtection( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttribu
 								  ( MESSAGE_CAST ) &hashAlgoValue, 
 								  CRYPT_CERTINFO_CMS_ALGORITHMPROTECTION_HASH );
 		}
+#if 0	/* There's currently no way to pass the hash algorithm parameter 
+		   down through the various layers to get to writeAlgoIDex() because 
+		   the CRYPT_CERTINFO_CMS_ALGORITHMPROTECTION_HASH attribute only 
+		   takes a single value rather than a value with footnotes, and it's 
+		   not worth kludging this to add the footnotes because the most 
+		   that an attacker can do is reduce (say) SHA2-512 to SHA2-256, 
+		   neither of which are vulnerable to anything, made even more so
+		   because cmsAlgorithmProtection is virtually never used */
+	if( cryptStatusOK( status ) )
+		{
+		status = krnlSendMessage( iCmsAttributes, IMESSAGE_SETATTRIBUTE, 
+								  ( MESSAGE_CAST ) &hashAlgoValue, 
+								  CRYPT_CERTINFO_CMS_ALGORITHMPROTECTION_HASHPARAM );
+		}
+#endif /* 0 */
 
 	return( status );
 	}
@@ -563,7 +589,10 @@ static int checkAlgorithmProtection( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttri
 
 	/* Check that the algorithms indicated in the cmsContentProtection 
 	   attribute match the (otherwise unauthenticated) algorithms that we've
-	   been using */
+	   been using.
+	   
+	   See the note in addAlgorithmProtection() for why we don't do anything
+	   with the hashParam */
 	status = krnlSendMessage( iSigCheckContext, IMESSAGE_GETATTRIBUTE, 
 							  &sigAlgorithm, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusOK( status ) )
@@ -697,7 +726,7 @@ static void addSmimeCapabilities( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttribut
 	ENSURES_V( LOOP_BOUND_OK );
 	ENSURES_V( i < FAILSAFE_ARRAYSIZE( smimeCapInfo, SMIMECAP_INFO ) );
 
-	/* Add any futher non-algorithm-related sMIMECapabilities */
+	/* Add any further non-algorithm-related sMIMECapabilities */
 	( void ) krnlSendMessage( iCmsAttributes, IMESSAGE_SETATTRIBUTE,
 							  MESSAGE_VALUE_UNUSED,
 							  CRYPT_CERTINFO_CMS_SMIMECAP_PREFERBINARYINSIDE );
@@ -1114,9 +1143,9 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 		   large-enough size, but at the moment we take advantage of the 
 		   fact that we're only going to be called from the enveloping code 
 		   because a timestamp only makes sense as a countersignature on CMS 
-		   data.  It's somewhat ugly because it asumes internal knowledge of 
-		   the envelope abstraction but there isn't really any clean way to 
-		   handle this because we can't tell in advance how much data the 
+		   data.  It's somewhat ugly because it assumes internal knowledge 
+		   of the envelope abstraction but there isn't really any clean way 
+		   to handle this because we can't tell in advance how much data the 
 		   TSA will send us.
 
 		   In theory the code doesn't even need to return an estimate 
@@ -1181,9 +1210,9 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 
 	/* Check whether we're dealing with a certificate.  This is used to 
 	   allow for more detailed error reporting if something goes wrong */
-	status = krnlSendMessage( sigCheckContext, IMESSAGE_GETATTRIBUTE, 
-							  &value, CRYPT_CERTINFO_CERTTYPE );
-	if( cryptStatusOK( status ) )
+	status = krnlSendMessage( iSigCheckKey, IMESSAGE_GETATTRIBUTE, 
+							  &value, CRYPT_IATTRIBUTE_TYPE );
+	if( cryptStatusOK( status ) && value == OBJECT_TYPE_CERTIFICATE )
 		isCertificate = TRUE;
 	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE" );
 
@@ -1367,7 +1396,7 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 							  &value, CRYPT_CERTINFO_CMS_SIGNINGCERTIFICATEV2 );
 	if( cryptStatusOK( status ) )
 		{
-		status = checkSigningCertificate( iLocalExtraData, sigCheckContext );
+		status = checkSigningCertificate( iLocalExtraData, iSigCheckKey );
 		if( cryptStatusError( status ) )
 			{
 			krnlSendNotifier( iLocalExtraData, IMESSAGE_DECREFCOUNT );

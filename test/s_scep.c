@@ -38,11 +38,6 @@ typedef enum {
 	SCEP_TEST_CUSTOMEXT,		/* Add custom extension to request */
 	SCEP_TEST_RENEW,			/* Renew existing certificate */
 	SCEP_TEST_RENEW_SIGONLY,	/* Renew sig-only existing certificate */
-	SCEP_TEST_CORRUPT_TRANSACTIONID, /* Detect corruption of transaction ID */
-	SCEP_TEST_CORRUPT_TRANSIDVALUE, /* Detect corruption of trans.ID data */
-	SCEP_TEST_CORRUPT_MESSAGETYPE, /* Detect corruption of message type */
-	SCEP_TEST_CORRUPT_NONCE,	/* Detect corruption of sender/recipNonce */
-	SCEP_TEST_CORRUPT_AUTHENTICATOR, /* Detect corruption of password */
 	SCEP_TEST_LAST				/* Last possible CMP test type */
 	} SCEP_TEST_TYPE;
 
@@ -140,9 +135,10 @@ typedef enum {
 		         :           }
 		         :         }
 	
-		  https://interop.redwax.eu/rs/scep/
+		  https://interop.redwax.eu/rs/scep/.  Has been 503 for some time.
 	
-	#14: Alternative Redwax test server that fixes the above issue.
+	#14: Alternative Redwax test server that fixes the above issue.  No 
+		 longer available (502 Bad gateway).
 	
 	#15 - openXpki test server.  Fails with an internal server error if AES 
 	      is used.  No longer available.
@@ -686,9 +682,11 @@ static int connectSCEP( const BOOLEAN localSession,
 	const C_STR passwordPtr = scepInfo[ SCEP_NO ].password;
 #endif /* cryptlib SCEP server */
 	char filenameBuffer[ FILENAME_BUFFER_SIZE ];
-	const BOOLEAN isErrorTest = ( testType >= SCEP_TEST_CORRUPT_TRANSACTIONID && \
-								  testType < SCEP_TEST_LAST ) ? \
-								  TRUE : FALSE;
+#if defined( CONFIG_FAULTS ) 
+	const BOOLEAN isErrorTest = TRUE;
+#else
+	const BOOLEAN isErrorTest = FALSE;
+#endif /* CONFIG_FAULTS */
 	BOOLEAN addCACert = ( testType == SCEP_TEST_CACERT ) ? FALSE : TRUE;
 #ifdef SCEP_BROKEN_CA_CERT
 	int complianceValue;
@@ -718,7 +716,7 @@ static int connectSCEP( const BOOLEAN localSession,
 #if ( SCEP_NO == 1 )
 	/* If we're doing a loopback test, make sure that the required user info
 	   is present.  If it isn't, the CA auditing will detect a request from
-	   a nonexistant user and refuse to issue a certificate */
+	   a nonexistent user and refuse to issue a certificate */
 	if( !pkiGetUserInfo( NULL, NULL, NULL, TEXT( "Test SCEP PKI user" ) ) )
 		{
 		puts( "CA certificate store doesn't contain the PKI user "
@@ -978,24 +976,6 @@ static int connectSCEP( const BOOLEAN localSession,
 		return( FALSE );
 		}
 
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
-	/* If we're testing fault handling, inject the appropriate fault type */
-	if( isErrorTest )
-		{
-		cryptSetFaultType( ( testType == SCEP_TEST_CORRUPT_TRANSACTIONID ) ? \
-							 FAULT_CORRUPT_ID : \
-						   ( testType == SCEP_TEST_CORRUPT_TRANSIDVALUE ) ? \
-							 FAULT_SESSION_SCEP_CORRUPT_TRANSIDVALUE : \
-						   ( testType == SCEP_TEST_CORRUPT_MESSAGETYPE ) ? \
-							 FAULT_SESSION_SCEP_CORRUPT_MESSAGETYPE : \
-						   ( testType == SCEP_TEST_CORRUPT_NONCE ) ? \
-							 FAULT_SESSION_CORRUPT_NONCE : \
-						   ( testType == SCEP_TEST_CORRUPT_AUTHENTICATOR ) ? \
-							 FAULT_CORRUPT_AUTHENTICATOR : \
-						   	 FAULT_NONE );
-		}
-#endif /* CONFIG_FAULTS && Debug */
-
 	/* Activate the session */
 	status = cryptSetAttribute( cryptSession, CRYPT_SESSINFO_ACTIVE, TRUE );
 	while( status == CRYPT_ENVELOPE_RESOURCE && retryCount < 5 )
@@ -1015,15 +995,23 @@ static int connectSCEP( const BOOLEAN localSession,
 		{
 		printExtError( cryptSession, "Attempt to activate SCEP client "
 					   "session", status, __LINE__ );
-		if( isErrorTest )
+#if defined( CONFIG_FAULTS )
+		if( expectedFaultType != FAULT_SESSION_SCEP_CORRUPT_TRANSIDVALUE && \
+			status != expectedFaultStatus && \
+			expectedFaultStatus != CRYPT_OK )
 			{
-			/* These tests are supposed to fail, so if this happens then the 
-			   overall test has succeeded */
-			cryptDestroySession( cryptSession );
-			puts( "  (This test checks error handling, so the failure "
-				  "response is correct).\n" );
-			return( TRUE );
+			printf( "Expected fault error %d, got %d.\nHit a key...",
+					expectedFaultStatus, status );
+			( void ) getchar();
 			}
+
+		/* These tests are supposed to fail, so if this happens then the 
+		   overall test has succeeded */
+		cryptDestroySession( cryptSession );
+		puts( "  (This test checks error handling, so the failure "
+			  "response is correct).\n" );
+		return( TRUE );
+#endif /* CONFIG_FAULTS */
 		if( isServerDown( cryptSession, status ) )
 			{
 			fputs( "  (Server could be down, faking it and "
@@ -1040,13 +1028,14 @@ static int connectSCEP( const BOOLEAN localSession,
 		cryptDestroySession( cryptSession );
 		return( FALSE );
 		}
-	if( isErrorTest )
+#if defined( CONFIG_FAULTS )
+	if( expectedFaultType != FAULT_NONE )
 		{
-		cryptDestroySession( cryptSession );
-		puts( "  (This test should have led to a failure but "
-			  "didn't, test has failed).\n" );
-		return( FALSE );
+		printf( "Expected fault error %d but got success.\nHit a key...",
+				expectedFaultStatus );
+		( void ) getchar();
 		}
+#endif /* CONFIG_FAULTS */
 
 #ifdef SCEP_BROKEN_CA_CERT
 	/* Restore normal certificate checking */
@@ -1251,6 +1240,16 @@ static int scepServer( const int mutexBehaviour,
 		{
 		cryptKeysetClose( cryptCertStore );
 		cryptDestroyContext( cryptCAKey );
+#if defined( CONFIG_FAULTS )
+		if( expectedFaultType == FAULT_SESSION_SCEP_CORRUPT_TRANSIDVALUE && \
+			status != expectedFaultStatus && \
+			expectedFaultStatus != CRYPT_OK )
+			{
+			printf( "Expected fault error %d, got %d.\nHit a key...",
+					expectedFaultStatus, status );
+			( void ) getchar();
+			}
+#endif /* CONFIG_FAULTS */
 		return( extErrorExit( cryptSession, "SVR: Attempt to activate SCEP "
 							  "server session", status, __LINE__ ) );
 		}
@@ -1437,20 +1436,26 @@ int testSessionSCEPRenewSigonlyClientServer( void )
 
 int testSessionSCEPClientServerDebugCheck( void )
 	{
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
-	cryptSetFaultType( FAULT_NONE );
-	if( !scepClientServer( SCEP_TEST_CORRUPT_TRANSACTIONID, CRYPT_ALGO_RSA ) )
+#if defined( CONFIG_FAULTS ) 
+	fputs( "Testing SCEP error handling...\n", outputStream );
+	setFaultInfo( FAULT_CORRUPT_ID, CRYPT_ERROR_SIGNATURE );
+	if( !scepClientServer( SCEP_TEST_NORMAL, CRYPT_ALGO_RSA ) )
 		return( FALSE );	/* Detect corruption of transaction ID */
-	if( !scepClientServer( SCEP_TEST_CORRUPT_TRANSIDVALUE, CRYPT_ALGO_RSA ) )
+	setFaultInfo( FAULT_SESSION_SCEP_CORRUPT_TRANSIDVALUE, CRYPT_ERROR_BADDATA );
+	if( !scepClientServer( SCEP_TEST_NORMAL, CRYPT_ALGO_RSA ) )
 		return( FALSE );	/* Detect corruption of trans.ID data */
-	if( !scepClientServer( SCEP_TEST_CORRUPT_MESSAGETYPE, CRYPT_ALGO_RSA ) )
+	setFaultInfo( FAULT_SESSION_SCEP_CORRUPT_MESSAGETYPE, CRYPT_ERROR_PERMISSION );
+	if( !scepClientServer( SCEP_TEST_NORMAL, CRYPT_ALGO_RSA ) )
 		return( FALSE );	/* Detect corruption of message type */
-	if( !scepClientServer( SCEP_TEST_CORRUPT_NONCE, CRYPT_ALGO_RSA ) )
+	setFaultInfo( FAULT_SESSION_CORRUPT_NONCE, CRYPT_ERROR_SIGNATURE );
+	if( !scepClientServer( SCEP_TEST_NORMAL, CRYPT_ALGO_RSA ) )
 		return( FALSE );	/* Detect corruption of sender/recipNonce */
-	if( !scepClientServer( SCEP_TEST_CORRUPT_AUTHENTICATOR, CRYPT_ALGO_RSA ) )
+	setFaultInfo( FAULT_CORRUPT_AUTHENTICATOR, CRYPT_ERROR_PERMISSION );
+	if( !scepClientServer( SCEP_TEST_NORMAL, CRYPT_ALGO_RSA ) )
 		return( FALSE );	/* Detect corruption of password */
 	cryptSetFaultType( FAULT_NONE );
-#endif /* CONFIG_FAULTS && Debug */
+	fputs( "SCEP error handling self-test succeeded.\n\n", outputStream );
+#endif /* CONFIG_FAULTS */
 	return( TRUE );
 	}
 #endif /* TEST_SESSION_LOOPBACK */

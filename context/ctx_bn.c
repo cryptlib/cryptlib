@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Bignum Support Routines					*
-*						Copyright Peter Gutmann 1995-2021					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -124,7 +124,7 @@ BOOLEAN sanityCheckBNCTX( const BN_CTX *bnCTX )
 	{
 	assert( isReadPtr( bnCTX, sizeof( BN_CTX ) ) );
 
-	if( bnCTX->bnArrayMax < 0 || bnCTX->bnArrayMax > BN_CTX_ARRAY_SIZE )
+	if( bnCTX->bnArrayMax < 0 || bnCTX->bnArrayMax >= BN_CTX_ARRAY_SIZE )
 		return( FALSE );
 	if( bnCTX->stackPos < 0 || bnCTX->stackPos >= BN_CTX_ARRAY_SIZE )
 		return( FALSE );
@@ -240,10 +240,12 @@ BIGNUM *BN_new( void )
 STDC_NONNULL_ARG( ( 1 ) ) \
 void BN_free( INOUT_PTR BIGNUM *bignum )
 	{
+	const int flags = bignum->flags;
+	
 	assert( isWritePtr( bignum, sizeof( BIGNUM ) ) );
 
 	BN_clear( bignum );
-	if( bignum->flags & BN_FLG_MALLOCED )
+	if( flags & BN_FLG_MALLOCED )
 		clFree( "BN_free", bignum );
 	}
 
@@ -318,8 +320,12 @@ void BN_swap( INOUT_PTR BIGNUM *bignum1, INOUT_PTR BIGNUM *bignum2 )
 	assert( isWritePtr( bignum2, sizeof( BIGNUM ) ) );
 
 	REQUIRES_V( bignum1 != bignum2 );
-	REQUIRES_V( !( bignum1->flags & BN_FLG_STATIC_DATA ) );
-	REQUIRES_V( !( bignum1->flags & BN_FLG_STATIC_DATA ) );
+	REQUIRES_V( !( bignum1->flags & ( BN_FLG_STATIC_DATA | \
+									  BN_FLG_ALLOC_EXT | \
+									  BN_FLG_ALLOC_EXT2 ) ) );
+	REQUIRES_V( !( bignum2->flags & ( BN_FLG_STATIC_DATA | \
+									  BN_FLG_ALLOC_EXT | \
+									  BN_FLG_ALLOC_EXT2 ) ) );
 
 	BN_init( &tmp );
 	CKPTR( BN_copy( &tmp, bignum1 ) );
@@ -633,7 +639,7 @@ BOOLEAN BN_clear_top( INOUT_PTR BIGNUM *bignum,
 /* The BN_CTX code up until about 2000 (or cryptlib 3.21) used to be just an 
    array of BN_CTX_NUM = 32 BIGNUMs.  After that it was replaced by an 
    awkward pool/stack combination that makes something relatively 
-   straighforward quite complex.  What's needed is a way of stacking and
+   straightforward quite complex.  What's needed is a way of stacking and
    unstacking blocks of BN_CTX_get()s in nested functions:
 
 	BN_foo()
@@ -789,7 +795,7 @@ CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1 ) ) \
 BIGNUM *BN_CTX_get( INOUT_PTR BN_CTX *bnCTX )
 	{
 	BIGNUM *bignum;
-	const int arrayIndex = bnCTX->stack[ bnCTX->stackPos ] + 1;
+	int arrayIndex = bnCTX->stack[ bnCTX->stackPos ];
 
 	assert( isWritePtr( bnCTX, sizeof( BN_CTX ) ) );
 
@@ -804,11 +810,13 @@ BIGNUM *BN_CTX_get( INOUT_PTR BN_CTX *bnCTX )
 	REQUIRES_N( sanityCheckBNCTX( bnCTX ) );
 
 	/* Get the element at the previous top-of-stack */
-	bignum = &bnCTX->bnArray[ arrayIndex - 1 ];
+	REQUIRES_N( rangeCheck( arrayIndex, 0, BN_CTX_ARRAY_SIZE - 1 ) );
+	bignum = &bnCTX->bnArray[ arrayIndex ];
 	ENSURES_N( sanityCheckBignum( bignum ) && BN_is_zero( bignum ) );
 
 	/* Advance the top-of-stack element by one, and increase the last-used 
-	   postion if it exceeds the existing one */
+	   position if it exceeds the existing one */
+	arrayIndex++;
 	bnCTX->stack[ bnCTX->stackPos ] = arrayIndex;
 	if( arrayIndex > bnCTX->bnArrayMax )
 		{
@@ -988,7 +996,8 @@ BOOLEAN BN_MONT_CTX_set( INOUT_PTR BN_MONT_CTX *bnMontCTX,
 						 INOUT_PTR BN_CTX *bnCTX )
 	{
 	BIGNUM *R, *modWord;
-	const int Nbits = roundUp( BN_num_bits( mod ), BN_BITS2 );
+	const int modBits = BN_num_bits( mod );
+	const int Nbits = roundUp( modBits, BN_BITS2 );
 	const int flags = bnMontCTX->flags;
 	int bnStatus = BN_STATUS;
 
@@ -1000,6 +1009,7 @@ BOOLEAN BN_MONT_CTX_set( INOUT_PTR BN_MONT_CTX *bnMontCTX,
 				!BN_is_negative( mod ) );
 	REQUIRES_B( sanityCheckBNCTX( bnCTX ) );
 	REQUIRES_B( BN_cmp( &bnMontCTX->N, mod ) );	/* Ensure not already set */
+	REQUIRES_B( !cryptStatusError( modBits ) );
 
 	/* Clear the Montgomery context entries and record the modulus.  We need
 	   to preserve the flags around the init since this records details such
@@ -1036,7 +1046,7 @@ BOOLEAN BN_MONT_CTX_set( INOUT_PTR BN_MONT_CTX *bnMontCTX,
 	CK( BN_set_word( modWord, mod->d[ 0 ] ) );
 	if( bnStatusError( bnStatus ) )
 		{
-		BN_CTX_end( bnCTX );
+		BN_CTX_end_ext( bnCTX, BIGNUM_EXT_MONT );
 		return( FALSE );
 		}
 	ENSURES_B( BN_is_odd( modWord ) );
@@ -1058,7 +1068,7 @@ BOOLEAN BN_MONT_CTX_set( INOUT_PTR BN_MONT_CTX *bnMontCTX,
 		}
 	if( bnStatusError( bnStatus ) )
 		{
-		BN_CTX_end( bnCTX );
+		BN_CTX_end_ext( bnCTX, BIGNUM_EXT_MONT );
 		return( FALSE );
 		}
 
@@ -1123,6 +1133,7 @@ BOOLEAN BN_from_montgomery( INOUT_PTR BIGNUM *ret,
 	assert( isReadPtr( bnMontCTX, sizeof( BN_MONT_CTX ) ) );
 	assert( isWritePtr( bnCTX, sizeof( BN_CTX ) ) );
 
+	REQUIRES_B( sanityCheckBignum( ret ) );
 	REQUIRES_B( sanityCheckBignum( aTmp ) && !BN_is_zero( aTmp ) && \
 				!BN_is_negative( aTmp ) );
 	REQUIRES_B( ret != aTmp );
@@ -1172,7 +1183,9 @@ BOOLEAN BN_from_montgomery( INOUT_PTR BIGNUM *ret,
 	/* Perform the final transformation using a constant-time operation in 
 	   which, if there's a borrow due to the subtraction, we copy out the 
 	   computed result, otherwise we perform a dummy copy of the same data 
-	   into an unused memory location */
+	   into an unused memory location.  In theory there's a one or two-cycle
+	   difference due to the branch but this shouldn't be measurable among
+	   all the other noise */
 	if( bn_sub_words( ret->d, aData + nLen, N->d, nLen ) - carry != 0 )
 		{
 		/* There was a borrow, perform the actual copy */
@@ -1291,6 +1304,7 @@ BOOLEAN BN_RECP_CTX_set( INOUT_PTR BN_RECP_CTX *bnRecpCTX,
 
 	/* Initialise metadata fields */
 	bnRecpCTX->num_bits = BN_num_bits( d );
+	ENSURES_B( !cryptStatusError( bnRecpCTX->num_bits  ) );
 
 	return( TRUE );
 	}

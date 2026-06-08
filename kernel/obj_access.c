@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Object Alternative Access						*
-*						Copyright Peter Gutmann 1997-2019					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -35,7 +35,7 @@
   #pragma comment( lib, "C:/Program Files/Intel/VTune/Analyzer/Lib/libittnotify.lib" )
 
   #define THREAD_NOTIFY_PREPARE( id )	__itt_notify_sync_prepare( ( void * ) id );
-  #define THREAD_NOTIFY_CANCELLED( id )	__itt_notify_sync_prepare( ( void * ) id );
+  #define THREAD_NOTIFY_CANCELLED( id )	__itt_notify_sync_cancelled( ( void * ) id );
   #define THREAD_NOTIFY_ACQUIRED( id )	__itt_notify_sync_acquired( ( void * ) id );
   #define THREAD_NOTIFY_RELEASED( id )	__itt_notify_sync_releasing( ( void * ) id );
 #else
@@ -111,7 +111,8 @@ static int checkAccessValid( IN_HANDLE const int objectHandle,
 	REQUIRES( cryptStatusError( errorCode ) );
 
 	/* Perform similar access checks to the ones performed in
-	   krnlSendMessage(): It's a valid object owned by the calling
+	   krnlSendMessage(): It's a valid object (already checked above but 
+	   present here for documentation purposes) owned by the calling 
 	   thread */
 	if( !isValidObject( objectHandle ) || \
 		!checkObjectOwnership( objectTable[ objectHandle ] ) )
@@ -268,7 +269,8 @@ static int getObject( IN_HANDLE const int objectHandle,
 	THREAD_NOTIFY_PREPARE( objectHandle );
 	MUTEX_LOCK( objectTable );
 	objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
-	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+	REQUIRES_MUTEX( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ),
+					objectTable );
 
 	/* Perform similar access checks to the ones performed in
 	   krnlSendMessage(), as well as situation-specific additional checks 
@@ -382,6 +384,7 @@ static int releaseObject( IN_HANDLE const int objectHandle,
 
 	/* Preconditions */
 	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
+	REQUIRES( isValidHandle( objectHandle ) );
 	REQUIRES( isEnumRange( checkType, ACCESS_CHECK ) );
 	REQUIRES( ( ( checkType == ACCESS_CHECK_EXTACCESS || \
 				  checkType == ACCESS_CHECK_KEYACCESS ) && \
@@ -392,7 +395,8 @@ static int releaseObject( IN_HANDLE const int objectHandle,
 	THREAD_NOTIFY_PREPARE( objectHandle );
 	MUTEX_LOCK( objectTable );
 	objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
-	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ) );
+	REQUIRES_MUTEX( checkBuiltinStorage( SYSTEM_STORAGE_OBJECT_TABLE ),
+					objectTable );
 
 	/* Preconditions: It's a valid object in use by the caller.  Since these 
 	   checks require access to the object table we can only perform them 
@@ -611,7 +615,10 @@ int extractKeyData( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
 		return( CRYPT_ARGERROR_OBJECT );
 		}
 
-	/* Export the key data from the context */
+	/* Export the key data from the context.  The REQUIRES() checks (which if
+	   triggered would exit without releasing the object) are never 
+	   triggered because the preceding checks prevent this, they exist to 
+	   document that the memcpy() is safe */
 	switch( contextInfoPtr->type )
 		{
 		case CONTEXT_CONV:
@@ -843,9 +850,9 @@ int importPrivateKeyData( IN_BUFFER( privKeyDataLen ) const void *privKeyData,
 			}
 		if( cryptStatusOK( status ) )
 			{
-			krnlSendMessage( iCryptContext, IMESSAGE_SETATTRIBUTE, 
-							 MESSAGE_VALUE_UNUSED, 
-							 CRYPT_IATTRIBUTE_INITIALISED );
+			status = krnlSendMessage( iCryptContext, IMESSAGE_SETATTRIBUTE, 
+									  MESSAGE_VALUE_UNUSED, 
+									  CRYPT_IATTRIBUTE_INITIALISED );
 			SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_KEY_SET );
 			}
 		else

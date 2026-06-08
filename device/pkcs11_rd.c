@@ -444,7 +444,7 @@ int getEccCurveInfo( INOUT_PTR PKCS11_INFO *pkcs11Info,
 /* Report details on why a get-item operation failed.  Since this may be
    called from within another part of cryptlib, we provide apparently-
    redundant information such as the device type and name alongside the
-   obvious error messag */
+   obvious error message */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int reportGetItemError( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
@@ -1265,7 +1265,7 @@ static int searchDeviceObjects( INOUT_PTR PKCS11_INFO *pkcs11Info,
 			}
 
 		/* Check whether this certificate meets the match criteria.  If 
-		   we're matching on keyID thn we have to create the context 
+		   we're matching on keyID then we have to create the context 
 		   associated with the certificate in order to calculate the keyID, 
 		   otherwise we use a data-only certificate */
 		cryptStatus = instantiateCert( pkcs11Info, hMatchObject, &iMatchCert, 

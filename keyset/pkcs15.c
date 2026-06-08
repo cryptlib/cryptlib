@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  cryptlib PKCS #15 Routines						*
-*						Copyright Peter Gutmann 1996-2019					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -182,7 +182,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5 ) ) \
 int getCertID( IN_HANDLE const CRYPT_HANDLE iCryptHandle, 
 			   IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE nameType, 
 			   OUT_BUFFER( nameIdMaxLen, *nameIdLen ) BYTE *nameID, 
-			   IN_LENGTH_SHORT_MIN( KEYID_SIZE ) const int nameIdMaxLen,
+			   IN_LENGTH_FIXED( KEYID_SIZE ) const int nameIdMaxLen,
 			   OUT_LENGTH_BOUNDED_Z( nameIdMaxLen ) int *nameIdLen )
 	{
 	HASH_FUNCTION_ATOMIC hashFunctionAtomic;
@@ -197,7 +197,7 @@ int getCertID( IN_HANDLE const CRYPT_HANDLE iCryptHandle,
 			  nameType == CRYPT_IATTRIBUTE_ISSUERANDSERIALNUMBER || \
 			  nameType == CRYPT_IATTRIBUTE_SUBJECT || \
 			  nameType == CRYPT_IATTRIBUTE_ISSUER );
-	REQUIRES( isShortIntegerRangeMin( nameIdMaxLen, KEYID_SIZE ) );
+	REQUIRES( nameIdMaxLen == KEYID_SIZE );
 
 	/* Clear return value */
 	*nameIdLen = 0;
@@ -280,12 +280,6 @@ PKCS15_INFO *findEntry( IN_ARRAY( noPkcs15objects ) const PKCS15_INFO *pkcs15inf
 
 		ENSURES_N( sanityCheckPKCS15( pkcs15infoPtr ) );
 
-		/* If we've already got a wildcard match and we've found a second
-		   potential match, there's an ambiguity over what we should be 
-		   returning */
-		if( pkcs15infoWildcardMatch != NULL )
-			return( NULL );
-
 		/* If there's an explicit usage requested, make sure that the key 
 		   usage matches this.  This can get slightly complex because the 
 		   advertised usage isn't necessarily the same as the usage 
@@ -311,8 +305,15 @@ PKCS15_INFO *findEntry( IN_ARRAY( noPkcs15objects ) const PKCS15_INFO *pkcs15inf
 		   match as a generic "get me whatever you can" */
 		if( isWildcardMatch )
 			{
+			/* If there's no private-key data present, continue */
 			if( pkcs15infoPtr->privKeyData == NULL )
-				continue;	/* No private-key data present, continue */
+				continue;
+
+			/* If we've already got a wildcard match and we've found a 
+			   second potential match, there's an ambiguity over what we 
+			   should be returning */
+			if( pkcs15infoWildcardMatch != NULL )
+				return( NULL );
 
 			/* We've found a potential wildcard match, remember it and 
 			   continue */
@@ -550,16 +551,16 @@ int getValidityInfo( INOUT_PTR PKCS15_INFO *pkcs15info,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readPkcs15EncapsHeader( INOUT_PTR STREAM *stream,
-								   OUT_PTR long *endPosPtr )
+								   OUT_PTR int *encapsLength )
 	{
-	long length;
-	int tag, innerLength, status;
+	long value;
+	int tag, length, innerLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( endPosPtr, sizeof( long ) ) );
+	assert( isWritePtr( encapsLength, sizeof( int ) ) );
 
 	/* Clear return value */
-	*endPosPtr = 0;
+	*encapsLength = 0;
 
 	/* The outer header was a CMS AuthData wrapper, try again for an inner 
 	   PKCS #15 header.  First we skip the AuthData SET OF RECIPIENTINFO, 
@@ -595,29 +596,35 @@ static int readPkcs15EncapsHeader( INOUT_PTR STREAM *stream,
 		readOctetStringHole( stream, NULL, 16, DEFAULT_TAG );
 		}
 	status = readSequence( stream, &innerLength );
-	if( cryptStatusOK( status ) )
-		{
-		long value;
+	if( cryptStatusOK( status ) && \
+		( innerLength < MIN_P15_OBJECT_SIZE || \
+		  innerLength >= MAX_BUFFER_SIZE ) )
+		status = CRYPT_ERROR_BADDATA;
+	if( cryptStatusError( status ) )
+		return( status );
 
-		*endPosPtr = innerLength;
-		status = readShortInteger( stream, &value );
-		if( cryptStatusOK( status ) && value != 0 )
-			status = CRYPT_ERROR_BADDATA;
-		}
+	/* Read the version number and record the length of the remaining 
+	   payload */
+	status = readShortInteger( stream, &value );
+	if( cryptStatusOK( status ) && value != 0 )
+		status = CRYPT_ERROR_BADDATA;
+	if( cryptStatusError( status ) )
+		return( status );
+	REQUIRES( !checkOverflowSub( innerLength, sizeofShortInteger( 0 ) ) );
+	*encapsLength = innerLength - sizeofShortInteger( 0 );
 
-	return( status );
+	return( CRYPT_OK );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int readPkcs15header( INOUT_PTR STREAM *stream, 
-							 OUT_INT_Z long *endPosPtr,
+							 OUT_INT_Z int *endPosPtr,
 							 INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	long endPos;
-	int value, currentPos, status;
+	int payloadSize, currentPos, offset, isPlainContent, tag, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( endPosPtr, sizeof( long ) ) );
+	assert( isWritePtr( endPosPtr, sizeof( int ) ) );
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	/* Clear return value */
@@ -627,7 +634,7 @@ static int readPkcs15header( INOUT_PTR STREAM *stream,
 	   valid */
 	status = readCMSheader( stream, keyFileOIDinfo, 
 							FAILSAFE_ARRAYSIZE( keyFileOIDinfo, OID_INFO ), 
-							&value, &endPos, 
+							&isPlainContent, &payloadSize, 
 							READCMS_FLAG_DEFINITELENGTH_OPT );
 	if( cryptStatusError( status ) )
 		{
@@ -635,11 +642,11 @@ static int readPkcs15header( INOUT_PTR STREAM *stream,
 				( CRYPT_ERROR_BADDATA, errorInfo, 
 				  "Invalid PKCS #15 keyset header" ) );
 		}
-	if( value == FALSE )
+	if( !isPlainContent )
 		{
 		/* The outer header was a CMS AuthData wrapper, try again for an 
 		   inner PKCS #15 header */
-		status = readPkcs15EncapsHeader( stream, &endPos );
+		status = readPkcs15EncapsHeader( stream, &payloadSize );
 		if( cryptStatusError( status ) )
 			{
 			retExt( CRYPT_ERROR_BADDATA, 
@@ -651,34 +658,30 @@ static int readPkcs15header( INOUT_PTR STREAM *stream,
 	/* If it's indefinite-length data, don't try and go any further (the 
 	   general length check below will also catch this, but we make the 
 	   check explicit here) */
-	if( endPos == CRYPT_UNUSED )
+	if( payloadSize == CRYPT_UNUSED )
 		{
 		retExt( CRYPT_ERROR_BADDATA, 
 				( CRYPT_ERROR_BADDATA, errorInfo, 
 				  "Can't process indefinite-length PKCS #15 content" ) );
 		}
 
-	/* Make sure that the length information is sensible.  readCMSheader() 
-	   reads the version number field at the start of the content so we have 
-	   to adjust the stream position for this when we calculate the data end 
-	   position */
-	status = calculateStreamObjectLength( stream, sizeofShortInteger( 0 ), 
-										  &currentPos );
-	if( cryptStatusError( status ) || currentPos < MIN_P15_OBJECT_SIZE || \
-		endPos < 16 + MIN_P15_OBJECT_SIZE || \
-		checkOverflowAdd( currentPos, endPos ) || \
-		currentPos + endPos >= MAX_BUFFER_SIZE )
+	/* Make sure that the length information is sensible */
+	currentPos = stell( stream );
+	ENSURES( !cryptStatusError( currentPos ) );
+	if( payloadSize < MIN_P15_OBJECT_SIZE || \
+		checkOverflowAdd( currentPos, payloadSize ) || \
+		currentPos + payloadSize >= MAX_BUFFER_SIZE )
 		{
 		retExt( CRYPT_ERROR_BADDATA, 
 				( CRYPT_ERROR_BADDATA, errorInfo, 
 				  "Invalid PKCS #15 keyset length information" ) );
 		}
-	*endPosPtr = currentPos + endPos;	/* Checked earlier */
+	*endPosPtr = currentPos + payloadSize;	/* Checked above */
 
 	/* Skip the key management information if there is any and read the 
 	   inner wrapper */
-	if( checkStatusPeekTag( stream, status, value ) && \
-		value == MAKE_CTAG( 0 ) )
+	if( checkStatusPeekTag( stream, status, tag ) && \
+		tag == MAKE_CTAG( 0 ) )
 		{
 		status = readUniversal( stream );
 		if( cryptStatusError( status ) )
@@ -690,8 +693,11 @@ static int readPkcs15header( INOUT_PTR STREAM *stream,
 
 	/* Make sure that, after skipping the key management data, there's still 
 	   some payload left */
-	REQUIRES( !checkOverflowSub( endPos, MIN_P15_OBJECT_SIZE ) );
-	if( stell( stream ) >= endPos - MIN_P15_OBJECT_SIZE )
+	status = streamOffsetFromPosition( stream, currentPos, &offset );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( checkOverflowSub( payloadSize, offset ) || \
+		payloadSize - offset < MIN_P15_OBJECT_SIZE )
 		return( CRYPT_ERROR_BADDATA );
 
 	return( CRYPT_OK );
@@ -714,8 +720,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	{
 	PKCS15_INFO *pkcs15info;
 	STREAM *stream = &keysetInfoPtr->keysetFile->stream;
-	long endPos DUMMY_INIT;
-	int status;
+	int endPos DUMMY_INIT, status;
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
 

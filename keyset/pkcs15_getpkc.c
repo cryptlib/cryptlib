@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib PKCS #15 Get Public/Private Key				*
-*						Copyright Peter Gutmann 1996-2009					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -189,7 +189,10 @@ int readPublicKeyComponents( IN_PTR const PKCS15_INFO *pkcs15infoPtr,
 			status = dynCreate( &pubKeyDB, iDataCert, 
 								CRYPT_IATTRIBUTE_SPKI );
 			if( cryptStatusError( status ) )
+				{
+				krnlSendNotifier( iDataCert, IMESSAGE_DECREFCOUNT );
 				return( status );
+				}
 			sMemConnect( &stream, dynData( pubKeyDB ),
 						 dynLength( pubKeyDB ) );
 			status = iCryptReadSubjectPublicKey( &stream, &iCryptContext,
@@ -466,6 +469,8 @@ static int verifyEncKey( INOUT_HANDLE CRYPT_CONTEXT *iCryptContext,
 	krnlSendNotifier( iMacContext, IMESSAGE_DECREFCOUNT );
 	if( cryptStatusError( status ) )
 		{
+		krnlSendNotifier( iDerivedCryptContext, IMESSAGE_DECREFCOUNT );
+
 		/* We convert any failure status encountered at this point into a 
 		   generic signature-check failure, which makes explicit what's 
 		   going on */
@@ -535,7 +540,10 @@ int readPrivateKeyComponents( IN_PTR const PKCS15_INFO *pkcs15infoPtr,
 				 privKeyTotalSize - privKeyStartOffset );
 	status = tag = peekTag( &stream );
 	if( cryptStatusError( status ) )
+		{
+		sMemDisconnect( &stream );
 		return( status );
+		}
 	if( isStorageObject )
 		{
 		BYTE storageID[ KEYID_SIZE + 8 ];
@@ -569,6 +577,7 @@ int readPrivateKeyComponents( IN_PTR const PKCS15_INFO *pkcs15infoPtr,
 		{
 		if( tag != MAKE_CTAG( CTAG_OV_DIRECTPROTECTED ) )
 			{
+			sMemDisconnect( &stream );
 			retExt( CRYPT_ERROR_NOTAVAIL, 
 					( CRYPT_ERROR_NOTAVAIL, errorInfo, 
 					  "Unrecognised private-key protection type %02X", 
@@ -615,7 +624,8 @@ int readPrivateKeyComponents( IN_PTR const PKCS15_INFO *pkcs15infoPtr,
 	if( cryptStatusOK( status ) )
 		{
 		encryptedContentLength = contentQueryInfo.size;
-		if( !isShortIntegerRangeNZ( encryptedContentLength ) )
+		if( !isShortIntegerRangeMin( encryptedContentLength, 
+									 MIN_P15_OBJECT_SIZE ) )
 			status = CRYPT_ERROR_BADDATA;
 		if( cryptStatusOK( status ) )
 			{
@@ -626,13 +636,6 @@ int readPrivateKeyComponents( IN_PTR const PKCS15_INFO *pkcs15infoPtr,
 			{
 			status = sSkip( &stream, encryptedContentLength, 
 							MAX_INTLENGTH_SHORT );
-			}
-		if( cryptStatusOK( status ) && \
-			!isShortIntegerRangeMin( encryptedContentLength, 
-									 MIN_P15_OBJECT_SIZE ) )
-			{
-			/* Too-small object */
-			status = CRYPT_ERROR_BADDATA;
 			}
 		}
 	if( cryptStatusOK( status ) && isAuthEnc )

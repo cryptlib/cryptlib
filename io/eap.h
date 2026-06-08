@@ -433,10 +433,12 @@ typedef struct {
 	} EAP_PARAMS;
 
 #define setEAPParamsExt( params, paramType, paramSubtype, paramOptions ) \
+	{ \
 	memset( ( params ), 0, sizeof( EAP_PARAMS ) ); \
 	( params )->type = paramType; \
 	( params )->subType = paramSubtype; \
-	( params )->paramOpt = paramOptions; 
+	( params )->paramOpt = paramOptions; \
+	}
 
 #define setEAPParams( params, paramType, paramSubtype ) \
 		setEAPParamsExt( params, paramType, paramSubtype, CRYPT_UNUSED )
@@ -501,7 +503,7 @@ void setStreamLayerEAPread( INOUT_PTR NET_STREAM_INFO *netStream );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
 int writeRADIUSMessage( INOUT_PTR STREAM *stream,
 						INOUT_PTR EAP_INFO *eapInfo,
-						const EAP_PARAMS *eapParams,
+						IN_PTR const EAP_PARAMS *eapParams,
 						IN_BUFFER( dataLength ) const void *data,
 						IN_LENGTH_SHORT const int dataLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \

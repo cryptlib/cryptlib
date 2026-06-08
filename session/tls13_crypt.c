@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib TLS 1.3 Crypto Routines						*
-*					 Copyright Peter Gutmann 2019-2024						*
+*					 Copyright Peter Gutmann 2019-2025						*
 *																			*
 ****************************************************************************/
 
@@ -146,8 +146,11 @@ static int createHkdfLabel( OUT_BUFFER( dataMaxLength, *dataLength ) \
 
 	assert( isWritePtrDynamic( data, dataMaxLength ) );
 	assert( isWritePtr( dataLength, sizeof( int ) ) );
-	assert( ( hash == NULL ) || \
+	assert( ( hash == NULL && hashLength == 0 ) || \
+			( hash == NULL && rangeCheck( hashLength, 32, 64 ) ) || \
 			isReadPtrDynamic( hash, hashLength ) );
+			/* hash == NULL, hashLength == nonzero means use a hash of that 
+			   size of an empty string */
 
 	REQUIRES( isShortIntegerRangeMin( hkdfOutputLength, 8 ) );
 	REQUIRES( isShortIntegerRangeMin( dataMaxLength, 32 ) );
@@ -156,6 +159,7 @@ static int createHkdfLabel( OUT_BUFFER( dataMaxLength, *dataLength ) \
 			  ( hashLength == bitsToBytes( 256 ) || \
 				hashLength == bitsToBytes( 384 ) || \
 				hashLength == bitsToBytes( 512 ) ) );
+			  /* Hash may be NULL or non-NULL when length is given */
 
 	/* Clear return values */
 	REQUIRES( isShortIntegerRangeNZ( dataMaxLength ) );
@@ -277,9 +281,8 @@ int initCryptGCMTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	MESSAGE_DATA msgData;
 	BYTE ivBuffer[ CRYPT_MAX_IVSIZE + 8 ];
 	const BYTE *ivPtr;
-	long seqNo;
+	int seqNo, status;
 	LOOP_INDEX i;
-	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
@@ -333,7 +336,7 @@ int initCryptGCMTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int createSessionHashTLS13( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 						    IN_HANDLE const CRYPT_CONTEXT iHashContext,
-							const BOOLEAN isServerVerify )
+							IN_BOOL const BOOLEAN isServerVerify )
 	{
 	MESSAGE_CREATEOBJECT_INFO createInfo;
 	MESSAGE_DATA msgData;
@@ -541,7 +544,11 @@ int createFinishedTLS13( OUT_BUFFER( finishedValueMaxLen, \
 		HKDF-Extract( HKDF #3, "c hs traffic",			// HKDF #3a
 					  Hash( ClientHello || ServerHello, 32 )
 		HKDF-Extract( HKDF #3, "s hs traffic",			// HKDF #3b
-					  Hash( ClientHello || ServerHello, 32 ) */
+					  Hash( ClientHello || ServerHello, 32 ) 
+
+   The calls to macFunctionAtomic() occasionally use the same memory block
+   for input and output values, this is fine because no output is written
+   until the entire input has been consumed */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int createHandshakeSecret( INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo )
@@ -807,10 +814,17 @@ static int recreateSecurityContexts( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		}
 #endif /* USE_POLY1305 */
 	if( cryptStatusError( status ) )
+		{
+		/* Exit without destroying any of the newly-created contexts, the
+		   cleanup will be handled in 
+		   session/tls_keymgmt.c:destroySecurityContextsTLS() when the
+		   session shuts down */
 		return( status );
+		}
 
 	/* If we're using GCM then we also need to change the encryption mode 
-	   from the default CBC */
+	   from the default CBC.  As before, context cleanup will be handled 
+	   when the session is shut down */
 	if( TEST_FLAG( sessionInfoPtr->protocolFlags, TLS_PFLAG_GCM ) ) 
 		{
 		static const int mode = CRYPT_MODE_GCM;	/* int vs.enum */
@@ -926,7 +940,7 @@ static int loadKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Compute HKDF #Xb and load the IVs.  For GCM in TLS 1.2 there was an
 	   explicit and implicit portion of the IV but for TLS 1.3 it's been
-	   changed to use the same mechanism as the Bernstein protcol suite, a 
+	   changed to use the same mechanism as the Bernstein protocol suite, a 
 	   96-bit value that's XOR'd with the sequence number */
 	static_assert( BERNSTEIN_IV_SIZE == GCM_IV_SIZE,
 				   "GCM vs. Bernstein IV size" );
@@ -1038,6 +1052,7 @@ void testTLS13Zoo( void )
 	int finishedLen, status;
 
 	memset( &sessionInfo, 0, sizeof( SESSION_INFO ) );
+	memset( tlsInfo, 0, sizeof( TLS_INFO ) );
 	sessionInfo.sessionTLS = tlsInfo;
 	SET_FLAG( ( &sessionInfo )->flags, SESSION_FLAG_ISSERVER );
 	setMessageCreateObjectInfo( &createInfo, CRYPT_ALGO_AES );

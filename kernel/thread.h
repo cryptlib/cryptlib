@@ -1398,8 +1398,8 @@ ID threadSelf( void );
 #define NONSCALAR_HANDLES
 
 /* Mutex management functions.  Mongoose OS mutexes are reentrant, but also
-   dyamically allocated, so we have to handle them somewhat differently from
-   the usual user-allocates-storage mutexes */
+   dynamically allocated, so we have to handle them somewhat differently 
+   from the usual user-allocates-storage mutexes */
 
 #define MUTEX_LOCKNAME( name )	&krnlData->name##Mutex
 #define MUTEX_DECLARE_STORAGE( name ) \
@@ -1526,7 +1526,7 @@ ID threadSelf( void );
 		_mutex_unlock( &krnlData->name##Mutex )
 
 /* Thread management functions.  MQX's task creation is weird in that it 
-   doesn't take task parameters like any other OS but requres an integer 
+   doesn't take task parameters like any other OS but requires an integer 
    that identifies an entry in a list of task templates that was specified at 
    compile time.  This is weird in that we can't simply start an arbitrary 
    task by specifying its function name but have to refer to it indirectly.

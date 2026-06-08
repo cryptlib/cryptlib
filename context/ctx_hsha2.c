@@ -409,7 +409,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	digestSize = capabilityInfoPtr->blockSize;
 
-	/* If the key size is larger than tha SHA2 data size, reduce it to the
+	/* If the key size is larger than the SHA2 data size, reduce it to the
 	   SHA2 hash size before processing it (yuck.  You're required to do this
 	   though) */
 	if( keyLength > SHA256_BLOCK_SIZE )

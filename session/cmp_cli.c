@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib CMP Client Management						*
-*						Copyright Peter Gutmann 1999-2020					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -23,12 +23,14 @@
 *																			*
 ****************************************************************************/
 
-/* Map request to response types */
+/* Map request to response types.  CRYPT_REQUESTTYPE_CERTIFICATE can also 
+   map to CTAG_PB_P10CR for a PKCS #10 request rather than a CRMF request,
+   but in practice everyone uses CRMF with CMP so we don't need to special-
+   case this possibility */
 
-static const MAP_TABLE clibReqReqMapTbl[] = {
+static const MAP_TABLE clibReqToReqMapTbl[] = {
 	{ CRYPT_REQUESTTYPE_INITIALISATION, CTAG_PB_IR },
 	{ CRYPT_REQUESTTYPE_CERTIFICATE, CTAG_PB_CR },
-	{ CRYPT_REQUESTTYPE_CERTIFICATE, CTAG_PB_P10CR },
 	{ CRYPT_REQUESTTYPE_KEYUPDATE, CTAG_PB_KUR },
 	{ CRYPT_REQUESTTYPE_REVOCATION, CTAG_PB_RR },
 	{ CRYPT_REQUESTTYPE_PKIBOOT, CTAG_PB_GENM },
@@ -42,8 +44,8 @@ static int clibReqToReq( IN_ENUM( CRYPT_REQUESTTYPE ) const int reqType )
 
 	REQUIRES( isEnumRange( reqType, CRYPT_REQUESTTYPE ) );
 
-	status = mapValue( reqType, &value, clibReqReqMapTbl, 
-					   FAILSAFE_ARRAYSIZE( clibReqReqMapTbl, MAP_TABLE ) );
+	status = mapValue( reqType, &value, clibReqToReqMapTbl, 
+					   FAILSAFE_ARRAYSIZE( clibReqToReqMapTbl, MAP_TABLE ) );
 	return( cryptStatusError( status ) ? status : value );
 	}
 
@@ -58,7 +60,7 @@ static int initClientInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME );
 	const ATTRIBUTE_LIST *passwordPtr = \
 				findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD );
-	int status;
+	int operation, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( protocolInfo, sizeof( CMP_PROTOCOL_INFO ) ) );
@@ -66,9 +68,10 @@ static int initClientInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( !isServer( sessionInfoPtr ) );
 
 	/* Determine what we need to do based on the request type */
-	status = protocolInfo->operation = clibReqToReq( cmpInfo->requestType );
+	status = operation = clibReqToReq( cmpInfo->requestType );
 	if( cryptStatusError( status ) )
 		return( status );
+	protocolInfo->operation = operation;
 
 	/* If we're using public key-based authentication, set up the key and 
 	   user ID information */
@@ -151,8 +154,8 @@ static int initClientInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* It's a cryptlib-style encoded user ID, decode it into its binary 
 		   value.  This is coming from an internal source so we don't go 
 		   through the usual error handling for it */
-		status = decodePKIUserValue( decodedValue, 64, &decodedValueLength,
-									 userNamePtr->value, 
+		status = decodePKIUserValue( decodedValue, CRYPT_MAX_TEXTSIZE, 
+									 &decodedValueLength, userNamePtr->value, 
 									 userNamePtr->valueLength );
 		ENSURES( cryptStatusOK( status ) );
 		status = setCMPprotocolInfo( protocolInfo, decodedValue,
@@ -181,8 +184,8 @@ static int initClientInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		/* It's a cryptlib-style encoded password, decode it into its binary 
 		   value.  See the comment earlier about error handling */
-		status = decodePKIUserValue( decodedValue, 64, &decodedValueLength,
-									 passwordPtr->value, 
+		status = decodePKIUserValue( decodedValue, CRYPT_MAX_TEXTSIZE, 
+									 &decodedValueLength, passwordPtr->value, 
 									 passwordPtr->valueLength );
 		ENSURES( cryptStatusOK( status ) );
 		status = initMacInfo( protocolInfo->iMacContext, decodedValue, 
@@ -343,7 +346,7 @@ static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	/* Read the server response */
 	status = readPkiDatagram( sessionInfoPtr, MIN_CRYPT_OBJECTSIZE,
-							  MK_ERRTEXT( "Couldnt read CMP response from "
+							  MK_ERRTEXT( "Couldn't read CMP response from "
 										  "server" ) );
 	if( cryptStatusError( status ) )
 		{
@@ -439,7 +442,7 @@ static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		return( status );
 		}
 	status = readPkiDatagram( sessionInfoPtr, MIN_CRYPT_OBJECTSIZE,
-							  MK_ERRTEXT( "Couldnt read CMP confirmation "
+							  MK_ERRTEXT( "Couldn't read CMP confirmation "
 										  "acknowledgement from server" ) );
 	if( cryptStatusError( status ) )
 		{

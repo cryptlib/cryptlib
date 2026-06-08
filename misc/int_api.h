@@ -314,12 +314,18 @@ int strGetNumeric( IN_BUFFER( strLen ) const char *str,
 				   OUT_INT_Z int *numericValue, 
 				   IN_RANGE( 0, 100 ) const int minValue, 
 				   IN_RANGE( minValue, MAX_INTLENGTH ) const int maxValue );
+CHECK_RETVAL_LENGTH STDC_NONNULL_ARG( ( 1, 3 ) ) \
+int strParseNumeric( IN_BUFFER( strLen ) const char *str, 
+					 IN_LENGTH_SHORT const int strMaxLen, 
+					 OUT_INT_Z int *numericValue, 
+					 IN_RANGE( 0, 100 ) const int minValue, 
+					 IN_RANGE( minValue, MAX_INTLENGTH ) const int maxValue );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int strGetHex( IN_BUFFER( strLen ) const char *str, 
 			   IN_LENGTH_SHORT const int strLen, 
 			   OUT_INT_Z int *numericValue, 
 			   IN_RANGE( 0, 100 ) const int minValue, 
-			   IN_RANGE( minValue, MAX_INTLENGTH ) const int maxValue );
+			   IN_RANGE( minValue, 0xFFFF ) const int maxValue );
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN strIsPrintable( IN_BUFFER( strLen ) const void *str, 
 						IN_LENGTH_SHORT const int strLen );
@@ -499,7 +505,7 @@ typedef struct {
 	retExtObj() takes a handle to an object that may provide additional 
 		error information, used when (for example) an operation references 
 		a keyset, where the keyset also contains extended error information.
-		Call with an intial error string, if further error information is
+		Call with an initial error string, if further error information is
 		available it will be appended prefixed by 
 		".  Additional information: ", so that for example "Error info" will
 		become "Error info.  Additional information: More error info".  This
@@ -567,7 +573,7 @@ typedef struct {
 #ifdef USE_ERRMSGS
 		/* Check whether the error message in the error info has a 
 		   particular form.  This somewhat ugly function is sometimes
-		   required in conjuction with retExtAdditional() to ensure that 
+		   required in conjunction with retExtAdditional() to ensure that 
 		   modifying the message returned from a lower-level function will 
 		   produce a coherent overall message */
 #define checkErrorMessage( errorInfo, message, messageLength ) \
@@ -848,7 +854,7 @@ int base64decode( OUT_BUFFER( destMaxLen, *destLen ) void *dest,
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN isPKIUserValue( IN_BUFFER( encValLength ) const char *encVal, 
-						IN_LENGTH_SHORT_MIN( 10 ) const int encValLength );
+						IN_LENGTH_SHORT_MIN( 16 ) const int encValLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
 int encodePKIUserValue( OUT_BUFFER( encValMaxLen, *encValLen ) char *encVal, 
 						IN_LENGTH_SHORT_MIN( 10 ) const int encValMaxLen, 
@@ -1570,7 +1576,14 @@ int envelopeSigCheck( IN_BUFFER( inDataLength ) const void *inData,
 
 /* Prototypes for functions in context/ctx_bnrw.c, used in the ASN.1/misc 
    read/write routines.  Since the BIGNUM struct isn't visible at this 
-   point, we have to use a forward declaration for it */
+   point, we have to use a forward declaration for it.
+   
+   For the bignum checks, the difference between BIGNUM_CHECK_VALUE and
+   BIGNUM_CHECK_VALUE_PKC/ECC is that the latter check that the value is
+   within range for PKC or ECC values, for example for a PKC that it's in 
+   the range MIN_PKCSIZE ... CRYPT_MAX_PKCSIZE.  These checks only apply to 
+   the nominal keysize-providing parameters of a PKC algorithm, for example
+   for DH it applies to the p and y values but not the g and x values */
 
 typedef enum {
 	BIGNUM_CHECK_NONE,		/* Don't perform any checks */
@@ -1675,7 +1688,7 @@ int export25519ByteString( OUT_BUFFER( dataMaxLength, *dataLength )
 
 typedef struct {
 	int tag;				/* Tag for signature */
-	BOOLEAN isExplicit;		/* Whether tag is expicit */
+	BOOLEAN isExplicit;		/* Whether tag is explicit */
 	int extraLength;		/* Optional length for further data */
 	} X509SIG_FORMATINFO;
 

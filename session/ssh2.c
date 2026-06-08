@@ -76,8 +76,10 @@ int hashHandshakeStrings( INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo,
 		status = hashAsString( handshakeInfo->iExchangeHashContext,
 							   serverString, serverStringLength );
 		}
-	if( handshakeInfo->iExchangeHashAltContext == CRYPT_ERROR )
+	if( cryptStatusError( status ) )
 		return( status );
+	if( handshakeInfo->iExchangeHashAltContext == CRYPT_ERROR )
+		return( CRYPT_OK );
 	status = hashAsString( handshakeInfo->iExchangeHashAltContext, 
 						   clientString, clientStringLength );
 	if( cryptStatusOK( status ) )
@@ -264,7 +266,9 @@ BOOLEAN checkStrictKEX( IN_BUFFER( packetTraceLen ) BYTE *packetTrace,
 		}
 	else
 		{
-		/* Optional DH parameter negotiation */
+		/* Optional DH parameter negotiation.  The second check of
+		   packetTrace[ 2 ] below is redundant but is present to document
+		   what's going on */
 		if( packetTrace[ 1 ] == SSH_MSG_KEX_DH_GEX_GROUP && \
 			packetTrace[ 2 ] == SSH_MSG_KEX_DH_GEX_REPLY )
 			{
@@ -412,7 +416,11 @@ int writeExtensionsSSH( INOUT_PTR STREAM *stream )
 
 	/* Write the total extension count.  See the comment for the 
 	   no-flow-control extension for why we only write this if basic SSH
-	   functionality is enabled */
+	   functionality is enabled.
+	   
+	   Note that this entire code block is currently only enabled if 
+	   USE_SSH_EXTENDED is set, so the #ifdef check below is present for 
+	   future use */
 #ifndef USE_SSH_EXTENDED 
 	writeUint32( stream, 2 );
 #else
@@ -500,6 +508,10 @@ int createPreauthResponse( INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo,
 	int keyDataLength DUMMY_INIT;
 	int hashSize, status;
 
+	/* The preauth nonce is a truncated SHA-256 hash */
+	static_assert( SSH_PREAUTH_NONCE_SIZE <= 32,
+				   "SSH_PREAUTH_NONCE_SIZE larger than SHA-256 hash" );
+
 	assert( isWritePtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
 	assert( isReadPtr( attributeListPtr, sizeof( ATTRIBUTE_LIST ) ) );
 
@@ -538,12 +550,12 @@ int createPreauthResponse( INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo,
 	status = base64encode( handshakeInfo->response, SSH_PREAUTH_MAX_SIZE, 
 						   &handshakeInfo->responseLength, rawResponse, 
 						   SSH_PREAUTH_NONCE_SIZE, CRYPT_CERTTYPE_NONE );
-	zeroise( rawResponse, SSH_PREAUTH_MAX_SIZE );
+	zeroise( rawResponse, CRYPT_MAX_HASHSIZE );
 
 	return( status );
 	}
 
-/* Check that a pre-authentication reponse is valid */
+/* Check that a pre-authentication response is valid */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int checkPreauthResponse( INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo,
@@ -553,11 +565,15 @@ int checkPreauthResponse( INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo,
 	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( sanityCheckSSHHandshakeInfo( handshakeInfo ) );
-	ENSURES( handshakeInfo->receivedResponseLength > 0 );
-			 /* Checked in readSSHID() */
+	REQUIRES( handshakeInfo->receivedResponseLength > 0 );
+			  /* Checked in readSSHID() */
 
 	/* Make sure that the response from the client matches the one that we
-	   calculated */
+	   calculated.  The error message reports the expected and actual 
+	   values, the actual value is public and the expected value is an
+	   HMAC of another public value used to cut down on door-knocking
+	   attacks that shouldn't end up ever being seen by an attacker so there
+	   shouldn't be any problem with including it in an error message */
 	if( compareDataConstTime( handshakeInfo->response,
 							  handshakeInfo->receivedResponse,
 							  SSH_PREAUTH_NONCE_ENCODEDSIZE ) != TRUE )
@@ -733,7 +749,7 @@ static int readHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( sshInfo->packetType == SSH_MSG_CHANNEL_DATA )
 		{
 		STREAM stream;
-		int payloadLength;
+		int payloadLength DUMMY_INIT;
 
 		static_assert( SSH_HEADER_REMAINDER_SIZE >= ID_SIZE + \
 							PADLENGTH_SIZE + SSH2_MIN_PADLENGTH_SIZE,
@@ -747,9 +763,10 @@ static int readHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		/* Skip the type, padding length, and channel number and make sure 
 		   that the payload length matches the packet length */
-		sSkip( &stream, PADLENGTH_SIZE + ID_SIZE + UINT32_SIZE,
-			   PADLENGTH_SIZE + ID_SIZE + UINT32_SIZE );
-		status = payloadLength = readUint32( &stream );
+		status = sSkip( &stream, PADLENGTH_SIZE + ID_SIZE + UINT32_SIZE,
+						PADLENGTH_SIZE + ID_SIZE + UINT32_SIZE );
+		if( cryptStatusOK( status ) )
+			status = payloadLength = readUint32( &stream );
 		if( !cryptStatusError( status ) )
 			removedDataLength = stell( &stream );
 		if( cryptStatusError( status ) || \

@@ -513,7 +513,7 @@ static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo,
 
 	/* Another test that we could apply here is to check whether n is the 
 	   product of two identical primes, i.e. a square.  To do this we'd use 
-	   a probabalistic test involving computing the Legendre symbol with a 
+	   a probabilistic test involving computing the Legendre symbol with a 
 	   series of small primes p, i.e. checking whether n^((p-1)/2) = 1 (mod 
 	   p).  If n is a perfect square then n mod p will be a quadratic 
 	   residue, if not then the probability of it being a quadratic residue 
@@ -563,11 +563,11 @@ static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo,
 	   can't be represented in a machine word */
 	if( eWord < MIN_PUBLIC_EXPONENT || bitsToBytes( eLen ) > RSAPARAM_MAX_E )
 		{
-		DEBUG_DIAG(( "RSA e value %ld is invalid/insecure, should be "
-					 "%d...%ld", eWord, MIN_PUBLIC_EXPONENT, 
-					 ( RSAPARAM_MAX_E == 1 ) ? 0x0FFL : \
-					 ( RSAPARAM_MAX_E == 2 ) ? 0x0FFFFL : \
-					 ( RSAPARAM_MAX_E == 3 ) ? 0x0FFFFFFL : INT_MAX - 1 ));
+		DEBUG_DIAG(( "RSA e value %ul is invalid/insecure, should be "
+					 "%d...%d", eWord, MIN_PUBLIC_EXPONENT, 
+					 ( RSAPARAM_MAX_E == 1 ) ? 0x0FF : \
+					 ( RSAPARAM_MAX_E == 2 ) ? 0x0FFFF : \
+					 ( RSAPARAM_MAX_E == 3 ) ? 0x0FFFFFF : INT_MAX - 1 ));
 		assert_nofuzz( DEBUG_WARN );	/* Warn in debug build */
 		return( CRYPT_ARGERROR_STR1 );
 		}

@@ -466,6 +466,7 @@ static int writeSshEccPublicKey( INOUT_PTR STREAM *stream,
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( cryptAlgo == CRYPT_ALGO_ECDSA );
+			  /* We should never be writing ECDH keys */
 	REQUIRES( sanityCheckPKCInfo( eccKey ) );
 
 	/* Get the string form of the curve parameters */
@@ -539,6 +540,7 @@ static int writeSsh25519PublicKey( INOUT_PTR STREAM *stream,
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( cryptAlgo == CRYPT_ALGO_ED25519 );
+			  /* We should never be writing X25519 keys */
 	REQUIRES( sanityCheckPKCInfo( eccKey ) );
 
 	/* Get the public value in Bernstein special-snowflake form */
@@ -643,8 +645,8 @@ static const MAP_TABLE tlsCurveInfo[] = {
 	{ CRYPT_ECCCURVE_P384, 24 },
 	{ CRYPT_ECCCURVE_P521, 25 },
 	{ CRYPT_ECCCURVE_BRAINPOOL_P256, 26 },
-	{ CRYPT_ECCCURVE_BRAINPOOL_P384, 26 },
-	{ CRYPT_ECCCURVE_BRAINPOOL_P512, 27 },
+	{ CRYPT_ECCCURVE_BRAINPOOL_P384, 27 },
+	{ CRYPT_ECCCURVE_BRAINPOOL_P512, 28 },
 	{ CRYPT_ERROR, 0 }, 
 		{ CRYPT_ERROR, 0 }
 	};
@@ -1343,12 +1345,20 @@ int writeFlatPublicKey( OUT_BUFFER_OPT( bufMaxSize, *bufSize ) void *buffer,
 	else
 		status = totalSize = sizeofAlgoID( cryptAlgo );
 	if( cryptStatusError( status ) )
+		{
+#if defined( USE_ECDSA ) || defined( USE_ECDH )
+		zeroise( encodedPointBuffer, MAX_PKCSIZE_ECCPOINT );
+#endif /* USE_ECDSA || USE_ECDH */
 		return( status );
+		}
 	totalSize += sizeofShortObject( componentSize + 1 );
 	if( buffer == NULL )
 		{
 		/* It's a size-check call, return the overall size */
 		*bufSize = sizeofShortObject( totalSize );
+#if defined( USE_ECDSA ) || defined( USE_ECDH )
+		zeroise( encodedPointBuffer, MAX_PKCSIZE_ECCPOINT );
+#endif /* USE_ECDSA || USE_ECDH */
 
 		return( CRYPT_OK );
 		}
@@ -1408,6 +1418,9 @@ int writeFlatPublicKey( OUT_BUFFER_OPT( bufMaxSize, *bufSize ) void *buffer,
 		}
 	if( cryptStatusOK( status ) )
 		*bufSize = stell( &stream );
+#if defined( USE_ECDSA ) || defined( USE_ECDH )
+	zeroise( encodedPointBuffer, MAX_PKCSIZE_ECCPOINT );
+#endif /* USE_ECDSA || USE_ECDH */
 
 	/* Clean up */
 	sMemDisconnect( &stream );

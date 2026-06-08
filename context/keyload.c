@@ -653,9 +653,8 @@ int setEncodedKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   future for things like certificate requests and certificates, and for
 	   when we're using a crypto device object, for which */
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
-	if( TEST_FLAGS( contextInfoPtr->flags, \
-					CONTEXT_FLAG_DUMMY | CONTEXT_FLAG_ISPRIVATEKEY,
-					CONTEXT_FLAG_DUMMY | CONTEXT_FLAG_ISPRIVATEKEY ) )
+	if( TEST_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_DUMMY ) && \
+		!TEST_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_ISPUBLICKEY ) )
 #else
 	if( TEST_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_DUMMY ) )
 #endif /* CONFIG_CRYPTO_HW1 || CONFIG_CRYPTO_HW2 */

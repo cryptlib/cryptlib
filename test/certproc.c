@@ -380,7 +380,7 @@ int testCertProcess( void )
 /* Since opening the certificate store for update creates a log entry each 
    time, we open it once at the start and then call a series of sub-tests 
    with the store open throughout the tests.  This also allows us to keep the
-   CA key active througout */
+   CA key active throughout */
 
 static const CERT_DATA cert1Data[] = {
 	/* Identification information */

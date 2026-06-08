@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  Certificate Trust Management Routines					*
-*						Copyright Peter Gutmann 1998-2024					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -342,7 +342,7 @@ int enumTrustedCerts( IN_DATAPTR const DATAPTR trustInfo,
 	/* Check that the trust information is valid and get a pointer to the
 	   trust information index */
 	trustInfoIndex = getCheckTrustInfo( trustInfo );
-	ENSURES_B( trustInfoIndex != NULL );
+	ENSURES( trustInfoIndex != NULL );
 
 	/* Send each trusted certificate to the given object, either a 
 	   certificate trust list or a keyset */
@@ -670,6 +670,9 @@ static int addEntry( IN_DATAPTR const DATAPTR trustInfo,
 		}
 	ENSURES_PTR( sanityCheckTrustInfo( newElement ),
 				 newElement );
+				 /* This doesn't free newElement->certObject, but then it's 
+				    also a should-never-occur failure condition that would
+				    trigger a general exit */
 
 	/* Add the new entry to the list */
 	insertDoubleListElement( trustInfoIndexEntryPtr, trustInfoListEnd, 

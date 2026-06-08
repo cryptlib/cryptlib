@@ -26,7 +26,7 @@
 
 #define MAX_EXTENSIONS		32
 
-/* In addition to the variable-format extenions above we also support the 
+/* In addition to the variable-format extensions above we also support the 
    secure-renegotiation extension.  This is a strange extension to support 
    because cryptlib doesn't do renegotiation, but we have to send it at the 
    client side in order to avoid being attacked via a (non-cryptlib) server 
@@ -37,12 +37,12 @@
 #define RENEG_EXT_DATA	"\xFF\x01\x00\x01\x00"
 
 /* More handling of non-vulnerabilities, many security scanners will report
-   everthing they've ever heard of as a vulnerability whether it really is
+   everything they've ever heard of as a vulnerability whether it really is
    one or not.  The following are extensions sent by some scanners, which we
    detect and disable things that are reported as vulnerabilities when we're
    scanned.
 
-	sslscan: Scan fails with the scanner closing the connetion.
+	sslscan: Scan fails with the scanner closing the connection.
 
 	sslyze: Scan fails, cryptlib reports 'No encryption mechanism compatible 
 			with the remote system could be found'
@@ -64,7 +64,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 6, 7 ) ) \
 static int readExtension( INOUT_PTR STREAM *stream, 
 						  INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 						  INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
-						  IN_RANGE( 0, 65536 ) const int type,
+						  IN_RANGE( 0, 65535 ) const int type,
 						  IN_LENGTH_SHORT_Z const int extLength,
 						  OUT_ENUM_OPT( TLSHELLO_ACTION ) \
 								TLSHELLO_ACTION_TYPE *actionType,
@@ -77,7 +77,7 @@ static int readExtension( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( actionType, sizeof( TLSHELLO_ACTION_TYPE ) ) );
 
-	REQUIRES( type >= 0 && type <= 65536 );
+	REQUIRES( type >= 0 && type <= 65535 );
 	REQUIRES( isShortIntegerRange( extLength ) );
 
 	/* Clear return values */
@@ -185,7 +185,7 @@ static int readExtension( INOUT_PTR STREAM *stream,
 			if( extLength != 0 )
 				return( CRYPT_ERROR_INVALID );
 
-			/* Turn on encrypt-then-MAC and, if we're the server, rememeber 
+			/* Turn on encrypt-then-MAC and, if we're the server, remember 
 			   that we have to echo the extension back to the client */
 			SET_FLAG( sessionInfoPtr->protocolFlags, TLS_PFLAG_ENCTHENMAC );
 			if( isServer( sessionInfoPtr ) )
@@ -390,7 +390,7 @@ int readExtensions( INOUT_PTR STREAM *stream,
 						( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 						  "Received disallowed TLS %s extension from %s", 
 						  description, isServer( sessionInfoPtr ) ? \
-									   "server" : "client" ) );
+									   "client" : "server" ) );
 				}
 			if( extLen < minLength || extLen > maxLength )
 				{
@@ -656,7 +656,7 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 	extSizeInfo->totalSize += extSizeInfo->pskModeHdrLen + \
 							  extSizeInfo->pskModeExtLen;
 
-	/* Keyex inforation, which in TLS 1.3 is stuffed into an extension in 
+	/* Keyex information, which in TLS 1.3 is stuffed into an extension in 
 	   the client hello rather than being sent as an actual keyex.  The
 	   write function takes the handshake information as a non-const 
 	   parameter because the special-snowflake PQC algorithms modify it as 
@@ -702,12 +702,12 @@ static int sizeofExtensions( const SESSION_INFO *sessionInfoPtr,
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int writeExtensionHdr( INOUT_PTR STREAM *stream,
-							  IN_RANGE( 0, 65536 ) const int type,
+							  IN_RANGE( 0, 65535 ) const int type,
 							  IN_LENGTH_SHORT_Z const int length )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	REQUIRES( type >= 0 && type <= 65536 );
+	REQUIRES( type >= 0 && type <= 65535 );
 	REQUIRES( isShortIntegerRange( length ) );
 			  /* May be zero for signalling extensions */
 
@@ -1015,7 +1015,7 @@ int writeServerExtensions( INOUT_PTR STREAM *stream,
 		if( cryptStatusError( status ) )
 			return( status );
 		DEBUG_PRINT(( "Wrote extension server name indication (%d), "
-					  "length 0.\n", TLS_EXT_SNI, 0 ));
+					  "length 0.\n", TLS_EXT_SNI ));
 		}
 
 	/* If the client sent a secure-renegotiation indicator we have to send a
@@ -1040,7 +1040,7 @@ int writeServerExtensions( INOUT_PTR STREAM *stream,
 		if( cryptStatusError( status ) )
 			return( status );
 		DEBUG_PRINT(( "Wrote extension encrypt-then-MAC (%d), length 0.\n", 
-					  TLS_EXT_ENCTHENMAC, 0 ));
+					  TLS_EXT_ENCTHENMAC ));
 		}
 	if( handshakeInfo->flags & HANDSHAKE_FLAG_NEEDEMSRESPONSE )
 		{
@@ -1048,7 +1048,7 @@ int writeServerExtensions( INOUT_PTR STREAM *stream,
 		if( cryptStatusError( status ) )
 			return( status );
 		DEBUG_PRINT(( "Wrote extension extended Master Secret (%d), length 0.\n", 
-					  TLS_EXT_EMS, 0 ));
+					  TLS_EXT_EMS ));
 		}
 	if( handshakeInfo->flags & HANDSHAKE_FLAG_NEEDTLS12LTSRESPONSE )
 		{
@@ -1069,8 +1069,8 @@ int writeServerExtensions( INOUT_PTR STREAM *stream,
 		if( cryptStatusError( status ) )
 			return( status );
 		DEBUG_PRINT_BEGIN();
-		DEBUG_PRINT(( "Wrote extension suported versions (%d), length 2.\n", 
-					  TLS_MINOR_VERSION_TLS13 ));
+		DEBUG_PRINT(( "Wrote extension supported versions (%d), length "
+					  "2.\n", TLS_MINOR_VERSION_TLS13 ));
 		DEBUG_DUMP_STREAM( stream, stell( stream ) - UINT16_SIZE, 
 						   UINT16_SIZE );
 		DEBUG_PRINT_END();
@@ -1093,7 +1093,7 @@ int writeServerExtensions( INOUT_PTR STREAM *stream,
 		DEBUG_PRINT_BEGIN();
 		DEBUG_PRINT(( "Wrote extension ECC point format (%d), length 2.\n",
 					  TLS_EXT_EC_POINT_FORMATS ));
-		DEBUG_DUMP_STREAM( stream, stell( stream ) - 1 + 1, 1 + 1 );
+		DEBUG_DUMP_STREAM( stream, stell( stream ) - ( 1 + 1 ), 1 + 1 );
 		DEBUG_PRINT_END();
 		}
 

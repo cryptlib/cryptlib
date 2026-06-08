@@ -21,7 +21,7 @@
    Usually this is a direct copy, however if we're copying from subject to 
    issuer we have to adjust attribute IDs such as the altName 
    (subjectAltName -> issuerAltName), if we're copying from issuer to 
-   subject we have to adjust path length-based contraints since the new 
+   subject we have to adjust path length-based constraints since the new 
    subject is one further down the chain than the issuer */
 
 typedef enum {
@@ -274,8 +274,8 @@ static int copyAttribute( INOUT_PTR_DATAPTR DATAPTR_ATTRIBUTE *destHeadPtr,
 										   newAttribute, NULL );
 			if( status == OK_SPECIAL )
 				{
-				/* This attribute shouldn't be copied, contine with the next 
-				   one */
+				/* This attribute shouldn't be copied, continue with the 
+				   next one */
 				continue;
 				}
 			if( DATAPTR_ISSET_PTR( newAttributeHeadPtr ) )

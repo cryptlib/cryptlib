@@ -672,7 +672,7 @@ static int getWideChar( const BYTE *string )
 		}
 #endif /* Endianness-specific wchar_t extraction */
 
-	return( ( value >= INT_MAX ) ? INT_MAX : ( int ) value );
+	return( ( value < 0 || value >= INT_MAX ) ? INT_MAX : ( int ) value );
 	}
 #endif /* USE_WIDECHARS */
 
@@ -1046,7 +1046,7 @@ int initMessageACL( void )
 				}
 			}
 		
-		/* Check the paramter ACLs within the compare ACL */
+		/* Check the parameter ACLs within the compare ACL */
 		LOOP_SMALL_ALT( j = 0, 
 						j < paramACLSize && \
 							paramACL[ j ].valueType != PARAM_VALUE_NONE, 
@@ -1342,7 +1342,7 @@ int preDispatchCheckAttributeAccess( IN_HANDLE const int objectHandle,
 							  [ TEST_FLAG( objectInfoPtr->flags, 
 										   OBJECT_FLAG_HIGH ) ? 1 : 0 ];
 
-	/* If it's an internal message, use the internal access permssions */
+	/* If it's an internal message, use the internal access permissions */
 	if( isInternalMessage )
 		accessType = MK_ACCESS_INTERNAL( accessType );
 

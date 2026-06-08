@@ -357,6 +357,7 @@ static int writePrivateKeyEccFunction( INOUT_PTR STREAM *stream,
 	REQUIRES( capabilityInfoPtr != NULL );
 	REQUIRES( contextInfoPtr->type == CONTEXT_PKC && \
 			  capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_ECDSA );
+			  /* We should never be writing ECDH keys */
 	REQUIRES( sanityCheckPKCInfo( eccKey ) );
 	REQUIRES( isEnumRange( formatType, KEYFORMAT ) );
 	REQUIRES( accessKeyLen == 11 );
@@ -490,7 +491,8 @@ static int writePrivateKeyMlkemFunction( INOUT_PTR STREAM *stream,
 
 	/* Make sure that we really intended to call this function */
 	if( accessKeyLen != 11 || memcmp( accessKey, "private_key", 11 ) || \
-		formatType != KEYFORMAT_PRIVATE )
+		( formatType != KEYFORMAT_PRIVATE && \
+		  formatType != KEYFORMAT_PRIVATE_EXT ) )
 		retIntError();
 
 	return( CRYPT_ERROR_NOTAVAIL );

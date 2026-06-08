@@ -390,7 +390,7 @@ static int getPGPPrivateKey( const KEYFILE_TYPE keyFileType,
 
 	/* Get the key.  First we try it without a password, if that fails we
 	   retry it with the password - this tests a lot of the private-key get
-	   functionality including things like key cacheing */
+	   functionality including things like key caching */
 	if( useWildcardName )
 		{
 		status = cryptGetPrivateKey( cryptKeyset, &cryptContext, 
@@ -2786,7 +2786,7 @@ static int writeSingleStepFileCert( const CRYPT_ALGO_TYPE cryptAlgo,
 		}
 
 	/* Close the keyset, which flushes the in-memory changes to disk.  The
-	   cacheing of data in memory ensures that all keyset updates are atomic,
+	   caching of data in memory ensures that all keyset updates are atomic,
 	   so that it's nearly impossible to corrupt a private key keyset during
 	   an update */
 	status = cryptKeysetClose( cryptKeyset );

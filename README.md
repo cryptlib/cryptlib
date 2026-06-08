@@ -56,7 +56,7 @@ fully custom crypto hardware via plugin modules.
 cryptlib is written in C, with language bindings for C / C++, C# / .NET,
 Delphi, Java, Python, Rust, and Visual Basic (VB).
 
-## Suppported Platforms
+## Supported Platforms
 
 Although cryptlib runs on the usual suspects (every Unix variant including
 AIX, Digital Unix, DGUX, FreeBSD/NetBSD/OpenBSD, HP-UX, IRIX, Linux, MP-RAS,
@@ -153,15 +153,21 @@ the principles in the [overview](#overview)) we'll probably rewrite it, add
 unit tests and documentation, and so on rather than taking it as is.
 
 To request new features or ask a question, please use the [Discussion
-forum](https://github.com/cryptlib/cryptlib/discussions).  For bug reports,
-see the [Issues section](https://github.com/cryptlib/cryptlib/issues).  To
-privately report an issue such as a vulnerability, see the [Security
-section](https://github.com/cryptlib/cryptlib/security).
+forum](https://github.com/cryptlib/cryptlib/discussions).  If you'd prefer to
+make the request or question privately, contact the developers directly via
+email.  For bug reports, see the [Issues
+section](https://github.com/cryptlib/cryptlib/issues).  To privately report an
+issue such as a vulnerability, see the [Security
+section](https:// github.com/cryptlib/cryptlib/security).
 
 cryptlib contains contributions from various open-source developers, see the
 acknowledgements section of the
 [manual](https://github.com/cryptlib/cryptlib/blob/main/manual.pdf) for
 details.
+
+Details on cryptlib's handling of issues like supply-chain security and AI
+policy can be found in the threat-model section of the cryptlib
+[manual](https://github.com/cryptlib/cryptlib/blob/main/manual.pdf).
 
 ## License
 
@@ -177,7 +183,7 @@ requiring commercial support.
 
 cryptlib is hosted in two locations, on
 [Github (US-based)](https://github.com/cryptlib/cryptlib) and
-[CodeBerg (EU-based](https://codeberg.org/fencepost_error/cryptlib).
+[CodeBerg (EU-based)](https://codeberg.org/fencepost_error/cryptlib).
 
 ## Related Projects
 
@@ -202,6 +208,9 @@ check the cryptlib code base.
 
 [Clang Static Analyzer](https://clang-analyzer.llvm.org/) - Source code
 analysis tool that finds bugs in C, C++, and Objective-C programs.
+
+[CodeSpell](https://github.com/codespell-project/codespell) - Check code for
+misspellings.
 
 [Coverity Scan](https://scan.coverity.com/) - Static source code analysis tool
 for a variety of languages.

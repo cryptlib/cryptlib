@@ -739,7 +739,7 @@ assert( ( flags & ~( ATTR_FLAG_CRITICAL | ATTR_FLAG_MULTIVALUED | ATTR_FLAG_BLOB
 		}
 
 	/* Find the location at which to insert this attribute field.  If it's
-	   an add of a multivalued field from an encoded certifcate object
+	   an add of a multivalued field from an encoded certificate object
 	   then we handle it specially, see the comment at the start of
 	   findFieldInsertLocation() for details */
 	status = findFieldInsertLocation( listHead, &insertPoint, 
@@ -886,7 +886,7 @@ assert( ( flags & ~( ATTR_FLAG_BLOB_PAYLOAD | ATTR_FLAG_CRITICAL | ATTR_FLAG_MUL
 		}
 
 	/* Find the location at which to insert this attribute field.  If it's
-	   an add of a multivalued field from an encoded certifcate object
+	   an add of a multivalued field from an encoded certificate object
 	   then we handle it specially, see the comment at the start of
 	   findFieldInsertLocation() for details */
 	status = findFieldInsertLocation( listHead, &insertPoint, 
@@ -1244,7 +1244,7 @@ void deleteAttributes( INOUT_PTR DATAPTR_ATTRIBUTE *attributePtr )
 		REQUIRES_V( sanityCheckAttributePtr( attributeListCursor ) );
 
 #ifdef USE_RPKI
-		ENSURES_V( LOOP_INVARIANT_LARGE_GENERIC( FAILSAFE_ITERATIONS_LARGE * 10 ) );
+		ENSURES_V( LOOP_INVARIANT_EXT_GENERIC( FAILSAFE_ITERATIONS_LARGE * 10 ) );
 #else
 		ENSURES_V( LOOP_INVARIANT_LARGE_GENERIC() );
 #endif /* USE_RPKI */

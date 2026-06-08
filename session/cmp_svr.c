@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib CMP Server Management						*
-*						Copyright Peter Gutmann 1999-2019					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -305,8 +305,8 @@ static int cleanupFailedIssue( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( protocolInfo, sizeof( CMP_PROTOCOL_INFO ) ) );
 
-	REQUIRES( cryptStatusOK( status ) || \
-			  cryptStatusError( status ) );
+	REQUIRES( cryptStatusOK( status ) || cryptStatusError( status ) );
+			  /* A no-op, but we're just documenting the state */
 
 	destroyCMPprotocolInfo( protocolInfo );
 
@@ -442,13 +442,13 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	userNamePtr = findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME );
 	if( userNamePtr != NULL )
 		{
-		BYTE userID[ CRYPT_MAX_TEXTSIZE ];
+		BYTE userID[ CRYPT_MAX_TEXTSIZE + 8 ];
 		int userIDsize;
 
 		/* There's already user information present from a previous 
 		   transaction, try and re-use it (this can happen if we're
 		   handling a series of transactions from the client, see the
-		   dicussion in cmp.h for details).  This information can still
+		   discussion in cmp.h for details).  This information can still
 		   be overridden by the client sending us new user information */
 		if( TEST_FLAG( userNamePtr->flags, ATTR_FLAG_ENCODEDVALUE ) )
 			{
@@ -491,7 +491,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	   response at the initial read stage to prevent scanning/DOS attacks 
 	   (vir sapit qui pauca loquitur) */
 	status = readPkiDatagram( sessionInfoPtr, MIN_CRYPT_OBJECTSIZE,
-							  MK_ERRTEXT( "Couldnt read CMP request from "
+							  MK_ERRTEXT( "Couldn't read CMP request from "
 										  "client" ) );
 	if( cryptStatusError( status ) )
 		{
@@ -575,6 +575,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		   another transaction */
 		cmpInfo->iSavedMacContext = protocolInfo.iMacContext;
 		protocolInfo.iMacContext = CRYPT_ERROR;
+		destroyCMPprotocolInfo( &protocolInfo );
 
 		ENSURES( CFI_CHECK_SEQUENCE_3( "initCMPprotocolInfo", "readPkiDatagram", 
 									   "readPkiMessage" ) );
@@ -624,6 +625,8 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 								KEYMGMT_ITEM_REQUEST );
 	if( cryptStatusError( status ) )
 		{
+		const CMP_MESSAGE_TYPE operation = protocolInfo.operation;
+		
 		/* If the certificate store reports that there's a problem with the 
 		   request, convert it to an invalid request error */
 		if( cryptArgError( status ) )
@@ -643,8 +646,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		delayRandom();	/* Dither error timing info */
 		sendErrorResponse( sessionInfoPtr, &protocolInfo, status );
 		destroyCMPprotocolInfo( &protocolInfo );
-		if( protocolInfo.operation == CTAG_PB_IR && \
-			status == CRYPT_ERROR_DUPLICATE )
+		if( operation == CTAG_PB_IR && status == CRYPT_ERROR_DUPLICATE )
 			{
 			retExtObj( status, 
 					   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
@@ -659,12 +661,10 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 				   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
 					 "CMP %s request for '%s' couldn't be added to the "
 					 "certificate store", 
-					 ( protocolInfo.operation == CTAG_PB_IR ) ? \
-					   "initialisation" : \
-					 ( protocolInfo.operation == CTAG_PB_KUR ) ? \
-					   "key update" : \
-					 ( protocolInfo.operation == CTAG_PB_RR ) ? \
-					   "revocation" : "certificate",
+					 ( operation == CTAG_PB_IR ) ?"initialisation" : \
+					 ( operation == CTAG_PB_KUR ) ? "key update" : \
+					 ( operation == CTAG_PB_RR ) ? "revocation" : \
+												   "certificate",
 					 getCertHolderName( sessionInfoPtr->iCertRequest, 
 										certName, CRYPT_MAX_TEXTSIZE ) ) );
  		}
@@ -702,6 +702,8 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		}
 	if( cryptStatusError( status ) )
 		{
+		const CMP_MESSAGE_TYPE operation = protocolInfo.operation;
+
 		/* If the certificate store reports that there's a problem with the 
 		   request, convert it to an invalid request error */
 		if( cryptArgError( status ) )
@@ -713,8 +715,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 				   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
 					 "CMP certificate %s for '%s' was denied by certificate "
 					 "store",
-					 ( protocolInfo.operation != CTAG_PB_RR ) ? \
-						"issue" : "revocation",
+					 ( operation != CTAG_PB_RR ) ? "issue" : "revocation",
 					 getCertHolderName( sessionInfoPtr->iCertRequest, 
 										certName, CRYPT_MAX_TEXTSIZE ) ) );
 		}
@@ -790,10 +791,12 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	/* Read back the confirmation from the client */
 	status = readPkiDatagram( sessionInfoPtr, MIN_CRYPT_OBJECTSIZE,
-							  MK_ERRTEXT( "Couldnt read CMP confirmation "
+							  MK_ERRTEXT( "Couldn't read CMP confirmation "
 										  "from client" ) );
 	if( cryptStatusError( status ) )
 		{
+		/* There's no need for a delayRandom() at this point yet because
+		   we haven't performed any crypto ops */
 		sendErrorResponse( sessionInfoPtr, &protocolInfo, status );
 		return( cleanupFailedIssue( sessionInfoPtr, &protocolInfo, 
 									status ) );

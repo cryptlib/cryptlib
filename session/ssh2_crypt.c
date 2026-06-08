@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  cryptlib SSHv2 Crypto Routines					*
-*						Copyright Peter Gutmann 1998-2024					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -50,8 +50,8 @@ static int incCtr( INOUT_BUFFER_FIXED( blockSize ) void *ctr,
 	   and guard against this, we check that the counter is being 
 	   incremented, at least for the first 16-24 bits, on each call.
 	   
-	   Note that the counter is stored in little-endian form, so the LSB is 
-	   at the far end of the byte string */
+	   Note that the counter is stored in big-endian form, so the LSB is at 
+	   the far end of the byte string */
 	ctrLSB = ctrPtr[ blockSize - 1 ];
 	ctrLSBnext = ctrPtr[ blockSize - 2 ];
 	ctrLSBnext2 = ctrPtr[ blockSize - 3 ];
@@ -318,11 +318,11 @@ int initDHcontextSSH( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 		}
 	if( cryptStatusError( status ) )
 		{
-		/* If we're trying to load the context from stored data and the load 
-		   fails, record the fact that there's a problem */
+		/* If we're trying to load the context from fixed DH values and the 
+		   load fails, record the fact that there's a problem */
 		if( keyData == NULL )
 			{
-			DEBUG_DIAG(( "Couldn't create DH context from stored data" ));
+			DEBUG_DIAG(( "Couldn't create DH context from fixed DH values" ));
 			assert( DEBUG_WARN );
 			}
 		krnlSendNotifier( iDHContext, IMESSAGE_DECREFCOUNT );
@@ -512,8 +512,8 @@ static int loadCTR( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	zeroise( hashInfo, sizeof( HASHINFO ) );
 
 	/* Send the data to the context */
-	REQUIRES( boundsCheck( sessionInfoPtr->cryptBlocksize, 1, 
-						   CRYPT_MAX_IVSIZE ) );
+	REQUIRES( rangeCheck( sessionInfoPtr->cryptBlocksize, 1, 
+						  CRYPT_MAX_IVSIZE ) );
 	if( isWriteCTR )
 		memcpy( sshInfo->writeCTR, buffer, sessionInfoPtr->cryptBlocksize );
 	else
@@ -539,6 +539,7 @@ int initSecurityContextsSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( sanityCheckSSHHandshakeInfo( handshakeInfo ) );
 
+	/* Create the encryption contexts */
 	setMessageCreateObjectInfo( &createInfo, sessionInfoPtr->cryptAlgo );
 	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE, 
 							  IMESSAGE_DEV_CREATEOBJECT, &createInfo, 
@@ -562,14 +563,16 @@ int initSecurityContextsSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								  &handshakeInfo->cryptKeysize,
 								  CRYPT_CTXINFO_KEYSIZE );
 		}
-	if( cryptStatusOK( status ) )
+	if( cryptStatusError( status ) )
 		{
-		sessionInfoPtr->iCryptInContext = createInfo.cryptHandle;
-		setMessageCreateObjectInfo( &createInfo, sessionInfoPtr->cryptAlgo );
-		status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,
-								  IMESSAGE_DEV_CREATEOBJECT, &createInfo,
-								  OBJECT_TYPE_CONTEXT );
+		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+		return( status );
 		}
+	sessionInfoPtr->iCryptInContext = createInfo.cryptHandle;
+	setMessageCreateObjectInfo( &createInfo, sessionInfoPtr->cryptAlgo );
+	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,
+							  IMESSAGE_DEV_CREATEOBJECT, &createInfo,
+							  OBJECT_TYPE_CONTEXT );
 #ifdef USE_SSH_CTR
 	if( cryptStatusOK( status ) && \
 		TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_CTR ) )
@@ -589,14 +592,19 @@ int initSecurityContextsSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								  &handshakeInfo->cryptKeysize,
 								  CRYPT_CTXINFO_KEYSIZE );
 		}
-	if( cryptStatusOK( status ) )
+	if( cryptStatusError( status ) )
 		{
-		sessionInfoPtr->iCryptOutContext = createInfo.cryptHandle;
-		status = krnlSendMessage( sessionInfoPtr->iCryptInContext,
-								  IMESSAGE_GETATTRIBUTE, 
-								  &sessionInfoPtr->cryptBlocksize,
-								  CRYPT_CTXINFO_BLOCKSIZE );
+		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+		destroySecurityContextsSSH( sessionInfoPtr );
+		return( status );
 		}
+	sessionInfoPtr->iCryptOutContext = createInfo.cryptHandle;
+
+	/* Create the authentication contexts */
+	status = krnlSendMessage( sessionInfoPtr->iCryptInContext,
+							  IMESSAGE_GETATTRIBUTE, 
+							  &sessionInfoPtr->cryptBlocksize,
+							  CRYPT_CTXINFO_BLOCKSIZE );
 	if( cryptStatusOK( status ) )
 		{
 		setMessageCreateObjectInfo( &createInfo, sessionInfoPtr->integrityAlgo );
@@ -615,10 +623,10 @@ int initSecurityContextsSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( cryptStatusOK( status ) )
 			{
 			sessionInfoPtr->iAuthOutContext = createInfo.cryptHandle;
-			krnlSendMessage( sessionInfoPtr->iAuthInContext,
-							 IMESSAGE_GETATTRIBUTE,
-							 &sessionInfoPtr->authBlocksize,
-							 CRYPT_CTXINFO_BLOCKSIZE );
+			status = krnlSendMessage( sessionInfoPtr->iAuthInContext,
+									  IMESSAGE_GETATTRIBUTE,
+									  &sessionInfoPtr->authBlocksize,
+									  CRYPT_CTXINFO_BLOCKSIZE );
 			}
 		}
 	if( cryptStatusError( status ) )
@@ -970,7 +978,7 @@ int hashAsMPI( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 
 CHECK_RETVAL \
 static int macDataSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext, 
-					   IN_INT_Z const long seqNo,
+					   IN_INT_Z const int seqNo,
 					   IN_BUFFER_OPT( dataLength ) const BYTE *data, 
 					   IN_DATALENGTH_Z const int dataLength,
 					   IN_DATALENGTH_Z const int packetDataLength, 
@@ -1061,7 +1069,7 @@ static int macDataSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int checkMacSSHIncremental( IN_HANDLE const CRYPT_CONTEXT iMacContext, 
-							IN_INT_Z const long seqNo,
+							IN_INT_Z const int seqNo,
 							IN_BUFFER( dataMaxLength ) const BYTE *data, 
 							IN_DATALENGTH const int dataMaxLength, 
 							IN_DATALENGTH_Z const int dataLength, 
@@ -1125,7 +1133,7 @@ int checkMacSSHIncremental( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int checkMacSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext, 
-				 IN_INT const long seqNo,
+				 IN_INT const int seqNo,
 				 IN_BUFFER( dataMaxLength ) const BYTE *data, 
 				 IN_DATALENGTH const int dataMaxLength, 
 				 IN_DATALENGTH_Z const int dataLength, 
@@ -1170,7 +1178,7 @@ int checkMacSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
 int createMacSSH( IN_HANDLE const CRYPT_CONTEXT iMacContext, 
-				  IN_INT const long seqNo,
+				  IN_INT const int seqNo,
 				  IN_BUFFER( dataMaxLength ) BYTE *data, 
 				  IN_DATALENGTH const int dataMaxLength, 
 				  IN_DATALENGTH const int dataLength )
@@ -1385,8 +1393,8 @@ int processAuthDataSig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* readAuthPacketSSH2() has stripped the ID byte from the start of 
 		   the packet so we need to hash it in explicitly before we hash the 
 		   rest of the packet */
-		krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH, 
-						 ( MESSAGE_CAST ) &packetID, ID_SIZE );
+		status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH, 
+								  ( MESSAGE_CAST ) &packetID, ID_SIZE );
 		}
 	if( cryptStatusOK( status ) )
 		{
@@ -1685,7 +1693,7 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		string	pubValue_S, server 25519 keyex value
 		string	privValue, the shared secret
 
-	   The client and server version string ahd hellos and the host key were
+	   The client and server version string and hellos and the host key were
 	   hashed inline during the handshake.  The optional parameters are for
 	   negotiated DH values (see the conditional-hashing code above).  The
 	   double-optional parameters are for the revised version of the DH
@@ -1729,7 +1737,7 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 #endif /* USE_ED25519 */
 
-	/* At this point we continue the hash-algorithm dance, in most cases 
+	/* At this point we continue the hash-algorithm dance, which may involve
 	   switching back to SHA-1 if we've been using a different algorithm for 
 	   the hashing so far.  This is required because while the exchange hash 
 	   is calculated using the alternative algorithm that was negotiated 
@@ -1739,20 +1747,29 @@ int completeSSHKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   stick with SHA-2 */
 	if( handshakeInfo->exchangeHashAlgo != handshakeInfo->hashAlgo )
 		{
-		const CRYPT_CONTEXT tempContext = handshakeInfo->iExchangeHashContext;
+		const CRYPT_CONTEXT tempContext = \
+								handshakeInfo->iExchangeHashContext;
 
 		handshakeInfo->iExchangeHashContext = \
 				handshakeInfo->iExchangeHashAltContext;
 		handshakeInfo->iExchangeHashAltContext = tempContext;
 		}
-	krnlSendMessage( handshakeInfo->iExchangeHashContext,
-					 IMESSAGE_DELETEATTRIBUTE, NULL,
-					 CRYPT_CTXINFO_HASHVALUE );
-	krnlSendMessage( handshakeInfo->iExchangeHashContext,
-					 IMESSAGE_CTX_HASH, handshakeInfo->sessionID,
-					 handshakeInfo->sessionIDlength );
-	INJECT_FAULT( BADSIG_HASH, SESSION_BADSIG_HASH_SSH_1 );
-	return( krnlSendMessage( handshakeInfo->iExchangeHashContext,
-							 IMESSAGE_CTX_HASH, "", 0 ) );
+	status = krnlSendMessage( handshakeInfo->iExchangeHashContext,
+							  IMESSAGE_DELETEATTRIBUTE, NULL,
+							  CRYPT_CTXINFO_HASHVALUE );
+	if( cryptStatusOK( status ) )
+		{
+		status = krnlSendMessage( handshakeInfo->iExchangeHashContext,
+								  IMESSAGE_CTX_HASH, 
+								  handshakeInfo->sessionID,
+								  handshakeInfo->sessionIDlength );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		INJECT_FAULT( BADSIG_HASH, SESSION_BADSIG_HASH_SSH_1 );
+		status = krnlSendMessage( handshakeInfo->iExchangeHashContext,
+								  IMESSAGE_CTX_HASH, "", 0 );
+		}
+	return( status );
 	}
 #endif /* USE_SSH */

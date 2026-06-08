@@ -54,7 +54,7 @@
 
 #define EAPTTLS_BUFFER_SIZE				256
 
-/* Additional debugging suppport when we're built in debug mode */
+/* Additional debugging support when we're built in debug mode */
 
 #ifdef NDEBUG
   #define DEBUG_PUTS( x )
@@ -386,8 +386,8 @@ int completeEAPTTLShandshake( const CRYPT_SESSION cryptSession,
 		return( status );
 	if( authType == AUTH_MSCHAPV2 )
 		{
-		/* Read the server's MSCHAPv2 Sucess or Failure Request (in TTLS-AVP 
-		   format, i.e. in DIAMETER format):
+		/* Read the server's MSCHAPv2 Success or Failure Request (in 
+		   TTLS-AVP format, i.e. in DIAMETER format):
 
 			uint32	type = 26 / 0x1A	// MSCHAPv2
 			byte	flags = FLAG_MANDATORY | FLAG_VENDORIDPRESENT
@@ -416,7 +416,7 @@ int completeEAPTTLShandshake( const CRYPT_SESSION cryptSession,
 	else
 		{
 		/* Just in case the server has returned something other than a zero-
-		   length respose, we display it for the caller */
+		   length response, we display it for the caller */
 		if( bytesCopied > 0 )
 			{
 			DEBUG_PRINT(( "Server sent %d bytes unexpected data:\n  ", 

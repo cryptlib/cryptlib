@@ -304,7 +304,8 @@ int initSieve( IN_ARRAY( sieveSize ) BOOLEAN *sieveArray,
 
 	/* Walk down the list of primes marking the appropriate position in the
 	   array as divisible by the prime.  We start at index 1 because the
-	   candidate will never be divisible by 2 (== primeTbl[ 0 ]) */
+	   candidate, a value that we've just generated and set to be an odd
+	   number, will never be divisible by 2 (== primeTbl[ 0 ]) */
 	LOOP_MAX( i = 1, i < PRIME_TABLE_SIZE, i++ )
 		{
 		unsigned int step;
@@ -385,12 +386,13 @@ int nextSievePosition( IN_INT_SHORT int value )
 	}
 
 /* Get the n-th prime table entry, used in primeProbable() for the
-   Miller-Rabin test */
+   Miller-Rabin test.  The return value isn't really a length but just
+   a short-range integer, for which the annotation is LENGTH_SHORT */
 
-CHECK_RETVAL_RANGE( 0, PRIME_TABLE_SIZE ) \
+CHECK_RETVAL_LENGTH_SHORT \
 int getSieveEntry( IN_RANGE( 0, PRIME_TABLE_SIZE - 1 ) int position )
 	{
-	REQUIRES_EXT( position >= 0 && position < PRIME_TABLE_SIZE, 2 ); 
+	REQUIRES( position >= 0 && position < PRIME_TABLE_SIZE ); 
 
 	return( primeTbl[ position ] );
 	}
@@ -420,10 +422,10 @@ BOOLEAN primeCheckQuick( const BIGNUM *candidate )
 		const BN_ULONG candidateWord = BN_get_word( candidate );
 
 		ENSURES_B( candidateWord != BN_NAN );
-		LOOP_MAX( i = 1, i < QUICK_CHECK_PRIMES && \
+		LOOP_MAX( i = 0, i < QUICK_CHECK_PRIMES && \
 						 primeTbl[ i ] < candidateWord, i++ )
 			{
-			ENSURES_B( LOOP_INVARIANT_MAX( i, 1, QUICK_CHECK_PRIMES - 1 ) );
+			ENSURES_B( LOOP_INVARIANT_MAX( i, 0, QUICK_CHECK_PRIMES - 1 ) );
 
 			REQUIRES_B( !checkOverflowDiv( candidateWord, primeTbl[ i ] ) );
 			if( candidateWord % primeTbl[ i ] == 0 )

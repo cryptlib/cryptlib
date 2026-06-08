@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Read CMP Message Types							*
-*						Copyright Peter Gutmann 1999-2020					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -29,9 +29,9 @@
 ****************************************************************************/
 
 #if 0	/* 12/6/09 Due to a bug in the buffer-positioning the following code 
-				   hasn't actually worked since 3.2.1 in 2005, since this 
-				   hasn't caused any complaints we disable it for attack-
-				   surface reduction */
+				   hasn't actually worked since cryptlib 3.2.1 in 2005, 
+				   since this hasn't caused any complaints we disable it for 
+				   attack-surface reduction */
 
 /* Read a certificate encrypted with CMP's garbled reinvention of CMS 
    content:
@@ -301,17 +301,17 @@ static int readRequestBody( INOUT_PTR STREAM *stream,
 	FUZZ_SKIP_REMAINDER();
 
 	/* Import the CRMF request */
+	if( !isShortIntegerRangeMin( messageLength, MIN_CRYPT_OBJECTSIZE ) )
+		return( CRYPT_ERROR_BADDATA );
 	clearErrorInfo( &localErrorInfo );
 	status = importCertFromStream( stream,
-								   &sessionInfoPtr->iCertRequest,
-								   DEFAULTUSER_OBJECT_HANDLE,
-								   ( messageType == CTAG_PB_P10CR ) ? \
-									CRYPT_CERTTYPE_CERTREQUEST : \
-								   ( messageType == CTAG_PB_RR ) ? \
-									CRYPT_CERTTYPE_REQUEST_REVOCATION : \
-									CRYPT_CERTTYPE_REQUEST_CERT,
-								   messageLength, KEYMGMT_FLAG_NONE,
-								   &localErrorInfo );
+					&sessionInfoPtr->iCertRequest, DEFAULTUSER_OBJECT_HANDLE,
+					( messageType == CTAG_PB_P10CR ) ? \
+					  CRYPT_CERTTYPE_CERTREQUEST : \
+					( messageType == CTAG_PB_RR ) ? \
+					  CRYPT_CERTTYPE_REQUEST_REVOCATION : \
+					  CRYPT_CERTTYPE_REQUEST_CERT,
+					messageLength, KEYMGMT_FLAG_NONE, &localErrorInfo );
 	if( cryptStatusError( status ) )
 		{
 		protocolInfo->pkiFailInfo = CMPFAILINFO_BADCERTTEMPLATE;
@@ -323,7 +323,7 @@ static int readRequestBody( INOUT_PTR STREAM *stream,
 	/* If it's a request type that can be self-signed (revocation requests 
 	   are unsigned) and it's from an encryption-only key (that is, a key 
 	   that's not capable of signing, indicated by the request not being 
-	   self-signed) remember this so that we can peform special-case 
+	   self-signed) remember this so that we can perform special-case 
 	   processing later on */
 	if( messageType != CTAG_PB_RR )
 		{
@@ -453,7 +453,7 @@ static int readResponseBody( INOUT_PTR STREAM *stream,
 	char certName[ CRYPT_MAX_TEXTSIZE + 8 ];
 #endif /* USE_ERRMSGS */
 	void *bodyInfoPtr DUMMY_INIT_PTR;
-	int bodyLength, tag, value, status = CRYPT_OK;
+	int bodyLength, tag DUMMY_INIT, value, status = CRYPT_OK;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -519,8 +519,9 @@ static int readResponseBody( INOUT_PTR STREAM *stream,
 		}
 	if( cryptStatusError( status ) )
 		return( status );
-	readSequence( stream, NULL );			/* certKeyPair wrapper */
-	status = tag = peekTag( stream );
+	status = readSequence( stream, NULL );	/* certKeyPair wrapper */
+	if( cryptStatusOK( status ) )
+		status = tag = peekTag( stream );
 	if( cryptStatusError( status ) )
 		return( status );
 	tag = EXTRACT_CTAG( tag );
@@ -587,8 +588,8 @@ static int readResponseBody( INOUT_PTR STREAM *stream,
 			}
 
 		default:
-			retExt( status,
-					( status, SESSION_ERRINFO, 
+			retExt( CRYPT_ERROR_BADDATA,
+					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 					  "Unknown returned certificate encapsulation type %d "
 					  "in %s", tag, getCMPMessageName( messageType ) ) );
 		}
@@ -614,7 +615,7 @@ static int readResponseBody( INOUT_PTR STREAM *stream,
 	/* In order to acknowledge receipt of this message we have to return at a
 	   later point a hash of the certificate carried in this message created 
 	   using the hash algorithm used in the certificate signature.  This 
-	   makes the CMP-level transport layer dependant on the certificate 
+	   makes the CMP-level transport layer dependent on the certificate 
 	   format it's carrying (so the code will break every time a new 
 	   certificate hash algorithm or certificate format is added), but 
 	   that's what the standard requires */
@@ -758,7 +759,7 @@ static int readConfBody( INOUT_PTR STREAM *stream,
    sense that it doesn't look for anything past the first entry, which is
    all that's needed to process PKIBoot requests */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int readGenMsgBody( INOUT_PTR STREAM *stream, 
 						   INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   STDC_UNUSED CMP_PROTOCOL_INFO *protocolInfo,
@@ -823,22 +824,21 @@ static int readGenMsgBody( INOUT_PTR STREAM *stream,
 		return( CRYPT_OK );
 		}
 
-	/* If we're fuzzing the input then we're reading static data for which 
-	   we can't go beyond this point */
-	FUZZ_SKIP_REMAINDER();
-
-	/* It's a PKIBoot response with the InfoTypeAndValue handled as CMS
-	   content (see the comment for writeGenMsgResponseBody() in 
-	   cmp_wrmsg.c, in particular that infoType ::= id-signedData and
-	   infoValue ::= [0] EXPLICIT SignedData), import the certificate 
-	   trust list.  Since this isn't a true certificate chain and isn't 
-	   used as such, we import it as data-only certificates */
+	/* It's a response GenMsg containing a PKIBoot response with the 
+	   InfoTypeAndValue handled as CMS content (see the comment for 
+	   writeGenMsgResponseBody() in cmp_wrmsg.c, in particular that 
+	   infoType ::= id-signedData and infoValue ::= [0] EXPLICIT 
+	   SignedData), import the certificate trust list.  Since this isn't 
+	   a true certificate chain and isn't used as such, we import it as 
+	   data-only certificates */
+	if( !isShortIntegerRangeMin( messageLength, MIN_CERTSIZE ) )
+		return( CRYPT_ERROR_BADDATA );
 	clearErrorInfo( &localErrorInfo );
-	status = importCertFromStream( stream, &sessionInfoPtr->iCertResponse,
-								   DEFAULTUSER_OBJECT_HANDLE, 
-								   CRYPT_CERTTYPE_CERTCHAIN, messageLength,
-								   KEYMGMT_FLAG_DATAONLY_CERT,
-								   &localErrorInfo );
+	status = importCertFromStream( stream, 
+					&sessionInfoPtr->iCertResponse,
+					DEFAULTUSER_OBJECT_HANDLE, CRYPT_CERTTYPE_CERTCHAIN, 
+					messageLength, KEYMGMT_FLAG_DATAONLY_CERT,
+					&localErrorInfo );
 	if( cryptStatusError( status ) )
 		{
 		retExtErr( status, 
@@ -846,6 +846,7 @@ static int readGenMsgBody( INOUT_PTR STREAM *stream,
 					 "Invalid %s PKIBoot response",
 					 getCMPMessageName( messageType ) ) );
 		}
+
 	return( CRYPT_OK );
 	}
 
@@ -884,8 +885,7 @@ static int readErrorBody( INOUT_PTR STREAM *stream,
 	const char *peerTypeString = isServer( sessionInfoPtr ) ? \
 								 "Client" : "Server";
 #endif /* USE_ERRMSGS */
-	const int endPos = stell( stream ) + messageLength;
-	int tag, status;
+	int tag, endPos, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( protocolInfo, sizeof( CMP_PROTOCOL_INFO ) ) );
@@ -895,7 +895,10 @@ static int readErrorBody( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckCMPProtocolInfo( protocolInfo ) );
 	REQUIRES( messageType == CTAG_PB_ERROR );
 	REQUIRES( isShortIntegerRangeNZ( messageLength ) );
+
+	/* Calculate the end position for the stream payload */
 	REQUIRES( !checkOverflowAdd( stell( stream ), messageLength ) );
+	endPos = stell( stream ) + messageLength;
 	ENSURES( isIntegerRangeMin( endPos, messageLength ) );
 
 	/* Read the outer wrapper and PKI status information.  In another one of
@@ -994,7 +997,14 @@ static const MESSAGEREAD_INFO messageReadTable[] = {
 	{ CTAG_PB_KUP, readResponseBody },
 	{ CTAG_PB_RP, readResponseBody },
 	{ CTAG_PB_CERTCONF, readConfBody },
+#if 0
+	/* The pkiConf message is special-cased in cmp_rd.c:readPkiMessage() 
+	   because it uses a nonstandard encoding so we never get to this
+	   entry.  readConfBody() is currently hardcoded to only allow certConf
+	   messages, if it ever needs to handle pkiConf it will need to be
+	   updated */
 	{ CTAG_PB_PKICONF, readConfBody },
+#endif /* 0 */
 	{ CTAG_PB_GENM, readGenMsgBody },
 	{ CTAG_PB_GENP, readGenMsgBody },
 	{ CTAG_PB_ERROR, readErrorBody },

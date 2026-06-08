@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Internal Error Reporting API					*
-*						Copyright Peter Gutmann 1992-2019					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -22,7 +22,7 @@
 ****************************************************************************/
 
 /* Format a printf-style error string.  The ERROR_INFO is annotated as
-   OUT_ALWAYS because it's initalised unconditionally, the return status 
+   OUT_ALWAYS because it's initialised unconditionally, the return status 
    exists only to signal to the caller that, in the case where further 
    information is added to the error information, that it's OK to add this
    further information.
@@ -101,7 +101,7 @@ static void appendErrorString( INOUT_PTR ERROR_INFO *errorInfo,
 	/* If there's no room to store the full strings, truncate the second one,
 	   which is secondary and therefore less important than the first one.  
 	   This can't overflow since we've just checked the lengths above, the
-	   overflow check is present purely for documetation purposes */
+	   overflow check is present purely for documentation purposes */
 	if( checkOverflowAdd( errorInfo->errorStringLength, 
 						  secondStringLength ) || \
 		errorInfo->errorStringLength + \
@@ -109,12 +109,18 @@ static void appendErrorString( INOUT_PTR ERROR_INFO *errorInfo,
 		{
 		/* If there's nothing much to be added by appending the second 
 		   string then don't do anything */
-		if( secondStringLength < 8 )
+		if( errorInfo->errorStringLength >= MAX_ERRMSG_SIZE - 8 || \
+			secondStringLength < 8 )
 			return;
 
-		/* Append a truncated form of the second string to the first one */
-		secondStringLength = MAX_ERRMSG_SIZE - \
-								( errorInfo->errorStringLength + 8 );
+		/* Append a truncated form of the second string to the first one.
+		   We know that the length of the existing string plus the 
+		   additional string is > MAX_ERRMSG_SIZE - 8, so the amount of
+		   the second string that we can add is less than its original 
+		   length */
+		secondStringLength = ( MAX_ERRMSG_SIZE - 8 ) - \
+							 errorInfo->errorStringLength;
+		ENSURES_V( secondStringLength < extErrorStringLength );
 		ENSURES_V( rangeCheck( secondStringLength, 1, 
 						MAX_ERRMSG_SIZE - errorInfo->errorStringLength ) );
 		appendDots = TRUE;
@@ -267,7 +273,7 @@ int retExtFn( IN_ERROR const int status,
 	DEBUG_PRINT_COND( memcmp( errorInfo->errorString, "Key in ", 7 ),
 					  ( "%s\n", errorInfo->errorString ) );
 					  /* The key usage message is a warning so we don't 
-					     print this as it occurs for many certifiate usage 
+					     print this as it occurs for many certificate usage 
 						 checks */
 
 	return( status );
@@ -586,6 +592,11 @@ int retExtSanFn( IN_ERROR const int status,
 		sanitiseString( string3Buffer, CRYPT_MAX_TEXTSIZE, string3Length );
 		string3Ptr = string3Buffer;
 		}
+
+	/* Format the error message.  Some of the string pointers may be NULL
+	   but this is OK, it's a printf-style varargs function that only takes
+	   the arguments it needs, so for example { "...%s...", string1Ptr, 
+	   NULL, NULL } */
 	retExt( status,
 			( status, errorInfo, formatString, string1Ptr, 
 			  string2Ptr, string3Ptr ) );
@@ -674,6 +685,10 @@ const char *getAlgoName( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 		{ CRYPT_ALGO_SHA1, "SHA1" },
 		{ CRYPT_ALGO_SHA2, "SHA2" },
 		{ CRYPT_ALGO_SHAng,	"SHAng" },
+		/* MAC algorithms */
+		{ CRYPT_ALGO_HMAC_SHA1,	"HMAC-SHA1" },
+		{ CRYPT_ALGO_HMAC_SHA2,	"HMAC-SHA2" },
+		{ CRYPT_ALGO_HMAC_SHAng, "HMAC-SHAng" },
 		/* Generic secret algorithm.  This is a bit of an odd one because 
 		   it's only visible internally, but we need to have some 
 		   description available for it in case an attempt to create a 
@@ -683,7 +698,8 @@ const char *getAlgoName( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 		};
 
 	REQUIRES_EXT( isConvAlgo( cryptAlgo ) || isPkcAlgo( cryptAlgo ) || \
-				  isHashAlgo( cryptAlgo ) || isSpecialAlgo( cryptAlgo ), 
+				  isHashAlgo( cryptAlgo ) || isMacAlgo( cryptAlgo ) || \
+				  isSpecialAlgo( cryptAlgo ), 
 				  "<Unknown>" );
 
 	return( getObjectName( objectNameInfo,
@@ -696,7 +712,8 @@ CHECK_RETVAL_PTR_NONNULL \
 const char *getAlgoNameEx( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 						   IN_RANGE( 0, 100 ) const int cryptParam )
 	{
-	REQUIRES_EXT( isHashAlgo( cryptAlgo ), "<Unknown>" );
+	REQUIRES_EXT( isHashAlgo( cryptAlgo ) || \
+				  isMacAlgo( cryptAlgo ), "<Unknown>" );
 	REQUIRES_EXT( cryptParam >= 0 && cryptParam <= 100, "<Unknown>" );
 
 	/* If it's not a parameterised algorithm or there's no parameter 
@@ -705,8 +722,14 @@ const char *getAlgoNameEx( IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 		   isParameterisedMacAlgo( cryptAlgo ) ) || cryptParam <= 0 )
 		return( getAlgoName( cryptAlgo ) );
 
-	/* The set of parameterised hash algorithms is small enough that we can 
-	   just hardcode in the selection for now */
+	/* The set of parameterised hash/MAC algorithms is small enough that 
+	   we can just hardcode in the selection for now */
+	if( isMacAlgo( cryptAlgo ) )
+		{
+		return( ( cryptParam == 32 ) ? "HMAC-SHA2-256" : \
+				( cryptParam == 48 ) ? "HMAC-SHA2-384" : \
+				( cryptParam == 64 ) ? "HMAC-SHA2-512" : "HMAC-SHA2" );
+		}
 	return( ( cryptParam == 32 ) ? "SHA2-256" : \
 			( cryptParam == 48 ) ? "SHA2-384" : \
 			( cryptParam == 64 ) ? "SHA2-512" : "SHA2" );
@@ -866,9 +889,9 @@ void formatHexData( OUT_BUFFER_FIXED( hexTextMaxLen ) char *hexText,
 	/* It's more than 10 bytes, only output the first 6 and last 4 bytes.  
 	   The potential expansion factor is ( hexDataLen * 3 ) + 1 (+3 for the 
 	   ellipses, but -2 for the absent spaces at the start and end of the 
-	   string).  Since we currently limit the input to 10 bytes we never 
-	   output more than 31 characters of text which again is well under the 
-	   48-byte minimum buffer size */
+	   string).  Since we limit the data quantity displayed to 10 bytes we 
+	   never output more than 31 characters of text which again is well 
+	   under the 48-byte minimum buffer size */
 	length = sprintf_s( hexText, hexTextMaxLen, 
 						"%02X %02X %02X %02X %02X %02X ... %02X %02X %02X %02X",
 						hexData[ 0 ], hexData[ 1 ], hexData[ 2 ], 

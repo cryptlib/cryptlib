@@ -779,8 +779,8 @@ int insertDNstring( INOUT_PTR DATAPTR_DN *dnListHeadPtr,
 				}
 			}
 
-		/* We've fixed up the coutry code information if required, make sure 
-		   that we add the fixed form rather than the original */
+		/* We've fixed up the country code information if required, make 
+		   sure that we add the fixed form rather than the original */
 		value = countryCode;
 		}
 

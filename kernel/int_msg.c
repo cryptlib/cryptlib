@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Internal Message Handlers						*
-*						Copyright Peter Gutmann 1997-2018					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -163,20 +163,26 @@ static int updateDependentObjectPerms( IN_HANDLE const CRYPT_HANDLE objectHandle
 				objectTable[ dependentObject ].type == OBJECT_TYPE_CERTIFICATE ) || \
 			  ( objectTable[ objectHandle ].type == OBJECT_TYPE_CERTIFICATE && \
 				objectTable[ dependentObject ].type == OBJECT_TYPE_CONTEXT ) );
-	REQUIRES( objectTable[ objectHandle ].dependentObject != dependentObject || \
+	REQUIRES( objectTable[ objectHandle ].dependentObject != dependentObject && \
 			  objectTable[ dependentObject ].dependentObject != objectHandle );
 
 	/* Since we're about to send messages to the dependent object, we have to
-	   unlock the object table.  Since we're about to hand off control to
-	   other threads, we clear any object-table references since we can't 
-	   rely on them to be consistent when we re-lock the table */
+	   temporarily unlock the object table.  Because we're about to hand off 
+	   control to other threads we clear any object-table references since we 
+	   can't rely on them to be consistent when we re-lock the table.
+	   
+	   The following sequence of operations aren't the problem that they 
+	   appear to be, the first is a pointer to the object table, the second
+	   is a reference to the object table mutex which is an entirely 
+	   different thing */
 	objectTable = NULL;
 	MUTEX_UNLOCK( objectTable );
 
 	/* Make sure that we're not making a private key dependent on a cert,
 	   which is a public-key object.  We check this here rather than having
 	   the caller check it because it requires having the object table
-	   unlocked */
+	   unlocked, and if there's an error restore the table locking state 
+	   before we exit */
 	if( objectType == OBJECT_TYPE_CERTIFICATE && \
 		checkContextCapability( dependentObject, 
 								MESSAGE_CHECK_PKC_PRIVATE ) )
@@ -195,7 +201,7 @@ static int updateDependentObjectPerms( IN_HANDLE const CRYPT_HANDLE objectHandle
 	   In addition since the introduction of certificates now requires that
 	   we distinguish between "sign any kind of data except data that's a
 	   certificate" and "sign data that's a certificate", we have to check
-	   for MESSAGE_CHECK_PKC_SIGN_SPECIAL_AVAIL alongside the standard
+	   for MESSAGE_CHECK_PKC_SIGN_CA_AVAIL alongside the standard
 	   MESSAGE_CHECK_PKC_SIGN_AVAIL.
 
 	   Because a key with a certificate attached indicates that it's
@@ -581,16 +587,13 @@ int setPropertyAttribute( IN_HANDLE const int objectHandle,
 
 		/* Internal properties */
 		case CRYPT_IATTRIBUTE_STATUS:
-			/* We're clearing an error/abnormal state */
+			/* If the object is in an abnormal state, we can only (try to) 
+			   return it back to the normal state after the problem is 
+			   resolved */
 			REQUIRES( value == CRYPT_OK );
 
 			if( isInvalidObjectState( objectHandle ) )
 				{
-				/* If the object is in an abnormal state, we can only (try to)
-				   return it back to the normal state after the problem is
-				   resolved */
-				REQUIRES( value == CRYPT_OK );
-
 				/* If we're processing a notification from the caller that
 				   the object init is complete and the object was destroyed
 				   while it was being created (which sets its state to
@@ -653,7 +656,7 @@ int setPropertyAttribute( IN_HANDLE const int objectHandle,
 			}
 
 		case CRYPT_IATTRIBUTE_LOCKED:
-			/* Incremement or decrement the object's lock count depending on
+			/* Increment or decrement the object's lock count depending on
 			   whether we're locking or unlocking it */
 			if( value )
 				{
@@ -1170,7 +1173,11 @@ int cloneObject( IN_HANDLE const int objectHandle,
 								  MESSAGE_CHANGENOTIFY_OWNERHANDLE );
 		}
 	if( cryptStatusError( status ) )
+		{
+		/* The clone failed, the caller will clean up the object at a higher 
+		   level */
 		return( status );
+		}
 
 	/* We've copied across the object's state, the cloned object is now
 	   initialised ready for use */

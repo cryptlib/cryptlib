@@ -1,9 +1,25 @@
 /****************************************************************************
 *																			*
 *						cryptlib DNS SRV Interface Routines					*
-*						Copyright Peter Gutmann 1998-2009					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
+
+/* Use DNS SRV to auto-detect host information.  This code is disabled by 
+   default and slated for removal.  Before enabling it you should make sure 
+   that your system's DNS services can't serve as an attack vector due to 
+   the complexity of DNS packet processing.  The Unix DNS interface is 
+   particularly bad, the problematic nature of the requirement that 
+   implementations manually disassemble the DNS data themselves has been 
+   demonstrated by the numerous bugs that have hit implementations that did 
+   this, examples being the bind 9.2.1 gethostans() vulnerability and, in a 
+   rather extreme example, the l0pht antisniff 1.0 vulnerability which 
+   required no less than three successive patches to the same code to 
+   finally eradicate the one bug (!!).  The fact that every new 
+   implementation that wants to use this functionality has to independently 
+   reinvent the code to do it means that these vulnerabilities will be with 
+   us more or less forever, which is why this facility is disabled by 
+   default and will be removed in a future version */
 
 #include <ctype.h>
 #if defined( INC_ALL )
@@ -18,22 +34,6 @@
   #include "io/tcp_int.h"
 #endif /* Compiler-specific includes */
 
-/* Use DNS SRV to auto-detect host information.  Note that this code is 
-   disabled by default, before enabling it you should make sure that your
-   system's DNS services can't serve as an attack vector due to the 
-   complexity of DNS packet processing.  The Unix DNS interface is 
-   particularly bad here, the problematic nature of the requirement that 
-   implementations manually disassemble the DNS data themselves has been 
-   demonstrated by the numerous bugs that have hit implementations that did 
-   this, examples being the bind 9.2.1 gethostans() vulnerability and, in a 
-   rather extreme example, the l0pht antisniff 1.0 vulnerability which 
-   required no less than three successive patches to the same code to 
-   finally eradicate the one bug (!!).  The fact that every new 
-   implementation that wants to use this functionality has to independently 
-   reinvent the code to do it means that these vulnerabilities will be with 
-   us more or less forever, which is why this facility is disabled by 
-   default */
-
 #if defined( USE_TCP ) && defined( USE_DNSSRV )
 
 #if defined( _MSC_VER ) || defined( __GNUC__ ) || defined( __clang__ )
@@ -46,7 +46,7 @@
 *																			*
 ****************************************************************************/
 
-#if defined( __WINDOWS__ ) && !defined( __WIN16__ )
+#if defined( __WINDOWS__ )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int convertToSrv( OUT_BUFFER_FIXED( srvNameMaxLen ) char *srvName, 
@@ -56,7 +56,7 @@ static int convertToSrv( OUT_BUFFER_FIXED( srvNameMaxLen ) char *srvName,
 	const int hostNameLength = strnlen_s( hostName, MAX_DNS_SIZE ) + 1;
 	LOOP_INDEX i;				/* For trailing '\0' */
 
-	assert( isReadPtrDynamic( srvName, srvNameMaxLen ) );
+	assert( isWritePtrDynamic( srvName, srvNameMaxLen ) );
 	assert( isReadPtr( hostName, MIN_DNS_SIZE ) );
 	
 	ANALYSER_HINT_STRING( hostName );
@@ -95,7 +95,7 @@ static int convertToSrv( OUT_BUFFER_FIXED( srvNameMaxLen ) char *srvName,
 		REQUIRES( boundsCheck( 14, hostNameLength, srvNameMaxLen ) );
 		memcpy( srvName + 14, hostName, hostNameLength );
 		}
-	srvName[ srvNameMaxLen ] = '\0';
+	srvName[ srvNameMaxLen - 1 ] = '\0';
 
 	return( CRYPT_OK );
 	}
@@ -161,7 +161,7 @@ static int getSrvFQDN( INOUT_PTR NET_STREAM_INFO *netStream,
 
 			/* Reverse the byte order for the in-addr.arpa lookup and
 			   convert the address to dotted-decimal notation */
-			inet_ntop( hostInfo->h_addrtype, &hostInfo->h_addr_list[ i ], 
+			inet_ntop( hostInfo->h_addrtype, hostInfo->h_addr_list[ i ], 
 					   addressBuffer, 64 );
 			result = sprintf_s( cachedFQDN, MAX_DNS_SIZE, "%s.in-addr.arpa",
 								addressBuffer );
@@ -541,8 +541,27 @@ int findHostInfo( INOUT_PTR NET_STREAM_INFO *netStream,
 	                                CRYPT_ERROR_BADDATA, FALSE ) );
 			}
 		namePtr += nameSegmentLen;
+#if defined( ns_get16 )
+		priority = ntohs( ns_get16( namePtr + SRV_PRIORITY_OFFSET ) );
+		port = ntohs( ns_get16( namePtr + SRV_PORT_OFFSET ) );
+#elif defined( NS_GET16 )
+		{
+		const BYTE *valuePtr;
+		int value;
+		
+		valuePtr = namePtr + SRV_PRIORITY_OFFSET;
+		value = NS_GET16( valuePtr );
+		priority = ntohs( value );
+		valuePtr = namePtr + SRV_PORT_OFFSET;
+		value = NS_GET16( valuePtr );
+		port = ntohs( value );
+		}
+#else
+		/* May need to replace this with a per-byte extract if the code is
+		   used in practice */
 		priority = ntohs( *( ( u_short * ) ( namePtr + SRV_PRIORITY_OFFSET ) ) );
 		port = ntohs( *( ( u_short * ) ( namePtr + SRV_PORT_OFFSET ) ) );
+#endif /* ns_get16 */
 		namePtr += NS_SRVFIXEDSZ;
 		if( priority < minPriority )
 			{
@@ -557,13 +576,12 @@ int findHostInfo( INOUT_PTR NET_STREAM_INFO *netStream,
 			/* It's a lower-priority host, skip it */
 			nameSegmentLen = dn_skipname( namePtr, endPtr );
 			}
-		if( nameSegmentLen <= 0 || nameSegmentLen > MAX_DNS_SIZE || \
+		if( nameSegmentLen <= 0 || nameSegmentLen > hostNameMaxLen || \
 			namePtr + nameSegmentLen > endPtr )
 			{
 	        return( setSocketError( netStream, "RR contains invalid answer", 26,
 	                                CRYPT_ERROR_NOTFOUND, FALSE ) );
 			}
-		hostName[ nameSegmentLen ] = '\0';
 		namePtr += nameSegmentLen;
 		}
 	ENSURES( LOOP_BOUND_OK );

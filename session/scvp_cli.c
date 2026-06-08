@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib SCVP Client Management					*
-*						Copyright Peter Gutmann 2009-2021					*
+*						Copyright Peter Gutmann 2009-2025					*
 *																			*
 ****************************************************************************/
 
@@ -330,7 +330,7 @@ static int sendScvpRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = writePkiDatagram( sessionInfoPtr, 
 								   SCVP_CONTENTTYPE_REQUEST,
 								   SCVP_CONTENTTYPE_REQUEST_LEN,
-								   MK_ERRTEXT( "Couldnt send SCVP request "
+								   MK_ERRTEXT( "Couldn't send SCVP request "
 											   "to server" ) );
 		}
 	return( status );
@@ -550,8 +550,8 @@ static int readRequestRef( INOUT_PTR STREAM *stream,
 	FUZZ_SKIP_REMAINDER();
 	if( hashAlgo != protocolInfo->requestHashAlgo )
 		{
-		retExt( status,
-				( status, errorInfo, 
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, errorInfo, 
 				  "Requested request hash algorithm %d (%s), "
 				  "server sent %d (%s)", protocolInfo->requestHashAlgo,
 				  getAlgoName( protocolInfo->requestHashAlgo ),
@@ -563,8 +563,8 @@ static int readRequestRef( INOUT_PTR STREAM *stream,
 		protocolInfo->requestHashSize != hashValueSize || \
 		memcmp( protocolInfo->requestHash, hashValue, hashValueSize ) )
 		{
-		retExt( status,
-				( status, errorInfo, 
+		retExt( CRYPT_ERROR_SIGNATURE,
+				( CRYPT_ERROR_SIGNATURE, errorInfo, 
 				  "Hash value of request doesn't match server's returned "
 				  "request reference" ) );
 		}
@@ -699,7 +699,10 @@ static int readScvpResponse( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Skip the response validation policy if it's present */
-	if( peekTag( stream ) == MAKE_CTAG( CTAG_RP_RESPVALIDATIONPOLICY ) )
+	status = tag = peekTag( stream );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( tag == MAKE_CTAG( CTAG_RP_RESPVALIDATIONPOLICY ) )
 		{
 		status = readUniversal( stream );
 		if( cryptStatusError( status ) )
@@ -713,7 +716,10 @@ static int readScvpResponse( INOUT_PTR STREAM *stream,
 	/* Check the requestRef if it's present.  This is used to detect 
 	   manipulation of the client's request, which goes out 
 	   unauthenticated */
-	if( peekTag( stream ) == MAKE_CTAG( CTAG_RP_REQUESTREF ) )
+	status = tag = peekTag( stream );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( tag == MAKE_CTAG( CTAG_RP_REQUESTREF ) )
 		{
 		status = readRequestRef( stream, protocolInfo, SESSION_ERRINFO );
 		if( cryptStatusError( status ) )
@@ -721,7 +727,8 @@ static int readScvpResponse( INOUT_PTR STREAM *stream,
 		}
 
 	/* Skip further noise if it's present */
-	if( peekTag( stream ) == MAKE_CTAG( CTAG_RP_REQUESTORREF ) )
+	if( checkStatusPeekTag( stream, status, tag ) && \
+		tag == MAKE_CTAG( CTAG_RP_REQUESTORREF ) )
 		status = readUniversal( stream );
 	if( checkStatusPeekTag( stream, status, tag ) && \
 		tag == MAKE_CTAG( CTAG_RP_REQUESTORNAME ) )
@@ -730,7 +737,7 @@ static int readScvpResponse( INOUT_PTR STREAM *stream,
 		{
 		retExt( status,
 				( status, SESSION_ERRINFO, 
-				  "Couldn't read requestor reference or name" ) );
+				  "Couldn't read requester reference or name" ) );
 		}
 
 	/* Read the reply objects, another optional-but-mandatory field */	
@@ -827,17 +834,24 @@ static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	/* Request certificate status information from the server */
 	status = sendScvpRequest( sessionInfoPtr, &protocolInfo );
 	if( cryptStatusError( status ) )
+		{
+		destroySCVPprotocolInfo( &protocolInfo );
 		return( status );
+		}
 	CFI_CHECK_UPDATE( "createScvpRequest" );
 
 	/* Read back the response certificate from the server */
 	status = readPkiDatagram( sessionInfoPtr, MIN_CRYPT_OBJECTSIZE,
-							  MK_ERRTEXT( "Couldnt read SCVP server "
+							  MK_ERRTEXT( "Couldn't read SCVP server "
 										  "response" ) );
 	if( cryptStatusOK( status ) )
 		status = checkScvpResponse( sessionInfoPtr, &protocolInfo );
 	if( cryptStatusError( status ) )
+		{
+		destroySCVPprotocolInfo( &protocolInfo );
 		return( status );
+		}
+	destroySCVPprotocolInfo( &protocolInfo );
 	CFI_CHECK_UPDATE( "checkScvpResponse" );
 
 	ENSURES( CFI_CHECK_SEQUENCE_2( "createScvpRequest", 

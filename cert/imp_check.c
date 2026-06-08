@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					Certificate Import Format-check Routines				*
-*						Copyright Peter Gutmann 1997-2017					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -132,8 +132,7 @@
 							[3] ... [9]			-- [2] stripped
 
 	OCSP request:			SEQUENCE { SEQUENCE {
-								SEQUENCE ...	-- [0] | [1] | [2] | [3]
-												-- for other IDs
+								SEQUENCE ...
 	
 	OCSP resp:				GeneralizedTime
 
@@ -173,8 +172,7 @@
 							[3] ... [9]			-- [2] stripped
 
 	OCSP request:			SEQUENCE { SEQUENCE {
-								SEQUENCE ...	-- [0] | [1] | [2] | [3]
-												-- for other IDs
+								SEQUENCE ...
 	
 	OCSP resp:				GeneralizedTime
 
@@ -208,8 +206,7 @@
 								[3] ... [9]
 
 	OCSP request:			SEQUENCE { SEQUENCE {
-								SEQUENCE ...	-- [0] | [1] | [2] | [3]
-												-- for other IDs
+								SEQUENCE ...
 
 	RTCS request:			SEQUENCE { 
 								OCTET STRING	-- certHash
@@ -242,8 +239,7 @@
 								[3] ... [9]
 
 	OCSP request:			SEQUENCE { SEQUENCE {
-								SEQUENCE ...	-- [0] | [1] | [2] | [3]
-												-- for other IDs
+								SEQUENCE ...
 
 	RTCS request:			SEQUENCE { 
 								OCTET STRING	-- certHash
@@ -270,8 +266,7 @@
 	CRMF request:			[3] ... [9]
 
 	OCSP request:			SEQUENCE {
-								SEQUENCE ...	-- [0] | [1] | [2] | [3]
-												-- for other IDs
+								SEQUENCE ...
 
 	RTCS request:			OCTET STRING	-- certHash
 
@@ -283,8 +278,7 @@
 	CRMF request:			[3] ... [9]
 
 	OCSP request:			SEQUENCE {
-								SEQUENCE ...	-- [0] | [1] | [2] | [3]
-												-- for other IDs
+								SEQUENCE ...
 
    which can themselves be distinguished by the remaining data.
 
@@ -293,8 +287,8 @@
    CRMF revocation request and PKIUser object is only valid in the context 
    of a CMP transaction and RTCS and OCSP objects are only valid in the 
    contxt of RTCS or OCSP transactions, however we make an exception for 
-   CRMF certification requests and OCSP responses because they're used in 
-   the self-test */
+   CRMF certification requests and OCSP requests/responses because they're 
+   used in the self-test */
 
 #ifdef USE_CERTIFICATES
 
@@ -321,8 +315,7 @@ static int processCertWrapper( INOUT_PTR STREAM *stream,
 		{ OID_CMS_DATA, CRYPT_OK, NULL },
 		{ NULL, 0 }, { NULL, 0 }
 		};
-	long length;
-	int setLength, innerLength, innerOffset DUMMY_INIT, status;
+	int length, setLength, innerLength, innerOffset DUMMY_INIT, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( objectOffset, sizeof( int ) ) );
@@ -334,10 +327,14 @@ static int processCertWrapper( INOUT_PTR STREAM *stream,
 	*objectOffset = *objectLength = 0;
 
 	/* Read the SignedData wrapper */
-	sseek( stream, objectStartPos );
-	status = readCMSheader( stream, signedDataOIDinfo, 
-							FAILSAFE_ARRAYSIZE( signedDataOIDinfo, OID_INFO ), 
-							NULL, &length, READCMS_FLAG_NONE );
+	status = sseek( stream, objectStartPos );
+	if( cryptStatusOK( status ) )
+		{
+		status = readCMSheader( stream, signedDataOIDinfo, 
+								FAILSAFE_ARRAYSIZE( signedDataOIDinfo, \
+													OID_INFO ), 
+								NULL, &length, READCMS_FLAG_NONE );
+		}
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -499,9 +496,6 @@ int getCertObjectInfo( INOUT_PTR STREAM *stream,
 	status = getStreamObjectLength( stream, &length, minLength );
 	if( cryptStatusError( status ) )
 		{
-#if INT_MAX > 32767
-		long longLength;
-
 		if( status != CRYPT_ERROR_OVERFLOW )
 			return( status );
 
@@ -514,17 +508,12 @@ int getCertObjectInfo( INOUT_PTR STREAM *stream,
 		   with a CRYPT_ERROR_OVERFLOW */
 		sClearError( stream );
 		sseek( stream, 0 );
-		status = getLongStreamObjectLength( stream, &longLength );
+		status = getLongStreamObjectLength( stream, &length );
 		if( cryptStatusError( status ) )
 			return( status );
-		if( !isIntegerRangeMin( longLength, 1024 ) )
+		if( !isIntegerRangeMin( length, 1024 ) )
 			return( CRYPT_ERROR_BADDATA );
-		length = ( int ) longLength;
 		isLongData = TRUE;
-#else
-		/* Mega-CRLs are too much for 16-bit systems */
-		return( status );
-#endif /* 16- vs. 32/64-bit systems */
 		}
 	if( !isIntegerRangeMin( length, minLength ) )
 		return( CRYPT_ERROR_BADDATA );
@@ -656,7 +645,7 @@ int getCertObjectInfo( INOUT_PTR STREAM *stream,
 	/* Read the inner sequence */
 	if( isLongData )
 		{
-		long longLength;
+		int longLength;
 
 		status = readLongSequence( stream, &longLength );
 		if( cryptStatusOK( status ) && longLength == CRYPT_UNUSED )
@@ -702,9 +691,11 @@ int getCertObjectInfo( INOUT_PTR STREAM *stream,
 
 	/* Read the next SEQUENCE.  If it's followed by an OID it's the 
 	   AlgorithmIdentifier in a certificate or CRL, if it's followed by a 
-	   SET it's the Name in a certificate request, if it's followed by a
-	   [1] constructed tag it's an attribute certificate, and if it's 
-	   followed by a tag in the range [0]...[9] it's a horror from CRMF */
+	   SET it's either the Name in a certificate request or attribute 
+	   certificate (the two are distinguished further down), if it's 
+	   followed by a [1] constructed tag it's an attribute certificate, 
+	   and if it's followed by a tag in the range [0]...[9] it's a horror 
+	   from CRMF */
 	status = readSequence( stream, &length );
 	if( cryptStatusOK( status ) && !isShortIntegerRangeNZ( length ) )
 		status = CRYPT_ERROR_BADDATA;
@@ -754,6 +745,14 @@ int getCertObjectInfo( INOUT_PTR STREAM *stream,
 		}
 	if( tag == BER_SET )
 		{
+		/* Skip the contents of the encapsulating SEQUENCE (which has the 
+		   SET inside it) and see what follows it.  For an attribute 
+		   certificate it's the OID of an AlgorithmIdentifier, for a 
+		   certificate request it's another SEQUENCE in the SPKI.  This
+		   isn't explained in the parsing state breakdown earlier because
+		   the nesting level is too deep so it would make an already-long
+		   explanation even longer, all we're doing is distinguishing A
+		   from B */
 		sSkip( stream, length, MAX_INTLENGTH_SHORT );
 		readSequence( stream, NULL );
 		status = tag = readTag( stream );
@@ -771,8 +770,19 @@ int getCertObjectInfo( INOUT_PTR STREAM *stream,
 			}
 		return( CRYPT_ERROR_BADDATA );
 		}
+	if( tag == BER_SEQUENCE )
+		{
+		readSequence( stream, NULL );
+		status = readSequence( stream, NULL );
+		if( cryptStatusError( status ) )
+			return( status );
+		*objectType = CRYPT_CERTTYPE_OCSP_REQUEST;
+		return( CRYPT_OK );
+		}
 
-	/* It's nothing identifiable */
+	/* It's nothing identifiable, or at least it's a PKIUser object, RTCS 
+	   request or response, or a CRMF revocation request which we don't 
+	   handle, see the comment earlier for the parsing state breakdown */
 	return( CRYPT_ERROR_BADDATA );
 	}
 #endif /* USE_CERTIFICATES */

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib CMS Enveloping Routines					*
-*					    Copyright Peter Gutmann 1996-2016					*
+*					    Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -288,8 +288,7 @@ static int writeSignedDataHeader( INOUT_PTR STREAM *stream,
 	const BYTE *contentOID = getContentOID( envelopeInfoPtr->contentType );
 	LOOP_INDEX_PTR ACTION_LIST *actionListPtr;
 	ALGOID_PARAMS algoIDparams;
-	long dataSize;
-	int hashActionSize = 0, status;
+	int dataSize, hashActionSize = 0, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
@@ -330,7 +329,7 @@ static int writeSignedDataHeader( INOUT_PTR STREAM *stream,
 		dataSize = CRYPT_UNUSED;
 	else
 		{
-		long metaDataSize;
+		int metaDataSize;
 		
 		/* Determine the size of the content OID + content */
 		if( envelopeInfoPtr->payloadSize > 0 )
@@ -419,11 +418,11 @@ static int writeSignedDataHeader( INOUT_PTR STREAM *stream,
    CRYPT_UNUSED */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3 ) ) \
-static int getBlockedPayloadSize( IN_LENGTH_INDEF const long payloadSize, 
+static int getBlockedPayloadSize( IN_LENGTH_INDEF const int payloadSize, 
 								  IN_LENGTH_IV const int blockSize,
-								  OUT_LENGTH_INDEF long *blockedPayloadSize )
+								  OUT_LENGTH_INDEF int *blockedPayloadSize )
 	{
-	assert( isWritePtr( blockedPayloadSize, sizeof( long ) ) );
+	assert( isWritePtr( blockedPayloadSize, sizeof( int ) ) );
 
 	REQUIRES( payloadSize == CRYPT_UNUSED || \
 			  isIntegerRangeNZ( payloadSize ) );
@@ -452,7 +451,7 @@ static int getBlockedPayloadSize( IN_LENGTH_INDEF const long payloadSize,
 	   size since if the size is already a multiple of the block size it 
 	   expands by another block, so we make the payload look one byte longer 
 	   before rounding to the block size to ensure the one-block expansion */
-	REQUIRES( !checkOverflowAddLong( payloadSize, 1 ) );
+	REQUIRES( !checkOverflowAdd( payloadSize, 1 ) );
 	REQUIRES( !checkOverflowRoundup( payloadSize + 1, blockSize ) );
 	*blockedPayloadSize = roundUp( payloadSize + 1, blockSize );
 
@@ -467,11 +466,10 @@ static int writeEncryptedContentHeader( INOUT_PTR STREAM *stream,
 							IN_BUFFER( contentOIDlength ) const BYTE *contentOID, 
 							IN_LENGTH_OID const int contentOIDlength,
 							IN_HANDLE const CRYPT_CONTEXT iCryptContext,
-							IN_LENGTH_INDEF const long payloadSize, 
-							IN_LENGTH_IV const long blockSize )
+							IN_LENGTH_INDEF const int payloadSize, 
+							IN_LENGTH_IV const int blockSize )
 	{
-	long blockedPayloadSize;
-	int status;
+	int blockedPayloadSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtrDynamic( contentOID, contentOIDlength ) );
@@ -496,17 +494,16 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4, 5 ) ) \
 static int getEncryptedContentSize( const ENVELOPE_INFO *envelopeInfoPtr,
 									IN_BUFFER( contentOIDlength ) const BYTE *contentOID, 
 									IN_LENGTH_OID const int contentOIDlength,
-									OUT_LENGTH_INDEF long *blockedPayloadSize,
-									OUT_LENGTH_Z long *encrContentInfoSize )
+									OUT_LENGTH_INDEF int *blockedPayloadSize,
+									OUT_LENGTH_Z int *encrContentInfoSize )
 	{
 	CRYPT_CONTEXT iCryptContext;
-	long length DUMMY_INIT;
-	int status;
+	int length DUMMY_INIT, status;
 
 	assert( isReadPtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( isReadPtrDynamic( contentOID, contentOIDlength ) );
-	assert( isWritePtr( blockedPayloadSize, sizeof( long ) ) );
-	assert( isWritePtr( encrContentInfoSize, sizeof( long ) ) );
+	assert( isWritePtr( blockedPayloadSize, sizeof( int ) ) );
+	assert( isWritePtr( encrContentInfoSize, sizeof( int ) ) );
 
 	REQUIRES( contentOIDlength >= MIN_OID_SIZE && \
 			  contentOIDlength <= MAX_OID_SIZE );
@@ -541,8 +538,8 @@ static int writeEncryptionHeader( INOUT_PTR STREAM *stream,
 								  IN_BUFFER( oidLength ) const BYTE *oid, 
 								  IN_LENGTH_OID const int oidLength, 
 								  IN_RANGE( 0, 2 ) const int version, 
-								  IN_LENGTH_INDEF const long blockedPayloadSize,
-								  IN_LENGTH_INDEF const long extraSize )
+								  IN_LENGTH_INDEF const int blockedPayloadSize,
+								  IN_LENGTH_INDEF const int extraSize )
 	{
 	int status;
 
@@ -559,8 +556,8 @@ static int writeEncryptionHeader( INOUT_PTR STREAM *stream,
 
 	REQUIRES( blockedPayloadSize == CRYPT_UNUSED || \
 			  extraSize == CRYPT_UNUSED || \
-			  !checkOverflowAddLong3( sizeofShortInteger( 0 ), extraSize, \
-									  blockedPayloadSize ) );
+			  !checkOverflowAdd3( sizeofShortInteger( 0 ), extraSize, \
+								  blockedPayloadSize ) );
 	status = writeCMSheader( stream, oid, oidLength,
 							 ( blockedPayloadSize == CRYPT_UNUSED || \
 							   extraSize == CRYPT_UNUSED ) ? \
@@ -578,8 +575,7 @@ static int writeEncryptedDataHeader( INOUT_PTR STREAM *stream,
 									 const ENVELOPE_INFO *envelopeInfoPtr )
 	{
 	const BYTE *contentOID = getContentOID( envelopeInfoPtr->contentType );
-	long blockedPayloadSize, encrContentInfoSize;
-	int status;
+	int blockedPayloadSize, encrContentInfoSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
@@ -612,8 +608,7 @@ static int writeEnvelopedDataHeader( INOUT_PTR STREAM *stream,
 									 const ENVELOPE_INFO *envelopeInfoPtr )
 	{
 	const BYTE *contentOID = getContentOID( envelopeInfoPtr->contentType );
-	long blockedPayloadSize, encrContentInfoSize;
-	int status;
+	int blockedPayloadSize, encrContentInfoSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
@@ -678,7 +673,8 @@ static int writeAuthenticatedDataHeader( INOUT_PTR STREAM *stream,
 	if( cryptStatusOK( status ) )
 		{
 		status = macActionSize = \
-				sizeofContextAlgoID( actionListPtr->iCryptHandle );
+				sizeofContextAlgoIDex( actionListPtr->iCryptHandle,
+									   &algoIDparams );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -748,8 +744,7 @@ static int writeAuthEncDataHeader( INOUT_PTR STREAM *stream,
 	CRYPT_CONTEXT iGenericSecret, iCryptContext, iMacContext;
 	const ACTION_LIST *actionListPtr;
 	const BYTE *contentOID = getContentOID( envelopeInfoPtr->contentType );
-	long blockedPayloadSize, encrContentInfoSize;
-	int macSize = 0, status;
+	int blockedPayloadSize, encrContentInfoSize, macSize = 0, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
@@ -1093,11 +1088,13 @@ static int writeCertchainTrailer( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 
 	/* Check whether there's enough room left in the buffer to emit the 
 	   signing certificate chain directly into it */
+	REQUIRES( !checkOverflowAdd( envelopeInfoPtr->extraDataSize, 64 ) );
 	if( envelopeInfoPtr->extraDataSize + 64 < dataLeft )
 		{
 		/* The certificate chain will fit into the envelope buffer */
 		certChainBufPtr = envelopeInfoPtr->buffer + \
 						  envelopeInfoPtr->bufPos + eocSize;
+		REQUIRES( !checkOverflowSub( dataLeft, eocSize ) );
 		certChainBufSize = dataLeft - eocSize;
 		}
 	else
@@ -1340,17 +1337,15 @@ static int writeMAC( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	BYTE hash[ CRYPT_MAX_HASHSIZE + 8 ];
 	const int eocSize = ( envelopeInfoPtr->payloadSize == CRYPT_UNUSED ) ? \
 						( 3 * sizeofEOC() ) : 0;
-	const int dataLeft = min( envelopeInfoPtr->bufSize - \
-							  envelopeInfoPtr->bufPos, 512 );
-	int length DUMMY_INIT, status;
+	int dataLeft, length DUMMY_INIT, status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 
+	/* Make sure that there's room for the MAC data in the buffer */
 	REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize, \
 								 envelopeInfoPtr->bufPos ) );
-	REQUIRES( isShortIntegerRange( dataLeft ) );
-
-	/* Make sure that there's room for the MAC data in the buffer */
+	dataLeft = min( envelopeInfoPtr->bufSize - envelopeInfoPtr->bufPos, 
+					512 );
 	if( dataLeft < eocSize + sizeofShortObject( CRYPT_MAX_HASHSIZE ) )
 		return( CRYPT_ERROR_OVERFLOW );
 	INJECT_FAULT( ENVELOPE_CMS_CORRUPT_AUTH_DATA, 
@@ -1363,6 +1358,15 @@ static int writeMAC( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		status = writeEOCs( envelopeInfoPtr, 3 );
 		if( cryptStatusError( status ) )
 			return( status );
+			
+		/* We've now written more data to the buffer, adjust the data-left 
+		   value.  We know that the dataLeft value is fine because we 
+		   checked it above */
+		REQUIRES( !checkOverflowSub( envelopeInfoPtr->bufSize, \
+									 envelopeInfoPtr->bufPos ) );
+		dataLeft = min( envelopeInfoPtr->bufSize - envelopeInfoPtr->bufPos, 
+						512 );
+		ENSURES( isIntegerRangeNZ( dataLeft ) );
 		}
 
 	/* Get the MAC value and write it to the buffer */

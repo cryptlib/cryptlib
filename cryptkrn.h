@@ -241,11 +241,7 @@ typedef enum {
 
 /* The data type used to store subtype values */
 
-#ifdef SYSTEM_16BIT
-  typedef long OBJECT_SUBTYPE;
-#else
-  typedef int OBJECT_SUBTYPE;
-#endif /* 16- vs.32-bit systems */
+typedef int OBJECT_SUBTYPE;
 
 /* Message flags.  Normally messages can only be sent to external objects, 
    however we can also explicitly send them to internal objects which means 
@@ -1217,7 +1213,7 @@ typedef struct {
    surrounding metadata like labels, dates, and ID information.  This is 
    distinct from a KEYMGMT_ITEM_PRIVATEKEY both to allow for better checking 
    by the kernel, since a KEYMGMT_ITEM_KEYMETADATA object may not be in the 
-   high state yet when it's used and doens't need a password like a 
+   high state yet when it's used and doesn't need a password like a 
    KEYMGMT_ITEM_PRIVATEKEY does.  In addition keeping the types distinct is 
    a safety feature since otherwise we'd need to allow a special-case 
    KEYMGMT_ITEM_PRIVATEKEY store without a password, which is just asking 

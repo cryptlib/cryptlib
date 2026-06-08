@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib ECDH Key Exchange Routines					*
-*						Copyright Peter Gutmann 2006-2014					*
+*						Copyright Peter Gutmann 2006-2025					*
 *																			*
 ****************************************************************************/
 
@@ -16,7 +16,8 @@
 /* The ECDH key exchange process is somewhat complex because there are two 
    phases involved for both sides, an "export" and an "import" phase, and 
    they have to be performed in the correct order.  The sequence of 
-   operations is:
+   operations, with DH naming to avoid getting bogged down in ECC details, 
+   is:
 
 	A.load:		set p, g from fixed or external values
 				x(A) = rand, x s.t. 0 < x < q-1
@@ -117,6 +118,8 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 
 	/* Clean up */
 	staticDestroyContext( &checkContextInfo );
+	zeroise( &keyAgreeParams1, sizeof( KEYAGREE_PARAMS ) );
+	zeroise( &keyAgreeParams2, sizeof( KEYAGREE_PARAMS ) );
 
 	return( cryptStatusOK( status ) ? TRUE : FALSE );
 	}
@@ -261,7 +264,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	}
 
 /* Perform phase 2 of ECDH ("import").  We don't have to bother with the 
-   complex contermeasures required for ECDSA because the ECDH secret values
+   complex countermeasures required for ECDSA because the ECDH secret values
    are single-use only, they're never used more than once */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
@@ -275,6 +278,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	const EC_GROUP *ecCTX = pkcInfo->ecCTX;
 	EC_POINT *q = pkcInfo->tmpPoint;
 	BIGNUM *x = &pkcInfo->tmp1, *y = &pkcInfo->tmp2;
+	BIGNUM *peer_qx = &pkcInfo->tmp3, *peer_qy = &pkcInfo->eccParam_tmp4;
 	const int keySize = bitsToBytes( pkcInfo->keySizeBits );
 	int bnStatus = BN_STATUS, status;
 
@@ -291,39 +295,26 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* The other party's Q value will be stored with the key agreement info 
 	   in X9.62 point form rather than having been read in when we read the 
-	   ECDH public key so we need to import it now.
-	   
-	   Since reading and storing the other party's value changes the context 
-	   data, we need to force a recalculation of the data checksum after the 
-	   import.  We don't need to perform the check beforehand since it's 
-	   just been done by the caller */
-	status = importECCPoint( &pkcInfo->eccParam_qx, &pkcInfo->eccParam_qy,
-							 keyAgreeParams->publicValue,
+	   ECDH public key so we need to import it now */
+	status = importECCPoint( peer_qx, peer_qy, keyAgreeParams->publicValue,
 							 keyAgreeParams->publicValueLen,
 							 MIN_PKCSIZE_ECC_THRESHOLD, 
 							 CRYPT_MAX_PKCSIZE_ECC, keySize,
 							 &domainParams->p, BIGNUM_CHECK_VALUE_ECC );
 	if( cryptStatusError( status ) )
 		return( status );
-	pkcInfo->checksum = 0L;
-	status = checksumContextData( contextInfoPtr->ctxPKC, TRUE );
-	ENSURES( cryptStatusOK( status ) );
-	ENSURES( verifyECCPointImport( &pkcInfo->eccParam_qx, 
-								   &pkcInfo->eccParam_qy,
+	ENSURES( verifyECCPointImport( peer_qx, peer_qy,
 								   keyAgreeParams->publicValue,
 								   keyAgreeParams->publicValueLen,
 								   keySize ) );
 
 	/* Make sure that the Q value is valid */
-	status = checkECCPublicValue( pkcInfo, &pkcInfo->eccParam_qx, 
-								  &pkcInfo->eccParam_qy );
+	status = checkECCPublicValue( pkcInfo, peer_qx, peer_qy );
 	if( cryptStatusError( status ) )
-		return( CRYPT_ARGERROR_STR1 );
+		return( CRYPT_ERROR_BADDATA );
 
 	/* Fill in the point structure with coordinates from Q */
-	CK( EC_POINT_set_affine_coordinates_GFp( ecCTX, q,
-											 &pkcInfo->eccParam_qx,
-											 &pkcInfo->eccParam_qy,
+	CK( EC_POINT_set_affine_coordinates_GFp( ecCTX, q, peer_qx, peer_qy,
 											 &pkcInfo->bnCTX ) );
 	if( bnStatusError( bnStatus ) )
 		return( getBnStatus( bnStatus ) );
@@ -486,7 +477,6 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								   ECCPARAM_MIN_D, ECCPARAM_MAX_D, 
 								   NULL, BIGNUM_CHECK_VALUE_ECC );
 			}
-		SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		if( cryptStatusError( status ) )
 			return( status );
 

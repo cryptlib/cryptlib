@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							cryptlib Base64 Routines						*
-*						Copyright Peter Gutmann 1992-2016					*
+*						Copyright Peter Gutmann 1992-2024					*
 *																			*
 ****************************************************************************/
 
@@ -117,7 +117,7 @@ static const HEADER_INFO headerInfo[] = {
 	  "-----END CERTIFICATE CHAIN-----" EOL, 31 + EOL_LEN },
 	{ CRYPT_CERTTYPE_CERTCHAIN,		/* Alternative form */
 	  "-----BEGIN PKCS7-----" EOL, 21 + EOL_LEN,
-	  "-----END PKCS7-----" EOL, 29 + EOL_LEN },
+	  "-----END PKCS7-----" EOL, 19 + EOL_LEN },
 #ifdef USE_CERTREQ
 	{ CRYPT_CERTTYPE_CERTREQUEST,
 	  "-----BEGIN NEW CERTIFICATE REQUEST-----" EOL, 39 + EOL_LEN,
@@ -185,7 +185,7 @@ static BOOLEAN checkBase64( INOUT_PTR STREAM *stream,
 	   match the base64-encoded form of 30 8x = "MI", so this quick-reject 
 	   filter won't catch this one particular case, however it'll be caught
 	   by the next check because '-' and the ':' after the MIME-Version 
-	   aren't valid base64 charactes */
+	   aren't valid base64 characters */
 	if( memcmp( buffer, "MI", 2 ) && \
 		memcmp( buffer, "AA", 2 ) && \
 		memcmp( buffer, "mQ", 2 ) )
@@ -344,7 +344,7 @@ static int checkPEMHeader( INOUT_PTR STREAM *stream,
 	if( isSSH )
 		{
 		/* Return to the point before the line without the ':' */
-		sseek( stream, position );
+		( void ) sseek( stream, position );
 		}
 	*headerLength = stell( stream );
 	ENSURES( isIntegerRangeNZ( *headerLength ) );
@@ -362,7 +362,7 @@ static int checkPEMHeader( INOUT_PTR STREAM *stream,
    
    It could either truncate immediately at the end of the data (which it 
    isn't supposed to) so we get '\0', it could truncate after the EOL (so 
-   we get EOL + '\0'), it could continue with a futher content type after a 
+   we get EOL + '\0'), it could continue with a further content type after a 
    blank line (so we get EOL + EOL), or it could truncate without the '\0' 
    so we get garbage, which is the caller's problem.  
    
@@ -515,7 +515,7 @@ int base64checkHeader( IN_BUFFER( dataLength ) const BYTE *data,
 			return( CRYPT_OK );
 			}
 		sClearError( &stream );
-		sseek( &stream, 0 );
+		( void ) sseek( &stream, 0 );
 		}
 
 	/* Sometimes the object can be preceded by a few blank lines, which we
@@ -545,7 +545,7 @@ int base64checkHeader( IN_BUFFER( dataLength ) const BYTE *data,
 		sMemDisconnect( &stream );
 		return( CRYPT_ERROR_BADDATA );
 		}
-	sseek( &stream, position );
+	( void ) sseek( &stream, position );
 
 	/* If the data starts with a dash check for PEM header encapsulation 
 	   followed by a base64-encoded body */
@@ -578,7 +578,7 @@ int base64checkHeader( IN_BUFFER( dataLength ) const BYTE *data,
 
 		return( CRYPT_OK );
 		}
-	sseek( &stream, position );
+	( void ) sseek( &stream, position );
 
 	/* It doesn't look like base64 encoded data, check for an S/MIME header */
 	LOOP_MED( ( length = 1, lineCount = 0 ),

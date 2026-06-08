@@ -61,6 +61,10 @@
   #endif /* TEST_ENVELOPE */
 #endif /* Low-level and envelope tests are called by the device tests */
 
+/* Define the following for fault-injection test runs */
+
+/* #define CONFIG_FAULTS */
+
 /* Some of the device tests can be rather slow, the following defines disable
    these tests for speed reasons.  Note that the Fortezza test can be further
    cut down by not performing the CAW test (which erases any existing data on
@@ -148,7 +152,7 @@
 
 #define SENTINEL		-1000
 
-/* A dummy initialistion value used to deal with false-positive compiler 
+/* A dummy initialisation value used to deal with false-positive compiler 
    warnings */
 
 #ifndef DUMMY_INIT
@@ -336,7 +340,7 @@
   #define _OSSPEC_DEFINED
   #define VC_16BIT( version )		( ( version ) <= 800 )
   #define VC_LE_VC6( version )		( ( version ) <= 1200 )
-  #define VC_LT_2005( version )		( ( version ) d< 1400 )
+  #define VC_LT_2005( version )		( ( version ) < 1400 )
   #define VC_GE_2005( version )		( ( version ) >= 1400 )
   #define VC_GE_2010( version )		( ( version ) >= 1600 )
   #define VC_GE_2017( version )		( ( version ) >= 1910 )
@@ -700,6 +704,8 @@ int multiThreadDispatch( THREAD_FUNC clientFunction,
 
 /* Prototypes for functions in utils.c */
 
+extern int expectedFaultType, expectedFaultStatus;
+
 #ifndef _WIN32_WCE
   char *getTimeString( const time_t theTime, const int bufNo );
 #else
@@ -708,6 +714,7 @@ int multiThreadDispatch( THREAD_FUNC clientFunction,
 int checkNetworkAccess( void );
 int checkLibraryIsDebug( void );
 int checkDatabaseKeysetAvailable( void );
+void setFaultInfo( const int faultType, const int faultStatus );
 int exitUnsupportedAlgo( const CRYPT_ALGO_TYPE cryptAlgo, 
 						 const char *mechanismName );
 void printErrorAttributeInfo( const CRYPT_CERTIFICATE certificate );
@@ -1321,6 +1328,7 @@ BOOLEAN testEnveloping( void );
 BOOLEAN testSessions( void );
 BOOLEAN testSessionsLoopback( void );
 BOOLEAN testUsers( void );
+BOOLEAN testFaults( void );
 
 #if defined( __MVS__ ) || defined( __VMCMS__ )
   #pragma convlit( resume )

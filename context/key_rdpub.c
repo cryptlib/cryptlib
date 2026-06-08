@@ -103,10 +103,14 @@ static int readRsaSubjectPublicKey( INOUT_PTR STREAM *stream,
 	   is a pure public key rather than merely the public portions of a 
 	   private key then the actions will be restricted at that point to 
 	   encrypt and signature-check only */
-	*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_ENCRYPT, ACTION_PERM_ALL ) | \
-				   MK_ACTION_PERM( MESSAGE_CTX_DECRYPT, ACTION_PERM_ALL ) | \
-				   MK_ACTION_PERM( MESSAGE_CTX_SIGN, ACTION_PERM_ALL ) | \
-				   MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, ACTION_PERM_ALL );
+	*actionFlags = MK_ACTION_PERM( MESSAGE_CTX_ENCRYPT, \
+								   ACTION_PERM_NONE_EXTERNAL ) | \
+				   MK_ACTION_PERM( MESSAGE_CTX_DECRYPT, \
+								   ACTION_PERM_NONE_EXTERNAL ) | \
+				   MK_ACTION_PERM( MESSAGE_CTX_SIGN, \
+								   ACTION_PERM_NONE_EXTERNAL ) | \
+				   MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, \
+								   ACTION_PERM_NONE_EXTERNAL );
 
 	/* Read the BIT STRING encapsulation and the public key fields */
 	readBitStringHole( stream, NULL, MIN_PKCSIZE_THRESHOLD, DEFAULT_TAG );
@@ -1026,7 +1030,7 @@ static int readPgpHeader( INOUT_PTR STREAM *stream,
 			return( CRYPT_ERROR_BADDATA );
 		}
 
-	/* Read the creation time.  This gets a bit tricky becaue some keys 
+	/* Read the creation time.  This gets a bit tricky because some keys 
 	   coming from non-PGP sources can have a creation time of zero which 
 	   would result in the value being rejected by readUint32Time().  
 	   Because of this if the time read fails with CRYPT_ERROR_BADDATA we 
@@ -1784,6 +1788,17 @@ int decodeDLValuesFunction( IN_BUFFER( bufSize ) const BYTE *buffer,
 	
 #ifdef USE_SSH
 		case CRYPT_IFORMAT_SSH:
+			/* SSH uses raw, unencapsulated values padded out to fixed 
+			   lengths so we can't use any of the standard read functions
+			   to read them.  To deal with this we import them directly, 
+			   emulating a stream underflow if there's insufficient data 
+			   (there isn't, the caller has checked this but we make it
+			   explicit here) */
+			if( bufSize < 40 )
+				{
+				status = CRYPT_ERROR_UNDERFLOW;
+				break;
+				}
 			status = importBignum( value1, buffer, 20, DLPPARAM_MIN_SIG_R, 
 								   20, maxRange, BIGNUM_CHECK_VALUE );
 			if( cryptStatusError( status ) )

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *								Kernel Initialisation						*
-*						Copyright Peter Gutmann 1997-2018					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -232,7 +232,7 @@ BOOLEAN sanityCheckObject( const OBJECT_INFO *objectInfoPtr )
    initialised are caught.
 
    Reading the initialisation flag presents something of a chicken-and-egg
-   problem since the read should be protected by the intialisation mutex,
+   problem since the read should be protected by the initialisation mutex,
    but we can't try and grab it unless the mutex has been initialised.  If
    we just read the flag directly and rely on the object map mutex to
    protect access we run into a potential race condition on shutdown:
@@ -300,7 +300,7 @@ BOOLEAN sanityCheckObject( const OBJECT_INFO *objectInfoPtr )
 	   before it's called directly for the first time.
 
 	B. Systems where statically initialising the lock to an all-zero value is
-	   equivalent to intialising it at runtime.
+	   equivalent to initialising it at runtime.
 
 	C. Systems where the lock must be statically initialised at runtime.
 
@@ -414,7 +414,7 @@ int krnlBeginInit( void )
 	krnlData->shutdownLevel = SHUTDOWN_LEVEL_NONE;
 
 	/* Initialise all of the kernel modules.  Except for the allocation of
-	   the kernel object table this is all straight static initialistion
+	   the kernel object table this is all straight static initialisation
 	   and self-checking, so we should never fail at this stage */
 	status = initAllocation();
 	if( cryptStatusOK( status ) )
@@ -496,18 +496,18 @@ int krnlBeginShutdown( void )
 	   try to access it */
 	MUTEX_LOCK( initialisation );
 
-	/* We can only begin a shutdown if we're fully initialised */
-	REQUIRES_MUTEX( krnlData->initLevel == INIT_LEVEL_FULL, \
-					initialisation );
-	REQUIRES_MUTEX( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ),
-					initialisation );
-
 	/* If we're already shut down, don't to anything */
 	if( krnlData->initLevel <= INIT_LEVEL_NONE )
 		{
 		MUTEX_UNLOCK( initialisation );
 		return( CRYPT_ERROR_NOTINITED );
 		}
+
+	/* We can only begin a shutdown if we're fully initialised */
+	REQUIRES_MUTEX( krnlData->initLevel == INIT_LEVEL_FULL, \
+					initialisation );
+	REQUIRES_MUTEX( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ),
+					initialisation );
 	krnlData->initLevel = INIT_LEVEL_KRNLDATA;
 
 	/* Signal all remaining internal threads to exit (dum differtur, vita 
@@ -529,12 +529,13 @@ int krnlCompleteShutdown( void )
 	   state in which no more messages are processed.  There are a few 
 	   special-case situations such as a shutdown that occurs because of a
 	   failure to initialise that we also need to handle */
-	REQUIRES( ( krnlData->initLevel == INIT_LEVEL_KRNLDATA && \
-				krnlData->shutdownLevel == SHUTDOWN_LEVEL_NONE ) || \
-			  ( krnlData->initLevel == INIT_LEVEL_KRNLDATA && \
-				krnlData->shutdownLevel == SHUTDOWN_LEVEL_MESSAGES ) || \
-			  ( krnlData->initLevel == INIT_LEVEL_FULL && \
-				krnlData->shutdownLevel >= SHUTDOWN_LEVEL_MESSAGES ) );
+	REQUIRES_MUTEX( ( krnlData->initLevel == INIT_LEVEL_KRNLDATA && \
+					  krnlData->shutdownLevel == SHUTDOWN_LEVEL_NONE ) || \
+					( krnlData->initLevel == INIT_LEVEL_KRNLDATA && \
+					  krnlData->shutdownLevel == SHUTDOWN_LEVEL_MESSAGES ) || \
+					( krnlData->initLevel == INIT_LEVEL_FULL && \
+					  krnlData->shutdownLevel >= SHUTDOWN_LEVEL_MESSAGES ),
+					initialisation );
 
 	/* Shut down all of the kernel modules */
 	endAllocation();
@@ -549,7 +550,10 @@ int krnlCompleteShutdown( void )
 	endSemaphores();
 	endSendMessage();
 
-	/* At this point all kernel services have been shut down */
+	/* At this point all kernel services have been shut down.  We make the 
+	   checks ENSURES() rather than ENSURES_MUTEX() because we can't recover
+	   from a problem at this point, so we leave the mutex held to prevent 
+	   anything else from crashing into a mostly-shut-down kernel */
 	ENSURES( krnlData->shutdownLevel >= SHUTDOWN_LEVEL_MUTEXES );
 	ENSURES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 

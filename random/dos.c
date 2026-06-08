@@ -44,8 +44,8 @@ void slowPoll( void )
 	/* Read 128 bytes from /dev/random and add it to the buffer.  Since DOS
 	   doesn't swap we don't need to be as careful about copying data to
 	   temporary buffers as we usually are.  We also have to use unbuffered
-	   I/O, since the high-level functions will read BUFSIZ bytes at once
-	   from the input, comletely draining the driver of any randomness */
+	   I/O since the high-level functions will read BUFSIZ bytes at once
+	   from the input, completely draining the driver of any randomness */
 	if( ( fd = open( "/dev/random$", O_RDONLY | O_BINARY) ) == -1 && \
 		( fd = open( "/dev/random", O_RDONLY | O_BINARY) ) == -1 )
 		return;

@@ -185,7 +185,7 @@ static int checkHandshakePacketStatus( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   error since they decrypt to garbage so we try and catch them here */
 	if( TEST_FLAG( sessionInfoPtr->protocolFlags, 
 					SSH_PFLAG_TEXTDIAGS ) && \
-		header[ 0 ] == 'F' && \
+		headerLength >= 12 && header[ 0 ] == 'F' && \
 		( !memcmp( header, "FATAL: ", 7 ) || \
 		  !memcmp( header, "FATAL ERROR:", 12 ) ) )
 		{
@@ -1028,7 +1028,7 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* If we're expecting a standard data packet and we instead get a 
 		   disconnect packet due to an error then the length can be less 
-		   than the mimimum length of the expected packet.  To make sure 
+		   than the minimum length of the expected packet.  To make sure 
 		   that we don't bail out with a spurious length check failure we 
 		   adjust the minPacketLength to the minimum packet length of a 
 		   disconnect packet */
@@ -1060,8 +1060,8 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   since it's only used for the short handshake messages */
 	if( length > 0 )
 		{
-		REQUIRES( rangeCheck( length, PADLENGTH_SIZE + ID_SIZE, 
-							  sessionInfoPtr->receiveBufSize ) );
+		REQUIRES( boundsCheck( PADLENGTH_SIZE + ID_SIZE, length, 
+							   sessionInfoPtr->receiveBufSize ) );
 		memmove( sessionInfoPtr->receiveBuffer,
 				 sessionInfoPtr->receiveBuffer + PADLENGTH_SIZE + ID_SIZE, 
 				 length );

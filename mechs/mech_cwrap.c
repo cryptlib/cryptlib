@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib Conventional Key Wrap Mechanism Routines			*
-*					  Copyright Peter Gutmann 1992-2008						*
+*					  Copyright Peter Gutmann 1992-2025						*
 *																			*
 ****************************************************************************/
 
@@ -46,6 +46,8 @@ static int getPadSize( IN_HANDLE const CRYPT_CONTEXT iExportContext,
 	/* Clear return value */
 	*padSize = 0;
 
+	/* Get the block size.  We read the IV size because the block size is
+	   encryption mode-depenent */
 	status = krnlSendMessage( iExportContext, IMESSAGE_GETATTRIBUTE,
 							  &blockSize, CRYPT_CTXINFO_IVSIZE );
 	if( cryptStatusError( status ) )
@@ -160,10 +162,17 @@ int exportCMS( STDC_UNUSED void *dummy,
 	status = extractKeyData( mechanismInfo->keyContext,
 							 keyBlockPtr + CMS_KEYBLOCK_HEADERSIZE,
 							 keySize, "keydata", 7 );
-	keyBlockPtr[ 1 ] = intToByte( keyBlockPtr[ CMS_KEYBLOCK_HEADERSIZE ] ^ 0xFF );
-	keyBlockPtr[ 2 ] = intToByte( keyBlockPtr[ CMS_KEYBLOCK_HEADERSIZE + 1 ] ^ 0xFF );
-	keyBlockPtr[ 3 ] = intToByte( keyBlockPtr[ CMS_KEYBLOCK_HEADERSIZE + 2 ] ^ 0xFF );
-	memcpy( dataSample, keyBlockPtr, 16 );
+	if( cryptStatusOK( status ) )
+		{
+		keyBlockPtr[ 1 ] = \
+			intToByte( keyBlockPtr[ CMS_KEYBLOCK_HEADERSIZE ] ^ 0xFF );
+		keyBlockPtr[ 2 ] = \
+			intToByte( keyBlockPtr[ CMS_KEYBLOCK_HEADERSIZE + 1 ] ^ 0xFF );
+		keyBlockPtr[ 3 ] = \
+			intToByte( keyBlockPtr[ CMS_KEYBLOCK_HEADERSIZE + 2 ] ^ 0xFF );
+		memcpy( dataSample, keyBlockPtr, 16 );
+		CFI_CHECK_UPDATE( "extractKeyData" );
+		}
 	if( cryptStatusOK( status ) )
 		{
 		status = krnlSendMessage( mechanismInfo->wrapContext,
@@ -205,8 +214,8 @@ int exportCMS( STDC_UNUSED void *dummy,
 									   keySize + padSize;
 									   /* Overflow checked earlier */
 
-	ENSURES( CFI_CHECK_SEQUENCE_4( "getPadSize", "IMESSAGE_GETATTRIBUTE_S", 
-								   "IMESSAGE_CTX_ENCRYPT1", 
+	ENSURES( CFI_CHECK_SEQUENCE_5( "getPadSize", "IMESSAGE_GETATTRIBUTE_S", 
+								   "extractKeyData", "IMESSAGE_CTX_ENCRYPT1", 
 								   "IMESSAGE_CTX_ENCRYPT2" ) );
 
 	return( CRYPT_OK );
@@ -220,8 +229,7 @@ int importCMS( STDC_UNUSED void *dummy,
 	{
 	MESSAGE_DATA msgData;
 	BYTE buffer[ CRYPT_MAX_KEYSIZE + CRYPT_MAX_IVSIZE + 8 ];
-	BYTE ivBuffer[ CRYPT_MAX_IVSIZE + 8 ];
-	BYTE *dataEndPtr = buffer + mechanismInfo->wrappedDataLength;
+	BYTE ivBuffer[ CRYPT_MAX_IVSIZE + 8 ], *dataEndPtr;
 	int blockSize, value, status;
 
 	UNUSED_ARG_OPT( dummy );
@@ -247,6 +255,7 @@ int importCMS( STDC_UNUSED void *dummy,
 		}
 	ANALYSER_HINT( mechanismInfo->wrappedDataLength >= 8 && \
 				   mechanismInfo->wrappedDataLength < CRYPT_MAX_KEYSIZE + 16 );
+	dataEndPtr = buffer + mechanismInfo->wrappedDataLength;
 
 	/* Save the current IV for the inner decryption */
 	setMessageData( &msgData, ivBuffer, CRYPT_MAX_IVSIZE );
@@ -298,6 +307,7 @@ int importCMS( STDC_UNUSED void *dummy,
 	if( cryptStatusError( status ) )
 		{
 		zeroise( buffer, CRYPT_MAX_KEYSIZE + CRYPT_MAX_IVSIZE );
+		zeroise( ivBuffer, CRYPT_MAX_IVSIZE );
 		return( status );
 		}
 
@@ -312,6 +322,7 @@ int importCMS( STDC_UNUSED void *dummy,
 								  IMESSAGE_CTX_DECRYPT, buffer,
 								  mechanismInfo->wrappedDataLength );
 		}
+	zeroise( ivBuffer, CRYPT_MAX_IVSIZE );
 	if( cryptStatusError( status ) )
 		{
 		zeroise( buffer, CRYPT_MAX_KEYSIZE + CRYPT_MAX_IVSIZE );
@@ -337,7 +348,7 @@ int importCMS( STDC_UNUSED void *dummy,
 	   data but is far more likely to be because the incorrect unwrap key was
 	   used, so we return a CRYPT_ERROR_WRONGKEY instead of a 
 	   CRYPT_ERROR_BADDATA.  In addition it's not meant as a 
-	   cryptographically strong validation (the use of an incorrecy key will
+	   cryptographically strong validation (the use of an incorrect key will
 	   reveal a problem there) but more a chance to report a wrong-key 
 	   error */
 	REQUIRES( !checkOverflowSub( mechanismInfo->wrappedDataLength,
@@ -355,7 +366,10 @@ int importCMS( STDC_UNUSED void *dummy,
 		return( CRYPT_ERROR_WRONGKEY );
 		}
 
-	/* Load the recovered key into the session key context */
+	/* Load the recovered key into the session key context.  We perform an 
+	   additional safety check on the length byte in case of an error in the
+	   Rube-Goldberg constant-time check above */
+	REQUIRES( rangeCheck( buffer[ 0 ], MIN_KEYSIZE, MAX_WORKING_KEYSIZE ) );
 	setMessageData( &msgData, buffer + CMS_KEYBLOCK_HEADERSIZE, 
 					buffer[ 0 ] );
 	status = krnlSendMessage( mechanismInfo->keyContext,

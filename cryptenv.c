@@ -581,11 +581,11 @@ static int deenvelopePush( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			}
 
 #ifdef USE_PGP
-		/* Special-case for the wierd non-length-encoding that some PGP 
+		/* Special-case for the weird non-length-encoding that some PGP 
 		   implementations use for compressed data which uses neither a
 		   definite nor indefinite-length encoding but consists of an 
 		   implicit "until you run out of input", see the comment in the PGP
-		   readPacketHeader() for more details.  To accomodate this lack of
+		   readPacketHeader() for more details.  To accommodate this lack of
 		   the data's ability to tell us when it's ended, if we're processing
 		   PGP compressed data and there's no length information present and
 		   it's a data flush we assume that that's all there is */

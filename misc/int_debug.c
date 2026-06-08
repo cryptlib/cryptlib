@@ -1134,7 +1134,7 @@ static int getDeterministicRandomInt( void )
 	   doesn't work as part of a return statement */
 	getHashAtomicParameters( CRYPT_ALGO_SHA1, 0, &hashFunction, &hashSize );
 	hashFunction( hashBuffer, hashSize, hashBuffer, hashSize );
-	retVal = mgetLong( hashBufPtr );
+	retVal = mget32( hashBufPtr );
 
 	return( retVal );
 	}

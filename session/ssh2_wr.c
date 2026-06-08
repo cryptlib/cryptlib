@@ -31,6 +31,46 @@
    buffer in order to hash them.  The following function extracts a block
    of data from a given position in the stream buffer */
 
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int streamBookmarkSet( IN_PTR const STREAM *stream, 
+					   OUT_DATALENGTH_Z int *offset ) 
+	{
+	const int startOffset = stell( stream );
+	
+	assert( isReadPtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( offset, sizeof( int ) ) );
+
+	/* Clear return value */
+	*offset = 0;
+	
+	if( cryptStatusError( startOffset ) )
+		return( startOffset );
+	*offset = startOffset;
+
+	return( CRYPT_OK );	
+	}
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int streamBookmarkSetFullPacket( IN_PTR const STREAM *stream, 
+								 OUT_DATALENGTH_Z int *offset ) 
+	{
+	const int startOffset = stell( stream );
+	
+	assert( isReadPtr( stream, sizeof( STREAM ) ) );
+	assert( isWritePtr( offset, sizeof( int ) ) );
+
+	/* Clear return value */
+	*offset = 0;
+	
+	if( cryptStatusError( startOffset ) )
+		return( startOffset );
+	if( startOffset < ID_SIZE )
+		return( CRYPT_ERROR_UNDERFLOW );
+	*offset = startOffset - ID_SIZE;
+
+	return( CRYPT_OK );	
+	}
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 int streamBookmarkComplete( INOUT_PTR STREAM *stream, 
 							OUT_OPT_PTR void **dataPtrPtr, 
@@ -49,7 +89,7 @@ int streamBookmarkComplete( INOUT_PTR STREAM *stream,
 	*dataPtrPtr = NULL;
 	*length = 0;
 
-	status = calculateStreamObjectLength( stream, position, &dataLength );
+	status = streamOffsetFromPosition( stream, position, &dataLength );
 	if( cryptStatusOK( status ) )
 		{
 		status = sMemGetDataBlockAbs( stream, position, dataPtrPtr, 
@@ -210,7 +250,7 @@ int wrapPlaintextPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isBufsizeRange( offset ) );
 
 	/* Calculate the payload length and padding requirements */
-	status = calculateStreamObjectLength( stream, offset, &length );
+	status = streamOffsetFromPosition( stream, offset, &length );
 	if( cryptStatusError( status ) )
 		return( status );
 	REQUIRES( !checkOverflowAdd( length, SSH2_MIN_PADLENGTH_SIZE ) );
@@ -311,7 +351,7 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isBooleanValue( useQuantisedPadding ) );
 
 	/* Calculate the payload length and padding requirements */
-	status = calculateStreamObjectLength( stream, offset, &length );
+	status = streamOffsetFromPosition( stream, offset, &length );
 	if( cryptStatusError( status ) )
 		return( status );
 	REQUIRES( !checkOverflowSub( length, SSH2_HEADER_SIZE ) );

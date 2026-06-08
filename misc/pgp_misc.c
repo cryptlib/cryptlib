@@ -461,8 +461,7 @@ int readPgpS2K( INOUT_PTR STREAM *stream,
 				OUT_LENGTH_BOUNDED_Z( saltMaxLen ) int *saltLen,
 				OUT_INT_SHORT_Z int *iterations )
 	{
-	long hashSpecifier;
-	int value, status;
+	int value, hashSpecifier, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( hashAlgo, sizeof( CRYPT_ALGO_TYPE ) ) );
@@ -526,7 +525,7 @@ int readPgpS2K( INOUT_PTR STREAM *stream,
 	value = sgetc( stream );
 	if( cryptStatusError( value ) )
 		return( value );
-	hashSpecifier = ( 16 + ( ( long ) value & 0x0F ) ) << ( value >> 4 );
+	hashSpecifier = ( 16 + ( value & 0x0F ) ) << ( value >> 4 );
 	if( hashSpecifier <= 0 || \
 		hashSpecifier >= ( MAX_INTLENGTH >> 4 ) / 64 )
 		return( CRYPT_ERROR_BADDATA );
@@ -535,7 +534,7 @@ int readPgpS2K( INOUT_PTR STREAM *stream,
 		/* The key requires hashing a ridiculous amount of data, this is 
 		   more likely a DoS than a genuine hash count */
 		DEBUG_DIAG(( "Encountered key with an S2K hash count parameter "
-					 "of %ld, max.allowed is %ld", hashSpecifier * 64,
+					 "of %d, max.allowed is %d", hashSpecifier * 64,
 					 MAX_KEYSETUP_HASHSPECIFIER * 64 ));
 		assert_nofuzz( DEBUG_WARN );
 		return( CRYPT_ERROR_NOTAVAIL );

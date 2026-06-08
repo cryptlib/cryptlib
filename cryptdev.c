@@ -646,28 +646,40 @@ int selftestDevice( INOUT_PTR DEVICE_INFO *deviceInfo,
 							  IMESSAGE_DEV_EXPORT, &pkcWrapMechanismInfo,
 							  MECHANISM_SELFTEST_ENC );
 	if( cryptStatusError( status ) )
+		{
+		DEBUG_DIAG(( "PKC wrap mechanism self-test failed" ));
 		return( status );
+		}
 	setMechanismSignInfo( &signMechanismInfo, NULL, 0, CRYPT_UNUSED, 
 						  CRYPT_UNUSED, CRYPT_UNUSED );
 	status = krnlSendMessage( MECHANISM_OBJECT_HANDLE,
 							  IMESSAGE_DEV_SIGN, &signMechanismInfo,
 							  MECHANISM_SELFTEST_SIG );
 	if( cryptStatusError( status ) )
+		{
+		DEBUG_DIAG(( "Sign mechanism self-test failed" ));
 		return( status );
+		}
 	setMechanismDeriveInfo( &deriveMechanismInfo, NULL, 0, NULL, 0, 0, 
 							NULL, 0, 0 );
 	status = krnlSendMessage( MECHANISM_OBJECT_HANDLE,
 							  IMESSAGE_DEV_DERIVE, &deriveMechanismInfo,
 							  MECHANISM_SELFTEST_DERIVE );
 	if( cryptStatusError( status ) )
+		{
+		DEBUG_DIAG(( "Derive mechanism self-test failed" ));
 		return( status );
+		}
 	setMechanismKDFInfo( &kdfMechanismInfo, CRYPT_UNUSED, CRYPT_UNUSED, 0, 
 						 NULL, 0 );
 	status = krnlSendMessage( MECHANISM_OBJECT_HANDLE,
 							  IMESSAGE_DEV_KDF, &kdfMechanismInfo,
 							  MECHANISM_SELFTEST_KDF );
 	if( cryptStatusError( status ) )
+		{
+		DEBUG_DIAG(( "KDF mechanism self-test failed" ));
 		return( status );
+		}
 
 	return( CRYPT_OK );
 	}
@@ -841,7 +853,7 @@ static int createObjectIndirect( DEVICE_INFO *deviceInfoPtr,
 	   either implicitly by reading the CRYPT_IATTRIBUTE_SUBTYPE attribute 
 	   and assuming that if it's a SUBTYPE_CERT_CERTCHAIN that the owner 
 	   will have been set, or simply by reading the depending user object.  
-	   Explcitly checking for ownership seems to be the best approach */
+	   Explicitly checking for ownership seems to be the best approach */
 	status = krnlSendMessage( createInfo->cryptHandle, 
 							  IMESSAGE_GETDEPENDENT, &value, 
 							  OBJECT_TYPE_USER );
@@ -1625,7 +1637,7 @@ int deviceManagementFunction( IN_ENUM( MANAGEMENT_ACTION ) \
 #endif /* USE_CRYPTOAPI */
 #ifdef USE_HARDWARE 
   #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
-		/* The NULL init function means that the initialistion step is
+		/* The NULL init function means that the initialisation step is
 		   skipped in the MANAGEMENT_ACTION_INIT_DEFERRED handler, since
 		   the hardware in this case is already initialised */
 		{ NULL, deviceEndHardware, DEV_HARDWARE_INITED },

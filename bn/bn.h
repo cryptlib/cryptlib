@@ -384,7 +384,7 @@ typedef struct BNM {
 	int flags;
 	} BN_MONT_CTX;
 
-/* Reciprocal devision/modmult structure */
+/* Reciprocal division/modmult structure */
 
 typedef struct BNR {
 	BIGNUM N;		/* Divisor */

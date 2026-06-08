@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					   cryptlib PKCS #15 Get-item Routines					*
-*						Copyright Peter Gutmann 1996-2015					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -496,7 +496,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 							   privkeyActionFlags );
 	if( cryptStatusError( status ) )
 		{
-		krnlSendNotifier( iCryptContext, MESSAGE_DECREFCOUNT );
+		krnlSendNotifier( iCryptContext, IMESSAGE_DECREFCOUNT );
 		retExt( status, 
 				( status, KEYSET_ERRINFO, 
 				  "Couldn't set PKCS #15 permitted action flags for the "
@@ -734,8 +734,11 @@ static int getItem( INOUT_ARRAY( noPkcs15objects ) PKCS15_INFO *pkcs15info,
 		{
 		/* Perform an opportunistic update of the validity information if 
 		   this hasn't already been set.  Since this is a purely 
-		   opportunistic update we ignore any return value */
-		( void ) getValidityInfo( pkcs15info, createInfo.cryptHandle );
+		   opportunistic update we ignore any return value.  This is a
+		   bit of a kludge because we're modifying what's supposed to be a
+		   const object, but there's no obvious way to manage this */
+		( void ) getValidityInfo( ( PKCS15_INFO * ) pkcs15infoPtr, 
+								  createInfo.cryptHandle );
 		}
 	return( CRYPT_OK );
 	}
@@ -758,7 +761,7 @@ static int getFirstItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	assert( isWritePtrDynamic( pkcs15info, \
 							   sizeof( PKCS15_INFO ) * noPkcs15objects ) );
 	assert( isWritePtr( iCertificate, sizeof( CRYPT_CERTIFICATE ) ) );
-	assert( isReadPtr( stateInfo, sizeof( int ) ) );
+	assert( isWritePtr( stateInfo, sizeof( int ) ) );
 	assert( isReadPtrDynamic( keyID, keyIDlength ) );
 	assert( isWritePtr( pkcs15info, sizeof( PKCS15_INFO ) ) );
 

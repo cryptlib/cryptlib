@@ -461,6 +461,14 @@ analyse-gcc:
 	@$(MAKE) common-tasks
 	@./tools/buildall.sh analyse $(MAKE) gcc $(OSNAME) $(CFLAGS_ANALYSE)
 
+	# --quiet-level 3 suppresses warnings about binary files and text
+	# encoding in files, -S excludes those files.  We also have to ignore
+	# errors because codespell returns some nonzero error code on exit,
+	# although make then helpfully pipes up to tell us that it's ignored
+	# the error status that we've told it to ignore.
+spellcheck:
+	@- codespell --quiet-level 3 -S "*.dll,*.lib,*.pdf,./bn/*,./crypt/*,./device/tss2*,./random/mvsent.s,./test/smime/*,./tools/dumpasn1.cfg,./zlib/*"  > ~/clib_spelling.txt
+
 testlib-special:
 	@echo $(TESTOBJS) > $(LINKFILE)
 	$(LD) $(LDFLAGS) -o testlib `cat $(LINKFILE)` $(LDEXTRA) -L. -l$(PROJ) \
@@ -625,7 +633,7 @@ install:
 # Frohe Ostern.
 
 babies:
-	@echo "Good grief, what do you think I am?  Unix is capable, but not that capable."
+	@echo "Good grief, what do you think I am? Unix is capable, but not that capable."
 
 cookies:
 	@echo "Mix 250g flour, 150g sugar, 125g butter, an egg, a few drops of vanilla"
@@ -2137,7 +2145,7 @@ CYGWIN_NT-6.1:
 #		end
 #
 #		Again, it isn't worth changing every single source file just to
-#		accomodate this piece of compiler braindamage.
+#		accommodate this piece of compiler braindamage.
 #
 #		The asm bignum asm code is for PA-RISC 2.0, so we have to make sure
 #		that we're building a PA-RISC 2.0 version if we use the asm code.

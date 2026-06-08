@@ -171,7 +171,7 @@ void fastPoll( void )
 	GetThreadState( threadID, &threadState );
 	addRandomData( randomState, &threadState, sizeof( ThreadState ) );
 
-	/* Get the sound mananger status.  This gets the number of allocated
+	/* Get the sound manager status.  This gets the number of allocated
 	   sound channels and the current CPU load from these channels */
 	SndManagerStatus( sizeof( SMStatus ), &soundStatus );
 	addRandomData( randomState, &soundStatus, sizeof( SMStatus ) );
@@ -349,7 +349,7 @@ void slowPoll( void )
 		   the finder information -- OBSOLETE
 		Str255 appName;
 		Handle appHandle;
-		
+
 		GetAppParams( appName, appHandle, &count );
 		addRandomData( randomState, appName, sizeof( Str255 ) );
 		addRandomValue( randomState, appHandle );
@@ -402,9 +402,9 @@ void slowPoll( void )
 		/* Get information on current graphics devices including device
 		   information such as dimensions and cursor information, and a
 		   number of handles to device-related data blocks and functions, and
-		   information about the dimentions and contents of the devices pixel
-		   image as well as the images resolution, storage format, depth, and
-		   colour usage */
+		   information about the dimensions and contents of the device's
+		   pixel image as well as the images resolution, storage format,
+		   depth, and colour usage */
 		deviceHandle = GetDeviceList();
 		do
 			{

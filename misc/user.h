@@ -35,7 +35,7 @@ typedef enum {
 	CONFIG_DISPOSITION_NO_CHANGE,	/* No change in data and certificates */
 	CONFIG_DISPOSITION_EMPTY_CONFIG_FILE,	/* No data/certs present, empty file */
 	CONFIG_DISPOSITION_TRUSTED_CERTS_ONLY,	/* Only trusted certs present */
-	CONFIG_DISPOSITION_DATA_ONLY,	/* Only configuratin data present */
+	CONFIG_DISPOSITION_DATA_ONLY,	/* Only configuration data present */
 	CONFIG_DISPOSITION_BOTH,		/* Both data and certificates present */
 	CONFIG_DISPOSITION_LAST			/* Last possible disposition type */
 	} CONFIG_DISPOSITION_TYPE;

@@ -44,7 +44,7 @@ static int writePacketMetadata( OUT_BUFFER( dataMaxLength, *dataLength ) \
 								IN_RANGE( TLS_PACKETTYPE_FIRST, \
 										  TLS_PACKETTYPE_LAST ) \
 									const int packetType,
-								IN_INT_Z const long seqNo, 
+								IN_INT_Z const int seqNo, 
 								IN_RANGE( TLS_MINOR_VERSION_TLS, \
 										  TLS_MINOR_VERSION_TLS13 ) \
 									const int version,
@@ -131,7 +131,7 @@ static int writePacketMetadataTLS13( OUT_BUFFER( dataMaxLength, *dataLength ) \
 *																			*
 ****************************************************************************/
 
-/* Encrypt/decrypt a data block (in mose cases this also includes the MAC, 
+/* Encrypt/decrypt a data block (in most cases this also includes the MAC, 
    which has been added to the data by the caller).  The handling of length 
    arguments for these is a bit tricky, for encryption the input is { data, 
    payloadLength } which is padded (if necessary) and the padded length 
@@ -242,11 +242,21 @@ int decryptData( SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( processedDataLength, sizeof( int ) ) );
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
-	REQUIRES( isBufsizeRangeNZ( dataLength ) && \
-			  dataLength <= sessionInfoPtr->receiveBufEnd );
+	REQUIRES( isBufsizeRangeNZ( dataLength ) );
 
 	/* Clear return value */
 	*processedDataLength = 0;
+
+	/* If we're using GCM then the encrypted data has an ICV attached to the
+	   end of it so we have to trim the size down to account for this */
+#ifdef USE_GCM
+	if( TEST_FLAG( sessionInfoPtr->protocolFlags, TLS_PFLAG_GCM ) )
+		{
+		REQUIRES( !checkOverflowSub( length, sessionInfoPtr->authBlocksize ) );
+		length -= sessionInfoPtr->authBlocksize;
+		ENSURES( isBufsizeRangeNZ( length ) );
+		}
+#endif /* USE_GCM */
 
 	/* Decrypt the data */
 	status = krnlSendMessage( sessionInfoPtr->iCryptInContext,
@@ -260,9 +270,13 @@ int decryptData( SESSION_INFO *sessionInfoPtr,
 
 	/* If we're using GCM then we have to check the ICV that follows the 
 	   data */
+#ifdef USE_GCM
 	if( TEST_FLAG( sessionInfoPtr->protocolFlags, TLS_PFLAG_GCM ) )
 		{
 		MESSAGE_DATA msgData;
+
+		REQUIRES( boundsCheck( length, sessionInfoPtr->authBlocksize, 
+							   dataLength ) );
 
 		setMessageData( &msgData, data + length, 
 						sessionInfoPtr->authBlocksize );
@@ -279,6 +293,7 @@ int decryptData( SESSION_INFO *sessionInfoPtr,
 					  "Bad message ICV for length %d packet", length ) );
 			}
 		}
+#endif /* USE_GCM */
 
 	/* If it's a stream cipher then there's no padding present */
 	if( sessionInfoPtr->cryptBlocksize <= 1 )
@@ -291,14 +306,14 @@ int decryptData( SESSION_INFO *sessionInfoPtr,
 	/* If it's a block cipher then we need to remove end-of-block padding.  
 	   Up until TLS 1.1 the spec was silent about any requirement to check 
 	   the padding, and for SSLv3 it didn't specify the padding format at 
-	   all apart from specifying that it had to be  less than the cipher 
+	   all apart from specifying that it had to be less than the cipher 
 	   block size so it wasn't really safe to reject a TLS message if we 
 	   didn't find the correct padding because many TLS implementations 
 	   didn't process the padded data space in any way, leaving it 
 	   containing whatever was there before (which can include old plaintext 
 	   (!!)).  
 	   
-	   Almost all TLS implementations get it right (even though in TLS 1.0 
+	   Almost all TLS implementations got it right (even though in TLS 1.0 
 	   there was only a requirement to generate, but not to check, the PKCS 
 	   #5-style padding, so we always check the padding bytes.  First we 
 	   make sure that the padding information looks OK.  TLS allows up to 
@@ -369,7 +384,7 @@ int decryptData( SESSION_INFO *sessionInfoPtr,
 
 CHECK_RETVAL \
 static int macDataTLS( IN_HANDLE const CRYPT_CONTEXT iHashContext, 
-					   IN_INT_Z const long seqNo, 
+					   IN_INT_Z const int seqNo, 
 					   IN_RANGE( TLS_MINOR_VERSION_TLS, \
 								 TLS_MINOR_VERSION_TLS13 ) const int version,
 					   IN_BUFFER_OPT( ivLength ) const void *iv, 
@@ -607,7 +622,7 @@ int checkMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 CHECK_RETVAL \
 int macDataTLSGCM( IN_HANDLE const CRYPT_CONTEXT iCryptContext, 
-				   IN_INT_Z const long seqNo, 
+				   IN_INT_Z const int seqNo, 
 				   IN_RANGE( TLS_MINOR_VERSION_TLS, \
 							 TLS_MINOR_VERSION_TLS13 ) const int version,
 				   IN_LENGTH_Z const int payloadLength, 
@@ -703,9 +718,8 @@ int initCryptBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	BYTE poly1305key[ CRYPT_MAX_KEYSIZE + 8 ];
 	BYTE ivBuffer[ CRYPT_MAX_IVSIZE + 8 ];
 	const BYTE *ivPtr;
-	long seqNo;
+	int seqNo, status;
 	LOOP_INDEX i;
-	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
@@ -822,7 +836,7 @@ int initCryptBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 CHECK_RETVAL \
 static int macDataTLSBernstein( IN_HANDLE const CRYPT_CONTEXT iHashContext, 
-								IN_INT_Z const long seqNo, 
+								IN_INT_Z const int seqNo, 
 								IN_RANGE( TLS_MINOR_VERSION_TLS, \
 										  TLS_MINOR_VERSION_TLS13 ) \
 									const int version,
@@ -1142,7 +1156,7 @@ int hashHSPacketWrite( IN_PTR const TLS_HANDSHAKE_INFO *handshakeInfo,
 
 	/* On a write we've just finished writing the packet and everything but
 	   the header needs to be MACd */
-	status = calculateStreamObjectLength( stream, dataStart, &dataLength );
+	status = streamOffsetFromPosition( stream, dataStart, &dataLength );
 	if( cryptStatusOK( status ) )
 		{
 		status = sMemGetDataBlockAbs( stream, dataStart, &data, 
@@ -1262,9 +1276,8 @@ int completeTLS12HashedMAC( IN_HANDLE const CRYPT_CONTEXT sha2context,
 	{
 	MECHANISM_DERIVE_INFO mechanismInfo;
 	MESSAGE_DATA msgData;
-	BYTE hashBuffer[ 64 + ( CRYPT_MAX_HASHSIZE * 2 ) + 8 ];
-	const int hashedMacSize = ( fullSizeMAC ) ? 32 : TLS_HASHEDMAC_SIZE;
-	int macSize, status;
+	BYTE hashBuffer[ 64 + CRYPT_MAX_HASHSIZE + 8 ];
+	int macSize, hashedMacSize, status;
 
 	assert( isWritePtrDynamic( hashValues, hashValuesMaxLen ) );
 	assert( isWritePtr( hashValuesLen, sizeof( int ) ) );
@@ -1273,15 +1286,13 @@ int completeTLS12HashedMAC( IN_HANDLE const CRYPT_CONTEXT sha2context,
 
 	REQUIRES( isHandleRangeValid( sha2context ) );
 	REQUIRES( isShortIntegerRangeMin( hashValuesMaxLen, 32 ) );
-	REQUIRES( labelLength > 0 && labelLength <= 64 && \
-			  labelLength + CRYPT_MAX_HASHSIZE <= 64 + ( CRYPT_MAX_HASHSIZE ) );
+	REQUIRES( labelLength > 0 && labelLength <= 64 );
 	REQUIRES( isBooleanValue( fullSizeMAC ) );
 
 	/* Clear return value */
 	*hashValuesLen = 0;
 
-	REQUIRES( rangeCheck( labelLength, 1, 
-			  64 + ( CRYPT_MAX_HASHSIZE * 2 ) ) );
+	REQUIRES( rangeCheck( labelLength, 1, 64 + CRYPT_MAX_HASHSIZE ) );
 	memcpy( hashBuffer, label, labelLength );
 
 	/* Get the MAC size */
@@ -1289,6 +1300,8 @@ int completeTLS12HashedMAC( IN_HANDLE const CRYPT_CONTEXT sha2context,
 							  CRYPT_CTXINFO_BLOCKSIZE );
 	if( cryptStatusError( status ) )
 		return( status );
+	hashedMacSize = fullSizeMAC ? macSize : TLS_HASHEDMAC_SIZE;
+	REQUIRES( hashedMacSize <= hashValuesMaxLen );
 
 	/* Complete the hashing and get the SHA-2 hash */
 	krnlSendMessage( sha2context, IMESSAGE_CTX_HASH, "", 0 );

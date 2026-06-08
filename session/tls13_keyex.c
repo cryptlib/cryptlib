@@ -945,7 +945,7 @@ int writeKeyexTLS13( INOUT_PTR STREAM *stream,
 		}
 
 	/* Get the key size for context types that can have varying key lengths.  
-	   Because of the unecessary zero-padding requirements we can at least 
+	   Because of the unnecessary zero-padding requirements we can at least 
 	   precompute all of the length values without having to actually look 
 	   at the data */
 #if 0	/* See comment in session/tls_keyex.c:writeSupportedGroups() */

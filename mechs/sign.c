@@ -111,6 +111,9 @@ static CRYPT_FORMAT_TYPE getFormatType( IN_BUFFER( dataLength ) const void *data
 	{
 	STREAM stream;
 	long value;
+#ifdef USE_PGP
+	int packetLength;
+#endif /* USE_PGP */
 	int status;
 
 	assert( isReadPtrDynamic( data, dataLength ) );
@@ -166,8 +169,9 @@ static CRYPT_FORMAT_TYPE getFormatType( IN_BUFFER( dataLength ) const void *data
 
 #ifdef USE_PGP
 	/* It's not ASN.1 data, check for PGP data */
-	status = pgpReadPacketHeader( &stream, NULL, &value, 30, 8192 );
-	if( cryptStatusOK( status ) && value > 30 && value < 8192 )
+	status = pgpReadPacketHeader( &stream, NULL, &packetLength, 30, 8192 );
+	if( cryptStatusOK( status ) && \
+		packetLength > 30 && packetLength < 8192 )
 		{
 		sMemDisconnect( &stream );
 		return( CRYPT_FORMAT_PGP );
@@ -294,6 +298,11 @@ C_RET cryptCreateSignatureEx( C_OUT_OPT void C_PTR signature,
 			if( signAlgo != CRYPT_ALGO_RSA && signAlgo != CRYPT_ALGO_DSA && \
 				signAlgo != CRYPT_ALGO_ECDSA )
 				return( CRYPT_ERROR_PARAM5 );
+
+			/* If it's a PGP-format signature there can't be any extra 
+			   signing attributes present */
+			if( extraData != CRYPT_UNUSED )
+				return( CRYPT_ERROR_PARAM7 );
 			break;
 #endif /* USE_PGP */
 
@@ -301,7 +310,9 @@ C_RET cryptCreateSignatureEx( C_OUT_OPT void C_PTR signature,
 			retIntError();
 		}
 
-	/* Set up any optional signing parameters if required */
+	/* Set up any optional signing parameters if required.  The two options
+	   below are mutually exclusive so there are no problems with 
+	   initSigParams() later being overwritten by setSigParamsPGP() */
 	if( extraData != CRYPT_UNUSED )
 		{
 		initSigParams( &sigParams );
@@ -313,6 +324,8 @@ C_RET cryptCreateSignatureEx( C_OUT_OPT void C_PTR signature,
 		}
 	if( formatType == CRYPT_FORMAT_PGP )
 		{
+		/* The setSigParams() macro both initialises and sets the fields 
+		   so we don't need to precede it with an initSigParams() */
 		setSigParamsPGP( &sigParams, PGP_SIG_DATA, NULL, 0 );
 		hasSigParams = TRUE;
 		}
@@ -392,9 +405,13 @@ C_RET cryptCheckSignatureEx( C_IN void C_PTR signature,
 
 	/* Clear return values */
 	if( extraData != NULL )
-		*extraData = CRYPT_UNUSED;
+		*extraData = CRYPT_ERROR;
 
-	/* Perform extended error checking */
+	/* Perform extended error checking.  We have to make the 
+	   MESSAGE_CHECK_PKC_SIGCHECK check an internal message even though it's
+	   an external object because the actions that we're checking are 
+	   internal-only.  The preceding MESSAGE_GETDEPENDENT has verified that
+	   it's a valid externally-visible object */
 	status = krnlSendMessage( sigCheckKey, MESSAGE_GETDEPENDENT,
 							  &sigCheckContext, OBJECT_TYPE_CONTEXT );
 	if( cryptStatusOK( status ) )
@@ -457,7 +474,6 @@ C_RET cryptCheckSignatureEx( C_IN void C_PTR signature,
 				{
 				if( !isWritePtr( extraData, sizeof( int ) ) )
 					return( CRYPT_ERROR_PARAM6 );
-				*extraData = CRYPT_ERROR;
 				}
 			break;
 
@@ -677,7 +693,7 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 									  IMESSAGE_GETATTRIBUTE, &sigFormat, 
 									  CRYPT_OPTION_PKC_FORMAT );
 			if( cryptStatusError( status ) )
-				return( status );
+				break;		/* Unlock the certificate chain on exit */
 			if( sigFormat != CRYPT_PKCFORMAT_DEFAULT )
 				{
 				int algorithm;
@@ -687,7 +703,7 @@ int iCryptCreateSignature( OUT_BUFFER_OPT( signatureMaxLength, *signatureLength 
 				status = krnlSendMessage( iSignContext, MESSAGE_GETATTRIBUTE,
 										  &algorithm, CRYPT_CTXINFO_ALGO );
 				if( cryptStatusError( status ) )
-					return( status );
+					break;	/* Unlock the certificate chain on exit */
 				if( algorithm == CRYPT_ALGO_RSA && \
 					sigFormat == CRYPT_PKCFORMAT_PSS )
 					sigType = SIGNATURE_CMS_PSS;
@@ -801,7 +817,7 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 						  OUT_OPT_HANDLE_OPT CRYPT_HANDLE *extraData,
 						  INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	CRYPT_CONTEXT sigCheckContext;
+	CRYPT_CONTEXT iSigCheckContext;
 	SIG_DATA_INFO localSigDataInfo = *sigDataInfo;
 	ERROR_INFO localErrorInfo;
 	ERROR_INFO *errorInfoPtr = isDummyErrorInfo( errorInfo ) ? \
@@ -813,7 +829,7 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 	assert( isReadPtrDynamic( signature, signatureLength ) );
 	assert( isReadPtr( sigDataInfo, sizeof( SIG_DATA_INFO ) ) );
 	assert( extraData == NULL || \
-			isWritePtr( extraData, sizeof( CRYPT_HANDLE * ) ) );
+			isWritePtr( extraData, sizeof( CRYPT_HANDLE ) ) );
 	assert( isDummyErrorInfo( errorInfo ) || \
 			isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
@@ -827,8 +843,7 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 				isHandleRangeValid( sigDataInfo->hashContext2 ) && \
 				extraData == NULL ) || \
 			  ( ( formatType == CRYPT_FORMAT_CMS || \
-				  formatType == CRYPT_FORMAT_SMIME || \
-				  formatType == CRYPT_IFORMAT_TLS12 ) && \
+				  formatType == CRYPT_FORMAT_SMIME ) && \
 				sigDataInfo->hashContext2 == CRYPT_UNUSED ) || \
 			  ( ( formatType == CRYPT_FORMAT_CRYPTLIB || \
 				  formatType == CRYPT_FORMAT_PGP || \
@@ -836,6 +851,8 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 				  formatType == CRYPT_IFORMAT_SSH ) && \
 				sigDataInfo->hashContext2 == CRYPT_UNUSED && \
 				extraData == NULL ) );
+			  /* For CMS and S/MIME the extraData is optional, for example 
+			     for timestamping */
 
 	/* Clear return value */
 	if( extraData != NULL )
@@ -843,7 +860,7 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 
 	/* Perform basic error checking */
 	status = krnlSendMessage( iSigCheckKey, IMESSAGE_GETDEPENDENT,
-							  &sigCheckContext, OBJECT_TYPE_CONTEXT );
+							  &iSigCheckContext, OBJECT_TYPE_CONTEXT );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -885,10 +902,8 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 
 		case CRYPT_FORMAT_CMS:
 		case CRYPT_FORMAT_SMIME:
-			if( extraData != NULL )
-				*extraData = CRYPT_ERROR;
 			status = checkSignatureCMS( signature, signatureLength, 
-										sigCheckContext, &localSigDataInfo, 
+										iSigCheckContext, &localSigDataInfo, 
 										extraData, iSigCheckKey,
 										errorInfoPtr );
 			break;
@@ -897,7 +912,7 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 #ifdef USE_PGP
 		case CRYPT_FORMAT_PGP:
 			status = checkSignaturePGP( signature, signatureLength,
-										sigCheckContext, &localSigDataInfo,
+										iSigCheckContext, &localSigDataInfo,
 										errorInfoPtr );
 			break;
 #endif /* USE_PGP */
@@ -905,13 +920,15 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 #ifdef USE_TLS
 		case CRYPT_IFORMAT_TLS:
 			status = checkSignature( signature, signatureLength,
-									 sigCheckContext, &localSigDataInfo, 
+									 iSigCheckContext, &localSigDataInfo, 
 									 SIGNATURE_TLS, errorInfoPtr );
 			break;
 
 		case CRYPT_IFORMAT_TLS12:
+			/* This also covers CRYPT_IFORMAT_TLS13, which is handled 
+			   identically */
 			status = checkSignature( signature, signatureLength,
-									 sigCheckContext, &localSigDataInfo, 
+									 iSigCheckContext, &localSigDataInfo, 
 									 SIGNATURE_TLS12, errorInfoPtr );
 			break;
 #endif /* USE_TLS */
@@ -919,7 +936,7 @@ int iCryptCheckSignature( IN_BUFFER( signatureLength ) const void *signature,
 #ifdef USE_SSH
 		case CRYPT_IFORMAT_SSH:
 			status = checkSignature( signature, signatureLength,
-									 sigCheckContext, &localSigDataInfo, 
+									 iSigCheckContext, &localSigDataInfo, 
 									 SIGNATURE_SSH, errorInfoPtr );
 			break;
 #endif /* USE_SSH */

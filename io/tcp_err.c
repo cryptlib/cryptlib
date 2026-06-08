@@ -434,7 +434,7 @@ static const SOCKETERROR_INFO socketErrorInfo[] = {
 		"RTCSERR_TCP_HOST_DOWN: Host is down", 35 },
 	{ RTCSERR_TCP_NOT_CONN, CRYPT_OK, TRUE,
 		"RTCSERR_TCP_NOT_CONN: Socket is not connected", 45 },
-	{ RTCSERR_TCP_TIMED_OUT, CRYPT_ERROR_MEMORY, TRUE,
+	{ RTCSERR_TCP_TIMED_OUT, CRYPT_ERROR_TIMEOUT, TRUE,
 	  "RTCSERR_TCP_TIMED_OUT: Operation timed out", 42 },
 	{ RTCSERR_TCP_CONN_REFUSED, CRYPT_ERROR_PERMISSION, TRUE,
 		"RTCSERR_TCP_CONN_REFUSED: Attempt to connect was rejected", 57 },
@@ -746,6 +746,7 @@ int setSocketError( INOUT_PTR NET_STREAM_INFO *netStream,
 #define IP6_HEADERSIZE				40	/* IPv6 header size */
 #define ICMP_MIN_PACKETSIZE			8	/* Minimum ICMP packet size */
 #define ICMP_TYPE_ECHO_REPLY		0	/* ICMP packet type = echo reply */
+#define ICMP_TYPE_DEST_UNREACH		3	/* ICMP packet type = dest.unreach */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4, 6 ) ) \
 static int pingHost( INOUT_PTR NET_STREAM_INFO *netStream,
@@ -989,7 +990,10 @@ int diagnoseConnectionProblem( INOUT_PTR NET_STREAM_INFO *netStream,
 	   
 	   Finally, as mentioned in the comment at the start of this function,
 	   we only try for the first address rather than trying to iterate
-	   through everything that's potentially available */
+	   through everything that's potentially available.  Since we got here 
+	   after going through the same address list we know, or at least 
+	   expect, that there's a valid address there, which is why we check for
+	   it with an ENSURES() */
 	status = getAddressInfo( netStream, &addrInfoPtr, host, hostNameLen, 
 							 514, FALSE, TRUE );
 	if( cryptStatusError( status ) )
@@ -1013,7 +1017,7 @@ int diagnoseConnectionProblem( INOUT_PTR NET_STREAM_INFO *netStream,
 	ENSURES( LOOP_BOUND_OK );
 	if( isBadSocket( netSocket ) )
 		{
-		if( isInvalidSocket( netSocket ) )
+		if( isNonNetworkSocket( netSocket ) )
 			{
 			status = closesocket( netSocket );
 			if( isSocketError( status ) )
@@ -1026,7 +1030,10 @@ int diagnoseConnectionProblem( INOUT_PTR NET_STREAM_INFO *netStream,
 		}
 	ENSURES( addrInfoCursor != NULL );
 
-	/* Set up a dummy network stream to handle the I/O */
+	/* Set up a dummy network stream to handle the I/O.  Some of these 
+	   values, for example the port, are just dummy entries to keep 
+	   sanityCheckNetStream() happy since ICMP doesn't use most of the 
+	   standard TCP/UDP services */
 	memset( &diagnosticNetStream, 0, sizeof( NET_STREAM_INFO  ) );
 	diagnosticNetStream.protocol = STREAM_PROTOCOL_UDP;
 	INIT_FLAGS( diagnosticNetStream.nFlags, STREAM_NFLAG_DGRAM );
@@ -1070,13 +1077,28 @@ int diagnoseConnectionProblem( INOUT_PTR NET_STREAM_INFO *netStream,
 	if( cryptStatusError( status ) )
 		return( originalStatus );
 
-	/* Report the result of the ICMP ping to the caller */
+	/* Report the result of the ICMP ping to the caller.  For the standard
+	   ping response we provide a fairly detailed set of instructions since
+	   the user won't be expecting us to perform this check and so won't 
+	   know how to respond to it */
 	if( buffer[ offset ] == ICMP_TYPE_ECHO_REPLY )
 		{
 		retExtAdditional( originalStatus, 
 						  ( originalStatus, NETSTREAM_ERRINFO,
 							", however an ICMP ping to the host succeeded, "
-							"indicating that the host is up" ) );
+							"indicating that the host is up.  Check that "
+							"the hostname and port are correct and the "
+							"remote system is reachable without problems, "
+							"for example due to firewall rules or network "
+							"issues" ) );
+		}
+	if( buffer[ offset ] == ICMP_TYPE_DEST_UNREACH )
+		{
+		retExtAdditional( originalStatus, 
+						  ( originalStatus, NETSTREAM_ERRINFO,
+							", and an ICMP ping to the host reported "
+							"destination unreachable, code %d",
+							buffer[ offset + 1 ] ) );
 		}
 	retExtAdditional( originalStatus, 
 					  ( originalStatus, NETSTREAM_ERRINFO,
@@ -1152,10 +1174,10 @@ int checkFirewallError( INOUT_PTR NET_STREAM_INFO *netStream )
 			} DRIVER_INFO;
 		static const DRIVER_INFO driverInfoTbl[] = {
 			{ "cfwids.sys", 10, TRUE },		/* McAfee Personal IDS */
-			{ "firelm01.sys", 8, TRUE },	/* McAfee Host IPS */
-			{ "firehk4x.sys", 8, TRUE },	/* McAfee Host IPS */
-			{ "firehk5x.sys", 8, TRUE },	/* McAfee Host IPS */
-			{ "fw220.sys", 5, TRUE },		/* McAfee FW */
+			{ "firelm01.sys", 12, TRUE },	/* McAfee Host IPS */
+			{ "firehk4x.sys", 12, TRUE },	/* McAfee Host IPS */
+			{ "firehk5x.sys", 12, TRUE },	/* McAfee Host IPS */
+			{ "fw220.sys", 9, TRUE },		/* McAfee FW */
 			{ "idsvix86.sys", 12, FALSE },	/* Symantec STAR IDS */
 			{ "idsvia64.sys", 12, FALSE },	/* Symantec STAR IDS */
 			{ "mfefirek.sys", 12, TRUE },	/* McAfree FW Engine */
@@ -1164,9 +1186,9 @@ int checkFirewallError( INOUT_PTR NET_STREAM_INFO *netStream )
 			{ "mfetdik.sys", 11, TRUE },	/* McAfee FW */
 			{ "mfetdi2k.sys", 12, TRUE },	/* McAfee FW */
 			{ "mfewfpk.sys", 11, TRUE },	/* McAfee Enterprise FW */
-			{ "mpfirewall.sys", 10, TRUE },	/* McAfee Personal FW */
+			{ "mpfirewall.sys", 14, TRUE },	/* McAfee Personal FW */
 			{ "mvstdi5x.sys", 12, TRUE },	/* McAfee FW driver */
-			{ "spbbcdrv.sys", 8, FALSE },	/* Norton Personal FW */
+			{ "spbbcdrv.sys", 12, FALSE },	/* Norton Personal FW */
 			{ "symefa.sys", 10, FALSE },	/* Symantec NPT */
 			{ "symfw.sys", 9, FALSE },		/* Symantec FW */
 			{ "symids.sys", 10, FALSE },	/* Symantec IDS */

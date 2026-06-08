@@ -146,7 +146,7 @@ static int updateCertificate( INOUT_PTR PKCS11_INFO *pkcs11Info,
 		}
 
 	/* Get the validFrom and validTo dates.  These aren't currently used for
-	   anything, but could be used in the future to handle superceded 
+	   anything, but could be used in the future to handle superseded 
 	   certificates in the same way that it's done for PKCS #15 keysets */
 	setMessageData( &msgData, &theTime, sizeof( time_t ) );
 	cryptStatus = krnlSendMessage( iCryptHandle, IMESSAGE_GETATTRIBUTE_S,

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib PKCS #12 Object-Read Routines					*
-*						Copyright Peter Gutmann 1997-2016					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -111,7 +111,9 @@ static int readProtAlgoInfo( INOUT_PTR STREAM *stream,
 
 	/* Read the wrapper and the protection algorithm OID and extract the
 	   protection information parameters for it */
-	readSequence( stream, NULL );
+	status = readSequence( stream, NULL );
+	if( cryptStatusError( status ) )
+		return( status );
 	status = readOIDEx( stream, encryptionOIDinfo, 
 						FAILSAFE_ARRAYSIZE( encryptionOIDinfo, OID_INFO ), 
 						&oidInfoPtr );
@@ -178,7 +180,7 @@ static int readKeyDerivationInfoP15( INOUT_PTR STREAM *stream,
 	CRYPT_ALGO_TYPE cryptAlgo;
 	QUERY_INFO queryInfo;
 	ALGOID_PARAMS algoIDparams;
-	int status;
+	int status, tag;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( pkcs12objectInfo, sizeof( PKCS12_OBJECT_INFO ) ) );
@@ -192,7 +194,10 @@ static int readKeyDerivationInfoP15( INOUT_PTR STREAM *stream,
 
 	/* Continue with the PKCS #15-style parameters, the optional key size 
 	   and PRF algorithm */
-	if( peekTag( stream ) == BER_INTEGER )
+	status = tag = peekTag( stream );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( tag == BER_INTEGER )
 		{
 		long intValue;
 
@@ -303,6 +308,14 @@ static int readObjectAttributes( INOUT_PTR STREAM *stream,
 									BER_STRING_BMP );
 				if( cryptStatusError( status ) )
 					break;
+				if( stringLength & 1 )
+					{
+					/* Unicode strings shouldn't have an odd length, this 
+					   avoids problems later with code that processes two 
+					   bytes at a time */
+					status = CRYPT_ERROR_BADDATA;
+					break;
+					}
 				LOOP_LARGE_ALT( srcIndex = destIndex = 0, 
 								srcIndex < stringLength, 
 								( srcIndex +=2, destIndex++ ) )
@@ -350,9 +363,7 @@ static int readObjectInfo( INOUT_PTR STREAM *stream,
 						   OUT_PTR PKCS12_OBJECT_INFO *pkcs12objectInfo,
 						   INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	long length;
-	int payloadOffset DUMMY_INIT;
-	int status;
+	int length, payloadOffset DUMMY_INIT, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( pkcs12objectInfo, sizeof( PKCS12_OBJECT_INFO ) ) );

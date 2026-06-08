@@ -46,13 +46,13 @@ int writeUint16( INOUT_PTR STREAM *stream, IN_RANGE( 0, 0xFFFF ) const int value
 RETVAL_RANGE( 0, INT_MAX ) STDC_NONNULL_ARG( ( 1 ) ) \
 int readUint32( INOUT_PTR STREAM *stream );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int writeUint32( INOUT_PTR STREAM *stream, IN_INT_Z const long value );
+int writeUint32( INOUT_PTR STREAM *stream, IN_INT_Z const int value );
 #ifdef USE_WEBSOCKETS
 RETVAL_RANGE( 0, INT_MAX ) STDC_NONNULL_ARG( ( 1 ) ) \
 int readUint64( INOUT_PTR STREAM *stream );
 #endif /* USE_WEBSOCKETS */
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int writeUint64( INOUT_PTR STREAM *stream, IN_INT_Z const long value );
+int writeUint64( INOUT_PTR STREAM *stream, IN_INT_Z const int value );
 
 /* Read and write 32-bit time values */
 
@@ -168,19 +168,19 @@ int readBignumInteger16U( INOUT_PTR STREAM *stream,
 						  INOUT_PTR TYPECAST( BIGNUM * ) struct BN *bignum, 
 						  IN_LENGTH_PKC const int minLength, 
 						  IN_LENGTH_PKC const int maxLength, 
-						  IN_PTR_OPT TYPECAST( BIGNUM ) \
+						  IN_PTR_OPT TYPECAST( BIGNUM * ) \
 								const struct BN *maxRange,
 						  IN_ENUM_OPT( BIGNUM_CHECK ) \
 								const BIGNUM_CHECK_TYPE checkType );
 RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeBignumInteger16U( INOUT_PTR STREAM *stream, 
-						   TYPECAST( BIGNUM ) const struct BN *bignum );
+						   TYPECAST( BIGNUM * ) const struct BN *bignum );
 RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readBignumInteger16Ubits( INOUT_PTR STREAM *stream, 
 							  INOUT_PTR TYPECAST( BIGNUM * ) struct BN *bignum, 
 							  IN_LENGTH_PKC_BITS const int minBits, 
 							  IN_LENGTH_PKC_BITS const int maxBits,
-							  IN_PTR_OPT TYPECAST( BIGNUM ) \
+							  IN_PTR_OPT TYPECAST( BIGNUM * ) \
 								const struct BN *maxRange,
 							  IN_ENUM_OPT( BIGNUM_CHECK ) \
 								const BIGNUM_CHECK_TYPE checkType );
@@ -192,15 +192,15 @@ CHECK_RETVAL_RANGE( UINT32_SIZE, \
 int sizeofBignumInteger32( const void *bignum );
 RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readBignumInteger32( INOUT_PTR STREAM *stream, 
-						 INOUT_PTR TYPECAST( BIGNUM ) struct BN *bignum, 
+						 INOUT_PTR TYPECAST( BIGNUM * ) struct BN *bignum, 
 						 IN_LENGTH_PKC const int minLength, 
 						 IN_LENGTH_PKC const int maxLength, 
-						 IN_PTR_OPT TYPECAST( BIGNUM ) \
+						 IN_PTR_OPT TYPECAST( BIGNUM * ) \
 							const struct BN *maxRange,
 						 IN_ENUM_OPT( BIGNUM_CHECK ) \
 							const BIGNUM_CHECK_TYPE checkType );
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int writeBignumInteger32( INOUT_PTR STREAM *stream, 
-						  TYPECAST( BIGNUM ) const struct BN *bignum );
+						  TYPECAST( BIGNUM * ) const struct BN *bignum );
 #endif /* USE_PKC */
 #endif /* !_MISCRW_DEFINED */

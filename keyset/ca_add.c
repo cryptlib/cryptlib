@@ -465,7 +465,7 @@ int caAddCertRequest( INOUT_PTR DBMS_INFO *dbmsInfo,
 
 	   Because of these issues we can't use a uniqueness constraint on the
 	   reqCertID to enforce a single use of issuing authorisation by the
-	   database ifself but have to do a manual check here, checking 
+	   database itself but have to do a manual check here, checking 
 	   specifically for the case where a PKI user authorises a certificate 
 	   issue.  In addition we can't even perform a general-purpose check 
 	   because as soon as a single issue has been authorised for a user 

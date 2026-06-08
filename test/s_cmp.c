@@ -35,9 +35,8 @@ typedef enum {
 	CMP_TEST_NORMAL,		/* Standard CMP test */
 	CMP_TEST_PKIBOOT,		/* Use PKIBoot functionality */
 	CMP_TEST_CORRUPT_TRANSACTIONID,	/* Detect corruption of transaction ID */
-	CMP_TEST_CORRUPT_NONCE,	/* Detect corruption of sender/recipNonce */
-	CMP_TEST_BADSIG_DATA,	/* Sig.check failure - bad data */
-	CMP_TEST_BADSIG_HASH,	/* Sig.check failure - bad hash/MAC */
+	CMP_TEST_BADSIG_DATA,	/* Sig.check failure - MAC */
+	CMP_TEST_BADSIG_HASH,	/* Sig.check failure - signature */
 	CMP_TEST_BADSIG_SIG,	/* Sig.check failure - bad signature */
 	CMP_TEST_LAST			/* Last possible CMP test type */
 	} CMP_TEST_TYPE;
@@ -704,9 +703,8 @@ static int requestCert( const char *description, const CA_INFO *caInfoPtr,
 						const CERT_DATA *requestData,
 						const CRYPT_ALGO_TYPE cryptAlgo,
 						const CRYPT_CONTEXT cryptCACert,
-						const BOOLEAN isPKIBoot, 
-						const BOOLEAN isPnPPKI,
-						const int options,
+						const BOOLEAN isPKIBoot, const BOOLEAN isPnPPKI,
+						const int options, const int operationNo,
 						CRYPT_CERTIFICATE *issuedCert )
 	{
 	CRYPT_SESSION cryptSession;
@@ -837,29 +835,48 @@ static int requestCert( const char *description, const CA_INFO *caInfoPtr,
 			cryptKeysetClose( cryptKeyset );
 		printExtError( cryptSession, "Attempt to activate CMP client session",
 					   status, __LINE__ );
+#if defined( CONFIG_FAULTS ) 
+		if( status != expectedFaultStatus && expectedFaultStatus != CRYPT_OK )
+			{
+			printf( "Expected fault error %d, got %d.\nHit a key...", 
+					expectedFaultStatus, status );
+			( void ) getchar();
+			}
+#endif /* CONFIG_FAULTS */
 #ifdef SERVER_IS_CRYPTLIB
-		if( status == CRYPT_ERROR_NOTFOUND )
+		if( status == CRYPT_ERROR_NOTFOUND || \
+			status == CRYPT_ERROR_PERMISSION )
 			{
 			char errorMessage[ 512 ];
 			int errorMessageLength;
 
-			/* If there's something else listening on the local port that
-			   we use for CMP then it's unlikely to respond to a CMP 
-			   request, so we add a special-case check for this and don't 
-			   treat it as a fatal error */
+			/* If there's nothing listening, or something else listening, 
+			   on the local port that we use for CMP then it's unlikely to 
+			   respond to a CMP request, so we add a special-case check for 
+			   this and don't treat it as a fatal error */
 			status = cryptGetAttributeString( cryptSession,
 											  CRYPT_ATTRIBUTE_ERRORMESSAGE,
 											  errorMessage, 
 											  &errorMessageLength );
 			cryptDestroySession( cryptSession );
-			if( cryptStatusOK( status ) && \
-				errorMessageLength > 13 && 
-				!memcmp( errorMessage, "HTTP response", 13 ) )
+			if( cryptStatusOK( status ) )
 				{
-				puts( "  (Something other than a CMP server is listening on "
-					  "the local port used for\n   testing, "
-					  "continuing...)\n" );
-				return( CRYPT_ERROR_FAILED );
+				if( errorMessageLength > 13 && 
+					!memcmp( errorMessage, "HTTP response", 13 ) )
+					{
+					puts( "  (Something other than a CMP server is listening "
+						  "on the local port used for\n   testing, "
+						  "continuing...)\n" );
+					return( CRYPT_ERROR_FAILED );
+					}
+				if( errorMessageLength > 12 && 
+					( !memcmp( errorMessage, "ECONNREFUSED", 12 ) || \
+					  !memcmp( errorMessage, "WSAECONNREFU", 12 ) ) )
+					{
+					puts( "  (Connection refused, probably no CMP server "
+						  "is running, continuing...)\n" );
+					return( CRYPT_ERROR_FAILED );
+					}
 				}
 			}
 #endif /* SERVER_IS_CRYPTLIB */
@@ -882,6 +899,15 @@ static int requestCert( const char *description, const CA_INFO *caInfoPtr,
 			}
 		return( FALSE );
 		}
+#if defined( CONFIG_FAULTS ) 
+	if( ( operationNo == 1 && expectedFaultType == FAULT_BADSIG_DATA ) || \
+		( operationNo == 3 && expectedFaultType == FAULT_BADSIG_HASH ) )
+		{
+		printf( "Expected fault error %d but got success.\nHit a key...", 
+				expectedFaultStatus );
+		( void ) getchar();
+		}
+#endif /* CONFIG_FAULTS */
 
 	/* If it's a PKIBoot, which just sets (implicitly) trusted certs, we're
 	   done */
@@ -1161,24 +1187,6 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 			}
 		}
 
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
-	/* If we're testing fault handling, inject the appropriate fault type */
-	if( isErrorTest )
-		{
-		cryptSetFaultType( ( testType == CMP_TEST_CORRUPT_TRANSACTIONID ) ? \
-							 FAULT_CORRUPT_ID : \
-						   ( testType == CMP_TEST_CORRUPT_NONCE ) ? \
-							 FAULT_SESSION_CORRUPT_NONCE : \
-						   ( testType == CMP_TEST_BADSIG_DATA ) ? \
-							 FAULT_BADSIG_DATA : \
-						   ( testType == CMP_TEST_BADSIG_HASH ) ? \
-							 FAULT_BADSIG_HASH : \
-						   ( testType == CMP_TEST_BADSIG_SIG ) ? \
-							 FAULT_BADSIG_SIG : \
-						   	 FAULT_NONE );
-		}
-#endif /* CONFIG_FAULTS && Debug */
-
 	/* Initialisation request.  We perform two ir's, the first with the CA
 	   supplying the full user DN and email address, the second with the CA 
 	   supplying a partial DN and no email address, and the user filling in 
@@ -1198,7 +1206,7 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 						  usePKIBoot ? NULL : writeFileName,
 						  cmpCryptlibRequestNoDNData, cryptAlgo, 
 						  cryptCACert, usePKIBoot, FALSE, 
-						  CRYPT_CMPOPTION_NONE, NULL );
+						  CRYPT_CMPOPTION_NONE, 1, NULL );
 	if( status != TRUE )
 		{
 		if( isErrorTest )
@@ -1212,12 +1220,13 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 			}
 
 		/* If this is the self-test and there's a non-fatal error, make sure
-		   we don't fail with a CRYPT_ERROR_INCOMPLETE when we're finished */
+		   that we don't fail with a CRYPT_ERROR_INCOMPLETE when we're 
+		   finished */
 		if( !usePKIBoot )
 			cryptDestroyCert( cryptCACert );
 		return( status );
 		}
-	if( isErrorTest && testType != CMP_TEST_BADSIG_SIG )
+	if( isErrorTest && testType == CMP_TEST_BADSIG_DATA )
 		{
 		cryptDestroyCert( cryptCACert );
 		puts( "  (This test should have led to a failure but "
@@ -1241,7 +1250,7 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
 	status = requestCert( "certificate init.request (ir)", &caInfo, NULL, 
 						  writeFileName, cmpCryptlibRequestData, cryptAlgo, 
-						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 
+						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 2,
 						  &cryptCert );
 	if( status != TRUE )
 		return( FALSE );
@@ -1267,7 +1276,7 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 2 );
 	status = requestCert( "certificate request (cr)", &caInfo, readFileName, 
 						  writeFileName, cmpCryptlibRequestData, cryptAlgo, 
-						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 
+						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 3,
 						  NULL );
 	if( status != TRUE )
 		{
@@ -1312,7 +1321,7 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 3 );
 	status = requestCert( "certificate update (kur)", &caInfo, readFileName, 
 						  writeFileName, NULL, CRYPT_UNUSED, 
-						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 
+						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 4,
 						  &cryptCert );
 	if( status != TRUE )
 		{
@@ -1393,11 +1402,12 @@ static int connectCMP( const CRYPT_ALGO_TYPE cryptAlgo )
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
 	status = requestCert( "certificate init.request (ir)", caInfoPtr, NULL, 
 						  writeFileName, cmpRsaSignRequestData, cryptAlgo, 
-						  cryptCACert, FALSE, FALSE, options, &cryptCert );
+						  cryptCACert, FALSE, FALSE, options, 1, &cryptCert );
 	if( status != TRUE )
 		{
 		/* If this is the self-test and there's a non-fatal error, make sure
-		   we don't fail with a CRYPT_ERROR_INCOMPLETE when we're finished */
+		   that we don't fail with a CRYPT_ERROR_INCOMPLETE when we're 
+		   finished */
 		cryptDestroyCert( cryptCACert );
 		return( status );
 		}
@@ -1415,7 +1425,7 @@ static int connectCMP( const CRYPT_ALGO_TYPE cryptAlgo )
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 2 );
 	status = requestCert( "certificate request (cr)", caInfoPtr, 
 						  readFileName, writeFileName, cmpRsaSignRequestData,
-						  cryptAlgo, cryptCACert, FALSE, FALSE, options, 
+						  cryptAlgo, cryptCACert, FALSE, FALSE, options, 2,
 						  NULL );
 	if( status != TRUE )
 		{
@@ -1446,7 +1456,8 @@ static int connectCMP( const CRYPT_ALGO_TYPE cryptAlgo )
 	filenameParamFromTemplate( readFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
 	status = requestCert( "certificate update (kur)", caInfoPtr, 
 						  readFileName, NULL, NULL, CRYPT_UNUSED,
-						  cryptCACert, FALSE, FALSE, options, &cryptCert );
+						  cryptCACert, FALSE, FALSE, options, 3, 
+						  &cryptCert );
 	if( status != TRUE )
 		{
 		cryptDestroyCert( cryptCACert );
@@ -1564,7 +1575,7 @@ static int connectCMPRA( void )
 	status = requestCert( "RA certificate request", &caInfo, NULL, 
 						  writeFileName, cmpCryptlibRequestNoDNData, 
 						  CRYPT_ALGO_RSA, cryptCACert, FALSE, FALSE, 
-						  CRYPT_CMPOPTION_NONE, NULL );
+						  CRYPT_CMPOPTION_NONE, 1, NULL );
 	if( status != TRUE )
 		return( FALSE );
 
@@ -1576,7 +1587,7 @@ static int connectCMPRA( void )
 	status = requestCert( "certificate request (cr) via RA", caInfoPtr, 
 						  readFileName, writeFileName, cmpRsaSignRequestData,
 						  CRYPT_ALGO_RSA, cryptCACert, FALSE, FALSE, 
-						  CRYPT_CMPOPTION_NONE, NULL );
+						  CRYPT_CMPOPTION_NONE, 2, NULL );
 	if( status != TRUE )
 		{
 		cryptDestroyCert( cryptCACert );
@@ -1633,7 +1644,7 @@ static int connectCMP3GPP( void )
 	status = requestCert( "3GPP preliminary ir to set up cr/kur", 
 						  &caInfo, NULL, writeFileName,
 						  cmpCryptlibRequestData, CRYPT_ALGO_RSA, 
-						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 
+						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 1,
 						  NULL );
 	if( status != TRUE )
 		return( FALSE );
@@ -1642,7 +1653,7 @@ static int connectCMP3GPP( void )
 	status = requestCert( "3GPP certificate request (cr)", &caInfo, 
 						  readFileName, writeFileName, cmpRsaSignRequestData,
 						  CRYPT_ALGO_RSA, cryptCACert, FALSE, FALSE, 
-						  CRYPT_CMPOPTION_3GPP, NULL );
+						  CRYPT_CMPOPTION_3GPP, 2, NULL );
 
 	/* Clean up */
 	cryptDestroyCert( cryptCACert );
@@ -1750,7 +1761,7 @@ static int connectCMPFail( const int count )
 			 cmpFailRequestDescriptionTbl[ count ] );
 	status = requestCert( message, &caInfo, NULL, NULL, 
 						  cmpFailRequestDataTbl[ count ], CRYPT_ALGO_RSA, 
-						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 
+						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 1,
 						  &cryptCert );
 	cryptDestroyCert( cryptCACert );
 	if( status )
@@ -2696,18 +2707,21 @@ int testSessionCMPFailClientServer( void )
 
 int testSessionCMPClientServerDebugCheck( void )
 	{
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
-	cryptSetFaultType( FAULT_NONE );
+#if defined( CONFIG_FAULTS ) 
+	fputs( "Testing CMP error handling...\n", outputStream );
+	setFaultInfo( FAULT_CORRUPT_ID, CRYPT_ERROR_READ );
 	if( !cmpClientServer( CMP_TEST_CORRUPT_TRANSACTIONID, CRYPT_ALGO_RSA ) )
 		return( FALSE );	/* Detect corruption of transaction ID */
+	setFaultInfo( FAULT_BADSIG_DATA, CRYPT_ERROR_SIGNATURE );
 	if( !cmpClientServer( CMP_TEST_BADSIG_DATA, CRYPT_ALGO_RSA ) )
-		return( FALSE );	/* Sig.check failure - bad data */
+		return( FALSE );	/* Sig.check failure - MAC */
+	setFaultInfo( FAULT_BADSIG_HASH, CRYPT_ERROR_SIGNATURE );
 	if( !cmpClientServer( CMP_TEST_BADSIG_HASH, CRYPT_ALGO_RSA ) )
-		return( FALSE );	/* Sig.check failure - bad hash/MAC */
-	if( !cmpClientServer( CMP_TEST_BADSIG_SIG, CRYPT_ALGO_RSA ) )
-		return( FALSE );	/* Sig.check failure - bad hash/MAC */
+		return( FALSE );	/* Sig.check failure - Signature */
 	cryptSetFaultType( FAULT_NONE );
-#endif /* CONFIG_FAULTS && Debug */
+	fputs( "CMP error handling self-test succeeded.\n\n", 
+		   outputStream );
+#endif /* CONFIG_FAULTS */
 	return( TRUE );
 	}
 #endif /* TEST_SESSION_LOOPBACK */

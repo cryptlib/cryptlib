@@ -1050,7 +1050,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 					{
 					/* We'll usually fail at this point with a 
 					   CRYPT_ERROR_WRITE due to being unable to update the
-					   cetificate store log, but this is rather confusing 
+					   certificate store log, but this is rather confusing 
 					   for a keyset open so we convert it into a generic
 					   CRYPT_ERROR_OPEN */
 					status = CRYPT_ERROR_OPEN;

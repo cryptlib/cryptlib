@@ -355,7 +355,7 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 									const CRYPT_HANDLE originalObjectHandle, 
 							   OUT_HANDLE_OPT \
 									CRYPT_HANDLE *targetObjectHandle,
-							   const long targets );
+							   const int targets );
 
 typedef struct {
 #ifndef NDEBUG
@@ -377,16 +377,12 @@ typedef struct {
 	/* Routing information: The object type (or types, packed into a single
 	   value if there are more than one type) that the attribute applies to,
 	   and the routing function applied to the attribute message */
-	const long routingTarget;		/* Target type(s) if routable */
+	const int routingTarget;		/* Target type(s) if routable */
 	ROUTING_FUNCTION routingFunction;
 
 	/* Attribute value checking information */
 	const int lowRange;				/* Min/max allowed if numeric/boolean, */
-#ifdef SYSTEM_16BIT
-	const long highRange;			/*	length if string */
-#else
 	const int highRange;			/*	length if string */
-#endif /* 16- vs. 32-bit systems */
 	const void *extendedInfo;		/* Extended ACL/checking information */
 	} ATTRIBUTE_ACL;
 
@@ -601,7 +597,7 @@ typedef struct {
 	const OBJECT_SUBTYPE subTypeA, subTypeB, subTypeC;
 	const int access;				/* Permitted access type */
 	const int flags;				/* Attribute flags */
-	const long routingTarget;		/* Target type if routable */
+	const int routingTarget;		/* Target type if routable */
 	ROUTING_FUNCTION routingFunction;
 	const int lowRange;				/* Min/max allowed if numeric/boolean, */
 	const int highRange;			/*	length if string */

@@ -341,7 +341,7 @@ int preDispatchCheckCertMgmtAccess( IN_HANDLE const int objectHandle,
 							   mechanismInfo->caKey ) )
 			return( CRYPT_ARGERROR_NUM1 );
 
-		/* If there's a secondary parameter present, check it agains the
+		/* If there's a secondary parameter present, check it against the
 		   dependent object.  We perform a basic isValidObject() check
 		   rather than a fullObjectCheck() since the dependent object is
 		   usually internal, and this would fail with an external message */

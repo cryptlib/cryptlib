@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib PKCS #15 Read Routines						*
-*						Copyright Peter Gutmann 1996-2021					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -104,7 +104,7 @@ static void copyObjectIdInfo( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 /* Copy any new object payload information that we've just read across to 
    the object information */
 
-STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
+CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int copyObjectPayloadInfo( INOUT_PTR PKCS15_INFO *pkcs15infoPtr, 
 								  const PKCS15_INFO *pkcs15objectInfo,
 								  IN_BUFFER( objectLength ) const void *object, 
@@ -153,7 +153,10 @@ static int copyObjectPayloadInfo( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 			   up as an empty (non-useful) object entry */
 			DEBUG_DIAG(( "Found secret-key object" ));
 			assert_nofuzz( DEBUG_WARN );
-			break;
+			
+			/* Let the caller know that we haven't stored the object data 
+			   anywhere because we can't do anything with it */
+			return( OK_SPECIAL );
 
 		case PKCS15_OBJECT_DATA:
 			pkcs15infoPtr->type = PKCS15_SUBTYPE_DATA;
@@ -164,10 +167,10 @@ static int copyObjectPayloadInfo( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 			break;
 
 		case PKCS15_OBJECT_UNRECOGNISED:
-			/* This is a placeholder for an unrecognised object subtype such
-			   as a certificate object whose subtype is SPKI or WTLS or 
-			   X9.68, we record it as such and remember the data contents but 
-			   leave it as an empty (non-useful) object entry */
+			/* This is a placeholder for an unrecognised object subtype, 
+			   typically a non-cryptlib data object, we record it as such 
+			   and remember the data contents but leave it as an empty 
+			   (non-useful) object entry */
 			DEBUG_DIAG(( "Found unrecognised object subtype" ));
 			pkcs15infoPtr->type = PKCS15_SUBTYPE_UNRECOGNISED;
 			pkcs15infoPtr->dataType = CRYPT_ATTRIBUTE_NONE;
@@ -181,7 +184,10 @@ static int copyObjectPayloadInfo( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 			   up as an empty (non-useful) object entry */
 			DEBUG_DIAG(( "Found unknown object type %d", type ));
 			assert( DEBUG_WARN );
-			break;
+
+			/* Let the caller know that we haven't stored the object data 
+			   anywhere because we can't do anything with it */
+			return( OK_SPECIAL );
 		}
 
 	return( CRYPT_OK );
@@ -290,7 +296,8 @@ int readPkcs15Keyset( INOUT_PTR STREAM *stream,
 			{ CRYPT_ERROR, 0 }, { CRYPT_ERROR, 0 }
 			};
 		PKCS15_OBJECT_TYPE type = PKCS15_OBJECT_NONE;
-		int tag, value DUMMY_INIT, innerEndPos, LOOP_ITERATOR_ALT;
+		int tag, value DUMMY_INIT, currentPos;
+		int innerEndPos, LOOP_ITERATOR_ALT;
 
 		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
 
@@ -316,7 +323,7 @@ int readPkcs15Keyset( INOUT_PTR STREAM *stream,
 					( CRYPT_ERROR_BADDATA, errorInfo, 
 					  "Invalid PKCS #15 object type %02X", tag ) );
 			}
-		type = value;
+		type = value;	/* int vs. enum */
 
 		/* Read the [n] [0] wrapper to find out what we're dealing with.  
 		   Note that we set the upper limit at MAX_BUFFER_SIZE rather than
@@ -338,14 +345,17 @@ int readPkcs15Keyset( INOUT_PTR STREAM *stream,
 					  "Invalid PKCS #15 object data size %d", 
 					  innerEndPos ) );
 			}
-		REQUIRES( !checkOverflowAdd( innerEndPos, stell( stream ) ) );
-		innerEndPos += stell( stream );
+		currentPos = stell( stream );
+		ENSURES( !cryptStatusError( currentPos ) );
+		REQUIRES( !checkOverflowAdd( innerEndPos, currentPos ) );
+		innerEndPos += currentPos;
 		REQUIRES( isIntegerRangeNZ( innerEndPos ) );
 
 		/* Scan all objects of this type */
 		LOOP_LARGE_WHILE_ALT( stell( stream ) < innerEndPos )
 			{
 			PKCS15_INFO pkcs15objectInfo, *pkcs15infoPtr = NULL;
+			PKCS15_OBJECT_TYPE effectiveType = type;
 			void *object;
 			int objectLength;
 
@@ -353,7 +363,8 @@ int readPkcs15Keyset( INOUT_PTR STREAM *stream,
 
 			/* Read the object */
 			status = readObject( stream, &pkcs15objectInfo, &object,
-								 &objectLength, type, errorInfo );
+								 &objectLength, effectiveType, 
+								 errorInfo );
 			if( cryptStatusError( status ) )
 				{
 				if( status != OK_SPECIAL )
@@ -363,8 +374,10 @@ int readPkcs15Keyset( INOUT_PTR STREAM *stream,
 					}
 
 				/* We read an object that we don't know what to do with, 
-				   change the effective type to a placeholder */
-				type = PKCS15_OBJECT_UNRECOGNISED;
+				   change the effective type to a placeholder and 
+				   continue.  This typically happens with data objects
+				   when the data payload is non-cryptlib information */
+				effectiveType = PKCS15_OBJECT_UNRECOGNISED;
 				}
 			ANALYSER_HINT( object != NULL );
 
@@ -414,8 +427,22 @@ int readPkcs15Keyset( INOUT_PTR STREAM *stream,
 				pkcs15infoPtr->validTo = pkcs15objectInfo.validTo;
 
 			/* Copy the payload over */
-			copyObjectPayloadInfo( pkcs15infoPtr, &pkcs15objectInfo,
-								   object, objectLength, type );
+			status = copyObjectPayloadInfo( pkcs15infoPtr, &pkcs15objectInfo,
+											object, objectLength, 
+											effectiveType );
+			if( cryptStatusError( status ) )
+				{
+				if( status != OK_SPECIAL )
+					{
+					pkcs15Free( pkcs15info, maxNoPkcs15objects );
+					return( status );
+					}
+
+				/* We didn't copy the payload over because it's not one that 
+				   we can do anything with, free it and continue */
+				clFree( "readKeyset", object );
+				status = CRYPT_OK;
+				}
 			}
 		ENSURES( LOOP_BOUND_OK_ALT );
 		}

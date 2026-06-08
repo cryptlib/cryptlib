@@ -220,7 +220,7 @@ BOOLEAN compareSerialNumber( IN_BUFFER( canonSerialNumberLength ) \
 		}
 	ENSURES_B( canonSerialLength == 0 || canonSerialNumberPtr[ 0 ] != 0 );
 
-	/* Serial numbers from external sources can be arbitarily strangely
+	/* Serial numbers from external sources can be arbitrarily strangely
 	   encoded so we strip leading zeroes until we get to actual data */
 	LOOP_LARGE_REV( serialLength = serialNumberLength,
 					serialLength > 0 && serialNumberPtr[ 0 ] == 0,

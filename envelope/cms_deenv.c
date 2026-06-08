@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					  cryptlib De-enveloping Routines						*
-*					 Copyright Peter Gutmann 1996-2024						*
+*					 Copyright Peter Gutmann 1996-2025						*
 *																			*
 ****************************************************************************/
 
@@ -435,32 +435,31 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		}
 	else
 		{
-		if( queryInfo.type == CRYPT_OBJECT_PKCENCRYPTED_KEY || \
-			queryInfo.type == CRYPT_OBJECT_SIGNATURE )
+		/* Remember the details of the enveloping information that we 
+		   require to continue */
+		switch( queryInfo.type )
 			{
-			/* Remember the details of the enveloping information that we 
-			   require to continue */
-			status = initPkcContentInfo( contentListItem, &queryInfo,
-										 contentListObjectPtr, objectSize );
-			if( cryptStatusError( status ) )
-				{
-				deleteContentListItem( envelopeInfoPtr->memPoolState, 
-									   contentListItem );
-				return( status );
-				}
+			case CRYPT_OBJECT_PKCENCRYPTED_KEY:
+			case CRYPT_OBJECT_SIGNATURE:
+				status = initPkcContentInfo( contentListItem, &queryInfo,
+											 contentListObjectPtr, 
+											 objectSize );
+				break;
+				
+			case CRYPT_OBJECT_ENCRYPTED_KEY:
+				status = initEncKeyContentInfo( contentListItem, &queryInfo,
+												contentListObjectPtr, 
+												objectSize );
+				break;
+				
+			default:
+				retIntError();
 			}
-		if( queryInfo.type == CRYPT_OBJECT_ENCRYPTED_KEY )
+		if( cryptStatusError( status ) )
 			{
-			/* Remember the details of the enveloping information that we 
-			   require to continue */
-			status = initEncKeyContentInfo( contentListItem, &queryInfo,
-											contentListObjectPtr, objectSize );
-			if( cryptStatusError( status ) )
-				{
-				deleteContentListItem( envelopeInfoPtr->memPoolState, 
-									   contentListItem );
-				return( status );
-				}
+			deleteContentListItem( envelopeInfoPtr->memPoolState, 
+								   contentListItem );
+			return( status );
 			}
 		}
 	status = appendContentListItem( envelopeInfoPtr, contentListItem );
@@ -650,11 +649,10 @@ static int processHashHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	/* Create the hash/MAC object from the data */
 	status = readContextAlgoID( stream, &iHashContext, NULL, DEFAULT_TAG,
 								ALGOID_CLASS_HASH );
-	if( cryptStatusOK( status ) )
-		{
-		status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
-								  &hashAlgo, CRYPT_CTXINFO_ALGO );
-		}
+	if( cryptStatusError( status ) )
+		return( status );
+	status = krnlSendMessage( iHashContext, IMESSAGE_GETATTRIBUTE,
+							  &hashAlgo, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusOK( status ) && \
 		( isParameterisedHashAlgo( hashAlgo ) || \
 		  isParameterisedMacAlgo( hashAlgo ) ) )
@@ -663,7 +661,10 @@ static int processHashHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 								  &hashParam, CRYPT_CTXINFO_BLOCKSIZE );
 		}
 	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
 		return( status );
+		}
 
 	/* Check whether an identical hash/MAC action is already present.  If it 
 	   was added by being supplied externally for a detached signature then 
@@ -694,8 +695,8 @@ static int processHashHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		if( cryptStatusOK( status ) )
 			{
 			actionHashAlgo = value;		/* int vs.enum */
-			if( isParameterisedHashAlgo( hashAlgo ) || \
-				isParameterisedMacAlgo( hashAlgo ) )
+			if( isParameterisedHashAlgo( actionHashAlgo ) || \
+				isParameterisedMacAlgo( actionHashAlgo ) )
 				{
 				status = krnlSendMessage( actionListPtr->iCryptHandle, 
 										  IMESSAGE_GETATTRIBUTE, 
@@ -728,7 +729,10 @@ static int processHashHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 						( envelopeInfoPtr->usage == ACTION_MAC ) ? \
 							ACTION_MAC : ACTION_HASH, iHashContext );
 	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
 		return( status );
+		}
 	SET_FLAG( envelopeInfoPtr->dataFlags, ENVDATA_FLAG_HASHACTIONSACTIVE );
 	
 	actionListPtr = DATAPTR_GET( envelopeInfoPtr->actionList );
@@ -1130,20 +1134,20 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			   DigestAlgorithmIdentifier */
 			case DEENVSTATE_SET_ENCR:
 				{
-				long setLongLength;
+				int setLength;
 
 				/* Read the SET tag and length.  We have to read the length 
 				   as a long value in order to handle cases where there's a 
 				   large amount of key management data involving a great 
 				   many recipients */
-				status = readLongSet( &stream, &setLongLength );
+				status = readLongSet( &stream, &setLength );
 				if( cryptStatusError( status ) )
 					{
 					setErrorString( ENVELOPE_ERRINFO, 
 									"Invalid SET OF RecipientInfo header", 35 );
 					break;
 					}
-				envelopeInfoPtr->hdrSetLength = setLongLength;
+				envelopeInfoPtr->hdrSetLength = setLength;
 
 				/* Remember where we are and move on to the next state.  
 				   Some implementations use the indefinite-length encoding 
@@ -1158,11 +1162,9 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 				}
 
 			case DEENVSTATE_SET_HASH:
-				{
-				int setLength;
-
-				/* Read the SET tag and length */
-				status = readSetI( &stream, &setLength );
+				/* Read the SET tag and length.  readSetI() allows either a 
+				   nonzero definite length or an indefinite length */
+				status = readSetI( &stream, &envelopeInfoPtr->hdrSetLength );
 				if( cryptStatusError( status ) )
 					{
 					setErrorString( ENVELOPE_ERRINFO, 
@@ -1170,25 +1172,6 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 									"header", 47 );
 					break;
 					}
-				if( setLength <= 0 )
-					{
-					/* There are numerous garbled interpretations of what 
-					   constitutes a PKCS #7 certificate chain (empty SET OF 
-					   DigestAlgorithmIdentifier + PKCS#7 data OID is the
-					   correct one, but there are also ones with a nonempty 
-					   SET OF DigestAlgorithmIdentifier or with the data 
-					   being present as a zero-length OCTET STRING).  If we 
-					   find an empty SET OF DigestAlgorithmIdentifier then 
-					   we warn that this probably isn't meant to be signed 
-					   data, for the rest there's not much that we can do */
-					setErrorString( ENVELOPE_ERRINFO, 
-									"SET OF DigestAlgorithmIdentifier is "
-									"empty, is this a raw certificate "
-									"chain?", 75 );
-					status = CRYPT_ERROR_BADDATA;
-					break;
-					}
-				envelopeInfoPtr->hdrSetLength = setLength;
 
 				/* Remember where we are and move on to the next state.  
 				   Some implementations use the indefinite-length encoding 
@@ -1199,7 +1182,6 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 				ENSURES( isBufsizeRangeNZ( streamPos ) );
 				state = DEENVSTATE_HASH;
 				break;
-				}
 
 			/* Read and remember a key exchange object from a RecipientInfo */
 			case DEENVSTATE_ENCR:
@@ -1224,7 +1206,8 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 				ENSURES( isBufsizeRangeNZ( streamPos ) );
 				if( envelopeInfoPtr->hdrSetLength != CRYPT_UNUSED )
 					{
-					if( contentItemLength > envelopeInfoPtr->hdrSetLength )
+					if( !rangeCheck( contentItemLength, 1, \
+									 envelopeInfoPtr->hdrSetLength ) )
 						{
 						status = CRYPT_ERROR_BADDATA;
 						break;
@@ -1360,8 +1343,8 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 					{
 					int hashInfoLength;
 
-					status = calculateStreamObjectLength( &stream, streamPos, 
-														  &hashInfoLength );
+					status = streamOffsetFromPosition( &stream, streamPos, 
+													   &hashInfoLength );
 					if( cryptStatusError( status ) )
 						break;
 					if( hashInfoLength < 0 || \
@@ -1813,8 +1796,8 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			ENSURES( isBufsizeRangeNZ( streamPos ) );
 			if( envelopeInfoPtr->hdrSetLength != CRYPT_UNUSED )
 				{
-				if( contentItemLength < 0 || \
-					contentItemLength > envelopeInfoPtr->hdrSetLength )
+				if( !rangeCheck( contentItemLength, 1, \
+								 envelopeInfoPtr->hdrSetLength ) )
 					{
 					status = CRYPT_ERROR_BADDATA;
 					break;

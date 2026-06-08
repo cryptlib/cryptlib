@@ -585,14 +585,14 @@ static int preOpenSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 			TEST_FLAG( netStream->nFlags, STREAM_NFLAG_DGRAM ) ? TRUE : FALSE;
 	BOOLEAN operationInProgress = FALSE;
 	LOOP_INDEX addressCount;
-	int status;
+	int errorCode = 0, status;
 
 	assert( isWritePtr( netStream, sizeof( NET_STREAM_INFO ) ) );
 	assert( isReadPtrDynamic( host, hostNameLen ) );
 	
 	REQUIRES( sanityCheckNetStream( netStream ) );
 	REQUIRES( hostNameLen > 0 && hostNameLen <= MAX_DNS_SIZE );
-	REQUIRES( port >= MIN_PORT_NUMBER && port < MAX_DEST_PORT_NUMBER );
+	REQUIRES( rangeCheck( port, MIN_PORT_NUMBER, MAX_DEST_PORT_NUMBER ) );
 
 	/* Clear return value */
 	netStream->netSocket = INVALID_SOCKET;
@@ -635,7 +635,12 @@ static int preOpenSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 		/* Create a socket and start the connect process */
 		status = newSocket( &netSocket, addrInfoCursor, FALSE );
 		if( cryptStatusError( status ) )
+			{
+			/* Remember the error code now in case there's a later error in 
+			   the cleanup functions that overwrites it */
+			errorCode = getErrorCode( INVALID_SOCKET );
 			continue;
+			}
 		setSocketNonblocking( netSocket );
 		clearErrorState();
 		DEBUG_PRINT_COND( addrInfoCursor->ai_family == AF_INET,
@@ -656,6 +661,10 @@ static int preOpenSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 			   progress), exit */
 			break;
 			}
+			
+		/* Remember the error code now in case there's a later error in the 
+		   cleanup functions that overwrites it */
+		errorCode = getErrorCode( netSocket );
 		deleteSocket( netSocket );
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -674,8 +683,10 @@ static int preOpenSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 		{
 		/* There was an error condition other than a notification that the
 		   operation hasn't completed yet */
-		return( mapNetworkError( netStream, getErrorCode( INVALID_SOCKET ), 
-								 FALSE, CRYPT_ERROR_OPEN ) );
+		return( mapNetworkError( netStream, 
+								 ( errorCode == 0 ) ? \
+								   getErrorCode( INVALID_SOCKET ) : \
+								   errorCode, FALSE, CRYPT_ERROR_OPEN ) );
 		}
 	if( status == 0 )
 		{
@@ -820,7 +831,7 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 	REQUIRES( ( host == NULL && hostNameLen == 0 ) || \
 			  ( host != NULL && \
 				hostNameLen > 0 && hostNameLen <= MAX_DNS_SIZE ) );
-	REQUIRES( port >= MIN_PORT_NUMBER && port < MAX_DEST_PORT_NUMBER );
+	REQUIRES( rangeCheck( port, MIN_PORT_NUMBER, MAX_DEST_PORT_NUMBER ) );
 
 	/* Clear return value */
 	netStream->netSocket = INVALID_SOCKET;
@@ -923,6 +934,7 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 		SIZE_TYPE valueLen = sizeof( int );
 		int value;
 #endif /* USE_IPv6 */
+		int socketStatus;
 
 		ENSURES( LOOP_INVARIANT_SMALL( addressCount, 0, IP_ADDR_COUNT - 1 ) );
 
@@ -997,11 +1009,16 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 		   quam is qui non audiet).  Note that BeOS can only bind to one 
 		   interface at a time, so if we're binding to INADDR_ANY under 
 		   BeOS we actually bind to the first interface that we find */
-		if( setsockopt( listenSocket, SOL_SOCKET, SO_REUSEADDR,
-						( char * ) &trueValue, sizeof( int ) ) || \
-			bind( listenSocket, addrInfoCursor->ai_addr,
-				  addrInfoCursor->ai_addrlen ) || \
-			( !isDgramSocket && listen( listenSocket, 5 ) ) )
+		socketStatus = setsockopt( listenSocket, SOL_SOCKET, SO_REUSEADDR,
+								   ( char * ) &trueValue, sizeof( int ) );
+		if( socketStatus == 0 )
+			{
+			socketStatus = bind( listenSocket, addrInfoCursor->ai_addr,
+								 addrInfoCursor->ai_addrlen );
+			}
+		if( socketStatus == 0 && !isDgramSocket )
+			socketStatus = listen( listenSocket, 5 );
+		if( socketStatus != 0 )
 			{
 			/* Remember the error code now in case there's a later error
 			   in the cleanup functions that overwrites it */
@@ -1112,7 +1129,12 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 						&clientAddrLen );
 	if( isBadSocket( netSocket ) )
 		{
-		if( !isInvalidSocket( netSocket ) && isBlockWarning( listenSocket ) )
+		/* isBadSocket() identifies a non-network socket, which may be an 
+		   invalid socket or something suspicious like a handle to stdin.
+		   To sort out what's what we use isNonNetworkSocket() to see if
+		   it's valid but not a network socket */
+		if( !isNonNetworkSocket( netSocket ) && \
+			isBlockWarning( listenSocket ) )
 			{
 			status = setSocketError( netStream, 
 									 "Remote system closed the connection "
@@ -1124,6 +1146,12 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 			int dummy;
 
 			status = getSocketError( netStream, CRYPT_ERROR_OPEN, &dummy );
+			}
+		if( isNonNetworkSocket( netSocket ) )
+			{
+			/* The socket is valid but not a network socket, for example
+			   stdin, clean it up before we exit */
+			closesocket( netSocket );
 			}
 		setSocketBlocking( listenSocket );
 		deleteSocket( listenSocket );
@@ -1161,11 +1189,13 @@ static int openServerSocket( INOUT_PTR NET_STREAM_INFO *netStream,
 	status = addSocket( netSocket );
 	if( cryptStatusError( status ) )
 		{
+		int localStatus;
+		
 		/* There was a problem adding the new socket, close it and exit.
 		   We don't call deleteSocket() since it wasn't added to the pool,
 		   instead we call closesocket() directly */
-		status = closesocket( netSocket );
-		if( isSocketError( status ) )
+		localStatus = closesocket( netSocket );
+		if( isSocketError( localStatus ) )
 			{
 			DEBUG_DIAG(( "Error closing socket %d after failed addSocket() "
 						 "call", netSocket ));
@@ -1204,7 +1234,7 @@ static int openSocketFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 	REQUIRES( ( hostName == NULL && hostNameLen == 0 ) || \
 			  ( hostName != NULL && \
 				hostNameLen > 0 && hostNameLen <= MAX_DNS_SIZE ) );
-	REQUIRES( port >= MIN_PORT_NUMBER && port < MAX_DEST_PORT_NUMBER );
+	REQUIRES( rangeCheck( port, MIN_PORT_NUMBER, MAX_DEST_PORT_NUMBER ) );
 	REQUIRES( TEST_FLAG( netStream->nFlags, STREAM_NFLAG_ISSERVER ) || \
 			  hostName != NULL );
 

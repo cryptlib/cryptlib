@@ -131,9 +131,8 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	DLP_PARAMS dlpParams;
-	BYTE buffer[ 128 + 8 ];
-	int sigSize, status;
+	DLP_PARAMS dlpParamsSign, dlpParamsSigCheck;
+	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -141,20 +140,18 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
 	REQUIRES_B( capabilityInfoPtr != NULL );
 
 	/* Generate a signature with the private key */
-	setDLPParams( &dlpParams, shaM, 20, buffer, 128 );
-	dlpParams.inLen2 = -999;
+	initDLPParamsSign( &dlpParamsSign, shaM, 20 );
+	dlpParamsSign.inLen2 = -999;
 	status = capabilityInfoPtr->signFunction( contextInfoPtr,
-						( BYTE * ) &dlpParams, sizeof( DLP_PARAMS ) );
+						( BYTE * ) &dlpParamsSign, sizeof( DLP_PARAMS ) );
 	if( cryptStatusError( status ) )
 		return( FALSE );
 
 	/* Verify the signature with the public key */
-	sigSize = dlpParams.outLen;
-	setDLPParams( &dlpParams, shaM, 20, NULL, 0 );
-	dlpParams.inParam2 = buffer;
-	dlpParams.inLen2 = sigSize;
+	initDLPParamsSigCheck( &dlpParamsSigCheck, shaM, 20, 
+						   dlpParamsSign.outParam, dlpParamsSign.outLen );
 	status = capabilityInfoPtr->sigCheckFunction( contextInfoPtr,
-						( BYTE * ) &dlpParams, sizeof( DLP_PARAMS ) );
+						( BYTE * ) &dlpParamsSigCheck, sizeof( DLP_PARAMS ) );
 	return( cryptStatusOK( status ) ? TRUE : FALSE );
 	}
 
@@ -443,28 +440,23 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	const BIGNUM *g = &pkcInfo->dlpParam_g, *x = &pkcInfo->dlpParam_x;
 	BIGNUM *hash = &pkcInfo->tmp1, *k = &pkcInfo->tmp2, *kInv = &pkcInfo->tmp3;
 	BIGNUM *r = &pkcInfo->dlpTmp1, *s = &pkcInfo->dlpTmp2;
-	const int qLen = BN_num_bytes( q ), outLen = dlpParams->outLen;
+	const int qLen = BN_num_bytes( q );
 	int bnStatus = BN_STATUS, status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( dlpParams, sizeof( DLP_PARAMS ) ) );
-	assert( isReadPtrDynamic( dlpParams->inParam1, dlpParams->inLen1 ) );
-	assert( isWritePtrDynamic( dlpParams->outParam, dlpParams->outLen ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( noBytes == sizeof( DLP_PARAMS ) );
 	REQUIRES( dlpParams->inLen1 >= max( 20, MIN_HASHSIZE ) && \
 			  dlpParams->inLen1 <= CRYPT_MAX_HASHSIZE );
-	REQUIRES( dlpParams->inParam2 == NULL && \
-			  ( dlpParams->inLen2 == 0 || dlpParams->inLen2 == -999 ) );
-	REQUIRES( isShortIntegerRangeMin( dlpParams->outLen, \
-									  2 + dlpParams->inLen1 ) * 2 );
+	REQUIRES( dlpParams->inLen2 == 0 || dlpParams->inLen2 == -999 );
 	REQUIRES( qLen >= DLPPARAM_MIN_Q && qLen <= DLPPARAM_MAX_Q )
 	REQUIRES( capabilityInfoPtr != NULL );
 
 	/* Clear return values */
-	REQUIRES( isShortIntegerRangeNZ( dlpParams->outLen ) ); 
-	memset( dlpParams->outParam, 0, min( 16, dlpParams->outLen ) );
+	REQUIRES( rangeCheck( DLP_DATA_SIZE, 1, DLP_DATA_SIZE ) ); 
+	memset( dlpParams->outParam, 0, min( 16, DLP_DATA_SIZE ) );
 	dlpParams->outLen = 0;
 
 	/* Generate the secret random value k.  During the initial self-test
@@ -609,8 +601,8 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Encode the result as a DL data block */
 	status = capabilityInfoPtr->encodeDLValuesFunction( dlpParams->outParam, 
-										outLen, &dlpParams->outLen, r, s, 
-										dlpParams->formatType );
+										DLP_DATA_SIZE, &dlpParams->outLen, 
+										r, s, dlpParams->formatType );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -638,8 +630,6 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( dlpParams, sizeof( DLP_PARAMS ) ) );
-	assert( isReadPtrDynamic( dlpParams->inParam1, dlpParams->inLen1 ) );
-	assert( isReadPtrDynamic( dlpParams->inParam2, dlpParams->inLen2 ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( noBytes == sizeof( DLP_PARAMS ) );
@@ -651,7 +641,6 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				dlpParams->inLen2 == 40 ) );
 	REQUIRES( dlpParams->inLen1 >= max( 20, MIN_HASHSIZE ) && \
 			  dlpParams->inLen1 <= CRYPT_MAX_HASHSIZE );
-	REQUIRES( dlpParams->outParam == NULL && dlpParams->outLen == 0 );
 	REQUIRES( capabilityInfoPtr != NULL );
 
 	/* Decode the values from a DL data block and make sure that r and s are
@@ -772,7 +761,6 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								   &pkcInfo->dlpParam_p, 
 								   BIGNUM_CHECK_VALUE );
 			}
-		SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		if( cryptStatusError( status ) )
 			return( status );
 

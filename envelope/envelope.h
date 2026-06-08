@@ -203,7 +203,7 @@ typedef enum {
 typedef struct {
 	/* Encryption algorithm/key information */
 	CRYPT_ALGO_TYPE cryptAlgo;		/* Encryption algo.for this object */
-	CRYPT_MODE_TYPE cryptMode;		/* Encrytion mode for this object */
+	CRYPT_MODE_TYPE cryptMode;		/* Encryption mode for this object */
 
 	/* Encryption key setup information */
 	BUFFER( CRYPT_MAX_HASHSIZE, saltOrIVsize ) \
@@ -291,7 +291,7 @@ typedef struct CL {
 	const void *payload;			/* Payload data (e.g. encr.key) */
 	int payloadSize;
 	union {
-		CONTENT_ENCR_INFO contentEncrInfo;	/* Encryption obj-specific infor.*/
+		CONTENT_ENCR_INFO contentEncrInfo;	/* Encryption obj-specific info.*/
 		CONTENT_SIG_INFO contentSigInfo;	/* Signature obj-specific info.*/
 		CONTENT_AUTHENC_INFO contentAuthEncInfo;/* Auth-enc obj-spec.info */
 		} contentInfo;
@@ -506,7 +506,7 @@ typedef enum {
 
 			so the initial length has already been read when the packet
 			header was read.  We can't undo the read of the start of the 
-			first packet and treat it as a standard segement because the 
+			first packet and treat it as a standard segment because the 
 			encoding for the first segment (denoted by segment' in the 
 			diagram above) and the remaining segments is different so an 
 			attempt to treat them identically will lead to a decoding error.
@@ -734,7 +734,7 @@ typedef struct EI {
 	   can advise the enveloping code of this, which allows a more efficient 
 	   encoding of the data.  The following variable records the payload 
 	   size */
-	long payloadSize;
+	int payloadSize;
 
 	/* The current state of header processing.  The cryptlib/CMS and PGP
 	   processing states are kept separate (although they could actually be 
@@ -746,7 +746,7 @@ typedef struct EI {
 #ifdef USE_PGP
 	PGP_DEENV_STATE pgpDeenvState;	/* Current state of PGP de-env.n-d proc.*/
 #endif /* USE_PGP */
-	long hdrSetLength;				/* Remaining bytes in SET OF EKeyInfo */
+	int hdrSetLength;				/* Remaining bytes in SET OF EKeyInfo */
 
 	/* When we pushe data into an envelope it may end up breaking the push 
 	   over an intermediate header.  This occurs if we're pushing indefinite-
@@ -826,13 +826,12 @@ typedef struct EI {
 	int segmentDataStart;			/* Segment data start point */
 	int segmentDataEnd;				/* End of completed data */
 
-	/* The remaining data in the current OCTET STRING segment, explicitly 
-	   declared as a long since we may be processing data that came from a 
-	   32-bit machine on a 16-bit machine.  During enveloping this is used
-	   to track the amount of data left from the user-declared payloadSize
-	   that can still be added to the envelope.  During de-enveloping, it's 
-	   used to record how much data is left in the current segment */
-	long segmentSize;				/* Remaining data in segment */
+	/* The remaining data in the current OCTET STRING segment.  During 
+	   enveloping this is used to track the amount of data left from the 
+	   user-declared payloadSize that can still be added to the envelope.  
+	   During de-enveloping, it's used to record how much data is left in 
+	   the current segment */
+	int segmentSize;				/* Remaining data in segment */
 
 	/* Once the low-level segment-processing code sees the end-of-contents
 	   octets for the payload, we need to notify the higher-level code that

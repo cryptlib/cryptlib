@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib SCEP Client Management					*
-*						Copyright Peter Gutmann 1999-2022					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -122,7 +122,7 @@ static BOOLEAN isSameCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert1,
 	status = krnlSendMessage( iCryptCert1, IMESSAGE_SETATTRIBUTE,
 							  MESSAGE_VALUE_TRUE, CRYPT_IATTRIBUTE_LOCKED );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( FALSE );
 	status = krnlSendMessage( iCryptCert2, IMESSAGE_SETATTRIBUTE,
 							  MESSAGE_VALUE_TRUE, CRYPT_IATTRIBUTE_LOCKED );
 	if( cryptStatusError( status ) )
@@ -131,7 +131,7 @@ static BOOLEAN isSameCertificate( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert1,
 		   (mostly because it's a shouldn't-occur condition), we have two 
 		   valid certificates so we shouldn't abort processing because a
 		   compare operation failed.  Because of this we report a non-
-		   match, which in most cases will allow things to proceeed as
+		   match, which in most cases will allow things to proceed as
 		   required, and when it is a match it'll be caught later */
 		( void ) krnlSendMessage( iCryptCert1, IMESSAGE_SETATTRIBUTE,
 								  MESSAGE_VALUE_FALSE, 
@@ -301,31 +301,46 @@ static int writePkiDatagramAsGet( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	/* Now that it's base64-encoded it can no longer be sent as is because 
 	   some base64 values, specifically '/', '+' and '=', are used for other
 	   purposes in URLs.  Because of this we have to make another pass over
-	   the data escaping these characters into the '%xx' form */
-	LOOP_MAX( i = 0, i < fullEncodedLength, i++ )
+	   the data escaping these characters into the '%xx' form.
+	   
+	   The loop invariant here is a bit odd, since the escaping turns one 
+	   character into three and therefore modifies the fullEncodedLength 
+	   value we can't use the standard LOOP_INVARIANT_MAX() but have to use
+	   the special form for when there's no fixed relationship between the 
+	   index variable and bound */
+	LOOP_MAX( i = 0, i < fullEncodedLength && \
+						i < sessionInfoPtr->receiveBufSize, i++ )
 		{
-		char escapeBuffer[ 8 + 8 ];
-		int ch, result;
+		const char *escapedForm;
+		int ch;
 
-		ENSURES( LOOP_INVARIANT_MAX( i, 0, fullEncodedLength - 1 ) );
+		ENSURES( LOOP_INVARIANT_MAX_XXX( i, 0, \
+										 fullEncodedLength - 1 ) );
 
 		/* If this isn't a special character, there's nothing to do */
 		ch = sessionInfoPtr->receiveBuffer[ i ];
 		if( ch != '/' && ch != '+' && ch != '=' )
 			continue;
+		escapedForm = ( ch == '/' ) ? "%2F" : \
+					  ( ch == '+' ) ? "%2B" : "%3D";
 
-		/* Make room for the escaped form and encode the value */
+		/* Make room for the escaped form.  The +2 instead of +3 is because
+		   there's already one character present, so we're adding two more
+		   to it for a total of three */
 		REQUIRES( !checkOverflowAdd( fullEncodedLength, 2 ) );
-		if( fullEncodedLength + 2 >= sessionInfoPtr->receiveBufSize )
+		if( fullEncodedLength + 2 > sessionInfoPtr->receiveBufSize )
 			return( CRYPT_ERROR_OVERFLOW );
 		REQUIRES( boundsCheck( i + 2, fullEncodedLength - i, 
 							   sessionInfoPtr->receiveBufSize ) );
 		memmove( sessionInfoPtr->receiveBuffer + i + 2, 
 				 sessionInfoPtr->receiveBuffer + i, fullEncodedLength - i );
-		result = sprintf_s( escapeBuffer, 8, "%%%02X", ch );
-		ENSURES( rangeCheck( result, 3, 7 ) );
+
+		/* Copy the escaped form over the top of the unencoded one */
 		REQUIRES( boundsCheck( i, 3, sessionInfoPtr->receiveBufSize ) );
-		memcpy( sessionInfoPtr->receiveBuffer + i, escapeBuffer, 3 );
+		memcpy( sessionInfoPtr->receiveBuffer + i, escapedForm, 3 );
+
+		/* Update the length and index values */
+		i += 2;
 		fullEncodedLength += 2;
 		} 
 	ENSURES( LOOP_BOUND_OK );
@@ -418,9 +433,9 @@ static int sendGetRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		"GetCACert", 9,
 		};
 #endif /* 0 */
-	HTTP_REQ_INFO *httpReqInfo = \
-		( requestType == GETREQUEST_GETCACAPS ) ? \
-		( void * ) &httpReqGetCACaps : ( void * ) &httpReqGetCACert;
+	const HTTP_REQ_INFO *httpReqInfo = \
+		( requestType == GETREQUEST_GETCACAPS ) ? &httpReqGetCACaps : \
+												  &httpReqGetCACert;
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -920,10 +935,12 @@ static int createScepCert( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_ERRMSGS
 		ERROR_INFO localErrorInfo;
 #endif /* USE_ERRMSGS */
+		int localStatus;
 
-		status = readErrorInfo( &localErrorInfo, createInfo.cryptHandle );
+		localStatus = readErrorInfo( &localErrorInfo, 
+									 createInfo.cryptHandle );
 		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
-		if( cryptStatusOK( status ) )
+		if( cryptStatusOK( localStatus ) )
 			{
 			/* We got extended error information on why the create failed,
 			   return that alongside the overall message */
@@ -1776,7 +1793,7 @@ static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	/* Read back the newly-issued certificate from the server */
 	status = readPkiDatagram( sessionInfoPtr, MIN_CRYPT_OBJECTSIZE,
-							  MK_ERRTEXT( "Couldnt read SCEP server "
+							  MK_ERRTEXT( "Couldn't read SCEP server "
 										  "response" ) );
 	if( cryptStatusOK( status ) )
 		status = checkScepResponse( sessionInfoPtr, &protocolInfo );

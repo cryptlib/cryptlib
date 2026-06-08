@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Diffie-Hellman Key Exchange Routines			*
-*						Copyright Peter Gutmann 1995-2005					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -118,6 +118,8 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 
 	/* Clean up */
 	staticDestroyContext( &checkContextInfo );
+	zeroise( &keyAgreeParams1, sizeof( KEYAGREE_PARAMS ) );
+	zeroise( &keyAgreeParams2, sizeof( KEYAGREE_PARAMS ) );
 
 	return( cryptStatusOK( status ) ? TRUE : FALSE );
 	}
@@ -227,6 +229,9 @@ static int selfTest( void )
 						   DLPPARAM_MAX_P, NULL, BIGNUM_CHECK_VALUE_PKC );
 	if( cryptStatusOK( status ) )
 		{
+		/* The test key uses an oversized g value so we can import it with
+		   BIGNUM_CHECK_VALUE_PKC rather than the BIGNUM_CHECK_VALUE that
+		   we'd normally use for g */
 		status = importBignum( &pkcInfo->dlpParam_g, dlpTestKey.g, 
 							   dlpTestKey.gLen, DLPPARAM_MIN_G, 
 							   DLPPARAM_MAX_G, &pkcInfo->dlpParam_p,
@@ -265,14 +270,17 @@ static int selfTest( void )
 	capabilityInfoPtr = DATAPTR_GET( contextInfo.capabilityInfo );
 	REQUIRES( capabilityInfoPtr != NULL );
 	status = capabilityInfoPtr->initKeyFunction( &contextInfo, NULL, 0 );
-	if( cryptStatusOK( status ) && \
+	if( cryptStatusError( status ) || \
 		!pairwiseConsistencyTest( &contextInfo ) )
-		status = CRYPT_ERROR_FAILED;
+		{
+		staticDestroyContext( &contextInfo );
+		return( CRYPT_ERROR_FAILED );
+		}
 
 	/* Clean up */
 	staticDestroyContext( &contextInfo );
 
-	return( status );
+	return( CRYPT_OK );
 	}
 #else
 	#define selfTest	NULL
@@ -330,8 +338,8 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	const DH_DOMAINPARAMS *domainParams = pkcInfo->domainParams;
 	const BIGNUM *p = ( domainParams != NULL ) ? \
 					  &domainParams->p : &pkcInfo->dlpParam_p;
-	BIGNUM *z = &pkcInfo->tmp1;
-	int offset, bnStatus = BN_STATUS, status;
+	BIGNUM *yPrime = &pkcInfo->tmp1, *z = &pkcInfo->tmp2;
+	int offset, bnStatus = BN_STATUS, compareStatus = 0, status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( keyAgreeParams, sizeof( KEYAGREE_PARAMS ) ) );
@@ -345,31 +353,21 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* The other party's y value will be stored with the key agreement info
 	   rather than having been read in when we read the DH public key so we
-	   need to import it now.
-	   
-	   Since reading and storing the other party's value changes the context 
-	   data, we need to force a recalculation of the data checksum after the 
-	   import.  We don't need to perform the check beforehand since it's 
-	   just been done by the caller */
-	status = importBignum( &pkcInfo->dhParam_yPrime,
-						   keyAgreeParams->publicValue, 
+	   need to import it now */
+	status = importBignum( yPrime, keyAgreeParams->publicValue, 
 						   keyAgreeParams->publicValueLen,
 						   DLPPARAM_MIN_Y, DLPPARAM_MAX_Y, p, 
 						   BIGNUM_CHECK_VALUE_PKC );
 	if( cryptStatusError( status ) )
 		return( status );
-	pkcInfo->checksum = 0L;
-	status = checksumContextData( contextInfoPtr->ctxPKC, TRUE );
-	ENSURES( cryptStatusOK( status ) );
-	ENSURES( verifyBignumImport( &pkcInfo->dhParam_yPrime,
-								 keyAgreeParams->publicValue, 
+	ENSURES( verifyBignumImport( yPrime, keyAgreeParams->publicValue, 
 								 keyAgreeParams->publicValueLen ) );
 
-	/* Export z = y^x mod p.  We need to use separate y and z values because
-	   the bignum code can't handle modexp with the first two parameters the
-	   same */
-	CK( BN_mod_exp_mont( z, &pkcInfo->dhParam_yPrime, &pkcInfo->dlpParam_x,
-						 p, &pkcInfo->bnCTX, &pkcInfo->dlpParam_mont_p ) );
+	/* Export z = y'^x mod p.  We need to use separate y' and z values 
+	   because the bignum code can't handle modexp with the first two 
+	   parameters the same */
+	CK( BN_mod_exp_mont( z, yPrime, &pkcInfo->dlpParam_x, p, 
+						 &pkcInfo->bnCTX, &pkcInfo->dlpParam_mont_p ) );
 	if( bnStatusError( bnStatus ) )
 		return( getBnStatus( bnStatus ) );
 
@@ -379,16 +377,17 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								 BN_num_bytes( z ) ) );
 	offset = bitsToBytes( pkcInfo->keySizeBits ) - BN_num_bytes( z );
 	ENSURES( offset >= 0 && offset <= bitsToBytes( pkcInfo->keySizeBits ) );
-	if( offset > 16 )
+	if( offset > bitsToBytes( 128 ) )
 		{
 		/* If the resulting value has more than 128 bits of leading zeroes
 		   then there's something wrong */
 		return( CRYPT_ERROR_NOSECURE );
 		}
 	CK( BN_add_word( z, 1 ) );
-	status = BN_cmp( z, p );
+	if( bnStatusOK( bnStatus ) )
+		compareStatus = BN_cmp( z, p );
 	CK( BN_sub_word( z, 1 ) );
-	if( bnStatusError( bnStatus ) || status >= 0 )
+	if( bnStatusError( bnStatus ) || compareStatus >= 0 )
 		{
 		/* z = p - 1, there's something wrong */
 		return( CRYPT_ERROR_NOSECURE );
@@ -484,7 +483,6 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								   &pkcInfo->dlpParam_p, 
 								   BIGNUM_CHECK_VALUE );
 			}
-		SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		if( cryptStatusError( status ) )
 			return( status );
 

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib TLS Client/Server Hello Management				*
-*					  Copyright Peter Gutmann 1998-2024						*
+*					  Copyright Peter Gutmann 1998-2025						*
 *																			*
 ****************************************************************************/
 
@@ -312,8 +312,8 @@ static int handleSignallingSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									TLS_ALERT_INAPPROPRIATE_FALLBACK;
 				retExt( CRYPT_ERROR_NOSECURE,
 						( CRYPT_ERROR_NOSECURE, SESSION_ERRINFO, 
-						  "Client attempted insecure falback from protocol "
-						  "version %d to version %d",
+						  "Client attempted insecure fallback from "
+						  "protocol version %d to version %d",
 						  protocolInfo->maxVersion,
 						  handshakeInfo->clientOfferedVersion ) );
 				}
@@ -862,7 +862,7 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
    sent by the client.  The following function tries to fix up the mess
    that this creates */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int fixupServerCryptoOptions( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 									 INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo )
 	{
@@ -887,7 +887,7 @@ static int fixupServerCryptoOptions( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				{
 				retExt( CRYPT_ERROR_NOTAVAIL,
 						( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
-						  "Client specified use of TLS 1.3 but did't offer "
+						  "Client specified use of TLS 1.3 but didn't offer "
 						  "any TLS 1.3 cipher suites" ) );
 				}
 			DEBUG_PRINT(( "  Setting cipher suite to %s.\n",
@@ -1017,7 +1017,7 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 IN_BOOL const BOOLEAN isServer )
 	{
 	BOOLEAN potentiallyResumedSession = FALSE;
-	int endPos, length, suiteLength, extensionLength, value, status;
+	int endPos, length, suiteLength, value, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
@@ -1089,6 +1089,10 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #endif /* CONFIG_SUITEB */
 		}
 
+	static_assert( TLS_DOWNGRADEID_OFFSET + \
+						TLS_DOWNGRADEID_SIZE == TLS_NONCE_SIZE,
+				   "TLS downgrade ID parameters" );
+
 	/* Process the nonce and session ID */
 	REQUIRES( rangeCheck( TLS_NONCE_SIZE, 1, TLS_NONCE_SIZE ) );
 	status = sread( stream, isServer ? \
@@ -1111,26 +1115,32 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		const int downgradeIDvalue = byteToInt( \
 			handshakeInfo->serverNonce[ TLS_DOWNGRADEID_OFFSET + \
 										TLS_DOWNGRADEID_PREFIX_SIZE ] );
+		const int originalOfferedVersion = \
+			handshakeInfo->clientOfferedVersion;
 		
 		/* The server has sent a nonce with a downgrade-protection value
 		   present, make sure that the ID value at the end of the prefix 
-		   matches the TLS version that we asked for.  For example if we 
-		   asked for TLS 1.3 and got back the value for TLS 1.2 then we 
-		   know that there's been a downgrade attack.
+		   matches the TLS version that we asked for.  For example if we get 
+		   back the value for TLS 1.2 after asking for TLS 1.3 then we know 
+		   that there's been a downgrade attack (there's also a 2^-56 chance
+		   of a false positive if the random nonce happens to come up with
+		   the TLS_DOWNGRADEID_PREFIX value at the appropriate location, but 
+		   that's pretty negligible).
 
-		   The ID relies on arbitrarily-chosen magic values, 1 for TLS 1.2 
-		   and 0 for TLS 1.1 or below.  Conversely, TLS 1.3 isn't signalled 
-		   at all */
-		if( ( sessionInfoPtr->version == TLS_MINOR_VERSION_TLS12 && \
-			  downgradeIDvalue != 1 ) || \
-			( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 && \
-			  downgradeIDvalue != 0 ) )
+		   The ID relies on arbitrarily-chosen magic values rather than 
+		   actual TLS version values, 1 for TLS 1.2 and 0 for TLS 1.1 or 
+		   below.  Conversely, TLS 1.3 isn't explicitly signalled at all, 
+		   presumably because TLS 1.3 is perfect while 1.2 isn't */
+		if( ( downgradeIDvalue == 1 && \
+			  originalOfferedVersion > TLS_MINOR_VERSION_TLS12 ) || \
+			( downgradeIDvalue == 0 && \
+			  originalOfferedVersion > TLS_MINOR_VERSION_TLS11 ) )
 			{
 			retExt( CRYPT_ERROR_NOSECURE,
 					( CRYPT_ERROR_NOSECURE, SESSION_ERRINFO, 
 					  "Downgrade protection value %d in server hello "
-					  "indicates a dowgrade from negotiated TLS 1.%d", 
-					  downgradeIDvalue, sessionInfoPtr->version - 1 ) );
+					  "indicates a downgrade from requested TLS 1.%d", 
+					  downgradeIDvalue, originalOfferedVersion - 1 ) );
 			}
 		}
 
@@ -1208,6 +1218,8 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   extension data */
 	if( stell( stream ) != endPos )
 		{
+		int extensionLength;
+		
 		/* For what's left to be valid extension data we need a length field 
 		   (UINT16_SIZE) and a minimum-length extension (1 + UINT16_SIZE):
 		   
@@ -1310,8 +1322,8 @@ int processHelloTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		retExt( CRYPT_ERROR_NOTAVAIL,
 				( CRYPT_ERROR_NOTAVAIL, SESSION_ERRINFO, 
-				  "%s specified use of TLS 1.3 but did't provide "
-				  "any keyex data", isServer ? "Server" : "Client" ) );
+				  "%s specified use of TLS 1.3 but didn't provide "
+				  "any keyex data", isServer ? "Client" : "Server" ) );
 		}
 #endif /* USE_TLS13 */
 

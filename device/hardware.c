@@ -36,7 +36,6 @@ CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN isCryptoHardwareDevice( const DEVICE_INFO *deviceInfoPtr )
 	{					   
 	CRYPT_KEYSET iHWKeyset;
-	HARDWARE_INFO *hardwareInfo = deviceInfoPtr->deviceHardware;
 	int status;
 
 	assert( isReadPtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
@@ -54,7 +53,7 @@ static BOOLEAN isCryptoHardwareDevice( const DEVICE_INFO *deviceInfoPtr )
 	if( cryptStatusError( status ) )
 		return( FALSE );
 	
-	return( iHWKeyset == hardwareInfo->iCryptKeyset ? TRUE : FALSE );
+	return( iHWKeyset == deviceInfoPtr->iCryptKeyset ? TRUE : FALSE );
 	}
 #else
   #define isCryptoHardwareDevice( deviceInfoPtr )		FALSE
@@ -82,15 +81,31 @@ static int initDevice( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	   out from underneath it.  We perform this sleight-of-hand trick by 
 	   notifying the crypto hardware device to reset its state, which 
 	   reinitialises the storage, and then get a reference to the newly-
-	   intialised storage from it */
+	   initialised storage from it */
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
 	if( isCryptoDeviceAlias )
 		{
+		REQUIRES( deviceInfoPtr->objectHandle != CRYPTO_OBJECT_HANDLE );
+
 		status = krnlSendMessage( CRYPTO_OBJECT_HANDLE, 
 								  IMESSAGE_SETATTRIBUTE, MESSAGE_VALUE_TRUE, 
 								  CRYPT_IATTRIBUTE_RESETNOTIFY );
 		if( cryptStatusOK( status ) )
-			status = getCryptoStorageObject( &hardwareInfo->iCryptKeyset );
+			{
+			DEV_STORAGE_FUNCTIONS dummyStorageFunctions;
+			ERROR_INFO dummyErrorInfo;
+			
+			/* The following call takes advantage of the fact that 
+			   openDeviceStorageObject() returns a handle to the existing 
+			   storage object rather than creating a new one if called for
+			   the crypto HAL */
+			memset( &dummyStorageFunctions, 0, \
+					sizeof( DEV_STORAGE_FUNCTIONS ) );
+			status = openDeviceStorageObject( &deviceInfoPtr->iCryptKeyset,
+							CRYPT_KEYOPT_NONE, deviceInfoPtr->objectHandle,
+							&dummyStorageFunctions, NULL, FALSE, 
+							&dummyErrorInfo );
+			}
 		if( cryptStatusError( status ) )
 			return( status );
 		SET_FLAG( deviceInfoPtr->flags, DEVICE_FLAG_LOGGEDIN );
@@ -163,7 +178,7 @@ static void shutdownFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr )
 			{
 			/* There's cleanup required, delete the storage object.  We don't 
 			   force the change through to the backing store because the 
-			   cleanup flag indicates that the initialistion process wasn't 
+			   cleanup flag indicates that the initialisation process wasn't 
 			   completed before it could be written to backing store */
 			( void ) deleteDeviceStorageObject( FALSE, 
 												hardwareInfo->isFileKeyset,
@@ -446,7 +461,7 @@ static int controlFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 		/* Close the keyset, discarding any data from it and clearing the 
 		   underlying storage */
 		hardwareInfo->discardData = TRUE;
-		krnlSendNotifier( hardwareInfo->iCryptKeyset, 
+		krnlSendNotifier( deviceInfoPtr->iCryptKeyset, 
 						  IMESSAGE_DECREFCOUNT );
 		hardwareInfo->discardData = FALSE;
 
@@ -488,7 +503,7 @@ static int getRandomFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 
 /* Query the custom crypto HAL for encoding information for custom 
    algorithms and mechanisms that may be provided by the HAL.  This is just
-   a wrapper that passes the call throug to the HAL */
+   a wrapper that passes the call through to the HAL */
 
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
 

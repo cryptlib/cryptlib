@@ -49,7 +49,7 @@
    you'd need to provide a password to open the file and then possibly 
    another one to get the key, unless it was the same as the per-file 
    password.  If there was one per-file password and multiple per-key 
-   passwords then you would't know which key or keys used the per-file 
+   passwords then you wouldn't know which key or keys used the per-file 
    password unless you opportunistically tried on each per-key access, and 
    the chances of that successfully making it up into any UI that people 
    create seem slim.  In addition updates are even more problematic than for 
@@ -64,13 +64,13 @@
 
 /* Each PKCS #15 keyset can contain information for multiple personalities 
    (although it's extremely unlikely to contain more than one or two), with
-   Each object consiting of a combination of { private key, public key, other 
-   items } belonging to a single shared ID.  We allow at most maximum of 
-   MAX_PKCS15_OBJECTS per keyset in order to discourage them from being used 
-   as general-purpose public-key keysets, which they're not supposed to be.   
-   Ideally we want to set this as low as possible, but have to be careful to
-   not break things for users who genuinely need to store multiple private
-   keys in one keyset */
+   Each object consisting of a combination of { private key, public key, 
+   other items } belonging to a single shared ID.  We allow at most maximum 
+   of MAX_PKCS15_OBJECTS per keyset in order to discourage them from being 
+   used as general-purpose public-key keysets, which they're not supposed to 
+   be.   Ideally we want to set this as low as possible, but have to be 
+   careful to not break things for users who genuinely need to store 
+   multiple private keys in one keyset */
 
 #ifdef CONFIG_CONSERVE_MEMORY
   #define MAX_PKCS15_OBJECTS	4
@@ -361,7 +361,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5 ) ) \
 int getCertID( IN_HANDLE const CRYPT_HANDLE iCryptHandle, 
 			   IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE nameType, 
 			   OUT_BUFFER( nameIdMaxLen, *nameIdLen ) BYTE *nameID, 
-			   IN_LENGTH_SHORT_MIN( KEYID_SIZE ) const int nameIdMaxLen,
+			   IN_LENGTH_FIXED( KEYID_SIZE ) const int nameIdMaxLen,
 			   OUT_LENGTH_BOUNDED_Z( nameIdMaxLen ) int *nameIdLen );
 CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1 ) ) \
 PKCS15_INFO *findEntry( IN_ARRAY( noPkcs15objects ) const PKCS15_INFO *pkcs15info,

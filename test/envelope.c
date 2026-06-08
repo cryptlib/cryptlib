@@ -461,6 +461,9 @@ static int pushData( const CRYPT_ENVELOPE envelope, const BYTE *buffer,
 					 const int length, const void *stringEnvInfo,
 					 const int numericEnvInfo )
 	{
+#if defined( CONFIG_FAULTS ) 
+	BOOLEAN isDeenvelope = FALSE;
+#endif /* CONFIG_FAULTS */
 	int bytesIn, contentType, status;
 
 	/* Args are either NULL, a handle, or { data, length } */
@@ -473,6 +476,10 @@ static int pushData( const CRYPT_ENVELOPE envelope, const BYTE *buffer,
 	if( status == CRYPT_ENVELOPE_RESOURCE )
 		{
 		BOOLEAN isRestartable = FALSE;
+
+#if defined( CONFIG_FAULTS ) 
+		isDeenvelope = TRUE;
+#endif /* CONFIG_FAULTS */
 
 		/* Process the required de-enveloping resource */
 		status = processEnvelopeResource( envelope, stringEnvInfo, 
@@ -548,9 +555,26 @@ static int pushData( const CRYPT_ENVELOPE envelope, const BYTE *buffer,
 	status = cryptFlushData( envelope );
 	if( cryptStatusError( status ) && status != CRYPT_ERROR_COMPLETE )
 		{
+#if defined( CONFIG_FAULTS ) 
+		if( isDeenvelope && status != expectedFaultStatus && \
+			expectedFaultStatus != CRYPT_OK )
+			{
+			printf( "Expected fault error %d, got %d.\nHit a key...", 
+					expectedFaultStatus, status );
+			( void ) getchar();
+			}
+#endif /* CONFIG_FAULTS */
 		printExtError( envelope, "cryptFlushData()", status, __LINE__ );
 		return( status );
 		}
+#if defined( CONFIG_FAULTS ) 
+	if( isDeenvelope && expectedFaultType != FAULT_NONE )
+		{
+		printf( "Expected fault error %d but got success.\nHit a key...", 
+				expectedFaultStatus );
+		( void ) getchar();
+		}
+#endif /* CONFIG_FAULTS */
 
 	/* Now that we've finished processing the data, report the inner content 
 	   type.  We can't do in until this stage because some enveloping format
@@ -1084,9 +1108,8 @@ static int envelopeCompress( const char *dumpFileName,
 		{
 		dataCount = fread( buffer, 1, FILEBUFFER_SIZE, inFile );
 		fclose( inFile );
-		assert( dataCount < FILEBUFFER_SIZE );
 		}
-	if( dataCount < 1000 || dataCount == FILEBUFFER_SIZE )
+	if( dataCount < 1000 )
 		{
 		free( buffer );
 		free( envelopedBuffer );
@@ -2655,6 +2678,14 @@ static int getSigCheckResult( const CRYPT_ENVELOPE cryptEnvelope,
 		{
 		fprintf( outputStream, "Signature check returned status %d, "
 				 "line %d.\n", status, __LINE__ );
+#if defined( CONFIG_FAULTS ) 
+		if( status != expectedFaultStatus && expectedFaultStatus != CRYPT_OK )
+			{
+			printf( "Expected fault error %d, got %d.\nHit a key...", 
+					expectedFaultStatus, status );
+			( void ) getchar();
+			}
+#endif /* CONFIG_FAULTS */
 		return( FALSE );
 		}
 	switch( value )
@@ -2681,6 +2712,14 @@ static int getSigCheckResult( const CRYPT_ENVELOPE cryptEnvelope,
 			fprintf( outputStream, "Signature check failed, result = %d, "
 					 "line %d.\n", value, __LINE__ );
 		}
+#if defined( CONFIG_FAULTS ) 
+	if( value != expectedFaultStatus && expectedFaultStatus != CRYPT_OK )
+		{
+		printf( "Expected fault error %d, got %d.\nHit a key...", 
+				expectedFaultStatus, status );
+		( void ) getchar();
+		}
+#endif /* CONFIG_FAULTS */
 
 	return( FALSE );
 	}
@@ -2793,7 +2832,7 @@ static int envelopeSigCheck( BYTE *buffer, const int length,
 			if( cryptStatusOK( status ) )
 				{
 				fprintf( outputStream, "Attempt to read signature check key "
-						 "from PGP envelope succeeded when it\ns  hould have "
+						 "from PGP envelope succeeded when it\n  should have "
 						 "failed, line %d.\n", __LINE__ );
 				return( FALSE );
 				}
@@ -3036,11 +3075,11 @@ int testEnvelopeSign( void )
 			return( FALSE );	/* PGP format, datasize, raw key */
 		if( !envelopeSign( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, "env_sig_content.pgp", KEYFILE_PGP, TRUE, FALSE, FALSE, CRYPT_CONTENT_COMPRESSEDDATA, CRYPT_FORMAT_PGP ) )
 			return( FALSE );	/* PGP format, datasize, raw key, custom content type */
-#ifdef USE_3DES		/* Uses 3DES keyring */
-		if( !envelopeSign( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, "env_sig_dsa.pgp", KEYFILE_OPENPGP_HASH, TRUE, FALSE, FALSE, CRYPT_CONTENT_NONE, CRYPT_FORMAT_PGP ) )
-			return( FALSE );	/* PGP format, datasize, raw DSA key */
-#endif /* USE_3DES */
 		}
+#ifdef USE_3DES		/* Uses 3DES keyring */
+	if( !envelopeSign( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, "env_sig_dsa.pgp", KEYFILE_OPENPGP_HASH, TRUE, FALSE, FALSE, CRYPT_CONTENT_NONE, CRYPT_FORMAT_PGP ) )
+		return( FALSE );	/* PGP format, datasize, raw DSA key */
+#endif /* USE_3DES */
 #endif /* USE_PGP2 */
 	if( !envelopeSign( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, "env_csg_ndef", KEYFILE_X509, FALSE, FALSE, FALSE, CRYPT_CONTENT_NONE, CRYPT_FORMAT_CRYPTLIB ) )
 		return( FALSE );	/* Indefinite length, certificate */
@@ -3052,13 +3091,6 @@ int testEnvelopeSign( void )
 		return( FALSE );	/* Datasize, certificate, sigcheck key supplied */
 	if( !envelopeSign( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, "env_csg.pgp", KEYFILE_X509, TRUE, FALSE, FALSE, CRYPT_CONTENT_NONE, CRYPT_FORMAT_PGP ) )
 		return( FALSE );	/* PGP format, certificate */
-#if 0	/* 8/7/2012 Removed since it conflicts with the functionality for 
-					setting hash values for detached signatures.  This
-					capability was never documented in the manual so it's
-					unlikely that it was ever used */
-	if( !envelopeSign( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, "env_csg_hash", KEYFILE_X509, TRUE, TRUE, FALSE, CRYPT_CONTENT_NONE, CRYPT_FORMAT_CRYPTLIB ) )
-		return( FALSE );	/* Datasize, certificate, externally-suppl.hash */
-#endif /* 0 */
 	return( envelopeSign( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, "env_csg_extkey", KEYFILE_X509, TRUE, FALSE, TRUE, CRYPT_CONTENT_NONE, CRYPT_FORMAT_CRYPTLIB ) );
 	}						/* Externally-supplied key, to test isolation of sig.check key */
 
@@ -3828,11 +3860,10 @@ int testEnvelopeAuthEnc( void )
 
 typedef enum { TEST_SIGN, TEST_AUTH, TEST_AUTHENC } TEST_TYPE;
 
-static int testCMSDebugCheck( const TEST_TYPE testType, const FAULT_TYPE testFaultType )
+static int testCMSDebugCheck( const TEST_TYPE testType )
 	{
 	int status;
 
-	cryptSetFaultType( testFaultType );
 	switch( testType )
 		{
 		case TEST_SIGN:
@@ -3871,16 +3902,15 @@ static int testCMSDebugCheck( const TEST_TYPE testType, const FAULT_TYPE testFau
 	return( TRUE );
 	}
 
-static int testPGPDebugCheck( const TEST_TYPE testType, const FAULT_TYPE testFaultType )
+static int testPGPDebugCheck( const TEST_TYPE testType )
 	{
 	int status;
 
-	cryptSetFaultType( testFaultType );
 	switch( testType )
 		{
 		case TEST_SIGN:
 			status = envelopeSign( ENVELOPE_TESTDATA, ENVELOPE_TESTDATA_SIZE, 
-								   "fault.pgp", KEYFILE_PGP, TRUE, FALSE, 
+								   "fault.pgp", KEYFILE_OPENPGP_HASH, TRUE, FALSE, 
 								   FALSE, CRYPT_CONTENT_NONE, CRYPT_FORMAT_PGP );
 			break;
 
@@ -3910,43 +3940,62 @@ static int testPGPDebugCheck( const TEST_TYPE testType, const FAULT_TYPE testFau
 
 int testEnvelopeCMSDebugCheck( void )
 	{
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
+#if defined( CONFIG_FAULTS ) 
+	fputs( "Testing CMS error handling...\n", outputStream );
+	setFaultInfo( FAULT_BADSIG_DATA, CRYPT_ERROR_SIGNATURE );
+	if( !testCMSDebugCheck( TEST_SIGN ) )
+		return( FALSE );
+	setFaultInfo( FAULT_BADSIG_HASH, CRYPT_ERROR_SIGNATURE );
+	if( !testCMSDebugCheck( TEST_SIGN ) )
+		return( FALSE );
+	setFaultInfo( FAULT_ENVELOPE_CORRUPT_AUTHATTR, CRYPT_ERROR_SIGNATURE );
+	if( !testCMSDebugCheck( TEST_SIGN ) )
+		return( FALSE );
+	setFaultInfo( FAULT_ENVELOPE_CMS_CORRUPT_AUTH_DATA, CRYPT_ERROR_SIGNATURE );
+	if( !testCMSDebugCheck( TEST_AUTH ) )
+		return( FALSE );
+	setFaultInfo( FAULT_ENVELOPE_CMS_CORRUPT_AUTH_MAC, CRYPT_ERROR_SIGNATURE );
+	if( !testCMSDebugCheck( TEST_AUTH ) )
+		return( FALSE );
+	setFaultInfo( FAULT_ENVELOPE_CMS_CORRUPT_AUTH_DATA, CRYPT_ERROR_SIGNATURE );
+	if( !testCMSDebugCheck( TEST_AUTHENC ) )
+		return( FALSE );
+	setFaultInfo( FAULT_ENVELOPE_CMS_CORRUPT_AUTH_MAC, CRYPT_ERROR_SIGNATURE );
+	if( !testCMSDebugCheck( TEST_AUTHENC ) )
+		return( FALSE );
 	cryptSetFaultType( FAULT_NONE );
-	if( !testCMSDebugCheck( TEST_SIGN, FAULT_BADSIG_DATA ) )
-		return( FALSE );
-	if( !testCMSDebugCheck( TEST_SIGN, FAULT_BADSIG_HASH ) )
-		return( FALSE );
-	if( !testCMSDebugCheck( TEST_SIGN, FAULT_ENVELOPE_CORRUPT_AUTHATTR ) )
-		return( FALSE );
-	if( !testCMSDebugCheck( TEST_AUTH, FAULT_ENVELOPE_CMS_CORRUPT_AUTH_DATA ) )
-		return( FALSE );
-	if( !testCMSDebugCheck( TEST_AUTH, FAULT_ENVELOPE_CMS_CORRUPT_AUTH_MAC ) )
-		return( FALSE );
-	if( !testCMSDebugCheck( TEST_AUTHENC, FAULT_ENVELOPE_CMS_CORRUPT_AUTH_DATA ) )
-		return( FALSE );
-	if( !testCMSDebugCheck( TEST_AUTHENC, FAULT_ENVELOPE_CMS_CORRUPT_AUTH_MAC ) )
-		return( FALSE );
-	cryptSetFaultType( FAULT_NONE );
-#endif /* CONFIG_FAULTS && Debug */
+	fputs( "CMS error handling self-test succeeded.\n\n", outputStream );
+#endif /* CONFIG_FAULTS */
 	return( TRUE );
 	}
 
 int testEnvelopePGPDebugCheck( void )
 	{
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
+#if defined( CONFIG_FAULTS ) 
+	fputs( "Testing PGP error handling...\n", outputStream );
+	setFaultInfo( FAULT_BADSIG_DATA, CRYPT_ERROR_SIGNATURE );
+	if( !testPGPDebugCheck( TEST_AUTH ) )
+		return( FALSE );
+	setFaultInfo( FAULT_BADSIG_HASH, CRYPT_ERROR_SIGNATURE );
+	if( !testPGPDebugCheck( TEST_AUTH ) )
+		return( FALSE );
+#if 0	/* This corrupts the key ID in the one-pass signature header but 
+		   this isn't needed for anything, the only thing that we need to 
+		   know is the hash algorithm to use so we never do anything with 
+		   it */
+	setFaultInfo( FAULT_ENVELOPE_PGP_CORRUPT_ONEPASS_ID, CRYPT_ERROR_SIGNATURE );
+	if( !testPGPDebugCheck( TEST_SIGN ) )
+		return( FALSE );
+#endif /* 0 */
+	setFaultInfo( FAULT_CORRUPT_ID, CRYPT_ERROR_NOTFOUND );
+	if( !testPGPDebugCheck( TEST_SIGN ) )
+		return( FALSE );
+	setFaultInfo( FAULT_ENVELOPE_CORRUPT_AUTHATTR, CRYPT_ERROR_SIGNATURE );
+	if( !testPGPDebugCheck( TEST_SIGN ) )
+		return( FALSE );
 	cryptSetFaultType( FAULT_NONE );
-	if( !testPGPDebugCheck( TEST_AUTH, FAULT_BADSIG_DATA ) )
-		return( FALSE );
-	if( !testPGPDebugCheck( TEST_AUTH, FAULT_BADSIG_HASH ) )
-		return( FALSE );
-	if( !testPGPDebugCheck( TEST_SIGN, FAULT_ENVELOPE_PGP_CORRUPT_ONEPASS_ID ) )
-		return( FALSE );
-	if( !testPGPDebugCheck( TEST_SIGN, FAULT_CORRUPT_ID ) )
-		return( FALSE );
-	if( !testPGPDebugCheck( TEST_SIGN, FAULT_ENVELOPE_CORRUPT_AUTHATTR ) )
-		return( FALSE );
-	cryptSetFaultType( FAULT_NONE );
-#endif /* CONFIG_FAULTS && Debug */
+	fputs( "PGP error handling self-test succeeded.\n\n", outputStream );
+#endif /* CONFIG_FAULTS */
 	return( TRUE );
 	}
 
@@ -5246,7 +5295,9 @@ int testCMSEnvelopeSignedDataImport( void )
 
 		File 1: RTF file with certificate chain and two signatures.
 
-		File 2: Detached AuthentiCode signature with MD5.
+		File 2: Detached AuthentiCode signature with MD5, debug build reports 
+				a problem with import with due to contentType = 
+				spcIndirectDataContext which isn't recognised.
 		
 		File 3: EDI file with complex QC signature data
 		

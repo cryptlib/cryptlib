@@ -1207,7 +1207,7 @@ static BOOLEAN setLabel( const CRYPT_CONTEXT cryptContext, const C_STR label )
 	return( TRUE );
 	}
 
-/* Load DH, RSA, DSA, and Elgamal PKC encrytion contexts */
+/* Load DH, RSA, DSA, and Elgamal PKC encryption contexts */
 
 #ifdef TEST_DH
 
@@ -1782,7 +1782,7 @@ BOOLEAN loadElgamalContexts( CRYPT_CONTEXT *cryptContext,
 	return( TRUE );
 	}
 
-/* Load Diffie-Hellman encrytion contexts */
+/* Load Diffie-Hellman encryption contexts */
 
 BOOLEAN loadDHContexts( const CRYPT_DEVICE cryptDevice,
 						CRYPT_CONTEXT *cryptContext,
@@ -1897,7 +1897,7 @@ BOOLEAN loadDHContexts( const CRYPT_DEVICE cryptDevice,
 	return( TRUE );
 	}
 
-/* Load ECDSA/ECDH encrytion contexts */
+/* Load ECDSA/ECDH encryption contexts */
 
 BOOLEAN loadECDSAContextsEx( const CRYPT_DEVICE cryptDevice,
 							 CRYPT_CONTEXT *sigCheckContext,
@@ -2075,7 +2075,7 @@ BOOLEAN loadECDHContexts( const CRYPT_DEVICE cryptDevice,
 								 ECDSA_PUBKEY_LABEL, ECDSA_PRIVKEY_LABEL ) );
 	}
 
-/* Load 25519 encrytion contexts */
+/* Load 25519 encryption contexts */
 
 static BOOLEAN load25519Contexts( const CRYPT_DEVICE cryptDevice,
 								  CRYPT_CONTEXT *sigCheckContext,
@@ -2234,7 +2234,7 @@ BOOLEAN loadEd25519Contexts( const CRYPT_DEVICE cryptDevice,
 							   signContext, FALSE ) );
 	}
 
-/* Load ML-KEM encrytion contexts */
+/* Load ML-KEM encryption contexts */
 
 BOOLEAN loadMLKEMContexts( const CRYPT_DEVICE cryptDevice,
 						   CRYPT_CONTEXT *encContext,

@@ -116,7 +116,7 @@ BOOLEAN sanityCheckRevInfo( IN_PTR const REVOCATION_INFO *revocationInfo )
    number.  When looking for the location to insert a new entry
    (sortEntries == TRUE) the value is either a serialNumber or a hash of 
    some form (issuerID, certHash), we don't bother distinguishing the exact 
-   type since the chances of a hash collision are virtually nonexistant */
+   type since the chances of a hash collision are virtually nonexistent */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2, 3 ) ) \
 static int findRevocationEntry( IN_DATAPTR const DATAPTR listHead,
@@ -526,7 +526,7 @@ static int checkRevocationCRL( IN_PTR const CERT_INFO *certInfoPtr,
 
 	/* Perform a secondary check via the authorityKeyIdentifier in case the
 	   CA uses multiple different keys for the same CA, revocation roulette
-	   when your security is based on blacklists */
+	   when your security is based on blocklists */
 #ifdef USE_CERTLEVEL_PKIX_PARTIAL
 	revAKID = findAttributeField( revInfoPtr->attributes, 
 								  CRYPT_CERTINFO_AUTHORITY_KEYIDENTIFIER, 
@@ -614,7 +614,7 @@ static int checkRevocationOCSP( IN_PTR const CERT_INFO *certInfoPtr,
 
 	/* Select the entry that contains the revocation information and return
 	   the certificate's revocation status.  Because of the inability of a
-	   blacklist to return a proper status, we have to map anything other
+	   blocklist to return a proper status, we have to map anything other
 	   than "revoked" to "OK" */
 	DATAPTR_SET( certRevInfo->currentRevocation, revEntry );
 	return( ( revEntry->status == CRYPT_OCSPSTATUS_REVOKED ) ? \
@@ -839,9 +839,8 @@ int readCRLentries( INOUT_PTR STREAM *stream,
 					OUT_ENUM_OPT( CRYPT_ERRTYPE ) \
 						CRYPT_ERRTYPE_TYPE *errorType )
 	{
-	long length;
+	int length, status;
 	LOOP_INDEX noCrlEntries;
-	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( listHeadPtr, sizeof( DATAPTR ) ) );
@@ -885,7 +884,7 @@ int readCRLentries( INOUT_PTR STREAM *stream,
 			  noCrlEntries < MAX_CRL_ENTRIES && length > 0,
 			  noCrlEntries++ )
 		{
-		const long innerStartPos = stell( stream );
+		const int innerStartPos = stell( stream );
 		int objectSize DUMMY_INIT;
 
 		REQUIRES( isIntegerRangeNZ( innerStartPos ) );
@@ -896,8 +895,8 @@ int readCRLentries( INOUT_PTR STREAM *stream,
 							   errorLocus, errorType );
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, innerStartPos, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, innerStartPos, 
+											   &objectSize );
 			}
 		if( cryptStatusError( status ) )
 			return( status );
@@ -1568,8 +1567,8 @@ int readOcspRequestEntries( INOUT_PTR STREAM *stream,
 									   errorLocus, errorType );
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, innerStartPos, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, innerStartPos, 
+											   &objectSize );
 			}
 		if( cryptStatusError( status ) )
 			{
@@ -1994,8 +1993,8 @@ int readOcspResponseEntries( INOUT_PTR STREAM *stream,
 										errorType );
 		if( cryptStatusOK( status ) )
 			{
-			status = calculateStreamObjectLength( stream, innerStartPos, 
-												  &objectSize );
+			status = streamOffsetFromPosition( stream, innerStartPos, 
+											   &objectSize );
 			}
 		if( cryptStatusError( status ) )
 			{

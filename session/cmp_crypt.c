@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib CMP Crypto Routines						*
-*						Copyright Peter Gutmann 1999-2009					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -32,7 +32,7 @@
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int hashMessageContents( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 						 IN_BUFFER( length ) const void *data, 
-						 IN_LENGTH_SHORT const int length )
+						 IN_DATALENGTH const int length )
 	{
 	STREAM stream;
 	BYTE buffer[ 8 + 8 ];
@@ -41,7 +41,7 @@ int hashMessageContents( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 	assert( isReadPtrDynamic( data, length ) );
 
 	REQUIRES( isHandleRangeValid( iHashContext ) );
-	REQUIRES( isShortIntegerRangeNZ( length ) );
+	REQUIRES( isBufsizeRangeNZ( length ) );
 
 	/* Delete the hash/MAC value, which resets the context */
 	status = krnlSendMessage( iHashContext, IMESSAGE_DELETEATTRIBUTE, NULL, 
@@ -172,9 +172,18 @@ int readMacInfo( INOUT_PTR STREAM *stream,
 	if( checkStatusPeekTag( stream, status, tag ) && \
 		tag == BER_NULL )
 		{
+		/* At this point we must have a MAC context set up.  This is a 
+		   REQUIRES() rather than a standard error check because if we're
+		   the client and using MAC authentication then we've set it up 
+		   before we sent our first message and if we're the server and seen 
+		   MAC authentication protection information at the start of the 
+		   message then the MAC will have been set up by the time we get to 
+		   this MAC information read at the end */
+		REQUIRES( isHandleRangeValid( protocolInfo->iMacContext ) );
+
 		/* No parameters, use the same values as for the previous
 		   transaction */
-		return( CRYPT_OK );
+		return( readNull( stream ) );
 		}
 	readSequence( stream, NULL );
 	status = readOctetString( stream, salt, &saltLength, 4, 
@@ -195,7 +204,7 @@ int readMacInfo( INOUT_PTR STREAM *stream,
 		{
 		retExt( status, 
 				( status, errorInfo, 
-				  "Invalid passwod-based MAC algorithm information" ) );
+				  "Invalid password-based MAC algorithm information" ) );
 		}
 	if( value < 1 || value > CMP_MAX_PW_ITERATIONS )
 		{
@@ -207,13 +216,13 @@ int readMacInfo( INOUT_PTR STREAM *stream,
 		protocolInfo->pkiFailInfo = CMPFAILINFO_BADALG;
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, errorInfo, 
-				  "Invalid passwod-based MAC iteration count %ld", 
+				  "Invalid password-based MAC iteration count %ld", 
 				  value ) );
 		}
 	ENSURES( isIntegerRange( value ) );
 	iterations = ( int ) value;
 
-	/* If the MAC parameters aren't set yet (meaing that we're the server), 
+	/* If the MAC parameters aren't set yet (meaning that we're the server), 
 	   set them based on the client's values */
 	if( protocolInfo->saltSize <= 0 )
 		{
@@ -223,10 +232,10 @@ int readMacInfo( INOUT_PTR STREAM *stream,
 			{
 			retExt( status,
 					( status, errorInfo, 
-					  "Couldn't initialise passwod-based MAC "
+					  "Couldn't initialise password-based MAC "
 					  "information" ) );
 			}
-		REQUIRES( rangeCheck( saltLength, 0, CRYPT_MAX_HASHSIZE ) );
+		REQUIRES( rangeCheck( saltLength, 1, CRYPT_MAX_HASHSIZE ) );
 		memcpy( protocolInfo->salt, salt, saltLength );
 		protocolInfo->saltSize = saltLength;
 		protocolInfo->iterations = iterations;
@@ -282,7 +291,7 @@ int readMacInfo( INOUT_PTR STREAM *stream,
 	protocolInfo->iMacContext = createInfo.cryptHandle;
 
 	/* Remember the parameters that were used to set up the MAC context */
-	REQUIRES( rangeCheck( saltLength, 0, CRYPT_MAX_HASHSIZE ) );
+	REQUIRES( rangeCheck( saltLength, 1, CRYPT_MAX_HASHSIZE ) );
 	memcpy( protocolInfo->salt, salt, saltLength );
 	protocolInfo->saltSize = saltLength;
 	protocolInfo->iterations = iterations;
@@ -370,7 +379,7 @@ int checkMessageMAC( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,
 	   message */
 	status = hashMessageContents( protocolInfo->iMacContext, message,
 								  messageLength );
-	if( cryptStatusOK( status ) )
+	if( cryptStatusError( status ) )
 		return( status );
 	setMessageData( &msgData, ( MESSAGE_CAST ) mac, macLength );
 	status = krnlSendMessage( protocolInfo->iMacContext, IMESSAGE_COMPARE, 
@@ -430,8 +439,8 @@ int checkMessageSignature( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,
 		}
 
 	/* Hash the data and verify the signature.  Since this is a low-level 
-	   operation, and the raw signature doesn't contain any metadata to 
-	   provide additional information, there isn't any useful additional 
+	   operation and the raw signature doesn't contain any metadata to 
+	   provide additional information there isn't any useful additional 
 	   error information to return */
 	clearErrorInfo( &localErrorInfo );
 	setMessageCreateObjectInfo( &createInfo, protocolInfo->hashAlgo );
@@ -450,7 +459,10 @@ int checkMessageSignature( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,
 								  &protocolInfo->hashParam, 
 								  CRYPT_CTXINFO_BLOCKSIZE );
 		if( cryptStatusError( status ) )
+			{
+			krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
 			return( status );
+			}
 		}
 	status = hashMessageContents( iHashContext, message, messageLength );
 	if( cryptStatusOK( status ) )
@@ -559,6 +571,11 @@ int writeSignedProtinfo( IN_HANDLE const CRYPT_CONTEXT iSignContext,
 	REQUIRES( isShortIntegerRangeNZ( messageLength ) );
 	REQUIRES( isShortIntegerRangeMin( protInfoMaxLength, 32 ) );
 
+	/* Clear return values */
+	REQUIRES( isShortIntegerRangeNZ( protInfoMaxLength ) ); 
+	memset( protInfo, 0, min( 16, protInfoMaxLength ) );
+	*protInfoLength = 0;
+
 	/* Hash the data */
 	setMessageCreateObjectInfo( &createInfo, hashAlgo );
 	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE, 
@@ -576,7 +593,10 @@ int writeSignedProtinfo( IN_HANDLE const CRYPT_CONTEXT iSignContext,
 								  ( MESSAGE_CAST ) &hashParam, 
 								  CRYPT_CTXINFO_BLOCKSIZE );
 		if( cryptStatusError( status ) )
+			{
+			krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
 			return( status );
+			}
 		}
 	status = hashMessageContents( iHashContext, message, messageLength );
 	if( cryptStatusError( status ) )

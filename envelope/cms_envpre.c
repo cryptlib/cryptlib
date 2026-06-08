@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib CMS Pre-enveloping Routines				*
-*					    Copyright Peter Gutmann 1996-2015					*
+*					    Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -459,7 +459,7 @@ int cmsInitSigParams( const ACTION_LIST *actionListPtr,
 							  CRYPT_OPTION_CMS_DEFAULTATTRIBUTES );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( useDefaultAttributes == TRUE )
+	if( useDefaultAttributes )
 		sigParams->useDefaultAuthAttr = TRUE;
 
 	return( CRYPT_OK );

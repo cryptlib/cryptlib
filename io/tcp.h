@@ -633,7 +633,7 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
    installed binaries) is still pretty rare.
    
    In addition to this, we need to explicitly define the BSD-style 
-   BYTE_ORDER (to agument the existing Gnu-style __BYTE_ORDER__) since
+   BYTE_ORDER (to augment the existing Gnu-style __BYTE_ORDER__) since
    nameser_compat.h explicitly checks for its presence at the start.  
    Finally, we also need to define _DARWIN_C_SOURCE to ensure the correct
    functioning of various BSD-isms in nameser_compat.h.
@@ -1011,7 +1011,7 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 #elif defined( USE_LWIP )
 
 #define LWIP_DNS					1	/* For DNS lookups */
-#define LWIP_IPV6					1	/* For IPv6 suport in LWIP 2.x */
+#define LWIP_IPV6					1	/* For IPv6 support in LWIP 2.x */
 #define	LWIP_DNS_API_DEFINE_ERRORS	1	/* For EAI_xxx */
 
 #include "lwip/init.h"			/* For LWIP_VERSION_x defines */
@@ -1099,7 +1099,7 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
    
    However this can lead to a problem where functions like accept() have a 
    tri-state return value, an error, an invalid socket, or a valid socket.
-   To deal with this we define a second macro, isInvalidSocket(), that
+   To deal with this we define a second macro, isNonNetworkSocket(), that
    checks for the second case.
 
    The one exception to the range-checking is Windows sockets which don't 
@@ -1114,7 +1114,7 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
    and in some cases (odd embedded stacks) not even for that on some code 
    paths.  To deal with this we have to clear it before any call for which 
    it's checked afterwards.  In theory all the checks are guarded with 
-   ( function_return == -1 && errno == xxx ), but always clearring errno
+   ( function_return == -1 && errno == xxx ), but always clearing errno
    makes for more defensive programming */
 
 #ifndef INVALID_SOCKET
@@ -1122,20 +1122,21 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 #endif /* INVALID_SOCKET */
 #if defined( __FreeRTOS__ ) && defined( USE_FREERTOS_SOCKETS )
   #define isBadSocket( socket )		( ( socket ) == INVALID_SOCKET )
-  #define isInvalidSocket( socket )	FALSE
+  #define isNonNetworkSocket( socket )	FALSE
 #elif defined( __WINDOWS__ )
   #define isBadSocket( socket )		( ( socket ) == INVALID_SOCKET )
-  #define isInvalidSocket( socket )	FALSE
+  #define isNonNetworkSocket( socket )	FALSE
 #elif defined( STDERR_FILENO )
   #define isBadSocket( socket )		( ( socket ) <= STDERR_FILENO || \
 									  ( socket ) >= FD_SETSIZE )
-  #define isInvalidSocket( socket )	( ( ( socket ) >= 0 && \
+  #define isNonNetworkSocket( socket )	\
+									( ( ( socket ) >= 0 && \
 									    ( socket ) <= STDERR_FILENO ) || \
 									  ( socket ) >= FD_SETSIZE )
 #else
   #define isBadSocket( socket )		( ( socket ) <= 0 || \
 									  ( socket ) >= FD_SETSIZE )
-  #define isInvalidSocket( socket )	FALSE
+  #define isNonNetworkSocket( socket )	FALSE
 #endif /* STDERR_FILENO */
 
 #ifndef SOCKET_ERROR
@@ -1405,7 +1406,7 @@ int mqx_select( int socket_range, rtcs_fd_set *read_bits,
 				and avoid the latter using MSG_NOSIGNAL).  Some
 				implementations may also return ENETUNREACH or EHOSTUNREACH
 				if they receive the right ICMP information.
-		Read: See above, without the write sematics.
+		Read: See above, without the write semantics.
 
 	Host crashes and restarts:
 		Write: Looks like a network outage until the host is restarted, then

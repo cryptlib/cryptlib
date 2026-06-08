@@ -44,7 +44,7 @@
 #endif /* CONFIG_SLOW_CPU */
 #if MIN_KEYING_ITERATIONS > MAX_KEYSETUP_ITERATIONS
   #error MIN_KEYING_ITERATIONS exceeds MAX_KEYSETUP_ITERATIONS
-#endif /* Sanity chechk of keying iterations */
+#endif /* Sanity check of keying iterations */
 
 /****************************************************************************
 *																			*
@@ -765,9 +765,9 @@ static int addPrivateKeyMetadata( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 		if( cryptStatusOK( status ) && \
 			privKeyParams->pkcCryptAlgo == CRYPT_ALGO_RSA )
 			{
-			/* RSA keys have an extra element for PKCS #11 compability that 
-			   we need to kludge onto the end of the private-key data, only
-		   required for pre-PKCS #15 v1.2 */
+			/* RSA keys have an extra element for PKCS #11 compatibility 
+			   that we need to kludge onto the end of the private-key data, 
+			   only required for pre-PKCS #15 v1.2 */
 			status = writeShortInteger( &stream, 
 								bytesToBits( privKeyParams->modulusSize ), 
 								DEFAULT_TAG );
@@ -1066,9 +1066,9 @@ static int writePrivateKey( IN_HANDLE const CRYPT_HANDLE iPrivKeyContext,
 		}
 
 #ifdef USE_RSA_EXTRAPARAM
-	/* RSA keys have an extra element for PKCS #11 compability that we need 
-	   to kludge onto the end of the private-key data, only required for 
-	   pre-PKCS #15 v1.2  */
+	/* RSA keys have an extra element for PKCS #11 compatibility that we 
+	   need to kludge onto the end of the private-key data, only required 
+	   for pre-PKCS #15 v1.2  */
 	if( privKeyParams->pkcCryptAlgo == CRYPT_ALGO_RSA )
 		{
 		status = writeShortInteger( &stream, privKeyParams->modulusSize, 
@@ -1429,7 +1429,7 @@ int pkcs15AddPrivateKey( INOUT_PTR PKCS15_INFO *pkcs15infoPtr,
 #ifdef USE_RSA_EXTRAPARAM
 	if( cryptStatusOK( status ) && pkcCryptAlgo == CRYPT_ALGO_RSA )
 		{
-		/* RSA keys have an extra element for PKCS #11 compability that we
+		/* RSA keys have an extra element for PKCS #11 compatibility that we
 		   need to kludge onto the end of the private-key data, only
 		   required for pre-PKCS #15 v1.2 */
 		status = writeShortInteger( &stream, modulusSize, DEFAULT_TAG );

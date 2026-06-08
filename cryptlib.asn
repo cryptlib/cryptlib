@@ -138,7 +138,7 @@ KeyTransRecipientInfo ::= SEQUENCE {		-- CMS - S/MIME
 	version			INTEGER (0),			-- CMS
 	issuerAndSerial	IssuerAndSerialNumber,	-- Encrypting certificate
 	algorithm		AlgorithmIdentifier,	-- Encryption algorithm
-	encryptedKey	OCTET STRING			-- Encryped key
+	encryptedKey	OCTET STRING			-- Encrypted key
 	}
 KeyTransRecipientInfo ::= SEQUENCE {		-- CMS - cryptlib
 	version			INTEGER (2),			-- CMS

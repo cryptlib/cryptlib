@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib TLS Key Management Routines					*
-*					 Copyright Peter Gutmann 1998-2024						*
+*					 Copyright Peter Gutmann 1998-2025						*
 *																			*
 ****************************************************************************/
 
@@ -35,7 +35,7 @@ int cloneHashContext( IN_HANDLE const CRYPT_CONTEXT hashContext,
 	MESSAGE_CREATEOBJECT_INFO createInfo;
 	int hashAlgo, status;	/* int vs.enum */
 
-	assert( isWritePtr( clonedHashContext, sizeof( CRYPT_CONTEXT * ) ) );
+	assert( isWritePtr( clonedHashContext, sizeof( CRYPT_CONTEXT ) ) );
 
 	REQUIRES( isHandleRangeValid( hashContext ) );
 
@@ -547,6 +547,7 @@ int createSharedPremasterSecret( OUT_BUFFER( premasterSecretMaxLength, \
 									 sharedSecret, sharedSecretLength );
 		if( cryptStatusError( status ) )
 			{
+			sMemDisconnect( &stream );
 			DEBUG_DIAG(( "Couldn't decode supposedly valid PKI user "
 						 "value" ));
 			assert( DEBUG_WARN );
@@ -572,8 +573,11 @@ int createSharedPremasterSecret( OUT_BUFFER( premasterSecretMaxLength, \
 		REQUIRES( isShortIntegerRangeNZ( valueLength ) ); 
 		zeroise( decodedValue, valueLength );
 		}
-	if( cryptStatusError( status ) )
+	if( cryptStatusOK( status ) )
+		{
+		sMemDisconnect( &stream );
 		return( status );
+		}
 	*premasterSecretLength = stell( &stream );
 	sMemDisconnect( &stream );
 	ENSURES( isShortIntegerRangeNZ( *premasterSecretLength ) );
@@ -1002,7 +1006,7 @@ static int loadKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( isStreamCipher( sessionInfoPtr->cryptAlgo ) )
 		return( CRYPT_OK );	/* No IV, we're done */
 
-	/* If we're using GCM or the Bernstein protcol suite then the IV is 
+	/* If we're using GCM or the Bernstein protocol suite then the IV is 
 	   handled specially, for GCM it's composed of two parts, an explicit 
 	   portion that's sent with every packet and an implicit portion that's 
 	   derived from the master secret, and for the Bernstein suite it's a
@@ -1221,7 +1225,7 @@ int addDerivedKeydata( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isShortIntegerRangeMin( masterSecretSize, 16 ) );
 	REQUIRES( isEnumRange( type, CRYPT_SUBPROTOCOL ) );
 
-	/* Select the appripriate diversifier for the sub-protocol type */
+	/* Select the appropriate diversifier for the sub-protocol type */
 	switch( type )
 		{
 		case CRYPT_SUBPROTOCOL_EAPTTLS:

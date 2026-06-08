@@ -39,7 +39,7 @@
 				  v
 				 DN ------------------> DN field
 
-   Selecting a component can therefore lead through a complex heirarchy of
+   Selecting a component can therefore lead through a complex hierarchy of
    explicit and implicit selections, in the worst case being something like
    subjectAltName -> directoryName -> DN field.  DN and GeneralName
    components may be absent (if we're selecting it in order to create it),

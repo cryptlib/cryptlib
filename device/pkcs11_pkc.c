@@ -313,7 +313,7 @@ static int genericEncrypt( PKCS11_INFO *pkcs11Info,
 		return( pkcs11MapError( status, CRYPT_ERROR_FAILED ) );
 
 	/* When performing RSA operations some buggy implementations perform 
-	   leading-zero trunction, so we restore leading zeroes if necessary */
+	   leading-zero truncation, so we restore leading zeroes if necessary */
 	ENSURES( isIntegerRange( resultLen ) );
 	if( ( pMechanism->mechanism == CKM_RSA_X_509 || \
 		  pMechanism->mechanism == CKM_RSA_PKCS ) && \
@@ -400,9 +400,9 @@ static int genericDecrypt( PKCS11_INFO *pkcs11Info,
 		return( pkcs11MapError( status, CRYPT_ERROR_FAILED ) );
 
 	/* When performing raw RSA operations some buggy implementations perform 
-	   leading-zero trunction, so we restore leading zeroes if necessary.  We
-	   can't do the restore with the PKCS mechanism since it always returns a 
-	   result length shorter than the input length */
+	   leading-zero truncation, so we restore leading zeroes if necessary.  
+	   We can't do the restore with the PKCS mechanism since it always 
+	   returns a result length shorter than the input length */
 	ENSURES( isIntegerRange( resultLen ) );
 	if( pMechanism->mechanism == CKM_RSA_X_509 && \
 		( int ) resultLen < length )

@@ -203,7 +203,7 @@ typedef enum {
    CRYPT_ERROR_WRONGKEY for a password is nonfatal as determined by the 
    caller, for example until some predefined retry count has been exceeded.
 
-   These are the match options with a caller-supplied list of userame+
+   These are the match options with a caller-supplied list of username+
    password credentials to match against, the letter and number corresponds
    to locations in the code where that condition is enforced:
 
@@ -637,7 +637,7 @@ static int processPasswordAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readPublicKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  INOUT_PTR STREAM *stream,
-						  const BOOLEAN isInitialAuth )
+						  IN_BOOL const BOOLEAN isInitialAuth )
 	{
 	CRYPT_ALGO_TYPE pubkeyAlgo;
 	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
@@ -662,8 +662,8 @@ static int readPublicKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 	
 	/* Read the client's public key */	
-	streamBookmarkSet( stream, keyLength );
-	ENSURES( streamBookmarkOK( keyLength ) );
+	status = streamBookmarkSet( stream, &keyLength );
+	ENSURES( cryptStatusOK( status ) );
 	status = checkReadPublicKey( stream, &pubkeyAlgo, &dummy, 
 								 SESSION_ERRINFO );
 	if( cryptStatusOK( status ) )
@@ -752,7 +752,7 @@ static int readPublicKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 4 ) ) \
 static int checkPublicKeySig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
-							  const SSH_HANDSHAKE_INFO *handshakeInfo, 
+							  IN_PTR const SSH_HANDSHAKE_INFO *handshakeInfo, 
 							  INOUT_PTR STREAM *stream,
 							  IN_BUFFER( userNameLength ) const void *userName, 
 							  IN_LENGTH_TEXT const int userNameLength )
@@ -1144,7 +1144,9 @@ static int readAuthPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	ENSURES( i < authTypeInfoTblSize );
 	if( authTypeInfoPtr == NULL )
 		{
-		zeroise( authInfo, sizeof( AUTH_INFO ) );
+		zeroise( &authInfo->password, CRYPT_MAX_TEXTSIZE );
+				 /* Need to keep other fields intact for error message */
+
 		retExtSan( CRYPT_ERROR_BADDATA,
 				   ( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 					 "Unknown user-authentication method '%s'",
@@ -1198,7 +1200,7 @@ static int readAuthPacketBody( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   INOUT_PTR STREAM *stream,
 							   IN_ENUM( SSH_AUTHTYPE ) \
 									SSH_AUTHTYPE_TYPE authType,
-							   const BOOLEAN isInitialAuth )
+							   IN_BOOL const BOOLEAN isInitialAuth )
 	{
 	int status;
 
@@ -1533,12 +1535,13 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   continue (C5) */
 		if( authState == AUTHSTATE_IN_PROGRESS_PWONLY )
 			{
+			sMemDisconnect( &stream );
 			zeroise( &authInfo, sizeof( AUTH_INFO ) );
 
 			( void ) sendResponseFailure( sessionInfoPtr );
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
-					  "Client sent duplicate public-key authentication"
+					  "Client sent duplicate public-key authentication "
 					  "request" ) );
 			}
 
@@ -1655,7 +1658,9 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								CRYPT_MAX_TEXTSIZE, ATTR_FLAG_EPHEMERAL );
 	if( cryptStatusError( status ) )
 		{
-		zeroise( &authInfo, sizeof( AUTH_INFO ) );
+		zeroise( &authInfo.password, CRYPT_MAX_TEXTSIZE );
+				 /* Need to keep other fields intact for error message */
+
 		retExtSan( status,
 				   ( status, SESSION_ERRINFO, 
 					 "Error recording password for user '%s'",
@@ -1720,9 +1725,9 @@ static const FAILSAFE_AUTH_INFO failsafeAuthSuccessTemplate = \
 
 /* Process the client's authentication */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int processFixedAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
-							 const SSH_HANDSHAKE_INFO *handshakeInfo )
+							 IN_PTR const SSH_HANDSHAKE_INFO *handshakeInfo )
 	{
 	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
 	FAILSAFE_AUTH_INFO authInfo DUMMY_INIT_STRUCT;

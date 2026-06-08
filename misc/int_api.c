@@ -84,29 +84,79 @@ BOOLEAN pointerBoundsCheck( IN_PTR_OPT const void *data,
 	return( TRUE );
 	}
 
-/* Helper function used to check that a sequence of CFI tokens have been 
-   processed in order.  This is used both to ensure that inline macros to
+/* Helper functions used to check that a sequence of CFI tokens have been 
+   processed in order.  These are used both to ensure that inline macros to
    perform the CFI checking don't get too complex and to reduce the chances
    of a compiler being able to turn the CFI check into a compile-time 
    constant expression.
    
-   This function isn't decorated with attributes because it both takes and 
-   produces arbitrary-range integers.  It also doesn't check for overflows
-   and similar because it doesn't matter if a few bits get lost, as long as
-   the results are consistent */
+   These functions aren't decorated with attributes because they both take 
+   and produce arbitrary-range integers.  They also don't check for 
+   overflows and similar because it doesn't matter if a few bits get lost, 
+   as long as the results are consistent */
 
-CFI_CHECK_TYPE cfiCheckSequence( const CFI_CHECK_TYPE initValue, 
-								 const CFI_CHECK_TYPE label1Value,
-								 const CFI_CHECK_TYPE label2Value, 
-								 const CFI_CHECK_TYPE label3Value )
+CFI_CHECK_TYPE cfiCheckSequence3( const CFI_CHECK_TYPE initValue, 
+								  const CFI_CHECK_TYPE label1Value,
+								  const CFI_CHECK_TYPE label2Value, 
+								  const CFI_CHECK_TYPE label3Value )
 	{
 	CFI_CHECK_TYPE cfiCheckValue = initValue;
 
-	cfiCheckValue = ( cfiCheckValue << 5 ) + label1Value;
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label1Value;
 	if( label2Value != ( CFI_CHECK_TYPE ) -1 )
-		cfiCheckValue = ( cfiCheckValue << 5 ) + label2Value;
+		cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label2Value;
 	if( label3Value != ( CFI_CHECK_TYPE ) -1 )
-		cfiCheckValue = ( cfiCheckValue << 5 ) + label3Value;
+		cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label3Value;
+
+	return( cfiCheckValue );
+	}
+
+CFI_CHECK_TYPE cfiCheckSequence6( const CFI_CHECK_TYPE initValue, 
+								  const CFI_CHECK_TYPE label1Value,
+								  const CFI_CHECK_TYPE label2Value, 
+								  const CFI_CHECK_TYPE label3Value,
+								  const CFI_CHECK_TYPE label4Value,
+								  const CFI_CHECK_TYPE label5Value,
+								  const CFI_CHECK_TYPE label6Value )
+	{
+	CFI_CHECK_TYPE cfiCheckValue = initValue;
+
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label1Value;
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label2Value;
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label3Value;
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label4Value;
+	if( label5Value != ( CFI_CHECK_TYPE ) -1 )
+		cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label5Value;
+	if( label6Value != ( CFI_CHECK_TYPE ) -1 )
+		cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label6Value;
+
+	return( cfiCheckValue );
+	}
+
+CFI_CHECK_TYPE cfiCheckSequence9( const CFI_CHECK_TYPE initValue, 
+								  const CFI_CHECK_TYPE label1Value,
+								  const CFI_CHECK_TYPE label2Value, 
+								  const CFI_CHECK_TYPE label3Value,
+								  const CFI_CHECK_TYPE label4Value,
+								  const CFI_CHECK_TYPE label5Value,
+								  const CFI_CHECK_TYPE label6Value,
+								  const CFI_CHECK_TYPE label7Value,
+								  const CFI_CHECK_TYPE label8Value,
+								  const CFI_CHECK_TYPE label9Value )
+	{
+	CFI_CHECK_TYPE cfiCheckValue = initValue;
+
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label1Value;
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label2Value;
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label3Value;
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label4Value;
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label5Value;
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label6Value;
+	cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label7Value;
+	if( label8Value != ( CFI_CHECK_TYPE ) -1 )
+		cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label8Value;
+	if( label9Value != ( CFI_CHECK_TYPE ) -1 )
+		cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + label9Value;
 
 	return( cfiCheckValue );
 	}
@@ -497,7 +547,7 @@ BOOLEAN checkEntropy( IN_BUFFER( dataLength ) const BYTE *data,
 
 	/* Poker test (almost): Make sure that each bit pair is present at least
 	   1/16 of the time.  The FIPS 140 version uses 4-bit values but the
-	   numer of samples available from the keys is far too small for this so
+	   number of samples available from the keys is far too small for this so
 	   we can only use 2-bit values.
 
 	   Even then the small sample size leads to unacceptable FP rates so for
@@ -719,11 +769,7 @@ int checksumData( IN_BUFFER( dataLength ) const void *data,
 		}
 	ENSURES( LOOP_BOUND_OK );
 
-#if defined( SYSTEM_16BIT )
-	return( sum2 & 0x7FFF );
-#else
 	return( ( ( sum2 & 0x7FFF ) << 16 ) | ( sum1 & 0xFFFF ) );
-#endif /* 16- vs. 32-bit systems */
 	}
 
 /* Calculate the hash of a block of data.  We use SHA-1 because it's the 
@@ -945,6 +991,7 @@ int importCertFromStream( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( sStatusOK( stream ) );
 	assert( isWritePtr( cryptCertificate, sizeof( CRYPT_CERTIFICATE ) ) );
+	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( iCryptOwner == DEFAULTUSER_OBJECT_HANDLE || \
 			  isHandleRangeValid( iCryptOwner ) );
@@ -999,7 +1046,7 @@ static int checkKeyLength( INOUT_PTR STREAM *stream,
 						   IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 						   IN_BOOL const BOOLEAN hasAlgoParameters )
 	{
-	const long startPos = stell( stream );
+	const int startPos = stell( stream );
 	int keyLength, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );

@@ -27,7 +27,7 @@
    test/ssl.c */
 
 #if defined( _MSC_VER ) && \
-	( ( _MSC_VER == 1200 ) || \
+	( ( _MSC_VER == 1500 ) || \
 	  ( _MSC_VER == VS_LATEST_VERSION && defined( CRYPTLIB_BUILD ) ) ) && \
 	!defined( NDEBUG ) && 1
   #define NO_SESSION_CACHE
@@ -48,16 +48,16 @@
    suite, at the 128-bit security level, must be ECDHE/AES256-GCM/SHA384 */
 
 CHECK_RETVAL_BOOL \
-static int checkSuiteBSelection( IN_RANGE( TLS_FIRST_VALID_SUITE, \
-										   TLS_LAST_SUITE - 1 ) \
-									const int cipherSuite,
-								 IN_FLAGS( TLS_PFLAG ) const int flags,
-								 IN_BOOL const BOOLEAN isFirstSuite )
+static BOOLEAN checkSuiteBSelection( IN_RANGE( TLS_FIRST_VALID_SUITE, \
+											   TLS_LAST_SUITE - 1 ) \
+										const int cipherSuite,
+									 IN_FLAGS( TLS_PFLAG ) const int flags,
+									 IN_BOOL const BOOLEAN isFirstSuite )
 	{
-	REQUIRES( cipherSuite >= TLS_FIRST_VALID_SUITE && \
-			  cipherSuite < TLS_LAST_SUITE );
-	REQUIRES( ( flags & ~( TLS_PFLAG_SUITEB ) ) == 0 );
-	REQUIRES( isBooleanValue( isFirstSuite ) );
+	REQUIRES_B( cipherSuite >= TLS_FIRST_VALID_SUITE && \
+				cipherSuite < TLS_LAST_SUITE );
+	REQUIRES_B( ( flags & ~( TLS_PFLAG_SUITEB ) ) == 0 );
+	REQUIRES_B( isBooleanValue( isFirstSuite ) );
 
 	if( isFirstSuite )
 		{
@@ -220,7 +220,7 @@ static int writeCipherSuiteList( INOUT_PTR STREAM *stream,
 		/* If the keyex algorithm for this suite isn't enabled for this 
 		   build of cryptlib, skip all suites that use it.  We have to 
 		   explicitly exclude the special case where there's no keyex 
-		   algorithm in order to accomodate the bare TLS-PSK suites (used 
+		   algorithm in order to accommodate the bare TLS-PSK suites (used 
 		   without DH/ECDH or RSA), whose keyex mechanism is pure PSK */
 		if( keyexAlgo != CRYPT_ALGO_NONE && !algoAvailable( keyexAlgo ) )
 			{
@@ -392,7 +392,7 @@ static int processFragmentedRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Skip the remaining data in the packet if there is any */
 	if( dataLeft > 0 )
 		{
-		status = sSkip( stream, sMemDataLeft( stream ), MAX_INTLENGTH_SHORT );
+		status = sSkip( stream, dataLeft, MAX_INTLENGTH_SHORT );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
@@ -532,7 +532,7 @@ static int processCertRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Finally, skip the CA name list.  Since the packet could be an over-
 	   length and therefore fragmented packet we can't use readUniversal16() 
-	   but have to apply custom proccessing that deals with over-long 
+	   but have to apply custom processing that deals with over-long 
 	   packets.  We're also more careful than usual in checking the length
 	   to make sure that someone can't mess with us using a fragemented
 	   packet */
@@ -675,8 +675,8 @@ static int readServerKeyexDH( INOUT_PTR STREAM *stream,
 		return( status );
 
 	/* Create a DH context from the public key data */
-	status = calculateStreamObjectLength( stream, keyDataOffset,
-										  &keyDataLength );
+	status = streamOffsetFromPosition( stream, keyDataOffset,
+									   &keyDataLength );
 	if( cryptStatusError( status ) )
 		return( status );
 	status = sMemGetDataBlockAbs( stream, keyDataOffset, &keyData, 
@@ -706,7 +706,7 @@ static int readServerKeyexECDH( INOUT_PTR STREAM *stream,
 	{
 	void *keyData;
 	const int keyDataOffset = stell( stream );
-	int keyDataLength, status;
+	int keyDataLength, curveType, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( keyAgreeParams, sizeof( KEYAGREE_PARAMS ) ) );
@@ -721,16 +721,19 @@ static int readServerKeyexECDH( INOUT_PTR STREAM *stream,
 	*publicValueStart = CRYPT_ERROR;
 
 	/* Read the server ECDH public key data */
-	( void ) sgetc( stream );
-	status = readUint16( stream );
+	status = curveType = sgetc( stream );
+	if( !cryptStatusError( status ) && curveType != TLS_CURVETYPE_NAMED )
+		status = CRYPT_ERROR_BADDATA;
+	if( !cryptStatusError( status ) )
+		status = readUint16( stream );
 	if( cryptStatusError( status ) )
 		return( status );
 
 	/* Create an ECDH context from the public key data.  We set a dummy 
 	   curve type, the actual value is determined by the parameters sent 
 	   by the server */
-	status = calculateStreamObjectLength( stream, keyDataOffset,
-										  &keyDataLength );
+	status = streamOffsetFromPosition( stream, keyDataOffset,
+									   &keyDataLength );
 	if( cryptStatusError( status ) )
 		return( status );
 	status = sMemGetDataBlockAbs( stream, keyDataOffset, &keyData, 
@@ -876,8 +879,8 @@ static int processServerKeyex( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, keyDataOffset,
-											  &keyDataLength );
+		status = streamOffsetFromPosition( stream, keyDataOffset,
+										   &keyDataLength );
 		}
 	if( cryptStatusOK( status ) )
 		{
@@ -1280,12 +1283,12 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		sessionIDsent = TRUE;
 		}
 	status = writeCipherSuiteList( stream, sessionInfoPtr->version,
-								   sessionInfoPtr->sessionTLS->minVersion,
+						sessionInfoPtr->sessionTLS->minVersion,
 						findSessionInfo( sessionInfoPtr,
 										 CRYPT_SESSINFO_USERNAME ) != NULL ? \
 							TRUE : FALSE,
-							TEST_FLAG( sessionInfoPtr->protocolFlags, 
-									   TLS_PFLAG_SUITEB ) ? TRUE : FALSE );
+						GET_FLAGS( sessionInfoPtr->protocolFlags, 
+								   TLS_PFLAG_SUITEB ) );
 	if( cryptStatusOK( status ) )
 		{
 		sputc( stream, 1 );		/* No compression */
@@ -1308,8 +1311,8 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = sendPacketTLS( sessionInfoPtr, stream, FALSE );
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, TLS_HEADER_SIZE,
-											  &clientHelloLength );
+		status = streamOffsetFromPosition( stream, TLS_HEADER_SIZE,
+										   &clientHelloLength );
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -1414,6 +1417,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		ENSURES( CFI_CHECK_SEQUENCE_4( "lookupScoreboardEntry", "sendPacketTLS", 
 									   "hashHSPacketWrite", "processHelloTLS" ) );
+		handshakeInfo->completedHSstate = HANDSHAKE_STATE_BEGIN;
 
 		return( CRYPT_OK );
 		}
@@ -1423,21 +1427,24 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   the session resumption */
 	if( resumeSession )
 		{
+		const int originalFlags = \
+				scoreboardEntryInfo.metaData & TLS_RESUMEDSESSION_FLAGS;
+		const int resumedFlags = \
+				GET_FLAGS( sessionInfoPtr->protocolFlags, 
+						   TLS_RESUMEDSESSION_FLAGS );
+
 		sMemDisconnect( stream );
 
 		/* We're resuming a previous session, if extended TLS facilities 
 		   were in use then make sure that the resumed session uses the same 
 		   facilities */
-		if( !TEST_FLAGS( sessionInfoPtr->protocolFlags, 
-						 TLS_RESUMEDSESSION_FLAGS, 
-						 scoreboardEntryInfo.metaData ) )
+		if( resumedFlags < originalFlags )
 			{
-			DEBUG_PRINT(( "Server negotiated resumption of session with "
-						  "options %x using options %x.\n", 
-						  scoreboardEntryInfo.metaData,
-						  GET_FLAGS( sessionInfoPtr->protocolFlags,
-									 TLS_RESUMEDSESSION_FLAGS ) ));
-			return( CRYPT_ERROR_INVALID );
+			retExt( CRYPT_ERROR_INVALID,
+					( CRYPT_ERROR_INVALID, SESSION_ERRINFO, 
+					  "Attempt to resume TLS session having option flags "
+					  "0x%X with lower-security option flags 0x%X", 
+					  originalFlags, resumedFlags ) );
 			}
 
 		/* Remember the premaster secret for the resumed session */
@@ -1477,6 +1484,8 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	ENSURES( CFI_CHECK_SEQUENCE_6( "lookupScoreboardEntry", "sendPacketTLS", 
 								   "hashHSPacketWrite", "processHelloTLS",
 								   "resumeSession", "TLS12LTS" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_BEGIN;
+
 	return( status );
 	}
 
@@ -1682,6 +1691,7 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* If we're fuzzing the input then we don't need to go through any of 
 	   the following crypto calisthenics */
+	FUZZ_SET( handshakeInfo->completedHSstate, HANDSHAKE_STATE_KEYEX );
 	FUZZ_SKIP_REMAINDER();
 
 	/* If we need a client certificate, build the client certificate packet */
@@ -1772,7 +1782,10 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										  TLS_MSG_HANDSHAKE, 
 										  &packetStreamOffset );
 		if( cryptStatusError( status ) )
+			{
+			sMemDisconnect( stream );
 			return( status );
+			}
 		status = continueHSPacketStream( stream, TLS_HAND_CERTVERIFY,
 										 &packetOffset );
 		if( cryptStatusOK( status ) )
@@ -1796,7 +1809,10 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										packetStreamOffset );
 			}
 		if( cryptStatusError( status ) )
+			{
+			sMemDisconnect( stream );
 			return( status );
+			}
 		CFI_CHECK_UPDATE( "createCertVerify" );
 
 		ENSURES( CFI_CHECK_SEQUENCE_8( "checkHSPacketHeader", "readTLSCertChain", 
@@ -1804,6 +1820,8 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									   "processCertRequest", "writeTLSCertChain",
 									   "createClientKeyex", "createSessionHash", 
 									   "createCertVerify" ) );
+		handshakeInfo->completedHSstate = HANDSHAKE_STATE_KEYEX;
+
 		return( CRYPT_OK );
 		}
 	CFI_CHECK_UPDATE( "needClientCert" );
@@ -1812,6 +1830,8 @@ static int exchangeClientKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   "processServerKeyex", "processCertRequest", 
 								   "writeTLSCertChain", "createClientKeyex", 
 								   "createSessionHash", "needClientCert" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_KEYEX;
+
 	return( CRYPT_OK );
 	}
 

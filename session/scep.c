@@ -181,9 +181,9 @@ BOOLEAN checkSCEPCACert( IN_HANDLE const CRYPT_CERTIFICATE iCaCert,
 
 	/* Since this could be a certificate chain, we need to select the leaf
 	   certificate in the chain */
-	krnlSendMessage( iCaCert, IMESSAGE_SETATTRIBUTE,
-					 MESSAGE_VALUE_CURSORFIRST,
-					 CRYPT_CERTINFO_CURRENT_CERTIFICATE );
+	( void ) krnlSendMessage( iCaCert, IMESSAGE_SETATTRIBUTE,
+							  MESSAGE_VALUE_CURSORFIRST,
+							  CRYPT_CERTINFO_CURRENT_CERTIFICATE );
 
 	/* Check whether the certificate has the required capabilities */
 	if( options != KEYMGMT_FLAG_USAGE_SIGN )
@@ -228,10 +228,10 @@ static int processUserName( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 		int i;
 #else
-		int transIDlength;
+		int dummy;
 #endif /* !USE_BASE64 */
 		char transID[ CRYPT_MAX_TEXTSIZE + 8 ];
-		int status;
+		int status = CRYPT_OK;
 
 		/* The caller has explicitly indicated that they want us to generate 
 		   a transaction ID for them, generate it as a random text string */
@@ -242,9 +242,8 @@ static int processUserName( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( cryptStatusError( status ) )
 			return( status );
 #ifdef USE_BASE64
-		status = base64encode( transID, CRYPT_MAX_TEXTSIZE, 
-							   &transIDlength, nonce, 16, 
-							   CRYPT_CERTTYPE_NONE );
+		status = base64encode( transID, CRYPT_MAX_TEXTSIZE, &dummy, 
+							   nonce, 16, CRYPT_CERTTYPE_NONE );
 #else
 		LOOP_MED( i = 0, i < 16, i++ )
 			{
@@ -273,40 +272,21 @@ static int processUserName( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 
 	/* For some bizarre reason SCEP encodes its transaction ID (which is our 
-	   user name) as a PrintableString (even though the specification 
+	   user name) as a PrintableString even though the specification 
 	   suggests that the value be created from a hash of the public key, 
-	   which doesn't fit into a PrintableString) so we have to filter any 
+	   which doesn't fit into a PrintableString, so we have to filter any 
 	   supplied value to make sure that it can be encoded when we send it */
 	LOOP_LARGE( index = 0, index < userNameLength, index++ )
 		{
-		static const char allowedChars[] = "'\"()+,-./:=? \x00\x00";
-		BOOLEAN foundMatch = FALSE;
-		int ch;
-		LOOP_INDEX_ALT i;
+		int ch, position;
 
 		ENSURES( LOOP_INVARIANT_LARGE( index, 0, userNameLength - 1 ) );
 
 		ch = byteToInt( userName[ index ] );
 		if( isAlnum( ch ) )
 			continue;
-		LOOP_MED_ALT( i = 0,
-					  i < FAILSAFE_ARRAYSIZE( allowedChars, char ) && \
-						  allowedChars[ i ] != '\0',
-					  i++ )
-			{
-			ENSURES( LOOP_INVARIANT_MED_ALT( i, 0, 
-											 FAILSAFE_ARRAYSIZE( allowedChars, \
-																 char ) - 1 ) );
-
-			if( allowedChars[ i ] == ch )
-				{
-				foundMatch = TRUE;
-				break;
-				}
-			}
-		ENSURES( LOOP_BOUND_OK_ALT );
-		ENSURES( i < FAILSAFE_ARRAYSIZE( allowedChars, char ) );
-		if( !foundMatch )
+		position = strFindCh( "'()+,-./:=? \x00", 12, ch );
+		if( position < 0 )
 			return( CRYPT_ARGERROR_STR1 );
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -535,7 +515,10 @@ int getScepStatusValue( IN_HANDLE const CRYPT_CERTIFICATE iCmsAttributes,
 			  attributeType == CRYPT_CERTINFO_SCEP_PKISTATUS || \
 			  attributeType == CRYPT_CERTINFO_SCEP_FAILINFO );
 
-	/* Clear return value */
+	/* Clear return value.  Note that we use CRYPT_ERROR as the not-valid
+	   value because 0 is a valid SCEP status value.  This technically
+	   contradicts the OUT_INT_Z annotation but we can't use something in 
+	   that range as a not-valid value */
 	*value = CRYPT_ERROR;
 
 	/* Get the status string and decode it into an integer */
@@ -764,7 +747,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   not CRYPT_KEYUSAGE_DIGITALSIGNATURE (or occasionally
 		   CRYPT_KEYUSAGE_DIGITALSIGNATURE but not 
 		   CRYPT_KEYUSAGE_KEYENCIPHERMENT, there doesn't seem to be any 
-		   discernable pattern to this), making them unusable for SCEP, so 
+		   discernible pattern to this), making them unusable for SCEP, so 
 		   this check will reject anything coming from a Microsoft server 
 		   unless the certificate compliance level is set to oblivious */
 		if( !checkSCEPCACert( cryptCert, KEYMGMT_FLAG_NONE ) )
@@ -779,20 +762,21 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			}
 		}
 
-	/* Add the request and increment its usage count */
+	/* Add the request and increment its usage count.  For the CA 
+	   certificate, we ignore the return value from processKeyFingerprint()
+	   since this is merely recording the fingerprint on the off chance that 
+	   the caller wants to check it later rather than reading it directly
+	   from the certificate */
 	krnlSendNotifier( cryptCert, IMESSAGE_INCREFCOUNT );
 	if( type == CRYPT_SESSINFO_CACERTIFICATE )
 		{
 		sessionInfoPtr->iAuthInContext = cryptCert;
-		status = processKeyFingerprint( sessionInfoPtr );
+		( void ) processKeyFingerprint( sessionInfoPtr );
 		}
 	else
-		{
 		sessionInfoPtr->iCertRequest = cryptCert;
-		status = CRYPT_OK;
-		}
 
-	return( status );
+	return( CRYPT_OK );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \

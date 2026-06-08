@@ -613,6 +613,42 @@ static int createCryptlibTPMObjects( INOUT_PTR TPM_INFO *tpmInfo,
 	}
 #endif /* USE_TPM_EXT */
 
+/* Reset the storage object used for data sealed to the TPM */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int resetStorageObject( INOUT_PTR DEVICE_INFO *deviceInfoPtr )
+	{
+	int status;
+
+	assert( isWritePtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
+
+	/* Make the device read-only while we swap out the storage object */	
+	SET_FLAG( deviceInfoPtr->flags, DEVICE_FLAG_READONLY );
+
+	/* Shut down the existing storage object if there is one and create a 
+	   new one */
+	if( deviceInfoPtr->iCryptKeyset != CRYPT_ERROR )
+		{
+		krnlSendNotifier( deviceInfoPtr->iCryptKeyset, 
+						  IMESSAGE_DECREFCOUNT );
+		deviceInfoPtr->iCryptKeyset = CRYPT_ERROR;
+		}
+	status = openDeviceFileStorageObject( &deviceInfoPtr->iCryptKeyset, 
+										  "TPM", 3, 
+										  CRYPT_KEYOPT_CREATE );
+	if( cryptStatusError( status ) )
+		{
+		DEBUG_DIAG(( "Couldn't recreate storage object for TPM, status %d", 
+					 status ));
+		return( status );
+		}
+
+	/* We're ready to go again with a fresh storage object */
+	CLEAR_FLAG( deviceInfoPtr->flags, DEVICE_FLAG_READONLY );
+
+	return( CRYPT_OK );
+	}
+
 /* Get random data from the device */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
@@ -932,8 +968,18 @@ static int controlFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 		   it again */
 		if( tpmInfo->storageKeyLen > 0 )
 			{
-			DEBUG_DIAG(( "TPM already initialised, skipping initialisation" ));
-			return( CRYPT_OK );
+			DEBUG_DIAG(( "TPM already initialised, skipping initialisation "
+						 "but resetting storage object" ));
+			return( resetStorageObject( deviceInfoPtr ) );
+			}
+
+		/* Reset the storage object for data sealed to the TPM */
+		status = resetStorageObject( deviceInfoPtr );
+		if( cryptStatusError( status ) )
+			{
+			retExt( status,
+					( status, DEVICE_ERRINFO,
+					  "Couldn't reset the TPM storage object" ) );
 			}
 		
 		/* Create the TPM objects needed by cryptlib */

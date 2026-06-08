@@ -19,6 +19,44 @@
 #include "cryptlib.h"
 #include "test/test.h"
 
+/* Pull in misc/os_spec.h.  This is needed to determine the size of time_t
+   for the time-based test, but that in turn depends on other internal
+   headers like misc/analyse.h (for the SAST annotations) and 
+   misc/os_detect.h, so we have to fake out a number of things from those
+   headers.  We also have to define __STDC_LIB_EXT1__ to avoid problems 
+   with workarounds for non-TR 24731 functions.  This is a no-no but is
+   required to avoid compile errors, and is only used in this file which
+   doesn't use TR 24731 functions */
+
+#define VC_GE_2002( x )			1
+#define CHECK_RETVAL 
+#define CHECK_RETVAL_BOOL 
+#define STDC_NONNULL_ARG( x )
+#define IN_BUFFER( x )
+#define IN_LENGTH 
+#define IN_BOOL 
+#define IN_RANGE( x, y )
+#ifndef __STDC_LIB_EXT1__
+  #define __STDC_LIB_EXT1__
+#endif /* __STDC_LIB_EXT1__ */
+#ifdef BOOLEAN	/* From test.h */
+  #undef BOOLEAN
+#endif /* BOOLEAN */
+#ifdef BYTE		/* From test.h */
+  #undef BYTE
+#endif /* BYTE */
+#define BYTE					BYTE_ALT
+#if ( ULONG_MAX > 0xFFFFFFFFUL ) || defined( __WIN64__ )
+  #define SYSTEM_64BIT
+#else
+  #define SYSTEM_32BIT
+#endif /* From misc/os_detect.h */
+#undef _OSSPEC_DEFINED
+#include "misc/os_spec.h"
+#ifndef TRUE
+  #define TRUE					1
+#endif /* TRUE */
+
 /* Go through the config a second time.  This gets a bit messy because some
    of the settings in misc/config.h can change cryptlib.h for cryptlib-
    internal use, but then that relies on misc/os_detect.h which we can't
@@ -38,27 +76,10 @@
 
 /* Certificate times.  Note that this value must be greater than the value
    defined by the kernel as MIN_TIME_VALUE, the minimum allowable 
-   (backdated) timestamp value.
+   (backdated) timestamp value */
 
-   Unlike every other system on the planet, the Mac Classic takes the time_t 
-   epoch as 1904 rather than 1970 (even VMS, MVS, VM/CMS, the AS/400, Tandem 
-   NSK, and God knows what other sort of strangeness stick to 1970 as the 
-   time_t epoch) so we have to add an offset of 2082844800L to adjust for 
-   this.  ANSI and ISO C are very careful to avoid specifying what the epoch 
-   actually is, so it's legal to do this in the same way that it's legal for 
-   Microsoft to break Kerberos because the standard doesn't say they can't */
-
-#define ONE_YEAR_TIME	( 365 * 86400L )
-#if defined( __MWERKS__ ) || defined( SYMANTEC_C ) || defined( __MRC__ )
-  #define CERTTIME_DATETEST	( ( ( 2026 - 1970 ) * ONE_YEAR_TIME ) + 2082844800L )
-#else
-  #define CERTTIME_DATETEST	( ( 2026 - 1970 ) * ONE_YEAR_TIME )
-#endif /* Macintosh-specific weird epoch */
-#if ( ULONG_MAX > 0xFFFFFFFFUL ) || defined( _M_X64 )
-  #define SYSTEM_64BIT
-#else
-  #define SYSTEM_32BIT
-#endif /* From misc/os_spec.h, for consts.h include */
+#define ONE_YEAR_TIME		( 365 * 86400L )
+#define CERTTIME_DATETEST	( ( 2026 - 1970 ) * ONE_YEAR_TIME )
 #include "misc/consts.h"
 #if defined( _MSC_VER )
   /* The following check must be on a separate line since some compilers
@@ -434,7 +455,7 @@ static const CERT_DATA cACertData[] = {
 	{ CRYPT_CERTINFO_VALIDFROM, IS_TIME, 0, NULL, CERTTIME_DATETEST },
 
 	/* CA extensions.  Policies are very much CA-specific and currently
-	   undefined, so we use a dummy OID for a nonexistant private org for
+	   undefined, so we use a dummy OID for a nonexistent private org for
 	   now */
 	{ CRYPT_CERTINFO_KEYUSAGE, IS_NUMERIC,
 	  CRYPT_KEYUSAGE_KEYCERTSIGN | CRYPT_KEYUSAGE_CRLSIGN },
@@ -542,8 +563,13 @@ int testCACert( void )
 									  &invalidEndTime, sizeof( time_t ) );
 	if( status != CRYPT_ERROR_PARAM3 )
 		{
+#ifdef TIMET_64BIT
+		printf( "Rejection of out-of-range time_t at MAX_TIME_VALUE %llX "
+				"failed, line %d.\n", ( long long ) MAX_TIME_VALUE, __LINE__ );
+#else
 		printf( "Rejection of out-of-range time_t at MAX_TIME_VALUE %lX "
 				"failed, line %d.\n", ( long ) MAX_TIME_VALUE, __LINE__ );
+#endif /* TIMET_64BIT */
 		return( FALSE );
 		}
 
@@ -1117,7 +1143,7 @@ static const CERT_DATA complexCertData[] = {
 	{ CRYPT_CERTINFO_RFC822NAME, IS_STRING, 0, 
 	  TEXT( "drew@wetas-r-us.com" ) },
 	{ CRYPT_CERTINFO_RFC822NAME, IS_STRING, 0, 
-	  TEXT( "donn@wetas-r-us.com" ) },	/* Multiple email addresses */
+	  TEXT( "don@wetas-r-us.com" ) },	/* Multiple email addresses */
 	{ CRYPT_CERTINFO_UNIFORMRESOURCEIDENTIFIER, IS_STRING, 0, 
 	  TEXT( "http://www.wetas-r-us.com" ) },
 
@@ -1471,7 +1497,7 @@ static const CERT_DATA altnameCertData1[] = {
 	{ CRYPT_CERTINFO_ORGANIZATIONNAME, IS_STRING, 0, TEXT( "Subject O" ) },
 
 	/* Subject altName in the middle of the subjectName.  We add two
-	   attributes, the first to check the imlicit creation and selection of 
+	   attributes, the first to check the implicit creation and selection of 
 	   the altName, the second to check its implicit selection */
 	{ CRYPT_CERTINFO_RFC822NAME, IS_STRING, 0, 
 	  TEXT( "dave@wetas-r-us.com" ) },
@@ -3075,7 +3101,7 @@ int testCRL( void )
 		return( FALSE );
 		}
 
-	/* Test CRL creation, first an emptry CRL, then one with a revoked 
+	/* Test CRL creation, first an empty CRL, then one with a revoked 
 	   certificate */
 	status = testCRLExt( cryptCAKey, FALSE );
 	if( status == TRUE )
@@ -3323,7 +3349,7 @@ int testComplexCRL( void )
 							  __LINE__ ) );
 		}
 
-	/* Check the newly-revoked CA key agains the CRL */
+	/* Check the newly-revoked CA key against the CRL */
 	status = cryptCheckCert( cryptCAKey, cryptCRL );
 	if( status != CRYPT_ERROR_INVALID )
 		{

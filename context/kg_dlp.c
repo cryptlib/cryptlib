@@ -133,7 +133,7 @@ CHECK_RETVAL_RANGE( 160, 1000 ) \
 static int getDLPexpSize( IN_LENGTH_SHORT_MIN( MIN_PKCSIZE * 8 ) \
 							const int primeBits )
 	{
-	long value;	/* Necessary to avoid problems with 16-bit compilers */
+	int value;
 
 	REQUIRES( primeBits >= bytesToBits( MIN_PKCSIZE ) && \
 			  primeBits <= bytesToBits( CRYPT_MAX_PKCSIZE ) );
@@ -156,15 +156,14 @@ static int getDLPexpSize( IN_LENGTH_SHORT_MIN( MIN_PKCSIZE * 8 ) \
 	   Because this function generates an exponent whose size matches the 
 	   security level of the key, it can't be used to generate DSA keys for 
 	   use with SSH.  In order to provide at least basic keys usable with
-	   SSH and also for backwards compatiblity with older (non-SSH) 
+	   SSH and also for backwards compatibility with older (non-SSH) 
 	   implementations that hardcode DSA key parameters at { 1024, 160 } we 
 	   always return a fixed exponent size of 160 bits if the key size is 
 	   around 1024 bits */
 	if( primeBits <= 1028 )
 		return( 160 );
 
-	ENSURES( isIntegerRange( value ) );
-	return( ( int ) value );
+	return( value );
 	}
 
 /****************************************************************************
@@ -1180,7 +1179,7 @@ int initCheckDLPkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		{
 		BOOLEAN isPrime;
 
-		/* Verify that p is (probably) prime.  This isn't redudant with the 
+		/* Verify that p is (probably) prime.  This isn't redundant with the 
 		   Fermat test in the checkDLPDomainParameters() call above because
 		   the values haven't been fully initialised so it's skipped in that
 		   call */

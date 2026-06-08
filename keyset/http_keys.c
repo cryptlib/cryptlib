@@ -85,8 +85,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	ERROR_INFO localErrorInfo;
 	BOOLEAN hasExplicitKeyID = FALSE;
 	void *keyData;
-	long length;
-	int status;
+	int length, status;
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
 	assert( isWritePtr( iCryptHandle, sizeof( CRYPT_HANDLE ) ) );

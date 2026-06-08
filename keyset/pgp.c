@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						  cryptlib PGP Keyset Routines						*
-*						Copyright Peter Gutmann 1992-2016					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -208,7 +208,7 @@ static BOOLEAN matchKeyID( IN_PTR const PGP_KEYINFO *keyInfo,
 	   fact there are some broken PGP variants that use PGP 2.x IDs marked 
 	   as OpenPGP IDs, so checking both IDs is necessary for 
 	   interoperability).  The mixing of ID types is safe because the 
-	   chances of a collision are miniscule and the worst that can happen is 
+	   chances of a collision are minuscule and the worst that can happen is 
 	   that a signature check will fail (encryption keys are chosen by user 
 	   ID and not key ID so accidentally using the wrong key to encrypt 
 	   isn't an issue) */
@@ -442,15 +442,15 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	MESSAGE_DATA msgData;
 	BYTE localKeyIDbuffer[ PGP_KEYID_SIZE + 8 ];
 	const void *localKeyID = keyID;
-	const int auxInfoMaxLength = *auxInfoLength;
-	int localKeyIDlength = keyIDlength;
+	int localKeyIDlength = keyIDlength, auxInfoMaxLength;
 	int status;
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
 	assert( isWritePtr( iCryptHandle, sizeof( CRYPT_HANDLE ) ) );
 	assert( isReadPtrDynamic( keyID, keyIDlength ) );
-	assert( ( auxInfo == NULL && auxInfoMaxLength == 0 ) || \
-			isReadPtrDynamic( auxInfo, auxInfoMaxLength ) );
+	assert( isWritePtr( auxInfoLength, sizeof( int ) ) );
+	assert( ( auxInfo == NULL && *auxInfoLength == 0 ) || \
+			isReadPtrDynamic( auxInfo, *auxInfoLength ) );
 	assert( isReadPtr( pgpInfo, sizeof( PGP_INFO ) ) );
 	
 	REQUIRES( sanityCheckKeyset( keysetInfoPtr ) );
@@ -473,6 +473,9 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 
 	/* Clear return value */
 	*iCryptHandle = CRYPT_ERROR;
+
+	/* Pick up the inout parameter */
+	auxInfoMaxLength = *auxInfoLength;
 
 	/* PGP keys are also identified by hex key IDs alongside standard 
 	   identifiers, of the form "0x[16 digits]".  To deal with these we try 
@@ -575,7 +578,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 			
 			*auxInfoLength = userIDsize;
 			if( auxInfo != NULL )
-				memcpy( auxInfo, pgpInfo->userID[ 0 ], userIDsize );
+				memcpy( auxInfo, pgpInfoPtr->userID[ 0 ], userIDsize );
 			}
 
 		return( CRYPT_OK );
@@ -989,7 +992,9 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		/* Record metadata related to the key that's needed for future 
 		   lookups */
 		pgpKeyInfo->pkcAlgo = algorithm;
-		pgpKeyInfo->usageFlags = KEYMGMT_FLAG_USAGE_CRYPT;
+		pgpKeyInfo->usageFlags = isCryptAlgo( algorithm ) ? \
+									KEYMGMT_FLAG_USAGE_CRYPT : \
+									KEYMGMT_FLAG_USAGE_SIGN;
 		REQUIRES( rangeCheck( openPGPkeyIDsize, 1, PGP_KEYID_SIZE ) );
 		memcpy( pgpKeyInfo->openPGPkeyID, openPGPkeyID, openPGPkeyIDsize );
 

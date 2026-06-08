@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							Kernel Object Management						*
-*						Copyright Peter Gutmann 1997-2019					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -71,7 +71,7 @@ static const OBJECT_INFO OBJECT_INFO_TEMPLATE = {
 #define CLEAR_TABLE_ENTRY( entry ) \
 		memcpy( ( entry ), &OBJECT_INFO_TEMPLATE, sizeof( OBJECT_INFO ) )
 
-/* LFSR parameters for selcting the next object handle */
+/* LFSR parameters for selecting the next object handle */
 
 #define LFSR_MASK				MAX_NO_OBJECTS
 #if MAX_NO_OBJECTS == 16
@@ -410,6 +410,10 @@ static int destroySelectedObjects( IN_RANGE( 1, 3 ) const int currentDepth )
 
 			REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
 
+			/* The following sequence of operations aren't the problem that 
+			   they appear to be, the first is a pointer to the object 
+			   table, the second is a reference to the object table mutex 
+			   which is an entirely different thing */
 			DEBUG_DIAG(( "Destroying leftover %s, ID = %d", 
 						 getObjectDescriptionNT( objectHandle ),
 						 objectTable[ objectHandle ].uniqueID ));
@@ -438,7 +442,7 @@ int destroyObjects( void )
 							getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
 	KERNEL_DATA *krnlData = getSystemStorage( SYSTEM_STORAGE_KRNLDATA );
 	LOOP_INDEX objectHandle;
-	int depth, localStatus, status DUMMY_INIT;
+	int depth, localStatus, status = CRYPT_OK;
 
 	/* Preconditions: We either didn't complete the initialisation and are 
 	   shutting down during a krnlBeginInit(), or we've completed 
@@ -668,7 +672,7 @@ static int findFreeObjectEntry( int value )
 			}
 		}
 	ENSURES( LOOP_BOUND_OK );
-	ENSURES( iterations < MAX_NO_OBJECTS )
+	ENSURES( iterations < MAX_NO_OBJECTS );
 
 	/* Postcondition: We're still within the object table */
 	ENSURES( isValidHandle( value ) );
@@ -773,7 +777,7 @@ int krnlCreateObject( OUT_HANDLE_OPT int *objectHandle,
 		   hardware object.
 		   
 		   The reason for checking for one less than the value is that it's
-		   incremented on assignement, so at this point it's one less than 
+		   incremented on assignment, so at this point it's one less than 
 		   the final value */
 #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
 		REQUIRES( ( type == OBJECT_TYPE_DEVICE && \

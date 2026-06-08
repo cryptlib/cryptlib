@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Network Stream I/O Functions						*
-*						Copyright Peter Gutmann 1993-2022					*
+*						Copyright Peter Gutmann 1993-2025					*
 *																			*
 ****************************************************************************/
 
@@ -232,8 +232,8 @@ BOOLEAN sanityCheckNetStream( const NET_STREAM_INFO *netStream )
 /* Sanity-check network stream connect options */
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
-BOOLEAN sanityCheckConnectOptions( const NET_CONNECT_INFO *connectInfo,
-								   const BOOLEAN isServer )
+static BOOLEAN sanityCheckConnectOptions( const NET_CONNECT_INFO *connectInfo,
+										  const BOOLEAN isServer )
 	{
 	assert( isReadPtr( connectInfo, sizeof( NET_CONNECT_INFO ) ) );
 
@@ -1142,7 +1142,14 @@ static int completeConnect( INOUT_PTR STREAM *stream,
 			{
 			/* If we're being carried over a lower-layer protocol then that
 			   may have signalled completion of the exchange without it being
-			   an error, in which case we just clean up and exit */
+			   an error, in which case we just clean up and exit.  An example
+			   of this is in EAP, where the multiple layers below us (RADIUS,
+			   RADIUS-EAP, EAP, and so on) may have completed the negotiation
+			   at the initial connect stage so that there's nothing further
+			   for us to do, so it's both a successful connect in that 
+			   negotiations were completed and an unsuccessful connect in that
+			   there's no session still active to carry out a further exchange
+			   over */
 			if( TEST_FLAG( netStream->nFlags, STREAM_NFLAG_ENCAPS ) && \
 				status == OK_SPECIAL )
 				{
@@ -1228,20 +1235,27 @@ int sNetConnect( OUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckConnectOptions( connectInfo, FALSE ) );
 
 	/* Clear return values */
+	memset( stream, 0, sizeof( STREAM ) );
 	clearErrorInfo( errorInfo );
 
 	/* Initialise the network stream info */
 	status = initStream( stream, &netStreamTemplate, protocol, connectInfo, 
 						 FALSE );
 	if( cryptStatusError( status ) )
+		{
+		zeroise( stream, sizeof( STREAM ) );
 		return( status );
+		}
 	if( connectInfo->options == NET_OPTION_HOSTNAME || \
 		connectInfo->options == NET_OPTION_VIRTUAL )
 		urlInfoPtr = &urlInfo;
 	status = processConnectOptions( stream, &netStreamTemplate, urlInfoPtr, 
 									connectInfo, errorInfo );
 	if( cryptStatusError( status ) )
+		{
+		zeroise( stream, sizeof( STREAM ) );
 		return( status );
+		}
 	if( connectInfo->options == NET_OPTION_HOSTNAME )
 		{
 		int proxyUrlLength;
@@ -1257,7 +1271,10 @@ int sNetConnect( OUT_PTR STREAM *stream,
 		if( cryptStatusError( status ) )
 			{
 			if( status != OK_SPECIAL )
+				{
+				zeroise( stream, sizeof( STREAM ) );
 				return( status );
+				}
 
 			/* There's a proxy present, go via the proxy rather than 
 			   directly to the user-supplied URL */
@@ -1271,7 +1288,10 @@ int sNetConnect( OUT_PTR STREAM *stream,
 							  urlInfoPtr, protocol, proxyURL, proxyUrlLen, 
 							  errorInfo );
 	if( cryptStatusError( status ) )
+		{
+		zeroise( stream, sizeof( STREAM ) );
 		return( status );
+		}
 
 	/* The net stream has now been attached to the stream, make sure that 
 	   it's correct */
@@ -1312,26 +1332,36 @@ int sNetListen( OUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckConnectOptions( connectInfo, TRUE ) );
 
 	/* Clear the return values */
+	memset( stream, 0, sizeof( STREAM ) );
 	clearErrorInfo( errorInfo );
 
 	/* Initialise the network stream info */
 	status = initStream( stream, &netStreamTemplate, protocol, connectInfo, 
 						 TRUE );
 	if( cryptStatusError( status ) )
+		{
+		zeroise( stream, sizeof( STREAM ) );
 		return( status );
+		}
 	if( connectInfo->options == NET_OPTION_HOSTNAME && \
 		connectInfo->interface != NULL )
 		urlInfoPtr = &urlInfo;
 	status = processConnectOptions( stream, &netStreamTemplate, urlInfoPtr, 
 									connectInfo, errorInfo );
 	if( cryptStatusError( status ) )
+		{
+		zeroise( stream, sizeof( STREAM ) );
 		return( status );
+		}
 
 	/* Set up access mechanisms and complete the connection */
 	status = completeConnect( stream, &netStreamTemplate, connectInfo, 
 							  urlInfoPtr, protocol, NULL, 0, errorInfo );
 	if( cryptStatusError( status ) )
+		{
+		zeroise( stream, sizeof( STREAM ) );
 		return( status );
+		}
 
 	/* The net stream has now been attached to the stream, make sure that 
 	   it's correct */

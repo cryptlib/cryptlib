@@ -320,7 +320,7 @@ int updateCertErrorLog( INOUT_PTR DBMS_INFO *dbmsInfo,
 			} 
 
 	   Note that the buffer we use is slightly larger than MAX_CERT_SIZE in 
-	   order to accomodate the error status information alongside the 
+	   order to accommodate the error status information alongside the 
 	   largest possible certificate, in theory this means that if the database
 	   back-end doesn't support binary blobs there won't be enough room in
 	   the logging code to text-encode this worst-case scenario, but the use

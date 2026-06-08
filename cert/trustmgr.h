@@ -1,6 +1,6 @@
 /****************************************************************************
 *																			*
-*						Certificate Trust Manger Interface 					*
+*						Certificate Trust Manager Interface 				*
 *						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 cryptlib RTCS Session Management					*
-*						Copyright Peter Gutmann 1999-2008					*
+*						Copyright Peter Gutmann 1999-2025					*
 *																			*
 ****************************************************************************/
 
@@ -165,7 +165,7 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	/* Read the response from the responder */
 	status = readPkiDatagram( sessionInfoPtr, MIN_CRYPT_OBJECTSIZE,
-							  MK_ERRTEXT( "Couldnt read RTCS response from "
+							  MK_ERRTEXT( "Couldn't read RTCS response from "
 										  "server" ) );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -204,6 +204,15 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		retExtErr( status,
 				   ( status, SESSION_ERRINFO, &localErrorInfo,
 					 "Invalid CMS-enveloped RTCS response data" ) );
+		}
+	if( cryptStatusError( sigResult ) )
+		{
+		/* The signed data was valid but the signature on it wasn't, this is
+		   a different style of error than the previous one */
+		krnlSendNotifier( iCmsAttributes, IMESSAGE_DECREFCOUNT );
+		retExt( sigResult, 
+				( sigResult, SESSION_ERRINFO, 
+				  "RTCS response data signature check failed" ) );
 		}
 
 	/* Make sure that the nonce in the response matches the one in the
@@ -288,7 +297,7 @@ static int readClientRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   response at this initial stage to prevent scanning/DOS attacks
 	   (vir sapit qui pauca loquitur) */
 	status = readPkiDatagram( sessionInfoPtr, MIN_CRYPT_OBJECTSIZE,
-							  MK_ERRTEXT( "Couldnt read RTCS request from "
+							  MK_ERRTEXT( "Couldn't read RTCS request from "
 										  "client" ) );
 	if( cryptStatusError( status ) )
 		return( status );

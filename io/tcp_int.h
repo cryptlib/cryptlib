@@ -33,7 +33,7 @@ typedef enum {
 /* The network socket pool, used to deal with the Unix socket programming
    model which assumes that a single process will listen on a server socket
    and fork off children as required to deal with connect attempts.  See
-   the disucssion in io/tcp.c for more on how this works.
+   the discussion in io/tcp.c for more on how this works.
    
    Note that although this data structure is only used in io/tcp_conn.c,
    we have to declare it here since it's allocated in the static data set

@@ -59,7 +59,7 @@ static int getObjectInfo( INOUT_PTR STREAM *stream,
 						  OUT_PTR QUERY_INFO *queryInfo,
 						  const QUERYOBJECT_TYPE objectTypeHint )
 	{
-	const long startPos = stell( stream );
+	const int startPos = stell( stream );
 	long version;
 	int tag, length, status;
 
@@ -276,9 +276,8 @@ int getPgpPacketInfo( INOUT_PTR STREAM *stream,
 					  OUT_PTR QUERY_INFO *queryInfo,
 					  const QUERYOBJECT_TYPE objectTypeHint )
 	{
-	const long startPos = stell( stream );
-	long length;
-	int ctb, version, offset, status;
+	const int startPos = stell( stream );
+	int ctb, version, length, offset, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
@@ -303,7 +302,7 @@ int getPgpPacketInfo( INOUT_PTR STREAM *stream,
 	queryInfo->type = CRYPT_OBJECT_NONE;
 	queryInfo->formatType = CRYPT_FORMAT_PGP;
 	queryInfo->version = pgpGetPacketVersion( ctb );
-	status = calculateStreamObjectLength( stream, startPos, &offset );
+	status = streamOffsetFromPosition( stream, startPos, &offset );
 	if( cryptStatusError( status ) )
 		return( status );
 	if( checkOverflowAdd( offset, length ) )
@@ -501,7 +500,7 @@ int queryAsn1Object( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr,
 	{
 	QUERY_INFO basicQueryInfo;
 	STREAM *stream = streamPtr;
-	const long startPos = stell( stream );
+	const int startPos = stell( stream );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -604,7 +603,7 @@ int queryPgpObject( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr,
 	{
 	QUERY_INFO basicQueryInfo;
 	STREAM *stream = streamPtr;
-	const long startPos = stell( stream );
+	const int startPos = stell( stream );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );

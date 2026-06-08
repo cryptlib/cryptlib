@@ -119,7 +119,7 @@ typedef enum {
 	COMMAND_GETKEY
 		word: handle				word: status
 		word: itemType				word: handle
-		word: key ID type	
+		word: key ID type
 		str : key ID (optional)
 		str : password (optional)
 	COMMAND_SETKEY
@@ -163,7 +163,7 @@ typedef enum {
 	DBX_COMMAND_QUERY:
 		word: type					word: status
 		word: query entry (opt.)	str : data
-		str : command			
+		str : command
 		str : date (optional)
 		str : data (optional)
 		[str: return buffer]
@@ -247,16 +247,16 @@ typedef void ( *DISPATCH_FUNCTION )( void *stateInfo, BYTE *buffer );
 typedef int ( *COMMAND_HANDLER )( void *stateInfo, COMMAND_INFO *cmd );
 
 /* The full RPC interface (with marshalling and everything) provides complete
-   isolation of input and output, however it resuls in a slight performance
+   isolation of input and output, however it results in a slight performance
    decrease due to copying, and can't handle large objects atomically due to
-   limits on message size (this specifically applies to mega-CRLs).  Because 
-   of this, we also allow a direct interface that just forwards the data 
+   limits on message size (this specifically applies to mega-CRLs).  Because
+   of this, we also allow a direct interface that just forwards the data
    without marshalling/unmarshalling.
-   
-   Because of the change in arg handling for returned data in RPC vs. direct 
-   calls (the RPC returns the data in the return message, the direct call 
-   requires an extra parameter to specify the location of the returned data) 
-   we also need a macro RETURN_VALUE() to no-op out the extra parameter in 
+
+   Because of the change in arg handling for returned data in RPC vs. direct
+   calls (the RPC returns the data in the return message, the direct call
+   requires an extra parameter to specify the location of the returned data)
+   we also need a macro RETURN_VALUE() to no-op out the extra parameter in
    case we're using the RPC form */
 
 #ifdef USE_RPCAPI
@@ -321,7 +321,7 @@ typedef int ( *COMMAND_HANDLER )( void *stateInfo, COMMAND_INFO *cmd );
 /* The size of the I/O buffer used to assemble messages.  This is equal to
    the maximum fragment size plus the maximum header size for commands that
    require fragmentation (COMMAND_ENCRYPT/COMMAND_DECRYPT and
-   COMMAND_PUSHDATA/COMMAND_POPDATA).  We define a separate version for 
+   COMMAND_PUSHDATA/COMMAND_POPDATA).  We define a separate version for
    database RPC since this uses much smaller buffers */
 
 #define RPC_IO_BUFSIZE			( MAX_FRAGMENT_SIZE + 32 )

@@ -44,18 +44,19 @@
 
 /* TLS gets a bit complicated because in the presence of the session cache 
    every session after the first one will be a resumed session.  To deal 
-   with this, the VC++ 6 and VS 32-bit debug builds disable the client-side 
-   session cache while every other version just ends up going through a 
-   series of session resumes.
+   with this, the VC++ debug builds disable the client-side session cache 
+   while every other version just ends up going through a series of session 
+   resumes.
    
    Note that changing the follow requires an equivalent change in 
    session/tls_cli.c */
 
-#if defined( __WINDOWS__ ) && defined( _MSC_VER ) && \
-	( _MSC_VER == 1200 || _MSC_VER == 1929 ) && \
+#if defined( _MSC_VER ) && \
+	( ( _MSC_VER == 1500 ) || \
+	  ( _MSC_VER == VS_LATEST_VERSION && defined( CRYPTLIB_BUILD ) ) ) && \
 	!defined( NDEBUG ) && 1
   #define NO_SESSION_CACHE
-#endif /* VC++ 6.0 / VS 32-bit debug build */
+#endif /* VC++ debug build */
 
 /* We can run the TLS self-test with a large variety of options, rather than 
    using dozens of boolean option flags to control them all we define various 
@@ -141,15 +142,6 @@ typedef enum {
 	TLS_TEST_BADSSL_NOSUBJECT,
 	TLS_TEST_BADSSL_LONGNAME1,
 	TLS_TEST_BADSSL_LONGNAME2,
-	TLS_TEST_CORRUPT_HANDSHAKE,	/* Detect corruption of handshake data */
-	TLS_TEST_CORRUPT_DATA,		/* Detect corruption of payload data */
-	TLS_TEST_CORRUPT_MAC,		/* Detect corruption of payload MAC */
-	TLS_TEST_CORRUPT_FINISHED,	/* Detect corruption of finished MAC */
-	TLS_TEST_CORRUPT_IV,		/* Detect corruption of IV */
-	TLS_TEST_WRONGCERT,			/* Detect wrong key for server */
-	TLS_TEST_BADSIG_HASH,		/* Detect corruption of signed DH params */
-	TLS_TEST_BADSIG_SIG,		/* Detect corruption of DH signature */
-	TLS_TEST_BADSIG_DATA,		/* Detect corruption of signed DH params */
 	TLS_TEST_LAST				/* Last possible TLS test type */
 	} TLS_TEST_TYPE;
 
@@ -442,7 +434,8 @@ typedef enum {
 	Server 69: Returns a certificate chain with an 8,192-bit key.
 	Server 70: Reported to cause problems but cryptlib connects OK.
 	Server 71: As of 2025 the only known server that does Ed25519 signing.
-	Server 72: Server that still does TLS 1.1 */
+	Server 72: Server that still does TLS 1.1.
+	Server 73: Rejects connections that don't advertise GCM suites */
 
 #define SSL_SERVER_NO	48	/* Extinct, this was last known one */
 #define TLS_SERVER_NO	4	/* No longer does TLS 1.0 */
@@ -459,7 +452,7 @@ typedef enum {
 	( TLS11_SERVER_NO == TLS12_SERVER_NO ) || \
 	( TLS11_SERVER_NO == TLS13_SERVER_NO ) || \
 	( TLS12_SERVER_NO == TLS13_SERVER_NO )
-  #error TLS/TLS11/TLS12/TLS13 servers must be distinct to avoid tests being skipped due to session cacheing
+  #error TLS/TLS11/TLS12/TLS13 servers must be distinct to avoid tests being skipped due to session caching
 #endif /* Make sure that servers are distinct */
 
 #if 0
@@ -562,6 +555,7 @@ static const struct {
 	/* 70 */ { TEXT( "as2.aldi-nord.ondemand.services" ), "/" },
 	/* 71 */ { TEXT( "ed25519-test.germancoding.com" ), "/" },
 	/* 72 */ { TEXT( "www.trinity.ie" ), "/" },
+	/* 73 */ { TEXT( "www.bundestag.de" ), "/" },
 	{ NULL, NULL }
 	};
 
@@ -791,7 +785,7 @@ static BOOLEAN handleBulkBuffer( BYTE *buffer, const BOOLEAN isInit )
 /* Testing this capability fully requires a lot of OS-specific juggling so 
    unless we're running under Windows or Linux we just supply the handle to 
    stdin, which will return a read/write error during the connect.  This 
-   checks that the handle has been assigned corectly without requiring a lot 
+   checks that the handle has been assigned correctly without requiring a lot 
    of OS-specific socket handling code.  Otherwise, we use a (very cut-down) 
    set of socket calls to set up a minimal socket.  Since there's very little 
    error-checking done, we don't treat a  failure as fatal */
@@ -1095,9 +1089,11 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 	CRYPT_SESSION cryptSession;
 	const BOOLEAN isServer = ( sessionType == CRYPT_SESSION_TLS_SERVER ) ? \
 							   TRUE : FALSE;
-	const BOOLEAN isErrorTest = ( testType >= TLS_TEST_CORRUPT_HANDSHAKE && \
-								  testType < TLS_TEST_LAST ) ? \
-								  TRUE : FALSE;
+#if defined( CONFIG_FAULTS )
+	const BOOLEAN isErrorTest = TRUE;
+#else
+	const BOOLEAN isErrorTest = FALSE;
+#endif /* CONFIG_FAULTS */
 	const char *versionStr[] = { "SSLv3", "TLS 1.0", "TLS 1.1", "TLS 1.2", "TLS 1.3" };
 	const int tlsServerNo = ( testType == TLS_TEST_WEBSOCKETS ) ? WS_SERVER_NO : \
 							( testType == TLS_TEST_EAPTTLS ) ? EAP_SERVER_NO : \
@@ -1252,30 +1248,6 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 			releaseMutex();	/* Make sure client doesn't hang */
 		return( FALSE );
 		}
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
-	if( isServer && isErrorTest )
-		{
-		cryptSetFaultType( ( testType == TLS_TEST_CORRUPT_HANDSHAKE ) ? \
-							 FAULT_SESSION_CORRUPT_HANDSHAKE : \
-						   ( testType == TLS_TEST_CORRUPT_DATA ) ? \
-							 FAULT_SESSION_CORRUPT_DATA : \
-						   ( testType == TLS_TEST_CORRUPT_MAC ) ? \
-							 FAULT_SESSION_CORRUPT_MAC : \
-						   ( testType == TLS_TEST_CORRUPT_FINISHED ) ? \
-							 FAULT_SESSION_TLS_CORRUPT_FINISHED : \
-						   ( testType == TLS_TEST_CORRUPT_IV ) ? \
-							 FAULT_SESSION_TLS_CORRUPT_IV : \
-						   ( testType == TLS_TEST_WRONGCERT ) ? \
-							 FAULT_SESSION_WRONGCERT : \
-						   ( testType == TLS_TEST_BADSIG_HASH ) ? \
-							 FAULT_BADSIG_HASH : \
-						   ( testType == TLS_TEST_BADSIG_SIG ) ? \
-							 FAULT_BADSIG_SIG : \
-						   ( testType == TLS_TEST_BADSIG_DATA ) ? \
-							 FAULT_BADSIG_DATA : \
-							 FAULT_NONE );
-		}
-#endif /* CONFIG_FAULTS && Debug */
 
 	/* If we're doing a bulk data transfer, set up the necessary buffer */
 	if( testType == TLS_TEST_BULKTRANSER )
@@ -1367,7 +1339,7 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 			const void *fileNamePtr = filenameBuffer;
 
 			/* We don't add a private key if we're doing TLS-PSK, to test 
-			   TLS-PSK's abiltiy to work without a PKC */
+			   TLS-PSK's ability to work without a PKC */
 			switch( testType )
 				{
 				case TLS_TEST_ECC:
@@ -1960,6 +1932,16 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 			status = cryptSetAttribute( cryptSession,
 										CRYPT_SESSINFO_AUTHRESPONSE, TRUE );
 			}
+		else
+			{
+			/* If this was a resumed session then there won't be a 
+			   certificate present to check */
+			if( status == CRYPT_ERROR_NOTFOUND )
+				{
+				fputs( "SVR: No client certificate present, was this a "
+					   "resumed session?.\n", outputStream );
+				}
+			}
 		if( cryptStatusOK( status ) )
 			{
 			status = cryptSetAttribute( cryptSession,
@@ -2031,50 +2013,39 @@ dualThreadContinue:
 			return( CRYPT_ERROR_FAILED );
 			}
 		cryptDestroySession( cryptSession );
+#if defined( CONFIG_FAULTS )
+		if( isServer )
+			{
+			if( expectedFaultType != FAULT_SESSION_WRONGCERT && \
+				expectedFaultType != FAULT_BADSIG_HASH && \
+				expectedFaultType != FAULT_BADSIG_SIG && \
+				expectedFaultType != FAULT_BADSIG_DATA && \
+				status != expectedFaultStatus && \
+				expectedFaultStatus != CRYPT_OK )
+				{
+				printf( "Expected fault error %d, got %d.\nHit a key...",
+						expectedFaultStatus, status );
+				( void ) getchar();
+				}
+			}
+		else
+			{
+			if( ( expectedFaultType == FAULT_SESSION_WRONGCERT || \
+				  expectedFaultType == FAULT_BADSIG_HASH || \
+				  expectedFaultType == FAULT_BADSIG_SIG || \
+				  expectedFaultType == FAULT_BADSIG_DATA ) && \
+				status != expectedFaultStatus )
+				{
+				printf( "Expected fault error %d, got %d.\nHit a key...",
+						expectedFaultStatus, status );
+				( void ) getchar();
+				}
+			}
+#endif /* CONFIG_FAULTS */
 		if( isErrorTest || testType == TLS_TEST_PSK_CLIONLY || \
 			testType == TLS_TEST_PSK_SVRONLY || \
 			testType == TLS_TEST_WHITELIST_FAIL )
 			{
-			if( isErrorTest )
-				{
-				if( isServer )
-					{
-					/* The corrupt-handshake test is detected by the server 
-					   before the client even though the server has sent out
-					   a corrupted message because the client sends their 
-					   Finished message first, and that contains the overall
-					   handshake MAC which is different for the client.  In
-					   addition this can be reported as a CRYPT_ERROR_BADDATA
-					   depending on where the corruption is caught */
-					if( testType == TLS_TEST_CORRUPT_HANDSHAKE && \
-						status != CRYPT_ERROR_SIGNATURE && \
-						status != CRYPT_ERROR_BADDATA )
-						{
-						fprintf( outputStream, "Test returned status %d, "
-								 "should have been %d or %d.\n", status, 
-								 CRYPT_ERROR_SIGNATURE, 
-								 CRYPT_ERROR_BADDATA );
-						return( FALSE );
-						}
-					}
-				else
-					{
-					if( testType != TLS_TEST_CORRUPT_HANDSHAKE && \
-						testType != TLS_TEST_CORRUPT_FINISHED && \
-						testType != TLS_TEST_CORRUPT_IV && \
-						testType != TLS_TEST_CORRUPT_MAC && \
-						status != CRYPT_ERROR_SIGNATURE && \
-						status != CRYPT_ERROR_BADDATA )
-						{
-						fprintf( outputStream, "Test returned status %d, "
-								 "should have been %d or %d.\n", status, 
-								 CRYPT_ERROR_SIGNATURE,
-								 CRYPT_ERROR_BADDATA );
-						return( FALSE );
-						}
-					}
-				}
-
 			/* These tests are supposed to fail, so if this happens then the 
 			   overall test has succeeded */
 			fputs( "  (This test checks error handling, so the failure "
@@ -2093,16 +2064,15 @@ dualThreadContinue:
 
 		return( FALSE );
 		}
-
-	/* The error tests should cause handshake failures, so getting to this 
-	   point is an error */
-	if( isErrorTest && testType != TLS_TEST_CORRUPT_DATA )
+#if defined( CONFIG_FAULTS )
+	if( expectedFaultType != FAULT_NONE && \
+		expectedFaultType != FAULT_SESSION_CORRUPT_DATA )
 		{
-		cryptDestroySession( cryptSession );
-		fputs( "  (This test should have led to a handshake failure but "
-			   "didn't, test has\n   failed).\n", outputStream );
-		return( FALSE );
+		printf( "Expected fault error %d but got success.\nHit a key...",
+				expectedFaultStatus );
+		( void ) getchar();
 		}
+#endif /* CONFIG_FAULTS */
 
 	/* The CLIONLY/SVRONLY test is supposed to fail, if this doesn't happen 
 	   then there's a problem */
@@ -2427,6 +2397,21 @@ dualThreadContinue:
 				printExtError( cryptSession, "SVR: Attempt to read data "
 							   "from client", status, __LINE__ );
 				cryptDestroySession( cryptSession );
+#if defined( CONFIG_FAULTS )
+				if( status != expectedFaultStatus && \
+					expectedFaultStatus != CRYPT_OK )
+					{
+					printf( "Expected fault error %d, got %d.\nHit a key...",
+							expectedFaultStatus, status );
+					( void ) getchar();
+					}
+
+				/* These tests are supposed to fail, so if this happens then 
+				   the overall test has succeeded */
+				fputs( "  (This test checks error handling, so the "
+					   "failure response is correct).\n\n", outputStream );
+				return( TRUE );
+#endif /* CONFIG_FAULTS */
 				return( FALSE );
 				}
 			buffer[ bytesCopied ] = '\0';
@@ -2562,15 +2547,13 @@ dualThreadContinue:
 				printExtError( cryptSession, "Attempt to read data from "
 							   "server", status, __LINE__ );
 				cryptDestroySession( cryptSession );
-				if( isErrorTest )
-					{
-					/* These tests are supposed to fail, so if this happens 
-					   then the overall test has succeeded */
-					fputs( "  (This test checks error handling, so the "
-						   "failure response is correct).\n\n", outputStream );
-					return( TRUE );
-					}
-
+#if defined( CONFIG_FAULTS )
+				/* These tests are supposed to fail, so if this happens then 
+				   the overall test has succeeded */
+				fputs( "  (This test checks error handling, so the "
+					   "failure response is correct).\n\n", outputStream );
+				return( TRUE );
+#endif /* CONFIG_FAULTS */
 				return( FALSE );
 				}
 
@@ -2781,13 +2764,12 @@ int testSessionSSLServerCached( void )
 	{
 	int status;
 
-	/* Run the server twice to check session cacheing.  Testing this 
-	   requires manual reconnection with a browser to localhost since it's 
-	   too complex to handle easily via a loopback test.  Note that with 
-	   MSIE this will require three lots of connects rather than two, 
-	   because it handles an unknown certificate by doing a resume, which 
-	   consumes two lots of sessions, and then the third one is the actual 
-	   session resume */
+	/* Run the server twice to check session caching.  Testing this requires 
+	   manual reconnection with a browser to localhost since it's too 
+	   complex to handle easily via a loopback test.  Note that with MSIE 
+	   this will require three lots of connects rather than two, because it 
+	   handles an unknown certificate by doing a resume, which consumes two 
+	   lots of sessions, and then the third one is the actual session resume */
 	createMutex();
 	status = connectTLS( CRYPT_SESSION_TLS_SERVER, TLS_TEST_NORMAL, 0, CRYPT_UNUSED, FALSE );
 	if( status > 0 )
@@ -3055,7 +3037,7 @@ int testSessionTLSBadSSL( void )
 		if( badSslInfo[ i ].testType == TLS_TEST_BADSSL_DHSMALLSUBGROUP )
 			{
 			fputs( "Skipping TLS_TEST_BADSSL_DHSMALLSUBGROUP in debug "
-				   "build.", outputStream );
+				   "build.", origOutputStream );
 			continue;
 			}
 #endif /* NDEBUG */
@@ -3092,6 +3074,10 @@ int testSessionTLSBadSSL( void )
 			if( badSslInfo[ i ].testType == TLS_TEST_BADSSL_NOCN && \
 				status == CRYPT_ERROR_FAILED )
 				continue;
+
+			/* TLS_TEST_BADSSL_DH1024 or TLS_TEST_BADSSL_DH2048 may also fail
+			   randomly at times, the solution is to wait a few minutes and 
+			   then run the tests again */
 
 			fclose( outputStream );
 			outputStream = origOutputStream;
@@ -3359,7 +3345,15 @@ int testSessionTLS12ClientCertClientServer( void )
 	}
 int testSessionTLS12ClientCertManualClientServer( void )
 	{
+	/* The client certificate check can only be done if the session cache
+	   isn't in use, otherwise it will just resume a previous session */
+#ifdef NO_SESSION_CACHE
 	return( tls12ClientServer( TLS_TEST_CLIENTCERT_MANUAL ) );
+#else
+	fputs( "Skipping manual client certificate check because the session "
+		   "cache is in use.\n\n", outputStream );
+	return( TRUE );
+#endif /* !NO_SESSION_CACHE */
 	}
 int testSessionTLS12SNIClientServer( void )
 	{
@@ -3577,66 +3571,44 @@ int testSessionTLSClientServerMultiThread( void )
 
 int testSessionTLSClientServerDebugCheck( void )
 	{
-#if defined( CONFIG_FAULTS ) && !defined( NDEBUG )
-	cryptSetFaultType( FAULT_NONE );
-
-	/* SSLv3 tests */
-	if( !tlsClientServer( TLS_TEST_CORRUPT_HANDSHAKE ) )
+#if defined( CONFIG_FAULTS ) 
+	fputs( "Testing TLS error handling...\n", outputStream );
+	/* The corrupt-handshake test is detected by the server before the 
+	   client even though the server has sent out a corrupted message 
+	   because the client sends their Finished message first and that 
+	   contains the overall handshake MAC which is different for the 
+	   client.  In addition this can be reported as a CRYPT_ERROR_BADDATA
+	   depending on where the corruption is caught */
+	setFaultInfo( FAULT_SESSION_CORRUPT_HANDSHAKE, CRYPT_ERROR_WRONGKEY );
+	if( !tls12ClientServer( TLS_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of handshake data */
-	if( !tlsClientServer( TLS_TEST_CORRUPT_DATA ) )
+	setFaultInfo( FAULT_SESSION_CORRUPT_DATA, CRYPT_ERROR_SIGNATURE );
+	if( !tls12ClientServer( TLS_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of payload data */
-	if( !tlsClientServer( TLS_TEST_CORRUPT_MAC ) )
+	setFaultInfo( FAULT_SESSION_CORRUPT_MAC, CRYPT_ERROR_WRONGKEY );
+	if( !tls12ClientServer( TLS_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of IV */
-	if( !tlsClientServer( TLS_TEST_CORRUPT_FINISHED ) )
+	setFaultInfo( FAULT_SESSION_TLS_CORRUPT_FINISHED, CRYPT_ERROR_SIGNATURE );
+	if( !tls12ClientServer( TLS_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of IV */
-	if( !tlsClientServer( TLS_TEST_WRONGCERT ) )
+	setFaultInfo( FAULT_SESSION_TLS_CORRUPT_IV, CRYPT_ERROR_WRONGKEY );
+	if( !tls12ClientServer( TLS_TEST_NORMAL ) )
+		return( FALSE );	/* Detect corruption of IV */
+	setFaultInfo( FAULT_SESSION_WRONGCERT, CRYPT_ERROR_SIGNATURE );
+	if( !tls12ClientServer( TLS_TEST_NORMAL ) )
 		return( FALSE );	/* Detect wrong key for server */
-	if( !tlsClientServer( TLS_TEST_BADSIG_HASH ) )
+	setFaultInfo( FAULT_BADSIG_HASH, CRYPT_ERROR_SIGNATURE );
+	if( !tls12ClientServer( TLS_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of signed DH params */
-	if( !tlsClientServer( TLS_TEST_BADSIG_SIG ) )
+	setFaultInfo( FAULT_BADSIG_SIG, CRYPT_ERROR_SIGNATURE );
+	if( !tls12ClientServer( TLS_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of DH signature */
-	if( !tlsClientServer( TLS_TEST_BADSIG_DATA ) )
-		return( FALSE );	/* Detect corruption of signed DH params */
-
-	/* TLS 1.0 tests */
-	if( !tlsClientServer( TLS_TEST_CORRUPT_HANDSHAKE ) )
-		return( FALSE );	/* Detect corruption of handshake data */
-	if( !tlsClientServer( TLS_TEST_CORRUPT_DATA ) )
-		return( FALSE );	/* Detect corruption of payload data */
-	if( !tlsClientServer( TLS_TEST_CORRUPT_MAC ) )
-		return( FALSE );	/* Detect corruption of IV */
-	if( !tlsClientServer( TLS_TEST_CORRUPT_FINISHED ) )
-		return( FALSE );	/* Detect corruption of IV */
-	if( !tlsClientServer( TLS_TEST_WRONGCERT ) )
-		return( FALSE );	/* Detect wrong key for server */
-	if( !tlsClientServer( TLS_TEST_BADSIG_HASH ) )
-		return( FALSE );	/* Detect corruption of signed DH params */
-	if( !tlsClientServer( TLS_TEST_BADSIG_SIG ) )
-		return( FALSE );	/* Detect corruption of DH signature */
-	if( !tlsClientServer( TLS_TEST_BADSIG_DATA ) )
-		return( FALSE );	/* Detect corruption of signed DH params */
-
-	/* TLS 1.2 tests */
-	if( !tls12ClientServer( TLS_TEST_CORRUPT_HANDSHAKE ) )
-		return( FALSE );	/* Detect corruption of handshake data */
-	if( !tls12ClientServer( TLS_TEST_CORRUPT_DATA ) )
-		return( FALSE );	/* Detect corruption of payload data */
-	if( !tls12ClientServer( TLS_TEST_CORRUPT_MAC ) )
-		return( FALSE );	/* Detect corruption of IV */
-	if( !tls12ClientServer( TLS_TEST_CORRUPT_FINISHED ) )
-		return( FALSE );	/* Detect corruption of IV */
-	if( !tls12ClientServer( TLS_TEST_CORRUPT_IV ) )
-		return( FALSE );	/* Detect corruption of IV */
-	if( !tls12ClientServer( TLS_TEST_WRONGCERT ) )
-		return( FALSE );	/* Detect wrong key for server */
-	if( !tls12ClientServer( TLS_TEST_BADSIG_HASH ) )
-		return( FALSE );	/* Detect corruption of signed DH params */
-	if( !tls12ClientServer( TLS_TEST_BADSIG_SIG ) )
-		return( FALSE );	/* Detect corruption of DH signature */
-	if( !tls12ClientServer( TLS_TEST_BADSIG_DATA ) )
+	setFaultInfo( FAULT_BADSIG_DATA, CRYPT_ERROR_SIGNATURE );
+	if( !tls12ClientServer( TLS_TEST_NORMAL ) )
 		return( FALSE );	/* Detect corruption of signed DH params */
 	cryptSetFaultType( FAULT_NONE );
-#endif /* CONFIG_FAULTS && Debug */
+	fputs( "TLS error handling self-test succeeded.\n\n", outputStream );
+#endif /* CONFIG_FAULTS */
 	return( TRUE );
 	}
 #endif /* TEST_SESSION_LOOPBACK */

@@ -337,8 +337,8 @@ static int processHelloRetry( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = completeHSPacketStream( stream, packetOffset );
 	if( cryptStatusOK( status ) )
 		{
-		status = calculateStreamObjectLength( stream, TLS_HEADER_SIZE,
-											  &serverHelloLength );
+		status = streamOffsetFromPosition( stream, TLS_HEADER_SIZE,
+										   &serverHelloLength );
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -466,8 +466,8 @@ static int readEncryptedHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			 /* Guaranteed by unwrapPacketTLS13() */
 
 	/* Because of TLS 1.3's camouflage-wrapping what we're getting could be 
-	   an Alert.  This fact is cunningly hidden from anyone who doesn't know
-	   that only an Alert can be this size */
+	   an Alert.  This fact is cunningly hidden from any observer who 
+	   doesn't know that only an Alert can be this size */
 	if( actualPacketType == TLS_MSG_ALERT )
 		{
 		return( processAlertTLS13( sessionInfoPtr, 
@@ -482,10 +482,12 @@ static int readEncryptedHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
 		status = hashHSPacketRead( handshakeInfo, &stream );
 		sMemDisconnect( &stream );
+		if( cryptStatusError( status ) )
+			return( status );
 		}
-	if( cryptStatusOK( status ) )
-		*payloadLength = length;
-	return( status );
+
+	*payloadLength = length;
+	return( CRYPT_OK );
 	}
 
 /* Because TLS 1.3 stuffs extra content into an encrypted packet, it's no 
@@ -1043,6 +1045,7 @@ static int processCertAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	{
 	CRYPT_CONTEXT transcriptHashContext;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
+	BOOLEAN isInWhitelist;
 	int length, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -1061,10 +1064,13 @@ static int processCertAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( isServer( sessionInfoPtr ) )
 		{
 		/* Check the client certificate, see the comment in
-		   session/tls_svr.c:readCheckClientCerts() for details */
+		   session/tls_svr.c:readCheckClientCerts() for details.  If we get 
+		   back an error status then there's a whitelist present but the 
+		   certificate isn't in it.  If not, it's up to the caller to check 
+		   whether they'll accept the certificate  */
 		status = checkCertWhitelist( sessionInfoPtr, 
 									 sessionInfoPtr->iKeyexAuthContext, 
-									 TRUE );
+									 &isInWhitelist, TRUE );
 		}
 	else
 		{
@@ -1303,6 +1309,8 @@ static int completeHandshakeClient( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   "readFinished", "createCertAuth",
 								   "completeSessionHash", "writeFinished", 
 								   "loadTLS13AppdataKeys" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_COMPLETE;
+
 	return( CRYPT_OK );
 	}
 
@@ -1552,6 +1560,8 @@ static int completeHandshakeServer( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									"createCertAuth", "writeFinished", 
 									"processCertAuth", "completeSessionHash", 
 									"readFinished", "loadTLS13AppdataKeys" ) );
+	handshakeInfo->completedHSstate = HANDSHAKE_STATE_COMPLETE;
+
 	return( CRYPT_OK );
 	}
 

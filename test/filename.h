@@ -89,6 +89,7 @@
 #define REV_CERT_FILE				"testlib/zrevcert"
 #define REV_CRL_FILE				"testlib/zrevcrl"
 #define RTCS_OK_FILE				"testlib/zrtcsok"
+#define OCSP_REQ_FILE				"testlib/zocspreq"
 #define OCSP_OK_FILE				"testlib/zocsprok"
 #define OCSP_REV_FILE_TEMPLATE		"testlib/zocsprr%d"
 #define OCSP_CA_FILE				"testlib/zocspca"
@@ -194,6 +195,7 @@
 #define REV_CERT_FILE				":test:certs:revcert.der"
 #define REV_CRL_FILE				":test:certs:revcrl.der"
 #define RTCS_OK_FILE				":test:misc:rtcsrok.der"
+#define OCSP_REQ_FILE				":test:session:ocspreq.der"
 #define OCSP_OK_FILE				":test:session:ocspr_ok.der"
 #define OCSP_REV_FILE_TEMPLATE		":test:session:ocspr_re%d.der"
 #define OCSP_CA_FILE				":test:session:ocspca.der"
@@ -299,6 +301,7 @@
 #define REV_CERT_FILE				"DD:CLBDER(REVCERT)"
 #define REV_CRL_FILE				"DD:CLBDER(REVCRL)"
 #define RTCS_OK_FILE				"DD:CLBDER(RTCSROK)"
+#define OCSP_REQ_FILE				"DD:CLBDER(OCSPREQ)"
 #define OCSP_OK_FILE				"DD:CLBDER(OCSPROK)"
 #define OCSP_REV_FILE_TEMPLATE		"DD:CLBDER(OCSPRRE%d)"
 #define OCSP_CA_FILE				"DD:CLBDER(OCSPCA)"
@@ -404,6 +407,7 @@
 #define REV_CERT_FILE				TEXT( "c:\\test\\certs\\revoked_cert.der" )
 #define REV_CRL_FILE				TEXT( "c:\\test\\certs\\revoked_crl.der" )
 #define RTCS_OK_FILE				TEXT( "c:\\test\\misc\\rtcsrok.der" )
+#define OCSP_REQ_FILE				TEXT( "c:\\test\\session\\ocspreq.der" )
 #define OCSP_OK_FILE				TEXT( "c:\\test\\session\\ocspr_ok.der" )
 #define OCSP_REV_FILE_TEMPLATE		TEXT( "c:\\test\\session\\ocspr_re%d.der" )
 #define OCSP_CA_FILE				TEXT( "c:\\test\\session\\ocspca.der" )
@@ -509,6 +513,7 @@
 #define REV_CERT_FILE				"zrevcert.der"
 #define REV_CRL_FILE				"zrevcrl.der"
 #define RTCS_OK_FILE				"zrtcsrok.der"
+#define OCSP_REQ_FILE				"zocspreq.der"
 #define OCSP_OK_FILE				"zocsprok.der"
 #define OCSP_REV_FILE_TEMPLATE		"zocsprr%d.der"
 #define OCSP_CA_FILE				"zocspca.der"
@@ -614,6 +619,7 @@
 #define REV_CERT_FILE				L"\\Storage Card\\certs\\revoked_cert.der"
 #define REV_CRL_FILE				L"\\Storage Card\\certs\\revoked_crl.der"
 #define RTCS_OK_FILE				L"\\Storage Card\\misc\\rtcsrok.der"
+#define OCSP_REQ_FILE				L"\\Storage Card\\session\\ocspreq.der"
 #define OCSP_OK_FILE				L"\\Storage Card\\session\\ocspr_ok.der"
 #define OCSP_REV_FILE_TEMPLATE		L"\\Storage Card\\session\\ocspr_re%d.der"
 #define OCSP_CA_FILE				L"\\Storage Card\\session\\ocspca.der"
@@ -719,6 +725,7 @@
 #define REV_CERT_FILE				TEXT( "test/certs/revoked_cert.der" )
 #define REV_CRL_FILE				TEXT( "test/certs/revoked_crl.der" )
 #define RTCS_OK_FILE				TEXT( "test/misc/rtcsrok.der" )
+#define OCSP_REQ_FILE				TEXT( "test/session/ocspreq.der" )
 #define OCSP_OK_FILE				TEXT( "test/session/ocspr_ok.der" )
 #define OCSP_REV_FILE_TEMPLATE		TEXT( "test/session/ocspr_re%d.der" )
 #define OCSP_CA_FILE				TEXT( "test/session/ocspca.der" )

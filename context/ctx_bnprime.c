@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib SSH/TLS DH Public Parameters				*
-*						Copyright Peter Gutmann 1998-2021					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -20,8 +20,6 @@
    CRYPT_ECCCURVE_BRAINPOOL_P256, CRYPT_ECCCURVE_P384, 
    CRYPT_ECCCURVE_BRAINPOOL_P384, CRYPT_ECCCURVE_P521 and 
    CRYPT_ECCCURVE_BRAINPOOL_P512 */
-
-/* #define CREATE_BIGNUM_VALUES */
 
 #if defined( USE_DH )
 
@@ -95,8 +93,8 @@ static const BYTE dh1024TLS[] = {
 /* 1536-, 2048- and 3072-bit parameters from RFC 3526.  There is also a 
    4096-bit value given in the RFC, but using that, and the even larger
    values of 6144 and 8192 bits, is just silly.  See also the comment on 
-   defences against clients that request stupid key sizes in processDHE() 
-   in ssh2_svr.c */
+   defences against clients that request stupid key sizes in
+   session/ssh2_svr.c:processDHE() */
 
 static const BYTE dh1536TLS[] = {
 	0x00, 0xC0,		/* p */
@@ -485,8 +483,10 @@ static int checkDHdata( void )
 #endif /* 0 */
 
 	/* Check the SHA-1 values for the DH data.  We can only do this for the 
-	   standard primes because there are no published values for the RFC 7919
-	   ones */
+	   standard primes in RFC 2409/3526 because there are no published 
+	   values for the RFC 7919 ones, see the comment at the start of this 
+	   section.  We only check 128 bits of the hash because that's more
+	   than enough to catch any problems */
 #ifndef CONFIG_FUZZ
   #ifdef USE_DH1024
 	hashFunctionAtomic( hashValue, 20, dh1024TLS, sizeof( dh1024TLS ) );
@@ -648,7 +648,8 @@ static const DH_DOMAINPARAMS dh1024params = {	/* See note above */
 	{ 1, FALSE, BN_FLG_STATIC_DATA,{
 	0x0000000000000002ULL } },
 	/* Checksums */
-	0x3E2F059DBCCFD195ULL, 0x5503C71D5F777AE8ULL, 0x28C47BE7F867ED54ULL
+//	0x3E2F059DBCCFD195ULL, 0x5503C71D5F777AE8ULL, 0x28C47BE7F867ED54ULL
+	0x37425D3181D1D84BULL, 0xDBEC121057B1DC47ULL, 0x28C47BE7F867ED54ULL
 	};
 #endif /* USE_DH1024 */
 
@@ -687,7 +688,8 @@ static const DH_DOMAINPARAMS dh1536params = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000002ULL } },
 	/* Checksums */
-	0x9472AA5034F03DC6ULL, 0x7E4E90EF890616AFULL, 0x28C47BE7F867ED54ULL
+//	0x9472AA5034F03DC6ULL, 0x7E4E90EF890616AFULL, 0x28C47BE7F867ED54ULL
+	0x5F3AAC9DD80042B6ULL, 0xD1E47A57E579616CULL, 0x28C47BE7F867ED54ULL
 	};
 #endif /* 1536-bit bignums */
 
@@ -734,7 +736,8 @@ static const DH_DOMAINPARAMS dh2048params = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000002ULL } },
 	/* Checksums */
-	0x405BD3182D6B262CULL, 0x22EEE58D97A843AFULL, 0x28C47BE7F867ED54ULL
+//	0x405BD3182D6B262CULL, 0x22EEE58D97A843AFULL, 0x28C47BE7F867ED54ULL
+	0x76C389D757CFB21BULL, 0x60E8EEFF0C265D05ULL, 0x28C47BE7F867ED54ULL
 	};
 
 static const DH_DOMAINPARAMS dh2048paramsAlt = {
@@ -778,7 +781,8 @@ static const DH_DOMAINPARAMS dh2048paramsAlt = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000002ULL } },
 	/* Checksums */
-	0xE69A287438B8B2FAULL, 0xC6873796E8792EE4ULL, 0x28C47BE7F867ED54ULL, 
+//	0xE69A287438B8B2FAULL, 0xC6873796E8792EE4ULL, 0x28C47BE7F867ED54ULL, 
+	0x46A949475154D738ULL, 0x5BFDDBBD262386F3ULL, 0x28C47BE7F867ED54ULL
 	};
 #endif /* 2048-bit bignums */
 
@@ -841,7 +845,8 @@ static const DH_DOMAINPARAMS dh3072params = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000002ULL } },
 	/* Checksums */
-	0x576642F5C4CD8D96ULL, 0x22F5A1C20DEE267BULL, 0x28C47BE7F867ED54ULL
+//	0x576642F5C4CD8D96ULL, 0x22F5A1C20DEE267BULL, 0x28C47BE7F867ED54ULL
+	0xF3847EA2FC33A0ABULL, 0x2E5C068490BFC37DULL, 0x28C47BE7F867ED54ULL
 	};
 
 static const DH_DOMAINPARAMS dh3072paramsAlt = {
@@ -901,7 +906,8 @@ static const DH_DOMAINPARAMS dh3072paramsAlt = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000002ULL } },
 	/* Checksums */
-	0x99D7E30BBA1A9D44ULL, 0x02B113B4D4553A8EULL, 0x28C47BE7F867ED54ULL 
+//	0x99D7E30BBA1A9D44ULL, 0x02B113B4D4553A8EULL, 0x28C47BE7F867ED54ULL 
+	0x195D2ECFF132A357ULL, 0xBB75A4DB237070FFULL, 0x28C47BE7F867ED54ULL
 	};
 #endif /* 3072-bit bignums */
 
@@ -1229,7 +1235,7 @@ int loadDHparams( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #ifdef CREATE_BIGNUM_VALUES
 	checkDHdata();
 	status = loadDHparamsFixed( contextInfoPtr->objectHandle, 
-								bitsToBytes( 3072 ), TRUE );
+								bitsToBytes( 2048 ), FALSE );
 	if( cryptStatusError( status ) )
 		return( status );
 	if( pkcInfo->domainParams != NULL )
@@ -1793,7 +1799,7 @@ int loadECCparamsFixed( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	const ECC_DOMAIN_PARAMS *eccParams = NULL;
 	BIGNUM bignums[ 7 ];
 	LOOP_INDEX i;
-	int curveSize, checksum DUMMY_INIT, bnStatus = BN_STATUS, status;
+	int curveSize, checksum DUMMY_INIT, status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -1840,7 +1846,8 @@ int loadECCparamsFixed( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	pkcInfo->keySizeBits = eccParams->curveSizeBits;
 	curveSize = bitsToBytes( eccParams->curveSizeBits );
 
-	/* Load the parameters into the context bignums */
+	/* Load the parameters into the context bignums.  We set the lower bound
+	   at curveSize - 2 to deal with the odd-sized P521 bignums */
 	LOOP_MED( i = 0, i < 7, i++ )
 		{
 		ENSURES( LOOP_INVARIANT_MED( i, 0, 6 ) );
@@ -1848,22 +1855,49 @@ int loadECCparamsFixed( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		BN_init( &bignums[ i ] );
 		}
 	ENSURES( LOOP_BOUND_OK );
-	CKPTR( importBignum( eccParams->p, &bignums[ 0 ], curveSize, curveSize, 
-						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
-	CKPTR( importBignum( eccParams->a, &bignums[ 1 ], curveSize, curveSize, 
-						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
-	CKPTR( importBignum( eccParams->b, &bignums[ 2 ], curveSize, curveSize, 
-						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
-	CKPTR( importBignum( eccParams->gx, &bignums[ 3 ], curveSize, curveSize, 
-						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
-	CKPTR( importBignum( eccParams->gy, &bignums[ 4 ], curveSize, curveSize, 
-						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
-	CKPTR( importBignum( eccParams->n, &bignums[ 5 ], curveSize, curveSize, 
-						 curveSize, NULL, BIGNUM_CHECK_VALUE_ECC ) );
-	CKPTR( importBignum( eccParams->h, &bignums[ 6 ], 1, 1, 1, NULL, 
-						 BIGNUM_CHECK_NONE ) );
-	if( bnStatusError( bnStatus ) )
-		return( getBnStatus( bnStatus ) );
+	status = importBignum( &bignums[ 0 ], eccParams->p, curveSize, 
+						   curveSize - 1, curveSize, NULL, 
+						   BIGNUM_CHECK_VALUE_ECC );
+	if( cryptStatusOK( status ) )
+		{
+		status = importBignum( &bignums[ 1 ], eccParams->a, curveSize, 
+							   curveSize - 2, curveSize, NULL, 
+							   BIGNUM_CHECK_VALUE_ECC );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		status = importBignum( &bignums[ 2 ], eccParams->b, curveSize, 
+							   curveSize - 2, curveSize, NULL, 
+							   BIGNUM_CHECK_VALUE_ECC );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		status = importBignum( &bignums[ 3 ], eccParams->gx, curveSize, 
+							   curveSize - 2, curveSize, NULL, 
+							   BIGNUM_CHECK_VALUE_ECC );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		status = importBignum( &bignums[ 4 ], eccParams->gy, curveSize, 
+							   curveSize - 2, curveSize, NULL, 
+							   BIGNUM_CHECK_VALUE_ECC );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		status = importBignum( &bignums[ 5 ], eccParams->n, curveSize, 
+							   curveSize - 1, curveSize, NULL, 
+							   BIGNUM_CHECK_VALUE_ECC );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		/* Note that this will require bypassing 
+		   context/ctx_bnrw.c:checkBignum(), which won't allow a value of 1
+		   to be loaded */
+		status = importBignum( &bignums[ 6 ], eccParams->h, 1, 1, 1, 
+							   NULL, BIGNUM_CHECK_NONE );
+		}
+	if( cryptStatusError( status ) )
+		return( status );
 
 	printBignum( &bignums[ 0 ], "p" );
 	printBignum( &bignums[ 1 ], "a" );
@@ -1930,10 +1964,14 @@ static const ECC_DOMAINPARAMS p256params = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000001ULL } },
 	/* Checksums */
-	0xA72822FA39201D4CULL, 0x77FB7550AD79DEE0ULL, 
-	0x4E550413B3F54BB8ULL, 0xE5D81ACCD382A875ULL,
-	0xA2C6307087289DE6ULL, 0xBB9E6DDEC3E0E95AULL, 
-	0x26402E6EE1F4833EULL
+//	0xA72822FA39201D4CULL, 0x77FB7550AD79DEE0ULL, 
+//	0x4E550413B3F54BB8ULL, 0xE5D81ACCD382A875ULL,
+//	0xA2C6307087289DE6ULL, 0xBB9E6DDEC3E0E95AULL, 
+//	0x26402E6EE1F4833EULL
+	0x2B68CCE9DC8C08B0ULL, 0x063E18803C46A065ULL, 
+	0xE739DA42E221ABDCULL, 0x0B055F8FF8512BA4ULL, 
+	0xF8C0646D0CFE1166ULL, 0xA211C4E36205A896ULL, 
+	0x26402E6EE1F4833EULL 
 	};
 
 /* Brainpool p256r1, CRYPT_ECCCURVE_BRAINPOOL_P256 */
@@ -1967,10 +2005,14 @@ static const ECC_DOMAINPARAMS brainpool256params = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000001ULL } },
 	/* Checksums */
-	0x8C58020DDBF6A665ULL, 0x50890F90EEF60A86ULL, 
-	0xEA0C456931CC1EEFULL, 0x70E10A10445E70FAULL,
-	0xAD55C5C5D51EC478ULL, 0x2AB6E0C318795E4FULL, 
-	0x26402E6EE1F4833EULL
+//	0x8C58020DDBF6A665ULL, 0x50890F90EEF60A86ULL, 
+//	0xEA0C456931CC1EEFULL, 0x70E10A10445E70FAULL,
+//	0xAD55C5C5D51EC478ULL, 0x2AB6E0C318795E4FULL, 
+//	0x26402E6EE1F4833EULL
+	0xF84A99B349E817FBULL, 0xAF3584FCFB20AAB6ULL, 
+	0xB54DF69ED093777FULL, 0x66FE401ED64C39A4ULL, 
+	0x861D12DECB7FC6B0ULL, 0xD415DC4B02EF0125ULL, 
+	0x26402E6EE1F4833EULL 
 	};
 
 /* NIST P-384, SECG p384r1, CRYPT_ECCCURVE_P384 */
@@ -2010,10 +2052,14 @@ static const ECC_DOMAINPARAMS p384params = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000001ULL } },
 	/* Checksums */
-	0x9A9A47599E9FA193ULL, 0x8A54B4DE8DBA0429ULL,
-	0xFB1CEA2E3FFD90F0ULL, 0x14A04AC2065B13E6ULL,
-	0xBC63FBAFCEB8C35DULL, 0xA679E5A399BA581CULL,
-	0x26402E6EE1F4833EULL 
+//	0x9A9A47599E9FA193ULL, 0x8A54B4DE8DBA0429ULL,
+//	0xFB1CEA2E3FFD90F0ULL, 0x14A04AC2065B13E6ULL,
+//	0xBC63FBAFCEB8C35DULL, 0xA679E5A399BA581CULL,
+//	0x26402E6EE1F4833EULL 
+	0x86D9628015AFA018ULL, 0x91ED0157276CBBC9ULL, 
+	0x3C2D8079BB289E35ULL, 0xC3E142D7D8A80FA7ULL, 
+	0xA10B7A9DC022813BULL, 0x2FBC4893FBFA8D29ULL, 
+	0x26402E6EE1F4833EULL
 	};
 
 /* Brainpool p384r1, CRYPT_ECCCURVE_BRAINPOOL_P384 */
@@ -2053,10 +2099,14 @@ static const ECC_DOMAINPARAMS brainpool384params = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000001ULL } },
 	/* Checksums */
-	0x6A9E0847ABC8E154ULL, 0x61C83241A722DD92ULL,
-	0xD325B1754DE15E11ULL, 0x350A61B48CD1B7F9ULL,
-	0xFAB31A42AC6B58C9ULL, 0xE36D9145DA891AF4ULL,
-	0x26402E6EE1F4833EULL
+//	0x6A9E0847ABC8E154ULL, 0x61C83241A722DD92ULL,
+//	0xD325B1754DE15E11ULL, 0x350A61B48CD1B7F9ULL,
+//	0xFAB31A42AC6B58C9ULL, 0xE36D9145DA891AF4ULL,
+//	0x26402E6EE1F4833EULL
+	0xA81D21CE814C468CULL, 0xDC6DEFF5970328C5ULL, 
+	0x814FE0007C26B53EULL, 0x238CDF100A404E4FULL, 
+	0x1CADF092F01A1B2FULL, 0x51D977E3642AB4A9ULL, 
+	0x26402E6EE1F4833EULL 
 	};
 
 /* NIST P-521, SECG p521r1, CRYPT_ECCCURVE_P521 */
@@ -2108,10 +2158,14 @@ static const ECC_DOMAINPARAMS p521params = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000001ULL } },
 	/* Checksums */
-	0xDA99C55253FF5436ULL, 0x2847E17D2F34D05BULL,
-	0x11D14F0DFE0C6BF1ULL, 0x5F95A0E0F9B321C8ULL,
-	0x2EEA29DDC3441128ULL, 0x2595D584A94B217DULL,
-	0x26402E6EE1F4833EULL
+//	0x243C93885148B87EULL, 0xD1721514446A4DE3ULL, 
+//	0x178094F7683B0EDEULL, 0x0627C5C876895410ULL, 
+//	0xD299C3A5A0E48132ULL, 0x2A7F2EAD7CF533FCULL, 
+//	0x26402E6EE1F4833EULL, 
+	0x33ABB0488D904BF1ULL, 0x7AD49FEF31D26BA6ULL, 
+	0x8DE75214B684B1CBULL, 0xD4EE537DF7F9D803ULL, 
+	0x5F962E6EC206EEDDULL, 0x187EFDFEABB10744ULL, 
+	0x26402E6EE1F4833EULL 
 	};
 
 /* Brainpool p512r1, CRYPT_ECCCURVE_BRAINPOOL_P512 */
@@ -2157,10 +2211,14 @@ static const ECC_DOMAINPARAMS brainpool512params = {
 	{ 1, FALSE, BN_FLG_STATIC_DATA, {
 	0x0000000000000001ULL } },
 	/* Checksums */
-	0xC1DA14200D9335A0ULL, 0x0576ECE4ABA7F09BULL,
-	0x4319F6256D8AAFCFULL, 0x1042D928E89F3778ULL,
-	0x0A26038C333433C3ULL, 0x1B30D8586B566AFDULL,
-	0x26402E6EE1F4833EULL
+//	0xC1DA14200D9335A0ULL, 0x0576ECE4ABA7F09BULL,
+//	0x4319F6256D8AAFCFULL, 0x1042D928E89F3778ULL,
+//	0x0A26038C333433C3ULL, 0x1B30D8586B566AFDULL,
+//	0x26402E6EE1F4833EULL
+	0xAE9EA332190CF0C4ULL, 0x82A98CED4A528E64ULL, 
+	0x7021ACA5B65968D5ULL, 0x22E146E6FBD43608ULL, 
+	0x234BF27C0F0809D9ULL, 0x2817615F9006774AULL, 
+	0x26402E6EE1F4833EULL 
 	};
 
 #else
@@ -2445,7 +2503,8 @@ int loadECCparams( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Convert the fixed-format bignums to encoded BIGNUMs */
 #ifdef CREATE_BIGNUM_VALUES
-	status = loadECCparamsFixed( contextInfoPtr, CRYPT_ECCCURVE_P256 );
+//	status = loadECCparamsFixed( contextInfoPtr, CRYPT_ECCCURVE_P521 );
+	status = loadECCparamsFixed( contextInfoPtr, CRYPT_ECCCURVE_BRAINPOOL_P512 );
 	if( cryptStatusError( status ) )
 		return( status );
 #endif /* CREATE_BIGNUM_VALUES */
@@ -2494,7 +2553,7 @@ int loadECCparams( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	/* Make sure that the domain parameters are in order */
 	if( !checksumDomainParameters( domainParams, pkcInfo->cryptAlgo ) )
 		{
-		DEBUG_DIAG(( "ECC domain parameters for curve ID %d key has been "
+		DEBUG_DIAG(( "ECC domain parameters for curve ID %d key have been "
 					 "corrupted", curveType ));
 		retIntError();
 		}

@@ -23,10 +23,10 @@
    RWD_RWD with the first set being for the object in the high state and the
    second for the object in the low state.
 
-   In addition to the usual external-access permssions, some attributes are
+   In addition to the usual external-access perimssions, some attributes are
    only visible internally.  Normal attributes have matching internal-access
-   and external-access permssions but the internal-access-only ones have the
-   external-access permissions turned off.
+   and external-access permissions but the internal-access-only ones have 
+   the external-access permissions turned off.
 
    Some of the odder combinations arise from ACLs with sub-ACLs, for which
    the overall access permission is the union of the permissions in all the

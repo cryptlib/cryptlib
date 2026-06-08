@@ -200,9 +200,9 @@ BOOLEAN isASN1ValidTextString( IN_BUFFER( stringLen ) const char *string,
 
 #ifdef USE_WIDECHARS
 
-CHECK_RETVAL_RANGE_NOERROR( 0, 0xFFFFL ) STDC_NONNULL_ARG( ( 1 ) ) \
-static wchar_t getNativeWidechar( IN_BUFFER_C( WCHAR_SIZE ) \
-										const BYTE *string )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static int getNativeWidechar( IN_BUFFER_C( WCHAR_SIZE ) const BYTE *string,
+							  wchar_t *wCh )
 	{
 	wchar_t ch = 0;
 #ifdef DATA_LITTLEENDIAN
@@ -211,6 +211,10 @@ static wchar_t getNativeWidechar( IN_BUFFER_C( WCHAR_SIZE ) \
 	LOOP_INDEX i;
 
 	assert( isReadPtr( string, WCHAR_SIZE ) );
+	assert( isWritePtr( wCh, sizeof( wchar_t ) ) );
+	
+	/* Clear return value */
+	*wCh = 0;
 	
 	/* Since we're reading wchar_t-sized values from a potentially char-
 	   aligned source, we have to assemble the data a byte at a time to 
@@ -218,7 +222,7 @@ static wchar_t getNativeWidechar( IN_BUFFER_C( WCHAR_SIZE ) \
 	   aligned boundaries */
 	LOOP_SMALL( i = 0, i < WCHAR_SIZE, i++ )
 		{
-		ENSURES_EXT( LOOP_INVARIANT_SMALL( i, 0, WCHAR_SIZE - 1 ), 0 );
+		ENSURES( LOOP_INVARIANT_SMALL( i, 0, WCHAR_SIZE - 1 ) );
 
 #ifdef DATA_LITTLEENDIAN
 		ch |= string[ i ] << shiftAmt;
@@ -227,7 +231,7 @@ static wchar_t getNativeWidechar( IN_BUFFER_C( WCHAR_SIZE ) \
 		ch = ( ch << 8 ) | string[ i ];
 #endif /* DATA_LITTLEENDIAN */
 		}
-	ENSURES_EXT( LOOP_BOUND_OK, 0 );
+	ENSURES( LOOP_BOUND_OK );
 
 	/* There's a special complication if wchar_t is a signed type, in which 
 	   case it can end up negative if the first byte of the string has its 
@@ -237,10 +241,17 @@ static wchar_t getNativeWidechar( IN_BUFFER_C( WCHAR_SIZE ) \
 	if( ch < 0 )
 		{
 		ch &= WCHAR_MAX;
-		ENSURES_EXT( ch >= 0, 0 );
+		ENSURES( ch >= 0 );
 		}
 
-	return( ch );
+	/* The one character that we shouldn't be seeing in strings is a '\0', 
+	   although cryptlib uses counted strings internally and isn't bothered
+	   by them a lot of other things don't so we exclude this character */
+	if( ch <= 0 )
+		return( CRYPT_ERROR_BADDATA );
+
+	*wCh = ch;
+	return( CRYPT_OK );
 	}
 #endif /* USE_WIDECHARS */
 
@@ -274,6 +285,7 @@ static BOOLEAN isNativeWidecharString( IN_BUFFER( stringLen ) const BYTE *string
 	LOOP_INDEX i;
 	int hiByte = 0;
 #endif /* 16-bit wchar_t */
+	int status;
 
 	assert( isReadPtrDynamic( string, stringLen ) );
 
@@ -281,7 +293,9 @@ static BOOLEAN isNativeWidecharString( IN_BUFFER( stringLen ) const BYTE *string
 	REQUIRES_B( !( stringLen % WCHAR_SIZE ) );
 
 	/* Look at the first character in the string */
-	wCh = getNativeWidechar( string );
+	status = getNativeWidechar( string, &wCh );
+	if( cryptStatusError( status ) )
+		return( FALSE );
 
 	/* If wchar_t is > 16 bits and the bits above 16 are set or all zero,
 	   it's either definitely not Unicode or Unicode, c.f. "abcd" = 
@@ -329,11 +343,17 @@ static BOOLEAN isNativeWidecharString( IN_BUFFER( stringLen ) const BYTE *string
 			   range ( 0...0xFFFF ) because WCHAR_SIZE == 2.  It can't, for 
 			   example, return a negative status value */
 			hi1 = hi3 = byteToInt( wCh >> 8 );
-			hi2 = byteToInt( getNativeWidechar( string + WCHAR_SIZE ) >> 8 );
+			status = getNativeWidechar( string + WCHAR_SIZE, &wCh );
+			if( cryptStatusError( status ) )
+				return( FALSE );
+			hi2 = byteToInt( wCh >> 8 );
 			if( stringLen > WCHAR_SIZE * 2 )
 				{
-				hi3 = byteToInt( \
-						getNativeWidechar( string + ( WCHAR_SIZE * 2 ) ) >> 8 );
+				status = getNativeWidechar( string + ( WCHAR_SIZE * 2 ), \
+											&wCh );
+				if( cryptStatusError( status ) )
+					return( FALSE );
+				hi3 = byteToInt( wCh >> 8 );
 				}
 			if( isAlnum( hi1 ) && isAlnum( hi2 ) && isAlnum( hi3 ) && \
 				hi1 == hi2 && hi2 == hi3 )
@@ -351,7 +371,9 @@ static BOOLEAN isNativeWidecharString( IN_BUFFER( stringLen ) const BYTE *string
 		{
 		ENSURES_B( LOOP_INVARIANT_LARGE_XXX( i, 0, stringLen - WCHAR_SIZE ) );
 
-		wCh = getNativeWidechar( &string[ i ] );
+		status = getNativeWidechar( &string[ i ], &wCh );
+		if( cryptStatusError( status ) )
+			return( FALSE );
 		if( wCh > 0xFF )
 			{
 			const int wChHi = byteToInt( wCh >> 8 );
@@ -499,7 +521,7 @@ static int getASN1StringType( IN_BUFFER( stringLen ) const BYTE *string,
 		{
 		/* get8bitStringType() may return OK_SPECIAL to indicate that this
 		   appears to be some oddball native 8-bit string type that might
-		   be usable via mbstowcs() or similar, however in this case it's 
+		   be usable via mbstowcs_s() or similar, however in this case it's 
 		   coming from an ASN.1 string and so should be in a recognised
 		   format, so we convert OK_SPECIAL to CRYPT_ERROR_BADDATA */
 		status = get8bitStringType( string, stringLen, stringTag, 
@@ -575,6 +597,7 @@ static int getNativeStringType( IN_BUFFER( stringLen ) const BYTE *string,
 										ASN1_STRING_TYPE *asn1StringType )
 	{
 	BOOLEAN isIA5 = FALSE, isT61 = FALSE, isUnicode = FALSE;
+	int status;
 	LOOP_INDEX i;
 
 	assert( isReadPtrDynamic( string, stringLen ) );
@@ -610,9 +633,15 @@ static int getNativeStringType( IN_BUFFER( stringLen ) const BYTE *string,
 		/* Make sure that we've got a character from a Unicode (BMP) string.  
 		   This check can be triggered if WCHAR_SIZE > 2 and the caller 
 		   feeds us a binary garbage string so that the resulting decoded 
-		   widechar value is larger than 16 bits */
-		wCh = getNativeWidechar( &string[ i ] );
-		if( wCh < 0 || ( wCh & 0xFFFF0000L ) )
+		   widechar value is larger than 16 bits.
+		   
+		   The check for wCh <= 0 is redundant since getNativeWidechar()
+		   already performs this check for us but is left in place to 
+		   document the range that's regarded as valid */
+		status = getNativeWidechar( &string[ i ], &wCh );
+		if( cryptStatusError( status ) )
+			return( status );
+		if( wCh <= 0 || ( wCh & 0xFFFF0000L ) )
 			return( CRYPT_ERROR_BADDATA );
 
 		/* If the high bit is set then it's not an ASCII subset */
@@ -705,13 +734,12 @@ static int getNativeStringType( IN_BUFFER( stringLen ) const BYTE *string,
 
 CHECK_RETVAL_LENGTH STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int getUTF8Char( INOUT_PTR STREAM *stream, 
-						long *utf8char )
+						int *utf8char )
 	{
-	long largeCh;
-	int firstChar, secondChar, status;
+	int firstChar, secondChar, largeCh, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
-	assert( isWritePtr( utf8char, sizeof( long ) ) );
+	assert( isWritePtr( utf8char, sizeof( int ) ) );
 
 	/* Clear return value */
 	*utf8char = 0;
@@ -759,12 +787,28 @@ static int getUTF8Char( INOUT_PTR STREAM *stream,
 		if( ( secondChar & 0xC0 ) != 0x80 || \
 			( thirdChar & 0xC0 ) != 0x80 )
 			return( CRYPT_ERROR_BADDATA );
-		largeCh = ( ( firstChar & 0x1F ) << 12 ) | \
+		largeCh = ( ( firstChar & 0x0F ) << 12 ) | \
 				  ( ( secondChar & 0x3F ) << 6 ) | \
 					( thirdChar & 0x3F );
 		if( largeCh < 0x800 || largeCh > 0xFFFFL )
 			return( CRYPT_ERROR_BADDATA );
-		*utf8char = largeCh & 0xFFFFL;
+		largeCh &= 0xFFFFL;
+			
+		/* At this point we have to perform a second check for UTF-16 
+		   surrogates which are used to extend the range of UTF-16 values 
+		   beyond 16 bits.  These code points don't encode any symbol but 
+		   are used to assemble the value that encodes it.  Finding a
+		   UTF-16 kludge in a UTF-8 certificate identifier string is far
+		   more likely to be someone trying to exploit a hole than anything 
+		   legitimate, so we disallow it*/
+		if( largeCh >= 0xD800 && largeCh <= 0xDFFF )
+			{
+			DEBUG_DIAG(( "Found invalid UTF-16 surrogate in UTF-8 string" ));
+			assert( DEBUG_WARN );
+			return( CRYPT_ERROR_BADDATA );
+			}
+		
+		*utf8char = largeCh;
 		return( 3 );	/* Three-byte char */
 		}
 
@@ -778,11 +822,11 @@ static int getUTF8Char( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int putUTF8Char( INOUT_PTR STREAM *stream, 
-						IN_RANGE( 0, 0xFFFFL ) const long largeCh )
+						IN_RANGE( 0, 0xFFFFL ) const int largeCh )
 	{
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-	REQUIRES_S( largeCh >= 0 && largeCh <= 0xFFFFL );
+	REQUIRES( largeCh >= 0 && largeCh <= 0xFFFFL );
 
 	if( largeCh < 0x80 )
 		return( sputc( stream, ( BYTE ) largeCh ) );
@@ -856,7 +900,9 @@ static int writeNativeUTF8String( INOUT_PTR STREAM *stream,
 
 			case NATIVE_CHAR_WIDECHAR:
 				/* Widechar string */
-				wCh = getNativeWidechar( &srcPtr[ i ] );
+				status = getNativeWidechar( &srcPtr[ i ], &wCh );
+				if( cryptStatusError( status ) )
+					return( status );
 				REQUIRES( !checkOverflowAdd( i, WCHAR_SIZE ) );
 				i += WCHAR_SIZE;
 				break;
@@ -935,8 +981,7 @@ static int checkUtf8String( IN_BUFFER( stringLen ) const void *string,
 	sMemConnect( &stream, string, stringLen );
 	LOOP_LARGE_INITCHECK( i = 0, i < stringLen )
 		{
-		long largeCh;
-		int charLen;
+		int charLen, largeCh;
 
 		ENSURES( LOOP_INVARIANT_LARGE_XXX( i, 0, stringLen - 1 ) );
 
@@ -968,10 +1013,12 @@ static int checkUtf8String( IN_BUFFER( stringLen ) const void *string,
 			}
 
 		/* If it's not a PrintableString character mark it as T61 if it's 
-		   within range, otherwise it's Unicode */
+		   within range, otherwise it's Unicode.  This takes advantage of 
+		   the fact that the valid-in-a-string code points in T61, or at
+		   least 8859-1, cover an identical range below and above 0x80 */
 		if( largeCh >= 128 )
 			{
-			stringType = ( asn1CharFlags[ largeCh & 0x7F ] & P ) ? \
+			stringType = ( asn1CharFlags[ largeCh & 0x7F ] & PI ) ? \
 						 ASN1_STRING_T61 : ASN1_STRING_UNICODE;
 			}
 #endif /* USE_UTF8 */
@@ -1133,6 +1180,7 @@ static int copyUTF8ToNativeString( OUT_BUFFER( destMaxLen, *destLen ) \
 
 	/* Make sure that the translated string will fit into the destination 
 	   buffer */
+	ENSURES( !checkOverflowMul( noChars, WCHAR_SIZE ) );
 	*destLen = noChars * ( ( stringType == ASN1_STRING_UNICODE ) ? \
 						   WCHAR_SIZE : 1 );
 	if( *destLen < 0 || *destLen > destMaxLen )
@@ -1144,7 +1192,7 @@ static int copyUTF8ToNativeString( OUT_BUFFER( destMaxLen, *destLen ) \
 	sMemConnect( &stream, source, sourceLen );
 	LOOP_LARGE( i = 0, i < noChars, i++ )
 		{
-		long largeCh;
+		int largeCh;
 
 		ENSURES( LOOP_INVARIANT_LARGE( i, 0, noChars - 1 ) );
 
@@ -1221,7 +1269,7 @@ int getASN1StringInfo( IN_BUFFER( stringLen ) const void *string,
 		   UTF-8 but that might be convertible into UTF-8, check whether 
 		   this is the case */
 		result = mbstowcs_s( &mbStringLen, NULL, 0, string, stringLen );
-		if( result != 0 || mbStringLen <= 0 || mbStringLen > stringLen )
+		if( result != 0 || !rangeCheck( mbStringLen, 1, stringLen ) )
 			return( CRYPT_ERROR_BADDATA );
 
 		/* It's a valid native 8-bit character string, report it as 
@@ -1338,7 +1386,7 @@ int getASN1StringInfo( IN_BUFFER( stringLen ) const void *string,
 		   Unicode but that might be convertible into Unicode, check whether 
 		   this is the case */
 		result = mbstowcs_s( &mbStringLen, NULL, 0, string, stringLen );
-		if( result != 0 || mbStringLen <= 0 || mbStringLen > stringLen )
+		if( result != 0 || !rangeCheck( mbStringLen, 1, stringLen ) )
 			return( CRYPT_ERROR_BADDATA );
 
 		/* It's a valid native 8-bit character string, report it as 
@@ -1561,8 +1609,11 @@ int copyFromASN1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest,
 			 stringType == ASN1_STRING_T61 );
 #endif /* USE_UTF8 */
 
-	/* It's an 8-bit character set, just copy it across */
-	if( sourceLen <= 0 || sourceLen > destMaxLen )
+	/* It's an 8-bit character set, just copy it across.  We return an 
+	   overflow error from the range check because it can only be triggered 
+	   by an overflow, and the following redundant REQUIRES() is present to
+	   document the validity of the memcpy() parameters */
+	if( !rangeCheck( sourceLen, 1, destMaxLen ) )
 		return( CRYPT_ERROR_OVERFLOW );
 	REQUIRES( rangeCheck( sourceLen, 1, destMaxLen ) );
 	memcpy( dest, source, sourceLen );
@@ -1726,7 +1777,9 @@ int copyToASN1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest,
 
 		ENSURES( LOOP_INVARIANT_LARGE_XXX( i, 0, sourceLen - WCHAR_SIZE ) );
 
-		wCh = getNativeWidechar( &srcPtr[ i ] );
+		status = getNativeWidechar( &srcPtr[ i ], &wCh );
+		if( cryptStatusError( status ) )
+			return( status );
 		if( unicodeTarget )
 			status = writeUint16( &stream, wCh );
 		else
@@ -1745,7 +1798,7 @@ int copyToASN1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest,
 #else
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
-int copyToAsn1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest, 
+int copyToASN1String( OUT_BUFFER( destMaxLen, *destLen ) void *dest, 
 					  IN_LENGTH_SHORT const int destMaxLen, 
 					  OUT_LENGTH_BOUNDED_Z( destMaxLen ) int *destLen, 
 					  IN_BUFFER( sourceLen ) const void *source, 

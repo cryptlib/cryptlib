@@ -91,7 +91,7 @@ static BOOLEAN sanityCheckEnvEncode( const ENVELOPE_INFO *envelopeInfoPtr )
 		envelopeInfoPtr->bufPos == 0 )
 		return( TRUE );
 
-	/* Make sure that the buffer internal bookeeping is OK.  First we apply 
+	/* Make sure that the buffer internal bookkeeping is OK.  First we apply 
 	   the general one-size-fits-all checks, then we apply further 
 	   situation-specific checks */
 	if( !isBufsizeRange( envelopeInfoPtr->segmentStart ) || \
@@ -111,7 +111,8 @@ static BOOLEAN sanityCheckEnvEncode( const ENVELOPE_INFO *envelopeInfoPtr )
 	   to distinguish between definite- and indefinite-length encodings.  
 	   For the definite length segmentStart == segmentDataStart since there 
 	   are no intermediate segment headers, for the indefinite length 
-	   segmentStart < segmentDataStart to accomodate the intervening header.
+	   segmentStart < segmentDataStart to accommodate the intervening 
+	   header.
 
 	   In some rare cases segmentDataStart can be the same as bufPos if 
 	   we're using compression and all input data was absorbed by the 
@@ -579,6 +580,7 @@ static int encodeSegmentHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	ENSURES( cryptStatusOK( status ) && stell( &stream ) == hdrLen );
 	sMemDisconnect( &stream );
 
+	ENSURES( sanityCheckEnvEncode( envelopeInfoPtr ) );
 	return( CRYPT_OK );
 	}
 #endif /* USE_CMS */
@@ -666,6 +668,7 @@ static int completeSegment( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	/* Mark this segment as complete */
 	SET_FLAG( envelopeInfoPtr->dataFlags, ENVDATA_FLAG_SEGMENTCOMPLETE );
 
+	ENSURES( sanityCheckEnvEncode( envelopeInfoPtr ) );
 	return( CRYPT_OK );
 	}
 
@@ -1113,6 +1116,8 @@ static int copyFromEnvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 STDC_NONNULL_ARG( ( 1 ) ) \
 void initEnvelopeStreaming( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	{
+	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
+
 	/* Set the access method pointers */
 	FNPTR_SET( envelopeInfoPtr->copyToEnvelopeFunction, copyToEnvelope );
 	FNPTR_SET( envelopeInfoPtr->copyFromEnvelopeFunction, copyFromEnvelope );

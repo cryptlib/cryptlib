@@ -116,12 +116,14 @@ typedef struct {
 	} PGP_INFO;
 
 #define resetPGPInfo( pgpInfo ) \
+		{ \
 		memset( &( pgpInfo )->key, 0, sizeof( PGP_KEYINFO ) ); \
 		memset( &( pgpInfo )->subKey, 0, sizeof( PGP_KEYINFO ) ); \
 		memset( ( pgpInfo )->userID, 0, sizeof( char * ) * MAX_PGP_USERIDS ); \
 		memset( ( pgpInfo )->userIDlen, 0, sizeof( int ) * MAX_PGP_USERIDS ); \
 		( pgpInfo )->lastUserID = 0; \
-		( pgpInfo )->isOpenPGP = ( pgpInfo )->isComplete = FALSE
+		( pgpInfo )->isOpenPGP = ( pgpInfo )->isComplete = FALSE; \
+		}
 
 /* When we're searching for a key, we need to compare each one against a
    collection of match criteria.  The following structure contains the 

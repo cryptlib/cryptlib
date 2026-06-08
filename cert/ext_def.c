@@ -551,7 +551,7 @@ static const ATTRIBUTE_INFO extensionInfo[] = {
 		The AS ranges are a bit difficult to provide sensible restrictions
 		for, traditionally they were 16-bit numbers but then RFC 4893 
 		extended them to 32-bits, of which subranges up to about 400K have
-		been allocated (with wierd huge gaps in between the small set of
+		been allocated (with weird huge gaps in between the small set of
 		subranges in use), see http://www.iana.org/assignments/as-numbers/ 
 		for current assignments.  We set a limit of 500K to allow some 
 		sanity-checking while also allowing room for future expansion */
@@ -4704,8 +4704,8 @@ int getFieldEncodedTag( IN_PTR const ATTRIBUTE_INFO *attributeInfoPtr,
 		}
 
 	/* It's a tagged field, the actual tag is stored as the encoded-type 
-	   value.  If it's explicitly tagged or an implictly tagged SET/SEQUENCE 
-	   then it's constructed, otherwise it's primitive */
+	   value.  If it's explicitly tagged or an implicitly tagged SET/
+	   SEQUENCE then it's constructed, otherwise it's primitive */
 	if( ( attributeInfoPtr->fieldType == BER_SEQUENCE || \
 		  attributeInfoPtr->fieldType == BER_SET || \
 		  attributeInfoPtr->fieldType == FIELDTYPE_DN || \

@@ -93,7 +93,7 @@ static int checkBignum( const BIGNUM *bignum,
 	/* The following should never happen because bytesToBignum() works with 
 	   unsigned values but we perform the check anyway just in case someone 
 	   messes with the underlying bignum code */
-	ENSURES( !( BN_is_negative( bignum ) ) )
+	ENSURES( !( BN_is_negative( bignum ) ) );
 
 	/* A zero- or one-valued bignum on the other hand is an error because we 
 	   should never find zero or one in a PKC-related value.  This check is 

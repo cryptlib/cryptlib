@@ -272,7 +272,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	SHA1_Init( shaInfo );
 
-	/* If the key size is larger than tha SHA data size, reduce it to the
+	/* If the key size is larger than the SHA data size, reduce it to the
 	   SHA hash size before processing it (yuck.  You're required to do this
 	   though) */
 	if( keyLength > SHA_CBLOCK )

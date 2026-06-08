@@ -81,10 +81,10 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	DLP_PARAMS dlpParams;
-	BYTE buffer[ ( CRYPT_MAX_PKCSIZE * 2 ) + 32 + 8 ];
+	DLP_PARAMS dlpParamsEncrypt, dlpParamsDecrypt;
+	BYTE buffer[ ( CRYPT_MAX_PKCSIZE * 2 ) + 16 + 8 ];
 	const int length = bitsToBytes( contextInfoPtr->ctxPKC->keySizeBits );
-	int encrSize, status;
+	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -93,7 +93,7 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	REQUIRES_B( capabilityInfoPtr != NULL );
 
 	/* Encrypt with the public key */
-	memset( buffer, 0, ( CRYPT_MAX_PKCSIZE * 2 ) + 32 );
+	memset( buffer, 0, ( CRYPT_MAX_PKCSIZE * 2 ) + 16 );
 	memcpy( buffer, randomTestData, 128 );
 #if CRYPT_MAX_PKCSIZE >= 256
 	if( length > 128 )
@@ -107,31 +107,29 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( length > 384 )
 		memcpy( buffer + 384, randomTestData, min( 128, length - 384 ) );
 #endif /* CRYPT_MAX_PKCSIZE >= 512 */
-	setDLPParams( &dlpParams, buffer, length,
-				  buffer, ( CRYPT_MAX_PKCSIZE * 2 ) + 32 );
+	initDLPParamsCrypt( &dlpParamsEncrypt, buffer, length );
 	if( !isGeneratedKey )
 		{
 		/* Force the use of a fixed k value for the encryption test to
 		   avoid having to go via the RNG */
-		dlpParams.inLen2 = -999;
+		dlpParamsEncrypt.inLen2 = -999;
 		}
 	status = capabilityInfoPtr->encryptFunction( contextInfoPtr,
-						( BYTE * ) &dlpParams, sizeof( DLP_PARAMS ) );
+						( BYTE * ) &dlpParamsEncrypt, sizeof( DLP_PARAMS ) );
 	if( cryptStatusError( status ) )
 		return( FALSE );
 
 	/* Decrypt with the private key */
-	encrSize = dlpParams.outLen;
-	setDLPParams( &dlpParams, buffer, encrSize,
-				  buffer, ( CRYPT_MAX_PKCSIZE * 2 ) + 32 );
+	initDLPParamsCrypt( &dlpParamsDecrypt, dlpParamsEncrypt.outParam, 
+						dlpParamsEncrypt.outLen );
 	status = capabilityInfoPtr->decryptFunction( contextInfoPtr,
-						( BYTE * ) &dlpParams, sizeof( DLP_PARAMS ) );
+						( BYTE * ) &dlpParamsDecrypt, sizeof( DLP_PARAMS ) );
 	if( cryptStatusError( status ) )
 		return( FALSE );
 
 	/* Make sure that we're recovered the original, including correct
 	   handling of leading zeroes */
-	return( !memcmp( buffer, randomTestData, 128 ) );
+	return( !memcmp( dlpParamsDecrypt.outParam, randomTestData, 128 ) );
 	}
 
 #ifndef CONFIG_NO_SELFTEST
@@ -383,17 +381,17 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( dlpParams, sizeof( DLP_PARAMS ) ) );
-	assert( isReadPtrDynamic( dlpParams->inParam1, dlpParams->inLen1 ) );
-	assert( isWritePtrDynamic( dlpParams->outParam, dlpParams->outLen ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( noBytes == sizeof( DLP_PARAMS ) );
 	REQUIRES( dlpParams->inLen1 == length );
-	REQUIRES( dlpParams->inParam2 == NULL && \
-			  ( dlpParams->inLen2 == 0 || dlpParams->inLen2 == -999 ) );
-	REQUIRES( dlpParams->outLen >= ( 2 + length ) * 2 && \
-			  dlpParams->outLen < MAX_INTLENGTH_SHORT );
+	REQUIRES( dlpParams->inLen2 == 0 || dlpParams->inLen2 == -999 );
 	REQUIRES( capabilityInfoPtr != NULL );
+
+	/* Clear return values */
+	REQUIRES( rangeCheck( DLP_DATA_SIZE, 1, DLP_DATA_SIZE ) ); 
+	memset( dlpParams->outParam, 0, min( 16, DLP_DATA_SIZE ) );
+	dlpParams->outLen = 0;
 
 	/* Make sure that we're not being fed suspiciously short data 
 	   quantities.  importBignum() performs a more rigorous check, but we
@@ -500,8 +498,8 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	/* Encode the result as a DL data block */
 	status = capabilityInfoPtr->encodeDLValuesFunction( dlpParams->outParam, 
-									dlpParams->outLen, &dlpParams->outLen, 
-									r, s, dlpParams->formatType );
+									DLP_DATA_SIZE, &dlpParams->outLen, r, s, 
+									dlpParams->formatType );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -529,16 +527,11 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( dlpParams, sizeof( DLP_PARAMS ) ) );
-	assert( isReadPtrDynamic( dlpParams->inParam1, dlpParams->inLen1 ) );
-	assert( isWritePtrDynamic( dlpParams->outParam, dlpParams->outLen ) );
 
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( noBytes == sizeof( DLP_PARAMS ) );
 	REQUIRES( dlpParams->inLen1 >= ( 2 + ( length - 2 ) ) * 2 && \
 			  dlpParams->inLen1 < MAX_INTLENGTH_SHORT );
-	REQUIRES( dlpParams->inParam2 == NULL && dlpParams->inLen2 == 0 );
-	REQUIRES( dlpParams->outLen >= length && \
-			  dlpParams->outLen < MAX_INTLENGTH_SHORT );
 	REQUIRES( capabilityInfoPtr != NULL );
 
 	/* Decode the values from a DL data block and make sure that r and s are
@@ -662,7 +655,6 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								   &pkcInfo->dlpParam_p, 
 								   BIGNUM_CHECK_VALUE );
 			}
-		SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 		if( cryptStatusError( status ) )
 			return( status );
 

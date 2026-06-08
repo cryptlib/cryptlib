@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					Certificate (Key) Usage Checking Routines				*
-*						Copyright Peter Gutmann 1997-2015					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -120,10 +120,12 @@ static const EXT_USAGE_INFO extendedUsageInfo[] = {
 	  CRYPT_KEYUSAGE_DIGITALSIGNATURE },
 	{ CRYPT_CERTINFO_EXTKEY_DIRECTORYSERVICE,		/* directoryService */
 	  CRYPT_KEYUSAGE_DIGITALSIGNATURE },
+#ifdef USE_CERT_OBSOLETE
 	{ CRYPT_CERTINFO_EXTKEY_NS_SERVERGATEDCRYPTO,	/* serverGatedCrypto */
 	  CRYPT_KEYUSAGE_KEYENCIPHERMENT },
 	{ CRYPT_CERTINFO_EXTKEY_VS_SERVERGATEDCRYPTO_CA,/* serverGatedCrypto CA */
 	  KEYUSAGE_CA },
+#endif /* USE_CERT_OBSOLETE */
 	{ CRYPT_ATTRIBUTE_NONE, 0 }, { CRYPT_ATTRIBUTE_NONE, 0 }
 	};
 
@@ -361,10 +363,13 @@ int getKeyUsageFromExtKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 #ifdef USE_CERT_OBSOLETE
 	if( !cryptStatusError( status ) )
 		{
-		status = getNetscapeCertTypeFlags( certInfoPtr->attributes, 
-										   algorithmType, errorLocus );
-		if( !cryptStatusError( status ) )
-			localKeyUsage |= status;
+		int netscapeKeyUsage;
+		
+		status = netscapeKeyUsage = \
+				getNetscapeCertTypeFlags( certInfoPtr->attributes, 
+										  algorithmType, errorLocus );
+		if( !cryptStatusError( status ) && netscapeKeyUsage != 0 )
+			localKeyUsage |= netscapeKeyUsage;
 		}
 #endif /* USE_CERT_OBSOLETE */
 	if( cryptStatusError( status ) )
@@ -374,7 +379,7 @@ int getKeyUsageFromExtKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 		*errorType = CRYPT_ERRTYPE_CONSTRAINT;
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, errorInfo,
-				  "%s key usage isn't consistent with its extKeyUsage"
+				  "%s key usage isn't consistent with its extKeyUsage "
 				  "attributes", 
 				  getCertTypeName( certInfoPtr->type ) ) );
 		}
@@ -461,10 +466,14 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 
 	/* There is one universal case in which a key is regarded as invalid for
 	   the requested use and that's when it's explicitly not trusted for the 
-	   purpose.  Note that this check (in oblivious mode) differs slightly
-	   from the later check (in reduced mode or higher) in that in oblivious
-	   mode we ignore the certificate's actual key usage and check only the 
-	   requested against trusted usage */
+	   purpose.  We check this by checking the trustedUsage setting, a 
+	   bitmask that's either -1 (= CRYPT_ERROR) for any usage OK or a 
+	   specific set of bits for allowed usages.
+	   
+	   Note that this check (in oblivious mode) differs slightly from the 
+	   later check (in reduced mode or higher) in that in oblivious mode we 
+	   ignore the certificate's actual key usage and check only the 
+	   requested usage against the trusted usage */
 	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 		certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 		{
@@ -695,7 +704,7 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 	if( isCA )
 		{
 		/* It's a CA certificate, make sure that a CA keyUsage is set */
-		if( !( caKeyUsage | extKeyUsage ) )
+		if( !caKeyUsage )
 			{
 			setErrorValues( CRYPT_CERTINFO_KEYUSAGE, 
 							CRYPT_ERRTYPE_CONSTRAINT );
@@ -709,7 +718,7 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 		{
 		/* It's a non-CA certificate, make sure that no CA keyUsage is 
 		   set */
-		if( ( caKeyUsage | extKeyUsage ) & KEYUSAGE_CA )
+		if( caKeyUsage )
 			{
 			setErrorValues( CRYPT_CERTINFO_CA, CRYPT_ERRTYPE_CONSTRAINT );
 			retExt( CRYPT_ERROR_INVALID,
@@ -911,7 +920,17 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 		/* If there's no critical key usage present we can exit without
 		   performing further checks */
 		if( !keyUsageCritical )
+			{
+			ENSURES( CFI_CHECK_SEQUENCE_11( "trustedUsage", 
+											"CRYPT_COMPLIANCELEVEL_REDUCED", 
+											"selfSigned", "keyUsage", 
+											"caKeyUsage", "trustedUsage", 
+											"CRYPT_COMPLIANCELEVEL_STANDARD", 
+											"caKeyUsage", "usageOK", 
+											"validUsage", 
+											"privateKeyUsage" ) );
 			return( CRYPT_OK );
+			}
 
 		/* If we find an extended key usage and it's non-critical (which 
 		   means that all extended usages are non-critical since they're
@@ -929,7 +948,17 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 			if( DATAPTR_ISSET( attributePtr ) && \
 				!checkAttributeProperty( attributePtr, 
 										 ATTRIBUTE_PROPERTY_CRITICAL ) )
+				{
+				ENSURES( CFI_CHECK_SEQUENCE_11( "trustedUsage", 
+												"CRYPT_COMPLIANCELEVEL_REDUCED", 
+												"selfSigned", "keyUsage", 
+												"caKeyUsage", "trustedUsage", 
+												"CRYPT_COMPLIANCELEVEL_STANDARD", 
+												"caKeyUsage", "usageOK", 
+												"validUsage", 
+												"privateKeyUsage" ) );
 				return( CRYPT_OK );
+				}
 			}
 		ENSURES( LOOP_BOUND_OK );
 		}

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib PKC_INFO Bignum Support Routines				*
-*						Copyright Peter Gutmann 1995-2021					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -147,7 +147,7 @@ void clearTempBignums( INOUT_PTR PKC_INFO *pkcInfo )
 	BN_CTX_final( &pkcInfo->bnCTX );
 	}
 
-/* Initialse and free the bignum information in a context */
+/* Initialise and free the bignum information in a context */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initContextBignums( INOUT_PTR PKC_INFO *pkcInfo, 
@@ -178,17 +178,17 @@ int initContextBignums( INOUT_PTR PKC_INFO *pkcInfo,
 		case CRYPT_ALGO_ECDSA:
 		case CRYPT_ALGO_ECDH:
 			pkcInfo->ecCTX = EC_GROUP_new( EC_GFp_simple_method() );
+			if( pkcInfo->ecCTX == NULL )
+				return( CRYPT_ERROR_MEMORY );
 			pkcInfo->ecPoint = EC_POINT_new( pkcInfo->ecCTX );
 			pkcInfo->tmpPoint = EC_POINT_new( pkcInfo->ecCTX );
-			if( pkcInfo->ecCTX == NULL || pkcInfo->ecPoint == NULL || \
-				pkcInfo->tmpPoint == NULL )
+			if( pkcInfo->ecPoint == NULL || pkcInfo->tmpPoint == NULL )
 				{
 				if( pkcInfo->tmpPoint != NULL )
 					EC_POINT_free( pkcInfo->tmpPoint );
 				if( pkcInfo->ecPoint != NULL )
 					EC_POINT_free( pkcInfo->ecPoint );
-				if( pkcInfo->ecCTX != NULL )
-					EC_GROUP_free( pkcInfo->ecCTX );
+				EC_GROUP_free( pkcInfo->ecCTX );
 				return( CRYPT_ERROR_MEMORY );
 				}
 			STDC_FALLTHROUGH;
@@ -244,7 +244,10 @@ void endContextBignums( INOUT_PTR PKC_INFO *pkcInfo,
 			/* We don't make this an ENSURES since that would prevent 
 			   clearing the data.  Since the cleanup is just a series of 
 			   memset()s of fixed-sized data it doesn't matter if a field 
-			   is in an inconsistent state */
+			   is in an inconsistent state.
+			   
+			   Note that the pkcInfo itself is cleared by the caller as part
+			   of the overall context information */
 
 	REQUIRES_V( isBooleanValue( isDummyContext ) );
 
@@ -369,7 +372,7 @@ static void BN_checksum_ec_group( IN_PTR const EC_GROUP *group,
 	/* Checksum the EC_GROUP metadata */
 	value = checksumBignumData( group, sizeof( EC_GROUP ), value );
 
-	/* EC_GROUPs have an incredibly complex inner stucture (see 
+	/* EC_GROUPs have an incredibly complex inner structure (see 
 	   bn/ec_lcl.h), the following checksums the common data without getting 
 	   into the lists of method-specific data values */
 	BN_checksum( &group->order, &value );
@@ -429,8 +432,6 @@ static int bignumChecksum( INOUT_PTR PKC_INFO *pkcInfo,
 			BN_checksum( &pkcInfo->dlpParam_g, &value );
 			BN_checksum( &pkcInfo->dlpParam_q, &value );
 			BN_checksum( &pkcInfo->dlpParam_y, &value );
-			if( pkcInfo->cryptAlgo == CRYPT_ALGO_DH )
-				BN_checksum( &pkcInfo->dhParam_yPrime, &value );
 			if( isPrivateKey )
 				BN_checksum( &pkcInfo->dlpParam_x, &value );
 			BN_checksum_montgomery( &pkcInfo->dlpParam_mont_p, &value );
@@ -594,23 +595,31 @@ static BN_ULONG fmix64( BN_ULONG k )
 static BN_ULONG MurmurHash3( const BN_ULONG *data, const int len, BN_ULONG seed )
 	{
 	BN_ULONG h1 = seed, h2 = seed;
-	const int nblocks = ( len + 1 ) / 2;
+	const int endOffset = ( len & 1 ) ? len - 1 : INT_MAX;
 	LOOP_INDEX i;
 
 	assert( isReadPtr( data, len * sizeof( BN_ULONG ) ) );
 
 	ENSURES_EXT( len > 0 && len <= BIGNUM_ALLOC_WORDS_EXT2, 0 );
 
-	/* Process each input word, two words at a time */
-	LOOP_EXT( i = 0, i < nblocks, i += 2, BIGNUM_ALLOC_WORDS_EXT2 )
+	/* Process each input word, two words at a time.  Since we're reading two 
+	   words at a time the length has to be an even value which is always the 
+	   case for standard-sized bignums, however we need to be able do deal with 
+	   odd-sized ones in case we ever encounter them at some point, and the 
+	   bignum self-tests do use very short values for testing.  To deal with 
+	   this we use a zero value as the last value if the bignum has an odd 
+	   number of words.  We'd do this anyway because of the over-allocation of 
+	   data for each bignum, but making it explicit here means that we're not 
+	   just relying on a side-effect of the way that the bignums are stored */
+	LOOP_EXT( i = 0, i < len, i += 2, BIGNUM_ALLOC_WORDS_EXT2 )
 		{
 		BN_ULONG k1, k2;
 
-		ENSURES_EXT( LOOP_INVARIANT_EXT_XXX( i, 0, nblocks - 1,
+		ENSURES_EXT( LOOP_INVARIANT_EXT_XXX( i, 0, len - 1,
 											 BIGNUM_ALLOC_WORDS_EXT2 ), 0 );
 
 		k1 = data[ i ];
-		k2 = data[ i + 1 ];
+		k2 = ( i < endOffset ) ? data[ i + 1 ] : 0;
 
 		k1 *= CONST_1; 
 		k1 = ROTL64( k1, 31 ); 
@@ -754,7 +763,7 @@ void printBignumChecksum( const BIGNUM *bignum )
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN checksumECCParameters( const ECC_DOMAINPARAMS *domainParams )
 	{
-	assert( isReadPtr( domainParams, sizeof( DH_DOMAINPARAMS ) ) );
+	assert( isReadPtr( domainParams, sizeof( ECC_DOMAINPARAMS ) ) );
 
 	if( !checksumStaticBignum( &domainParams->p, domainParams->p_checksum ) || \
 		!checksumStaticBignum( &domainParams->a, domainParams->a_checksum ) || \
@@ -810,12 +819,12 @@ void clearTempBignums( INOUT_PTR PKC_INFO *pkcInfo )
 	}
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initContextBignums( INOUT_PTR PKC_INFO *pkcInfo, 
-						IN_BOOL const BOOLEAN isECC )
+						IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
 	}
 STDC_NONNULL_ARG( ( 1 ) ) \
 void endContextBignums( INOUT_PTR PKC_INFO *pkcInfo, 
-						IN_FLAGS( CONTEXT ) const int contextFlags )
+						IN_BOOL const BOOLEAN isDummyContext )
 	{
 	}
 #endif /* USE_PKC */

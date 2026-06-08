@@ -404,6 +404,33 @@
   #pragma enum int
 #endif /* QNX and Watcom C */
 
+/* Try and determine whether we've got 64-bit time_t support */
+
+#if defined( SYSTEM_64BIT )
+  /* 64-bit systems always have 64-bit time_t */
+  #define TIMET_64BIT
+#elif defined( _TIME_BITS ) && ( _TIME_BITS == 64 )
+  /* glibc with 64-bit time_t */
+  #define TIMET_64BIT
+#elif defined( _MSC_VER ) && VC_GE_2005( _MSC_VER ) && !defined( _USE_32BIT_TIME_T )
+  /* VS went to 64-bit time_t for the CRT in 2005, Windows itself has always
+     used 64-bit times  */
+  #define TIMET_64BIT
+#elif ( defined( __FreeBSD__ ) && !defined(__i386__) ) || \
+	  ( defined( __NetBSD__ ) && OSVERSION >= 6 ) || \
+	  ( defined( __OpenBSD__ ) && OSVERSION >= 6 ) || \
+	  ( defined( __linux__ ) && OSVERSION >= 6 )
+  /* Various Unix systems that switched to 64-bit time_t's at some point.  
+     Where it's OS version dependent the version checks aren't exact, for 
+     example Linux switched with 5.6, but we don't have minor OS version 
+     information to check */
+  #define TIMET_64BIT
+#elif defined( _FREERTOS_POSIX_TYPES_H_ ) || defined( _USE_LONG_TIME_T )
+  /* Various signalling types used to indicate the use of 64-bit time_t: 
+     FreRTOS Plus, ESP32 (so ESP-IDF = FreeRTOS variant) */ 
+  #define TIMET_64BIT
+#endif /* 64-bit time_t detection */
+
 /* Useful data types.  Newer compilers provide a 'bool' datatype via 
    stdbool.h, but in a fit of braindamage generally make this a char instead 
    of an int.  While Microsoft's use of char for BOOLEAN in the early 1980s 
@@ -813,7 +840,7 @@ typedef int					BOOLEAN_INT;
 	#include <wchar.h>
   #endif /* Systems with widechar support in stdlib.h */
 #else
-  /* No native widechar support, define the necesary types ourselves unless
+  /* No native widechar support, define the necessary types ourselves unless
 	 we're running under older OS X (Darwin 6.x), which defines wchar_t in
 	 stdlib.h even though there's no wchar support present, or PalmOS, which
 	 defines it in wchar.h but then defines it differently in stddef.h, and
@@ -1130,20 +1157,19 @@ typedef int					BOOLEAN_INT;
    16-byte alignment for AES crypto, however some older Intel AES-NI 
    implementations also require 16-byte alignment.
    
-   Currently ALIGN_STACK_DATA is always the same as ALIGN_STRUCT_FIELD, but 
-   we use distinct defines in case there's a need to tune it for different 
-   situations.
+   We make the overall alignment for structs the same 16-byte value as the 
+   aligned fields within them, without this some 32-bit compilers like
+   SunCC will mis-align the contained fields to 8-byte boundaries (if the
+   overall struct is 8-byte aligned).  Currently ALIGN_STACK_DATA is always 
+   the same as ALIGN_STRUCT_FIELD, but we use distinct defines in case 
+   there's a need to tune it for different situations.
    
    The specifiers are compiler-specific, C11 added _Alignas but by the time
    enough compilers finally got around to implementing it it had been
    changed to the C++ alignas in C23, whereas everyone seems to implement
    the gcc-style '__attribute__(( aligned ))' so we got with that */
 
-#ifdef SYSTEM_64BIT
-  #define ALIGN_AMOUNT	16
-#else
-  #define ALIGN_AMOUNT	8
-  #endif /* SYSTEM_64BIT */
+#define ALIGN_AMOUNT	16
 #if defined( __INTEL_COMPILER ) || \
 	( defined( _MSC_VER ) && VC_GE_2002( _MSC_VER ) )
   #define ALIGN_STRUCT_FIELD	__declspec( align( ALIGN_AMOUNT ) )
@@ -1162,18 +1188,13 @@ typedef int					BOOLEAN_INT;
 #endif /* Compiler-specific alignment directives */
 #define ALIGN_STACK_DATA		ALIGN_STRUCT_FIELD
 
-#ifdef SYSTEM_64BIT
-  #define ALIGN_FIELD_CHECK( pointer ) \
-		  ( ( pointer ) == ptr_align( pointer, 8 ) )
-#else
-  #define ALIGN_FIELD_CHECK( pointer ) \
-		  ( ( pointer ) == ptr_align( pointer, 4 ) )
-#endif /* Compiler-specific field alignment check */
+#define ALIGN_FIELD_CHECK( pointer ) \
+		( ( pointer ) == ptr_align( pointer, ALIGN_AMOUNT ) )
 
 /* Occasionally we need to provide opaque storage for state data that's used
   by the function that we're calling.  The state data may have specific
   alignment requirements so we declare a data type that will result in the 
-  state data being appropiately aligned.  It's used as follows:
+  state data being appropriately aligned.  It's used as follows:
 
 	typedef ALIGN_DATA_TYPE( THING_STATE[ 8 ] ); 
   
@@ -1196,7 +1217,8 @@ typedef int					BOOLEAN_INT;
 /* Perform various operations on pointers */
 
 STDC_NONNULL_ARG( ( 1 ) ) \
-void *ptr_align( const void *ptr, const int units );
+void *ptr_align( const void *ptr, 
+				 IN_RANGE( 4, 16 ) const int units );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int ptr_diff( const void *ptr1, const void *ptr2 );
 
@@ -1293,11 +1315,13 @@ int ptr_diff( const void *ptr1, const void *ptr2 );
 
   /* Widechar functions */
   int mbstowcs_s( size_t *retval, wchar_t *dst, size_t dstmax, 
-				  const char *src, size_t len );
-  int wcstombs_s( size_t *retval, char *dst, size_t dstmax, 
-				  const wchar_t *src, size_t len );
+				  const char *src, size_t count );
+  #if defined( __WINCE__ )
+	int wcstombs_s( size_t *retval, char *dst, size_t dstmax, 
+					const wchar_t *src, size_t count );
+  #endif /* __WINCE__ */
   #if defined( USE_EMBEDDED_OS )
-    /* Support for the thread-safe mbtowc() is practially nonexistent in
+    /* Support for the thread-safe mbtowc() is practically nonexistent in
 	   embedded OSes, but in any case is unlikely to be necessary since
 	   there'll likely only be a single task dealing with crypto */
 	#define mbstate_t		int
@@ -1453,7 +1477,10 @@ int ptr_diff( const void *ptr1, const void *ptr2 );
 #endif /* Systems with distinct zeroise functions */
 
 /* Many OSes support locking pages in memory, the following helper functions 
-   implement this locking */
+   implement this.  In addition some OS variants require that we have the 
+   memory block that we're locking/unlocking present in the memory block 
+   list because of page-size issues, indicated by the 
+   MEM_UNLOCK_REQUIRES_BLOCKLIST define */
 
 #if defined( __MAC__ ) || \
 	( defined( __MSDOS__ ) && defined( __DJGPP__ ) ) || \
@@ -1466,6 +1493,10 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 void unlockMemory( IN_BUFFER( size ) void *address,
 				   IN_LENGTH const int size,
 				   IN_BOOL const BOOLEAN checkPageOverlap );
+  #ifdef __WINDOWS__ 
+	/* Unlock the memory block before zeroising it */
+	#define MEM_UNLOCK_REQUIRES_BLOCKLIST
+  #endif /* Windows */
 #else
   #define lockMemory( address, size )	FALSE
   #define unlockMemory( address, size, checkPageOverlap )

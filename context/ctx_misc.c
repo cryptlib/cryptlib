@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib Context Support Routines					*
-*						Copyright Peter Gutmann 1995-2020					*
+*						Copyright Peter Gutmann 1995-2025					*
 *																			*
 ****************************************************************************/
 
@@ -243,7 +243,7 @@ BOOLEAN sanityCheckCapability( const CAPABILITY_INFO *capabilityInfoPtr )
 #ifdef CONFIG_NO_SELFTEST
 	if( capabilityInfoPtr->selfTestFunction != NULL )
 		{
-		DEBUG_PUTS(( "sanityCheckCapability: Suprious self-test function" ));
+		DEBUG_PUTS(( "sanityCheckCapability: Spurious self-test function" ));
 		return( FALSE );
 		}
 #else
@@ -572,9 +572,14 @@ int hwCryptoInit( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 		return( status );
 
 	/* Open the crypto device and set up a session to it */
-	cryptoFD = open( "/dev/crypto", O_RDWR, 0 );
-	if( cryptoFD < 0 )
+	if( ( cryptoFD = open( "/dev/crypto", O_RDWR, 0 ) ) == -1 )
 		return( CRYPT_ERROR_OPEN );
+	if( cryptoFD <= 2 )
+		{
+		/* We've been given a standard I/O handle, something's wrong */
+		close( cryptoFD );
+		return( CRYPT_ERROR_OPEN );
+		}
 	fcntl( cryptoFD, F_SETFD, FD_CLOEXEC );
 	memset( &session, 0, sizeof( struct session_op ) );
 	if( isConvAlgo( capabilityInfoPtr->cryptAlgo ) )
@@ -624,7 +629,10 @@ int hwCryptoEnd( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	}
 
 /* Clone the hardware crypto state, used as part of a context-clone 
-   operation */
+   operation.  We're being passed a cloned context where the crypto FD
+   and session ID belong to the context that we're cloned from, so we
+   have to replace them with a new crypto FD and session ID created for
+   the cloned context */
 
 #ifdef CIOCCPHASH
 
@@ -679,7 +687,11 @@ int hwCryptoCloneState( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	/* Create a second session and copy the state from the first one into 
 	   it.  We have to dup() the crypto FD and initialise a second session
 	   on it rather than creating a fresh FD and session via hwCryptoInit() 
-	   because session IDs aren't valid across FDs */
+	   because session IDs aren't valid across FDs.
+	   
+	   The isConvAlgo() code path below is present only for documentation
+	   purposes since the current version of /dev/crypto doesn't allow it,
+	   so it's been handled before this point */
 	cryptoFD = dup( oldCryptoFD );
 	if( cryptoFD < 0 )
 		return( CRYPT_ERROR_FAILED );
@@ -1296,7 +1308,7 @@ void getMacAtomicFunction( IN_ALGO const CRYPT_ALGO_TYPE macAlgorithm,
 								MAC_FUNCTION_ATOMIC *macFunctionAtomic )
 	{
 	static const MACFUNCTION_ATOMIC_INFO macFunctions[] = {
-		{ CRYPT_ALGO_SHA2, sha2MacBufferAtomic },
+		{ CRYPT_ALGO_HMAC_SHA2, sha2MacBufferAtomic },
 		{ CRYPT_ALGO_NONE, sha2MacBufferAtomic },
 			{ CRYPT_ALGO_NONE, sha2MacBufferAtomic }
 		};
@@ -1315,7 +1327,10 @@ void getMacAtomicFunction( IN_ALGO const CRYPT_ALGO_TYPE macAlgorithm,
 	if( macAlgorithm == CRYPT_ALGO_HMAC_SHA2 )
 		return;
 
-	/* Find the information for the requested hash algorithm */
+	/* Find the information for the requested hash algorithm.  At the moment 
+	   we only have SHA-2 configured so we always go via the fast-path above,
+	   this code is present in case other algorithms are added in the 
+	   future */
 	LOOP_SMALL( i = 0, 
 				i < FAILSAFE_ARRAYSIZE( macFunctions, \
 										MACFUNCTION_ATOMIC_INFO ) && \

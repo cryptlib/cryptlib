@@ -123,8 +123,8 @@ static int createPubkeyAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   the signature.  However, just to keep everyone on their toes the
 	   name changes for RSA with SHA2 so that the key is given the old
 	   name and the overall blob and signature are given the new name */
-	streamBookmarkSetFullPacket( stream, packetDataLength );
-	ENSURES( streamBookmarkOK( packetDataLength ) );
+	status = streamBookmarkSetFullPacket( stream, &packetDataLength );
+	ENSURES( cryptStatusOK( status ) );
 	writeString32( stream, userNamePtr->value, userNamePtr->valueLength );
 	writeString32( stream, "ssh-connection", 14 );
 	writeString32( stream, "publickey", 9 );
@@ -188,7 +188,7 @@ static int readAuthFailureInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	BOOLEAN partialSuccess = FALSE;
 	int algoParam, status;
 
-	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( authType, sizeof( SSH_AUTHTYPE_TYPE ) ) );
 	assert( isWritePtr( furtherAuthRequired, sizeof( BOOLEAN ) ) );
 
@@ -481,7 +481,7 @@ static int processAuthFailure( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   IN_BOOL const BOOLEAN partialAuthOK )
 	{
 	SSH_AUTHTYPE_TYPE requiredAuthType;
-	BOOLEAN needFurtherAuth = FALSE;
+	BOOLEAN dummy;
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -490,8 +490,12 @@ static int processAuthFailure( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isEnumRange( providedAuthType, SSH_AUTHTYPE ) );
 	REQUIRES( isBooleanValue( partialAuthOK ) );
 
+	/* Try and find out what went wrong.  This is a hard-fail so we're just 
+	   getting the required authentication type from the server's response, 
+	   the rest of the information needed to report the failure-to-
+	   authenticate has been provided by the caller */
 	status = readAuthFailureInfo( sessionInfoPtr, length, 
-						&requiredAuthType, &needFurtherAuth, 
+						&requiredAuthType, &dummy, 
 						( providedAuthType == SSH_AUTHTYPE_PASSWORD ) ? \
 						  TRUE : FALSE );
 	if( cryptStatusError( status ) )
@@ -836,7 +840,13 @@ static int pamAuthenticate( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( cryptStatusOK( status ) )
-		status = wrapSendPacketSSH2( sessionInfoPtr, &stream );
+		{
+		/* Since this is just an awkward form of password authentication, we
+		   use the same quantised padding as we do for password auth */
+		status = wrapPacketSSH2( sessionInfoPtr, &stream, 0, TRUE );
+		if( cryptStatusOK( status ) )
+			status = sendPacketSSH2( sessionInfoPtr, &stream );
+		}
 	sMemDisconnect( &stream );
 
 	return( status );

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *				cryptlib SSHv2 Server-side Channel Message Management		*
-*						Copyright Peter Gutmann 1998-2015					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -191,7 +191,7 @@ static int clearAddressAndPort( SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
-#if 0	/* This is a somewhat special-case function in that it does't apply
+#if 0	/* This is a somewhat special-case function in that it doesn't apply
 		   to an open channel but to a past request for forwarding that
 		   exists outside of the normal attribute space.  Until this type of
 		   functionality is explicitly requested by users we don't handle 
@@ -598,7 +598,7 @@ int processChannelRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	   If there's an error at this point we can't send back a response
 	   because one or both of the channel number and the want_reply flag
-	   aren't available yet.  The consensus among SSH implementors was that
+	   aren't available yet.  The consensus among SSH implementers was that
 	   not doing anything if the request packet is invalid is preferable to
 	   sending back a response with a placeholder channel number or a
 	   response when want_reply could have been false had it been able to
@@ -762,7 +762,12 @@ int processChannelRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			   when the forwarding is cancelled but from reading between the 
 			   lines (new channel-open requests can be received until the 
 			   forwarding is cancelled) it appears that the channels remain 
-			   active until the channel itself is closed */
+			   active until the channel itself is closed.
+			   
+			   Note that this loop relies on clearAddressAndPort() returning
+			   an error code once we run out of port forwards to cancel, so
+			   the loop bound is implicitly set by that rather than an 
+			   explicit loop iterator */
 			LOOP_MED_INITCHECK( requestOK = FALSE, cryptStatusOK( status ) )
 				{
 				ENSURES( LOOP_INVARIANT_MED_GENERIC() );

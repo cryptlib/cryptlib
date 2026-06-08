@@ -52,7 +52,9 @@
 
 /* The lower-level ML-KEM code uses a callback for its entropy generation, 
    this is just a wrapper for its use in keygen, where it requests 2 * 
-   MLKEM_SYMBYTES, and encapsulation, where it requests MLKEM_SYMBYTES */
+   MLKEM_SYMBYTES, and encapsulation, where it requests MLKEM_SYMBYTES.
+   The return value is checked for == 0 on success, != 0 on error, so it
+   matches cryptlib's handling of error values */
 
 int mlk_randombytes( uint8_t *out, size_t outlen )
 	{
@@ -103,14 +105,18 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
 	memcpy( buffer, keyAgreeParams.wrappedKey, MLKEM768_BYTES );
 	memset( keyAgreeParams.wrappedKey, 0, MLKEM768_BYTES );
 
-	/* Decrypt with the private key */
+	/* Decrypt with the private key and make sure that we've recovered the 
+	   shared key */
 	status = capabilityInfoPtr->decryptFunction( contextInfoPtr, 
 					( BYTE * ) &keyAgreeParams, sizeof( KEYAGREE_PARAMS ) );
-	if( cryptStatusError( status ) )
-		return( FALSE );
+	if( cryptStatusOK( status ) && \
+		memcmp( buffer, keyAgreeParams.wrappedKey, MLKEM768_BYTES ) )
+		status = CRYPT_ERROR_FAILED;
 
-	/* Make sure that we've recovered the shared key */
-	return( !memcmp( buffer, keyAgreeParams.wrappedKey, MLKEM768_BYTES ) );
+	/* Clean up */
+	zeroise( &keyAgreeParams, sizeof( KEYAGREE_PARAMS ) );
+
+	return( cryptStatusOK( status ) ? TRUE : FALSE );
 	}
 
 #ifndef CONFIG_NO_SELFTEST
@@ -258,7 +264,8 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   are not sensitive to attacks" and "almost all operations of the 
 	   ML-DSA algorithm are susceptible to these attacks".
 	   
-	   See the cryptlib threat model documentation for how we deal with this */
+	   See the cryptlib threat model documentation for how we deal with 
+	   this */
 	if( keyAgreeParams->publicValueLen != MLKEM768_CIPHERTEXTBYTES )
 		return( CRYPT_ERROR_BADDATA );
 
@@ -336,7 +343,6 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			memcpy( mlkemKey->privKey, pqcKey->priv, MLKEM768_SECRETKEYBYTES );
 			mlkemKey->privKeySize = MLKEM768_SECRETKEYBYTES;
 			}
-		SET_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_PBO );
 
 		ENSURES( sanityCheckPKCInfo( pkcInfo ) );
 		}
@@ -369,6 +375,7 @@ static int generateKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	PKC_INFO *pkcInfo = contextInfoPtr->ctxPKC;
 	MLKEM_KEY_INFO *mlkemKey = pkcInfo->mlkemKey;
+	int mlkStatus;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -378,7 +385,12 @@ static int generateKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	/* Generate and consistency-check a key.  Since everything is handled by 
 	   the low-level ML-KEM code we can do this directly rather than using 
 	   a separate keygen module */
-	if( mlk_kem_keypair( mlkemKey->pubKey, mlkemKey->privKey, 0 ) != 0 )
+	mlkStatus = mlk_kem_keypair( mlkemKey->pubKey, mlkemKey->privKey, 0 );
+	if( mlkStatus == 0 )
+		mlkStatus = mlk_kem_check_sk( mlkemKey->privKey, 0 );
+	if( mlkStatus == 0 )
+		mlkStatus = mlk_kem_check_pk( mlkemKey->pubKey, 0 );
+	if( mlkStatus != 0 )
 		return( CRYPT_ERROR_FAILED );
 	mlkemKey->pubKeySize = MLKEM768_PUBLICKEYBYTES;
 	mlkemKey->privKeySize = MLKEM768_SECRETKEYBYTES;

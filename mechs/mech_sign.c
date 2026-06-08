@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Signature Mechanism Routines					*
-*					  Copyright Peter Gutmann 1992-2018						*
+*					  Copyright Peter Gutmann 1992-2025						*
 *																			*
 ****************************************************************************/
 
@@ -200,8 +200,9 @@ static int readMessageDigest( INOUT_PTR STREAM *stream,
 	   but is merely used in an encode-then-memcmp() process as a check for 
 	   corrupted recovered signature data in order to return a 
 	   CRYPT_ERROR_BADDATA rather than a generic CRYPT_ERROR_SIGNATURE.  
-	   Because of this we don't need to emulate a lot of asn1_rd.c code but 
-	   can just perform a minimal check that things look OK:
+	   Because of this we don't need to emulate a lot of asn1_rd.c code and
+	   check everything exactly but can just perform a minimal check that 
+	   things about right:
 
 		SEQUENCE {
 			SEQUENCE {
@@ -237,6 +238,7 @@ static int writeMessageDigest( INOUT_PTR STREAM *stream,
 							   IN_LENGTH_HASH const int hashSize )
 	{
 	const BYTE *oid = getOID( hashAlgo, hashSize );
+	int status;
 	
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtrDynamic( hash, hashSize ) );
@@ -246,14 +248,18 @@ static int writeMessageDigest( INOUT_PTR STREAM *stream,
 	ENSURES_S( oid != NULL );
 
 	/* writeSequence() */
-	writeHeader( stream, BER_SEQUENCE, 
-				 sizeofAlgoIDex( hashAlgo, hashSize ) + \
-					sizeofShortObject( hashSize ) );
+	status = writeHeader( stream, BER_SEQUENCE, 
+						  sizeofAlgoIDex( hashAlgo, hashSize ) + \
+								sizeofShortObject( hashSize ) );
+	if( cryptStatusError( status ) )
+		return( status );
 
 	/* writeAlgoIDex() */
 	writeHeader( stream, BER_SEQUENCE, sizeofOID( oid ) + sizeofNull() );
 	swrite( stream, oid, sizeofOID( oid ) );
-	writeHeader( stream, BER_NULL, 0 );
+	status = writeHeader( stream, BER_NULL, 0 );
+	if( cryptStatusError( status ) )
+		return( status );
 
 	/* writeOctetString() */
 	writeHeader( stream, BER_OCTETSTRING, hashSize );
@@ -741,7 +747,7 @@ static int sigcheck( INOUT_PTR MECHANISM_SIGN_INFO *mechanismInfo,
 	ANALYSER_HINT( length > MIN_PKCSIZE && length <= CRYPT_MAX_PKCSIZE );
 	CFI_CHECK_UPDATE( "getPkcAlgoParams" );
 
-	/* Format the input data as required for the signatue check to work */
+	/* Format the input data as required for the signature check to work */
 	status = adjustPKCS1Data( decryptedSignature, CRYPT_MAX_PKCSIZE,
 					mechanismInfo->signature, mechanismInfo->signatureLength,
 					length );
@@ -754,7 +760,11 @@ static int sigcheck( INOUT_PTR MECHANISM_SIGN_INFO *mechanismInfo,
 							  IMESSAGE_CTX_SIGCHECK, decryptedSignature,
 							  length );
 	if( cryptStatusError( status ) )
+		{
+		zeroise( decryptedSignature, CRYPT_MAX_PKCSIZE );
+		zeroise( hash, CRYPT_MAX_HASHSIZE );
 		return( status );
+		}
 	CFI_CHECK_UPDATE( "IMESSAGE_CTX_SIGCHECK" );
 
 	/* Decode the payload as required */
@@ -834,11 +844,20 @@ static int sigcheck( INOUT_PTR MECHANISM_SIGN_INFO *mechanismInfo,
 		}
 	sMemDisconnect( &stream );
 
-	/* Clean up */
+	/* Clean up.  What to report in terms of error information is a bit of 
+	   a problem, when used from within cryptlib the status is always 
+	   converted to a signature-check failure but external callers may not
+	   do this which could leak information about the signature.  On the
+	   other hand since it's a public value anyone else can check for 
+	   themselves whether the problem is a padding format error or a hash
+	   comparison failure.  The deciding factor is that something like a
+	   CRYPT_ERROR_BADDATA doesn't necessarily point to a signature check
+	   failure, so we convert any status value at this point to an umbrella
+	   CRYPT_ERROR_SIGNATURE */
 	zeroise( decryptedSignature, CRYPT_MAX_PKCSIZE );
 	zeroise( hash, CRYPT_MAX_HASHSIZE );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( CRYPT_ERROR_SIGNATURE );
 
 	ENSURES( CFI_CHECK_SEQUENCE_4( "getPkcAlgoParams", 
 								   "adjustPKCS1Data", "IMESSAGE_CTX_SIGCHECK", 
@@ -925,7 +944,7 @@ static int getKeysizeBits( const CRYPT_CONTEXT iCryptContext )
 	STREAM stream;
 	BYTE pubkeyBuffer[ ( CRYPT_MAX_PKCSIZE * 3 ) + 8 ];
 	BYTE nBuffer[ CRYPT_MAX_PKCSIZE + 8 ];
-	int nLength, nMSB, bitCount, status;
+	int nLength DUMMY_INIT, nMSB, bitCount, status;
 
 	REQUIRES( isHandleRangeValid( iCryptContext ) );
 
@@ -1149,7 +1168,7 @@ static int generatePssDataBlock( OUT_BUFFER_FIXED( dataMaxLen ) BYTE *data,
 	ENSURES( dbSaltPos + saltLen + hashSize + 1 == dataMaxLen );
 
 	/* dbMask = MGF1( hash, hashSize ) */
-	status = mgf1( dbMask, dataMaxLen, mHash, hashSize, hashAlgo, hashSize );
+	status = mgf1( dbMask, dbLen, mHash, hashSize, hashAlgo, hashSize );
 	ENSURES( cryptStatusOK( status ) );	/* Can only be an internal error */
 
 	/* db = 00 .. 00 01 || salt */
@@ -1464,20 +1483,29 @@ int sigcheckPSS( STDC_UNUSED void *dummy,
 	ANALYSER_HINT( length > MIN_PKCSIZE && length <= CRYPT_MAX_PKCSIZE );
 	CFI_CHECK_UPDATE( "getPkcAlgoParams" );
 
-	/* Format the input data as required for the signatue check to work */
+	/* Format the input data as required for the signature check to work */
 	status = adjustPKCS1Data( decryptedSignature, CRYPT_MAX_PKCSIZE,
 					mechanismInfo->signature, mechanismInfo->signatureLength,
 					length );
 	if( cryptStatusError( status ) )
+		{
+		zeroise( hash, CRYPT_MAX_HASHSIZE );
 		return( status );
+		}
 	CFI_CHECK_UPDATE( "adjustPKCS1Data" );
 
-	/* Recover the signed data */
+	/* Recover the signed data.  See the long comment in sigcheck() for why 
+	   we convert every status code from this point onward to 
+	   CRYPT_ERROR_SIGNATURE */
 	status = krnlSendMessage( mechanismInfo->signContext,
 							  IMESSAGE_CTX_SIGCHECK, decryptedSignature,
 							  length );
 	if( cryptStatusError( status ) )
-		return( status );
+		{
+		zeroise( decryptedSignature, CRYPT_MAX_PKCSIZE );
+		zeroise( hash, CRYPT_MAX_HASHSIZE );
+		return( CRYPT_ERROR_SIGNATURE  );
+		}
 	CFI_CHECK_UPDATE( "IMESSAGE_CTX_SIGCHECK" );
 
 	/* Decode the payload and compare the calculated mHash value with the 
@@ -1490,7 +1518,7 @@ int sigcheckPSS( STDC_UNUSED void *dummy,
 		{
 		zeroise( decryptedSignature, CRYPT_MAX_PKCSIZE );
 		zeroise( hash, CRYPT_MAX_HASHSIZE );
-		return( status );
+		return( CRYPT_ERROR_SIGNATURE  );
 		}
 	CFI_CHECK_UPDATE( "recoverPssDataBlock" );
 	if( mHashLength != hashSize || \
@@ -1507,7 +1535,7 @@ int sigcheckPSS( STDC_UNUSED void *dummy,
 	zeroise( hash, CRYPT_MAX_HASHSIZE );
 	zeroise( mHash, CRYPT_MAX_HASHSIZE );
 	if( cryptStatusError( status ) )
-		return( status );
+		return( CRYPT_ERROR_SIGNATURE );
 
 	ENSURES( CFI_CHECK_SEQUENCE_4( "getPkcAlgoParams", 
 								   "adjustPKCS1Data", "IMESSAGE_CTX_SIGCHECK", 
@@ -1633,9 +1661,9 @@ static void manipulateDataBlock( INOUT_BUFFER_FIXED( length ) BYTE *buffer,
 			break;
 
 		case TEST_CORRUPT_MHASH:
-			/* Corrupt the mHash value.  This is dependent on the hash 
-			   algorithm type, the following is the value for SHA-1 */
-			buffer[ payloadStart + 20 + 8 ]++;
+			/* Corrupt the mHash value.  This is at the end of the buffer so 
+			   easy to locate */
+			buffer[ length - 8 ]++;
 			break;
 
 		case TEST_CORRUPT_BC:

@@ -106,11 +106,19 @@
 			MUTEX_UNLOCK( mutex ); \
 			retIntError(); \
 			}
+
+#define REQUIRES_MUTEX_B( x, mutex ) \
+		if( !( x ) ) \
+			{ \
+			MUTEX_UNLOCK( mutex ); \
+			retIntError_Boolean(); \
+			}
 #else
 
 #define REQUIRES_KRNLMUTEX( x, mutex )
 #define REQUIRES_KRNLMUTEX_V( x, mutex )
 #define REQUIRES_MUTEX( x, mutex )
+#define REQUIRES_MUTEX_B( x, mutex )
 
 #endif /* CONFIG_CONSERVE_MEMORY_EXTRA */
 
@@ -497,7 +505,7 @@ BOOLEAN safeBufferCheck( IN_BUFFER( bufSize ) const void *buffer,
 
 /* Turn a string into an access token, used to maintain control-flow 
    integrity (CFI), implemented as the macro MK_TOKEN().  In it's simplest 
-   form it's used as an acess token for a function call to ensure that the 
+   form it's used as an access token for a function call to ensure that the 
    function really was called as intended:
 
 	functionName( MK_TOKEN( "functionName", 12 ), ..... );
@@ -541,11 +549,16 @@ typedef unsigned int ACCESS_TOKEN;
 
 /* Access tokens are also used to enforce CFI within functions.  The way 
    this works is that an ongoing record of sequence points visited is kept 
-   by an accumulator, and at the end of the function the accumulator value 
-   is compared to the expected value.  This means that there are two 
-   expressions of the control flow, one implicitly coded into the function 
-   and a second explicitly stated at the end of the function.  If the final 
-   values don't match then there's a problem with the control flow.  
+   by an accumulator implemented using an FNV hash, and at the end of the 
+   function the accumulator value is compared to the expected value (we don't
+   bother with the FNV offset basis both because we never have an all-zero
+   value and because the CFI_CHECK_INIT value (see below) serves the same 
+   purpose).  
+   
+   This means that there are two expressions of the control flow, one 
+   implicitly coded into the function and a second explicitly stated at the 
+   end of the function.  If the final values don't match then there's a 
+   problem with the control flow.  
    
    The initial accumulator value used in the CFI protection is derived from 
    the function name:
@@ -624,14 +637,16 @@ typedef unsigned int ACCESS_TOKEN;
    Without reliable access to variadic macros, we have to hardcode the 
    number of arguments into the macro name.  In order to avoid passing large
    numbers of dummy parameters as padding when not all parameters are used,
-   we use a helper function cfiCheckSequence() and nest calls to it where
-   more parameters need to be handled.  Another reason for using this helper
-   function is that it prevents excessively clever compilers from optimising
+   we use helper functions cfiCheckSequenceX() and nest calls to them where
+   more parameters need to be handled.  Another reason for using these helper
+   functions is that it prevents excessively clever compilers from optimising
    away the entire sequence of calculations and the resulting compare of two
-   fixed values (in theory a compiler that inlines cfiCheckSequence() could
-   still do this, but curently no compiler seems to be able to do this) */
+   fixed values (in theory a compiler that inlines cfiCheckSequenceX() could
+   still do this, but currently no compiler seems to be able to do this) */
 
 #ifndef CONFIG_CONSERVE_MEMORY_EXTRA
+
+#define FNV_PRIME		0x01000193 
 
 typedef unsigned int CFI_CHECK_TYPE;
 #define CFI_CHECK_VALUE				cfiCheckValue
@@ -647,249 +662,212 @@ typedef unsigned int CFI_CHECK_TYPE;
 #endif /* Sun braindamage */
 #define CFI_CHECK_INIT				CFI_FUNCTION_NAME
 #define CFI_CHECK_UPDATE( label ) \
-		cfiCheckValue = ( cfiCheckValue << 5 ) + MK_TOKEN( label )
+		cfiCheckValue = ( cfiCheckValue * FNV_PRIME ) + MK_TOKEN( label )
 #define CFI_CHECK_SEQUENCE_1( label1 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-							( CFI_CHECK_TYPE ) -1, ( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence3( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							 ( CFI_CHECK_TYPE ) -1, ( CFI_CHECK_TYPE ) -1 ) )
 #define CFI_CHECK_SEQUENCE_2( label1, label2 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-							MK_TOKEN( label2 ), \
-							( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence3( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							 MK_TOKEN( label2 ), \
+							 ( CFI_CHECK_TYPE ) -1 ) )
 #define CFI_CHECK_SEQUENCE_3( label1, label2, label3 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-							MK_TOKEN( label2 ), MK_TOKEN( label3 ) ) )
+		  cfiCheckSequence3( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							 MK_TOKEN( label2 ), MK_TOKEN( label3 ) ) )
 #define CFI_CHECK_SEQUENCE_4( label1, label2, label3, label4 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-							  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-							MK_TOKEN( label4 ), \
-							( CFI_CHECK_TYPE ) -1, ( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence6( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							 MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							 MK_TOKEN( label4 ), ( CFI_CHECK_TYPE ) -1, \
+							 ( CFI_CHECK_TYPE ) -1 ) )
 #define CFI_CHECK_SEQUENCE_5( label1, label2, label3, label4, label5 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-							  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-							MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-							( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence6( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							 MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							 MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							 ( CFI_CHECK_TYPE ) -1 ) )
 #define CFI_CHECK_SEQUENCE_6( label1, label2, label3, label4, label5, \
 							  label6 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-							  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-							MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-							MK_TOKEN( label6 ) ) )
+		  cfiCheckSequence6( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							 MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							 MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							 MK_TOKEN( label6 ) ) )
 #define CFI_CHECK_SEQUENCE_7( label1, label2, label3, label4, label5, \
 							  label6, label7 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			cfiCheckSequence( \
-				cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-								  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-							  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-							  MK_TOKEN( label6 ) ), \
-							MK_TOKEN( label7 ), \
-							( CFI_CHECK_TYPE ) -1, ( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							 MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							 MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							 MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							 ( CFI_CHECK_TYPE ) -1, ( CFI_CHECK_TYPE ) -1 ) )
 #define CFI_CHECK_SEQUENCE_8( label1, label2, label3, label4, label5, \
 							  label6, label7, label8 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			cfiCheckSequence( \
-				cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-								  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-							  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-							  MK_TOKEN( label6 ) ), \
-							MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-							( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							 MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							 MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							 MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							 MK_TOKEN( label8 ), ( CFI_CHECK_TYPE ) -1 ) )
 /* The following are only required for certificate-related functions, which
    have high levels of complexity */
 #define CFI_CHECK_SEQUENCE_9( label1, label2, label3, label4, label5, \
 							  label6, label7, label8, label9 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			cfiCheckSequence( \
-				cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-								  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-							  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-							  MK_TOKEN( label6 ) ), \
-							MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-							MK_TOKEN( label9 ) ) )
+		  cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							 MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							 MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							 MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							 MK_TOKEN( label8 ), MK_TOKEN( label9 ) ) )
 #define CFI_CHECK_SEQUENCE_10( label1, label2, label3, label4, label5, \
 							   label6, label7, label8, label9, label10 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			cfiCheckSequence( \
-				cfiCheckSequence( \
-					cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-									  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-								  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-								  MK_TOKEN( label6 ) ), \
-								MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-								MK_TOKEN( label9 ) ), \
-							MK_TOKEN( label10 ), \
-							( CFI_CHECK_TYPE ) -1, ( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence3( \
+			cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							   MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							   MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							   MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							   MK_TOKEN( label8 ), MK_TOKEN( label9 ) ), \
+							MK_TOKEN( label10 ), ( CFI_CHECK_TYPE ) -1, \
+							( CFI_CHECK_TYPE ) -1 ) )
 #define CFI_CHECK_SEQUENCE_11( label1, label2, label3, label4, label5, \
 							   label6, label7, label8, label9, label10, \
 							   label11 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			cfiCheckSequence( \
-				cfiCheckSequence( \
-					cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-									  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-								  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-								  MK_TOKEN( label6 ) ), \
-								MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-								MK_TOKEN( label9 ) ), \
-							MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
-							( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence3( \
+			cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							   MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							   MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							   MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							   MK_TOKEN( label8 ), MK_TOKEN( label9 ) ), \
+							 MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
+							 ( CFI_CHECK_TYPE ) -1 ) )
 #define CFI_CHECK_SEQUENCE_12( label1, label2, label3, label4, label5, \
 							   label6, label7, label8, label9, label10, \
 							   label11, label12 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			cfiCheckSequence( \
-				cfiCheckSequence( \
-					cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-									  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-								  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-								  MK_TOKEN( label6 ) ), \
-								MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-								MK_TOKEN( label9 ) ), \
-							MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
-							MK_TOKEN( label12 ) ) )
+		  cfiCheckSequence3( \
+			cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							   MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							   MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							   MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							   MK_TOKEN( label8 ), MK_TOKEN( label9 ) ), \
+							 MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
+							 MK_TOKEN( label12 ) ) )
 #define CFI_CHECK_SEQUENCE_13( label1, label2, label3, label4, label5, \
 							   label6, label7, label8, label9, label10, \
 							   label11, label12, label13 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			  cfiCheckSequence( \
-				cfiCheckSequence( \
-					cfiCheckSequence( \
-						cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-										  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-									  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-									  MK_TOKEN( label6 ) ), \
-									MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-									MK_TOKEN( label9 ) ), \
-								MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
-								MK_TOKEN( label12 ) ), \
-							MK_TOKEN( label13 ), \
+		  cfiCheckSequence6( \
+			cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							   MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							   MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							   MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							   MK_TOKEN( label8 ), MK_TOKEN( label9 ) ), \
+							MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
+							MK_TOKEN( label12 ), MK_TOKEN( label13 ), \
 							( CFI_CHECK_TYPE ) -1, ( CFI_CHECK_TYPE ) -1 ) )
 #define CFI_CHECK_SEQUENCE_14( label1, label2, label3, label4, label5, \
 							   label6, label7, label8, label9, label10, \
 							   label11, label12, label13, label14 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			  cfiCheckSequence( \
-				cfiCheckSequence( \
-					cfiCheckSequence( \
-						cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-										  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-									  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-									  MK_TOKEN( label6 ) ), \
-									MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-									MK_TOKEN( label9 ) ), \
-								MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
-								MK_TOKEN( label12 ) ), \
-							MK_TOKEN( label13 ), MK_TOKEN( label14 ), \
-							( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence6( \
+			cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							   MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							   MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							   MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							   MK_TOKEN( label8 ), MK_TOKEN( label9 ) ), \
+							 MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
+							 MK_TOKEN( label12 ), MK_TOKEN( label13 ), \
+							 MK_TOKEN( label14 ), ( CFI_CHECK_TYPE ) -1 ) )
 #define CFI_CHECK_SEQUENCE_15( label1, label2, label3, label4, label5, \
 							   label6, label7, label8, label9, label10, \
 							   label11, label12, label13, label14, label15 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			  cfiCheckSequence( \
-				cfiCheckSequence( \
-					cfiCheckSequence( \
-						cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-										  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-									  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-									  MK_TOKEN( label6 ) ), \
-									MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-									MK_TOKEN( label9 ) ), \
-								MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
-								MK_TOKEN( label12 ) ), \
-							MK_TOKEN( label13 ), MK_TOKEN( label14 ), \
-							MK_TOKEN( label15 ) ) )
+		  cfiCheckSequence6( \
+			cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							   MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							   MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							   MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							   MK_TOKEN( label8 ), MK_TOKEN( label9 ) ), \
+							 MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
+							 MK_TOKEN( label12 ), MK_TOKEN( label13 ), \
+							 MK_TOKEN( label14 ), MK_TOKEN( label15 ) ) )
 #define CFI_CHECK_SEQUENCE_17( label1, label2, label3, label4, label5, \
 							   label6, label7, label8, label9, label10, \
 							   label11, label12, label13, label14, label15, \
 							   label16, label17 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			  cfiCheckSequence( \
-				  cfiCheckSequence( \
-					cfiCheckSequence( \
-						cfiCheckSequence( \
-							cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-											  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-										  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-										  MK_TOKEN( label6 ) ), \
-										MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-										MK_TOKEN( label9 ) ), \
-									MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
-									MK_TOKEN( label12 ) ), \
-								MK_TOKEN( label13 ), MK_TOKEN( label14 ), \
-								MK_TOKEN( label15 ) ), \
-							MK_TOKEN( label16 ), MK_TOKEN( label17 ), \
-							( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence9( \
+			cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							   MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							   MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							   MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							   MK_TOKEN( label8 ), MK_TOKEN( label9 ) ), \
+							 MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
+							 MK_TOKEN( label12 ), MK_TOKEN( label13 ), \
+							 MK_TOKEN( label14 ), MK_TOKEN( label15 ) ), \
+							 MK_TOKEN( label16 ), MK_TOKEN( label17 ), \
+							 ( CFI_CHECK_TYPE ) -1 ) )
 #define CFI_CHECK_SEQUENCE_18( label1, label2, label3, label4, label5, \
 							   label6, label7, label8, label9, label10, \
 							   label11, label12, label13, label14, label15, \
 							   label16, label17, label18 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			  cfiCheckSequence( \
-				  cfiCheckSequence( \
-					cfiCheckSequence( \
-						cfiCheckSequence( \
-							cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-											  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-										  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-										  MK_TOKEN( label6 ) ), \
-										MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-										MK_TOKEN( label9 ) ), \
-									MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
-									MK_TOKEN( label12 ) ), \
-								MK_TOKEN( label13 ), MK_TOKEN( label14 ), \
-								MK_TOKEN( label15 ) ), \
-							MK_TOKEN( label16 ), MK_TOKEN( label17 ), \
-							MK_TOKEN( label18 ) ) )
+		  cfiCheckSequence9( \
+			cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+							   MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+							   MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+							   MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+							   MK_TOKEN( label8 ), MK_TOKEN( label9 ) ), \
+							 MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
+							 MK_TOKEN( label12 ), MK_TOKEN( label13 ), \
+							 MK_TOKEN( label14 ), MK_TOKEN( label15 ), \
+							 MK_TOKEN( label16 ), MK_TOKEN( label17 ), \
+							 MK_TOKEN( label18 ) ) )
 #define CFI_CHECK_SEQUENCE_20( label1, label2, label3, label4, label5, \
 							   label6, label7, label8, label9, label10, \
 							   label11, label12, label13, label14, label15, \
 							   label16, label17, label18, label19, label20 ) \
 		( cfiCheckValue == \
-		  cfiCheckSequence( \
-			  cfiCheckSequence( \
-				  cfiCheckSequence( \
-					cfiCheckSequence( \
-						cfiCheckSequence( \
-							cfiCheckSequence( \
-								cfiCheckSequence( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
-												  MK_TOKEN( label2 ), MK_TOKEN( label3 ) ), \
-											  MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
-											  MK_TOKEN( label6 ) ), \
-											MK_TOKEN( label7 ), MK_TOKEN( label8 ), \
-											MK_TOKEN( label9 ) ), \
-										MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
-										MK_TOKEN( label12 ) ), \
-									MK_TOKEN( label13 ), MK_TOKEN( label14 ), \
-									MK_TOKEN( label15 ) ), \
-								MK_TOKEN( label16 ), MK_TOKEN( label17 ), \
-								MK_TOKEN( label18 ) ), \
-							MK_TOKEN( label19 ), MK_TOKEN( label20 ), \
-							( CFI_CHECK_TYPE ) -1 ) )
+		  cfiCheckSequence3( \
+			cfiCheckSequence9( \
+			  cfiCheckSequence9( CFI_FUNCTION_NAME, MK_TOKEN( label1 ), \
+								 MK_TOKEN( label2 ), MK_TOKEN( label3 ), \
+								 MK_TOKEN( label4 ), MK_TOKEN( label5 ), \
+								 MK_TOKEN( label6 ), MK_TOKEN( label7 ), \
+								 MK_TOKEN( label8 ), MK_TOKEN( label9 ) ), \
+							   MK_TOKEN( label10 ), MK_TOKEN( label11 ), \
+							   MK_TOKEN( label12 ), MK_TOKEN( label13 ), \
+							   MK_TOKEN( label14 ), MK_TOKEN( label15 ), \
+							   MK_TOKEN( label16 ), MK_TOKEN( label17 ), \
+							   MK_TOKEN( label18 ) ), \
+							 MK_TOKEN( label19 ), MK_TOKEN( label20 ), \
+							 ( CFI_CHECK_TYPE ) -1 ) )
 
-CFI_CHECK_TYPE cfiCheckSequence( const CFI_CHECK_TYPE initValue, 
-								 const CFI_CHECK_TYPE label1Value,
-								 const CFI_CHECK_TYPE label2Value, 
-								 const CFI_CHECK_TYPE label3Value );
+CFI_CHECK_TYPE cfiCheckSequence3( const CFI_CHECK_TYPE initValue, 
+								  const CFI_CHECK_TYPE label1Value,
+								  const CFI_CHECK_TYPE label2Value, 
+								  const CFI_CHECK_TYPE label3Value );
+CFI_CHECK_TYPE cfiCheckSequence6( const CFI_CHECK_TYPE initValue, 
+								  const CFI_CHECK_TYPE label1Value,
+								  const CFI_CHECK_TYPE label2Value, 
+								  const CFI_CHECK_TYPE label3Value,
+								  const CFI_CHECK_TYPE label4Value,
+								  const CFI_CHECK_TYPE label5Value,
+								  const CFI_CHECK_TYPE label6Value );
+CFI_CHECK_TYPE cfiCheckSequence9( const CFI_CHECK_TYPE initValue, 
+								  const CFI_CHECK_TYPE label1Value,
+								  const CFI_CHECK_TYPE label2Value, 
+								  const CFI_CHECK_TYPE label3Value,
+								  const CFI_CHECK_TYPE label4Value,
+								  const CFI_CHECK_TYPE label5Value,
+								  const CFI_CHECK_TYPE label6Value,
+								  const CFI_CHECK_TYPE label7Value,
+								  const CFI_CHECK_TYPE label8Value,
+								  const CFI_CHECK_TYPE label9Value );
 
 #else
 
@@ -1295,7 +1273,28 @@ typedef unsigned int CFI_CHECK_TYPE;
 /* The double-indexed loop allows us to apply loop invariants.  Alongside 
    checking that the index remains within bounds, we can also verify that 
    the sum of the primary and secondary index variables match the loop 
-   bound */
+   bound:
+
+	LOOP_INDEX i;
+
+	LOOP_MED( i = 0, i < max, i++ )
+		{
+		LOOP_INVARIANT_MED( i, 0, max - 1 );
+		
+		<loop body>;
+		}
+	ENSURES( LOOP_BOUND_OK );
+
+	LOOP_INDEX_PTR THING_TYPE *thingPtr;
+
+	LOOP_MED( thingPtr = getFirstThing(), thingPtr != NULL, \
+			  thingPtr = getNextThing( thingPtr ) )
+		{
+		ENSURES( LOOP_INVARIANT_MED_GENERIC() );
+
+		<loop body>;
+		}
+	ENSURES( LOOP_BOUND_OK ); */
 
 #define LOOP_INVARIANT_EXT( index, lowerBound, upperBound, loopBound ) \
 		( ( index ) >= ( lowerBound ) && ( index ) <= ( upperBound ) && \
@@ -2256,11 +2255,11 @@ typedef struct {
 #endif /* VS 2010 and above */
 
 /* To avoid a circular dependency, misc/analyse.h defines its own versions
-   of TRUE and FALSE.  The follwing check ensures that they're consistent
+   of TRUE and FALSE.  The follpwing check ensures that they're consistent
    with what we define here */
 
 #if ( TRUE != ANALYSIS_TRUE ) || ( FALSE != ANALYSIS_FALSE )
-  #error TRUE/FALSE is defined differentl to ANALYSIS_TRUE/ANALYSIS_FALSE
+  #error TRUE/FALSE is defined differently to ANALYSIS_TRUE/ANALYSIS_FALSE
 #endif /* TRUE != ANALYSIS_TRUE || FALSE != ANALYSIS_FALSE */
 
 /* The fault-detecting value of TRUE is OK for internal use, but for 
@@ -2335,7 +2334,8 @@ typedef struct {
    while using the compiler intrinsics that existed is suboptimal leading to 
    little gain from using intrinsics, but newer forms of the checking
    intrinsics compile to a single add/sub/whatever + jo/jno so it makes 
-   sense to use them where available.
+   sense to use them where available.  See also the comment on this in 
+   context/ctx_bnmath.c:calculateMultiplier().
 
    By default we check for overflow of MAX_INTLENGTH, which is the safe
    upper bound allowed by cryptlib and provides a good safety margin for
@@ -2409,7 +2409,7 @@ typedef struct {
 	 __builtin_add_overflow() as of clang 4 (check with 
 	 "defined( __clang__ ) && ( __clang_major__ >= 4 )" but not the _p,
 	 variants so we can only enable them for gcc.  Also while gcc added the
-	 base intrisics in gcc 5, it only added the _p forms in gcc 7 */
+	 base intrinsics in gcc 5, it only added the _p forms in gcc 7 */
   #define checkOverflowAddLong( a, b ) \
 		  __builtin_add_overflow_p( a, b, ( __typeof__( ( a ) + ( b ) ) ) 0 )
   #define checkOverflowSubLong( a, b ) \
@@ -2422,15 +2422,8 @@ typedef struct {
   #define checkOverflowSubInt( a, b )	( ( a ) < INT_MIN + ( b ) )
   #define checkOverflowMulInt( a, b )	( ( a ) > INT_MAX / ( b ) )
   #endif /* 0 */
-  #define checkOverflowAddLong( a, b )	( ( a ) < 0 || ( b ) < 0 || \
-										  ( a ) > LONG_MAX - ( b ) )
-  #define checkOverflowSubLong( a, b )	( ( a ) < 0 || ( b ) < 0 || \
-										  ( a ) < ( b ) )
-  #define checkOverflowMulLong( a, b )	( ( a ) < 0 || ( b ) <= 0 || \
-										  ( a ) > LONG_MAX / ( b ) )
 #endif /* Compiler-specific overflow checks */
 #define checkOverflowDivInt( a, b )		( ( a ) < 0 || ( b ) <= 0 )
-#define checkOverflowDivLong( a, b )	( ( a ) < 0 || ( b ) <= 0 )
 
 /* Three-operand forms of the above.  Note that checkOverflowSub3() 
    evaluates ( a - b ) - c, not a - ( b - c ) */

@@ -457,7 +457,7 @@ static int deleteItemFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 		{
 		/* It's not a private-key object, try again with a public-key 
 		   object */
-		status = krnlSendMessage( hardwareInfo->iCryptKeyset,
+		status = krnlSendMessage( deviceInfoPtr->iCryptKeyset,
 								  IMESSAGE_KEY_GETKEY, &getkeyInfo,
 								  KEYMGMT_ITEM_PUBLICKEY );
 		}

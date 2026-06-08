@@ -675,8 +675,8 @@ static BOOLEAN handleCertChainError( const CRYPT_CERTIFICATE cryptCertChain,
 	if( errorLocus == CRYPT_CERTINFO_TRUSTED_IMPLICIT || \
 		errorLocus == CRYPT_CERTINFO_TRUSTED_USAGE )
 		{
-		/* The error occured because of a problem with the root certificate, 
-		   try again with an implicitly-trusted root */
+		/* The error occurred because of a problem with the root 
+		   certificate, try again with an implicitly-trusted root */
 		if( errorLocus == CRYPT_CERTINFO_TRUSTED_IMPLICIT )
 			{
 			fprintf( outputStream, "\nWarning: The certificate chain didn't "
@@ -918,6 +918,26 @@ int testOCSPImport( void )
 	BYTE buffer[ BUFFER_SIZE ];
 	int count, i, status;
 
+	/* Test the OCSP request import */
+	if( ( filePtr = fopen( convertFileName( OCSP_REQ_FILE ), "rb" ) ) == NULL )
+		{
+		puts( "Couldn't find OCSP request file for import test." );
+		return( FALSE );
+		}
+	fputs( "Testing OCSP request import...\n", outputStream );
+	count = fread( buffer, 1, BUFFER_SIZE, filePtr );
+	fclose( filePtr );
+	fprintf( outputStream, "OCSP request has size %d bytes.\n", count );
+	status = cryptImportCert( buffer, count, CRYPT_UNUSED,
+							  &cryptCert );
+	if( cryptStatusError( status ) )
+		return( handleCertImportError( status, __LINE__ ) );
+	if( !printCertInfo( cryptCert ) )
+		return( FALSE );
+	cryptDestroyCert( cryptCert );
+	fputs( "\n", outputStream );
+
+	/* Test the OCSP response import */
 	if( ( filePtr = fopen( convertFileName( OCSP_OK_FILE ), "rb" ) ) == NULL )
 		{
 		puts( "Couldn't find OCSP OK response file for import test." );

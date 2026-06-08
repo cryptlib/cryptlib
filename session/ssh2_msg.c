@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib SSHv2 Control Message Management				*
-*						Copyright Peter Gutmann 1998-2008					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -40,14 +40,14 @@ static int sendChannelClose( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int handleWindowAdjust( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   const long channelNo,
-							   IN_LENGTH_Z const int length )
+							   IN_LENGTH const int length )
 	{
 	int windowCount, windowSize DUMMY_INIT, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES( channelNo >= 0 && channelNo <= CHANNEL_MAX );
-	REQUIRES( isIntegerRange( length ) );
+	REQUIRES( isIntegerRangeNZ( length ) );
 
 	/* Get the window parameters */
 	status = getChannelExtAttribute( sessionInfoPtr, 
@@ -426,9 +426,13 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			/* These are messages that consume window space, adjust the data 
 			   window and communicate changes to the other side if 
 			   necessary */
-			status = handleWindowAdjust( sessionInfoPtr, channelNo, length );
-			if( cryptStatusError( status ) )
-				return( status );
+			if( length > 0 )
+				{
+				status = handleWindowAdjust( sessionInfoPtr, channelNo, 
+											 length );
+				if( cryptStatusError( status ) )
+					return( status );
+				}
 
 			/* If it's a standard data packet, we're done */
 			if( sshInfo->packetType == SSH_MSG_CHANNEL_DATA )
@@ -452,7 +456,7 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		case SSH_MSG_CHANNEL_REQUEST:
 			status = processChannelRequest( sessionInfoPtr, stream,
-											prevChannelNo );
+											channelNo );
 			if( cryptStatusError( status ) && status != OK_SPECIAL )
 				return( status );
 			return( OK_SPECIAL );
@@ -651,7 +655,10 @@ int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* Get the first available channel (which must succeed, since we
 		   just checked it above) and close each successive channel in
-		   turn */
+		   turn.  If there's an error then we stop trying to close 
+		   individual channels since subsequent closes are unlikely to
+		   succeed if the current one failed, and fall through to the
+		   overall session-close */
 		status = selectChannel( sessionInfoPtr, CRYPT_USE_DEFAULT,
 								CHANNEL_WRITE );
 		LOOP_MED( noChannels = 0, 
@@ -692,14 +699,17 @@ int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  "closing the overall session" ) );
 				}
 
-			return( CRYPT_OK );
+			/* We either successfully closed something other than the last 
+			   channel (meaning that the caller can continue) or there was 
+			   an error */
+			return( status );
 			}
 		}
 
 	/* It's the last open channel, flush through the remaining data */
 	status = sendCloseNotification( sessionInfoPtr, NULL, 0 );
 	if( cryptStatusError( status ) || \
-		TEST_FLAG( sessionInfoPtr->protocolFlags, SESSION_FLAG_SENDCLOSED ) )
+		TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_SENDCLOSED ) )
 		{
 		/* There's a problem at the network level or the other side has
 		   already closed the session, exit */
@@ -726,7 +736,7 @@ int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Read back the other side's channel close(s).  This is somewhat messy
 	   since the other side could decide that it still wants to send us
 	   arbitrary amounts of data (the spec is rather vague about how urgent
-	   a channel close is, the general idea among implementors seems to be
+	   a channel close is, the general idea among implementers seems to be
 	   that you should let output drain before you close your side but if 
 	   you're in the middle of sending a 2GB file that's a lot of output to 
 	   drain).  This can also be complicated by implementation-specific 
@@ -760,8 +770,8 @@ int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		int length;
 		
-		ENSURES( LOOP_INVARIANT_MED_REV_XXX( noChannels, 1, 
-											 SSH_MAX_CHANNELS ) );
+		ENSURES( LOOP_INVARIANT_SMALL_REV_XXX( noChannels, 1, 
+											   SSH_MAX_CHANNELS ) );
 
 		status = length = readHeaderFunction( sessionInfoPtr, &readInfo );
 		if( cryptStatusError( status ) )

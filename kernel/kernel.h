@@ -405,7 +405,6 @@ typedef struct {
 	MUTEX_DECLARE_STORAGE( mutex3 );
 	MUTEX_DECLARE_STORAGE( mutex4 );
 	MUTEX_DECLARE_STORAGE( mutex5 );
-	MUTEX_DECLARE_STORAGE( mutex6 );
   #endif /* USE_SESSIONS */
 #endif /* USE_THREADS */
 
@@ -699,11 +698,11 @@ int cloneObject( IN_HANDLE const int objectHandle,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int checkTargetType( IN_HANDLE const CRYPT_HANDLE originalObjectHandle, 
 					 OUT_HANDLE_OPT CRYPT_HANDLE *targetObjectHandle,
-					 const long targets );
+					 const int targets );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int findTargetType( IN_HANDLE const CRYPT_HANDLE originalObjectHandle, 
 					OUT_HANDLE_OPT CRYPT_HANDLE *targetObjectHandle,
-					const long targets );
+					const int targets );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2 ) ) \
 int waitForObject( IN_HANDLE const int objectHandle, 
 				   OUT_PTR_PTR_COND OBJECT_INFO **objectInfoPtrPtr );

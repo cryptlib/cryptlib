@@ -93,7 +93,7 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 		return( status );
 
 	/* Hash the data to be signed unless it's a special-snowflake algorithm
-	   that direcctly signs the raw message */
+	   that directly signs the raw message */
 	if( !isBernsteinAlgo( signAlgo ) )
 		{
 		MESSAGE_CREATEOBJECT_INFO createInfo;
@@ -172,7 +172,10 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 	   but we make it explicit here */
 	if( checkOverflowAdd( objectLength, totalSigLength ) || \
 		sizeofObject( objectLength + totalSigLength ) > signedObjectMaxLength )
+		{
+		zeroise( dataSignature, CRYPT_MAX_PKCSIZE + 128 );
 		return( CRYPT_ERROR_OVERFLOW );
+		}
 
 	/* Write the outer SEQUENCE wrapper and copy the payload into place 
 	   behind it.  We don't check for an error at the end of each group of 
@@ -211,6 +214,7 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 	if( cryptStatusOK( status ) )
 		*signedObjectLength = stell( &stream );
 	sMemDisconnect( &stream );
+	zeroise( dataSignature, CRYPT_MAX_PKCSIZE + 128 );
 	if( cryptStatusError( status ) )
 		{
 		retExt( status,
@@ -240,9 +244,8 @@ int checkX509signature( IN_BUFFER( signedObjectLength ) const void *signedObject
 	STREAM stream;
 	ALGOID_PARAMS algoIDparams;
 	void *objectPtr DUMMY_INIT_PTR, *sigPtr;
-	long length;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
-	int sigCheckAlgo, sigLength, status;	/* int vs.enum */
+	int sigCheckAlgo, sigLength, length, status;	/* int vs.enum */
 
 	assert( isReadPtrDynamic( signedObject, signedObjectLength ) );
 	assert( formatInfo == NULL || \
@@ -322,8 +325,8 @@ int checkX509signature( IN_BUFFER( signedObjectLength ) const void *signedObject
 	ANALYSER_HINT( sigPtr != NULL );
 	CFI_CHECK_UPDATE( "readAlgoIDex" );
 
-	/* If the signature algorithm isn't what we expected the best that we 
-	   can do is report a signature error */
+	/* If the signature algorithm isn't what we expected then the best that 
+	   we can do is report a signature error */
 	if( sigCheckAlgo != signAlgo )
 		{
 		retExt( CRYPT_ERROR_SIGNATURE,
@@ -472,6 +475,7 @@ int checkRawSignature( IN_BUFFER( signatureLength ) const void *signature,
 	int status;
 
 	assert( isReadPtrDynamic( signature, signatureLength ) );
+	assert( isWritePtr( errorInfo, sizeof( ERROR_INFO ) ) );
 
 	REQUIRES( isShortIntegerRangeNZ( signatureLength ) );
 	REQUIRES( isHandleRangeValid( iSigCheckContext ) );

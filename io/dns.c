@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						cryptlib DNS Interface Routines						*
-*						Copyright Peter Gutmann 1998-2014					*
+*						Copyright Peter Gutmann 1998-2025					*
 *																			*
 ****************************************************************************/
 
@@ -46,7 +46,10 @@ static int getAddrInfoError( INOUT_PTR NET_STREAM_INFO *netStream,
 
 	REQUIRES( cryptStatusError( status ) );
 
-	/* Get the text string describing the error that occurred */
+	/* Get the text string describing the error that occurred.  For the 
+	   Windows case the returned length is the string length without the
+	   null terminator so we don't need to perform any special handling for 
+	   it */
   #ifdef __WINDOWS__
 	errorStringLen = FormatMessageA( FORMAT_MESSAGE_FROM_SYSTEM | \
 									 FORMAT_MESSAGE_IGNORE_INSERTS | \
@@ -56,8 +59,8 @@ static int getAddrInfoError( INOUT_PTR NET_STREAM_INFO *netStream,
 									 errorStringBuffer, 1024, NULL );
 	if( errorStringLen <= 0 )
 		{
-		memcpy( errorStringBuffer, "<Unknown>", 13 );
-		errorStringLen = 13;
+		memcpy( errorStringBuffer, "<Unknown>", 9 );
+		errorStringLen = 9;
 		}
 	setErrorString( NETSTREAM_ERRINFO, errorStringBuffer, errorStringLen );
   #elif defined( USE_IPv6 )
@@ -78,7 +81,9 @@ static int getAddrInfoError( INOUT_PTR NET_STREAM_INFO *netStream,
 *																			*
 ****************************************************************************/
 
-/* Emulation of IPv6 DNS lookup functions */
+/* Emulation of IPv6 DNS lookup functions.  Since these are emulations of
+   Posix-API functions we can't use cryptlib-style return codes but instead
+   use Posix ones, 0 = success, < 0, typically -1, = error */
 
 #if !defined( USE_IPv6_DNSAPI )
 
@@ -114,18 +119,19 @@ static int addAddrInfo( INOUT_PTR_OPT struct addrinfo *prevAddrInfoPtr,
 	assert( isWritePtr( addrInfoPtrPtr, sizeof( struct addrinfo * ) ) );
 	assert( isReadPtrDynamic( address, addrLen ) );
 	
-	REQUIRES( addrLen == IP_ADDR_SIZE );
-	REQUIRES( port >= MIN_PORT_NUMBER && port < MAX_DEST_PORT_NUMBER );
+	REQUIRES_EXT( addrLen == IP_ADDR_SIZE, -1 );
+	REQUIRES_EXT( rangeCheck( port, MIN_PORT_NUMBER, \
+							  MAX_DEST_PORT_NUMBER ), -1 );
 
 	/* Clear return value */
 	*addrInfoPtrPtr = NULL;
 
 	/* Allocate the new element, clear it, and set fixed fields for IPv4 */
-	REQUIRES( isShortIntegerRangeNZ( sizeof( struct addrinfo ) ) );
+	REQUIRES_EXT( isShortIntegerRangeNZ( sizeof( struct addrinfo ) ), -1 );
 	addrInfoPtr = clAlloc( "addAddrInfo", sizeof( struct addrinfo ) );
 	if( addrInfoPtr == NULL )
 		return( OUT_OF_MEMORY_ERROR );
-	REQUIRES( isShortIntegerRangeNZ( sizeof( struct sockaddr_in ) ) );
+	REQUIRES_EXT( isShortIntegerRangeNZ( sizeof( struct sockaddr_in ) ), -1 );
 	sockAddrPtr = clAlloc( "addAddrInfo", sizeof( struct sockaddr_in ) );
 	if( sockAddrPtr == NULL )
 		{
@@ -161,6 +167,7 @@ static int SOCKET_API my_getaddrinfo( IN_STRING_OPT const char *nodename,
 									  const struct addrinfo *hints,
 									  OUT_PTR_PTR_COND struct addrinfo **res )
 	{
+	struct addrinfo *prevAddrInfo;
 	struct hostent *pHostent;
 	const int nodenameLen = ( nodename != NULL ) ? \
 							strnlen_s( nodename, MAX_DNS_SIZE ) : 0;
@@ -203,7 +210,7 @@ static int SOCKET_API my_getaddrinfo( IN_STRING_OPT const char *nodename,
 	   convert them to the internal one if we process them using an internal
 	   function rather than a system one */
 #ifdef EBCDIC_CHARS
-	strcpy( servBuffer, servname );
+	strcpy_s( servBuffer, 16, servname );
 	bufferToAscii( servBuffer, servBuffer );
 	servname = servBuffer;
 #endif /* EBCDIC_CHARS */
@@ -231,7 +238,7 @@ static int SOCKET_API my_getaddrinfo( IN_STRING_OPT const char *nodename,
 		return( addAddrInfo( NULL, res, &address, sizeof( in_addr_t  ), 
 							 port, hints->ai_socktype ) );
 		}
-	ENSURES( nodename != NULL );
+	ENSURES_EXT( nodename != NULL, -1 );
 
 	/* If it's a dotted address, there's a single address, convert it to
 	   in_addr form and return it.  Because it's possible to create DNS 
@@ -245,12 +252,12 @@ static int SOCKET_API my_getaddrinfo( IN_STRING_OPT const char *nodename,
 	   cryptlib-internal functions for this */
 	LOOP_LARGE( i = 0, i < nodenameLen, i++ )
 		{
-		ENSURES( LOOP_INVARIANT_LARGE( i, 0, nodenameLen - 1 ) );
+		ENSURES_EXT( LOOP_INVARIANT_LARGE( i, 0, nodenameLen - 1 ), -1 );
 
 		if( !isdigit( nodename[ i ] ) && nodename[ i ] != DOTTED_DELIMITER )
 			break;
 		}
-	ENSURES( LOOP_BOUND_OK );
+	ENSURES_EXT( LOOP_BOUND_OK, -1 );
 	if( i >= nodenameLen )
 		{
 		const in_addr_t address = inet_addr( nodename );
@@ -275,23 +282,25 @@ static int SOCKET_API my_getaddrinfo( IN_STRING_OPT const char *nodename,
 			return( hostErrno );
 		return( HOST_NOT_FOUND_ERROR );
 		}
-	ENSURES( pHostent->h_length == IP_ADDR_SIZE );
-	LOOP_MED( i = 0, 
+	ENSURES_EXT( pHostent->h_length == IP_ADDR_SIZE, -1 );
+	LOOP_MED( i = 0, prevAddrInfo = NULL, 
 			  i < IP_ADDR_COUNT && \
 					pHostent->h_addr_list[ i ] != NULL, 
 			  i++ )
 		{
 		int netAPIstatus;
 
-		ENSURES( LOOP_INVARIANT_MED( i, 0, IP_ADDR_COUNT - 1 ) );
+		ENSURES_EXT( LOOP_INVARIANT_MED( i, 0, IP_ADDR_COUNT - 1 ), -1 );
 
-		netAPIstatus = addAddrInfo( NULL, res, pHostent->h_addr_list[ i ], 
+		netAPIstatus = addAddrInfo( prevAddrInfo, res, 
+									pHostent->h_addr_list[ i ], 
 									pHostent->h_length, port, 
 									hints->ai_socktype );
-		if( cryptStatusError( netAPIstatus ) )
+		if( netAPIstatus != 0 )		/* Posix API status code */
 			return( netAPIstatus );
+		prevAddrInfo = *res;
 		}
-	ENSURES( LOOP_BOUND_OK );
+	ENSURES_EXT( LOOP_BOUND_OK, -1 );
 
 	return( 0 );
 	}
@@ -342,13 +351,20 @@ static int SOCKET_API my_getnameinfo( IN_BUFFER( salen ) \
 									  int flags )
 	{
 	const struct sockaddr_in *sockAddr = ( struct sockaddr_in * ) sa;
+#if 0
 	const char *ipAddress;
+#else
+	char ipAddress[ CRYPT_MAX_TEXTSIZE + 8 ];
+#endif /* 0 */
 	int ipAddressLen;
+
+	static_assert( INET_ADDRSTRLEN <= CRYPT_MAX_TEXTSIZE,
+				   "ipAddress buffer too small" );
 
 	assert( isReadPtrDynamic( sa, salen ) && \
 			salen >= sizeof( struct sockaddr_in ) );
-	assert( isReadPtrDynamic( node, nodelen ) && nodelen >= 10 );
-	assert( isReadPtrDynamic( service, servicelen ) && servicelen >= 8 );
+	assert( isWritePtrDynamic( node, nodelen ) && nodelen >= 10 );
+	assert( isWritePtrDynamic( service, servicelen ) && servicelen >= 8 );
 
 	/* Perform basic error checking.  Since this is supposed to be an 
 	   emulation of a (normally) built-in function we don't perform any 
@@ -370,8 +386,14 @@ static int SOCKET_API my_getnameinfo( IN_BUFFER( salen ) \
 	strlcpy_s( service, servicelen, "0" );
 
 	/* Get the remote system's address and port number */
+#if 0
 	if( ( ipAddress = inet_ntoa( sockAddr->sin_addr ) ) == NULL )
 		return( -1 );
+#else
+	if( inet_ntop( AF_INET, &sockAddr->sin_addr, ipAddress, 
+				   CRYPT_MAX_TEXTSIZE ) == NULL )
+		return( -1 );
+#endif /* 0 */
 	ipAddressLen = strnlen_s( ipAddress, CRYPT_MAX_TEXTSIZE );
 	if( ipAddressLen <= 0 || ipAddressLen > nodelen - 1 )
 		return( -1 );
@@ -403,14 +425,14 @@ int getAddressInfo( INOUT_PTR NET_STREAM_INFO *netStream,
 					IN_BOOL const BOOLEAN isDgramSocket )
 	{
 	struct addrinfo hints;
-	char nameBuffer[ MAX_DNS_SIZE + 1 + 8 ], portBuffer[ 16 + 8 ];
+	char nameBuffer[ MAX_DNS_SIZE + 1 + 8 ], portBuffer[ 8 + 8 ];
 	int errorCode, result;
 
 	assert( isWritePtr( netStream, sizeof( NET_STREAM_INFO ) ) );
 	assert( isWritePtr( addrInfoPtrPtr, sizeof( struct addrinfo * ) ) );
 	assert( isServer || name != NULL );
 
-	REQUIRES( port >= MIN_PORT_NUMBER && port < MAX_DEST_PORT_NUMBER );
+	REQUIRES( rangeCheck( port, MIN_PORT_NUMBER, MAX_DEST_PORT_NUMBER ) );
 	REQUIRES( isBooleanValue( isServer ) );
 	REQUIRES( isServer || name != NULL );
 	REQUIRES( ( name == NULL && nameLen == 0 ) || \
@@ -616,6 +638,7 @@ void getSocketAddress( IN_BUFFER( sockAddrLen ) const void *sockAddr,
 				addressMaxLen <= MAX_DNS_SIZE );
 
 	/* Clear return values */
+	REQUIRES_V( 9 <= addressMaxLen );
 	memcpy( address, "<Unknown>", 9 );
 	*addressLen = 9;
 	*port = 0;
@@ -650,7 +673,8 @@ void getSocketAddress( IN_BUFFER( sockAddrLen ) const void *sockAddr,
 	REQUIRES_V( rangeCheck( nameLength, 1, addressMaxLen ) );
 	memcpy( address, nameBuffer, nameLength );
 	*addressLen = nameLength;
-	status = strGetNumeric( portBuffer, portLength, &localPort, 1, 65536 );
+	status = strGetNumeric( portBuffer, portLength, &localPort, 
+							MIN_PORT_NUMBER, MAX_SRC_PORT_NUMBER );
 	if( cryptStatusError( status ) )
 		{
 		DEBUG_DIAG(( "Returned host port is invalid" ));

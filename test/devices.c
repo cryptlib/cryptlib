@@ -78,7 +78,6 @@
    initially to generate the test keys and then re-clear it to use the
    initially-generated keys from then on */
 
-#define TEST_KEYGEN
 #if ( TEST_INITIALISE_DEVICE > 0 ) && !defined( TEST_KEYGEN )
   #define TEST_KEYGEN		/* Must be enabled if initialising card */
 #endif /* TEST_INITIALISE_DEVICE && !TEST_KEYGEN */
@@ -609,7 +608,7 @@ static const DEVICE_CONFIG_INFO *checkLogonDevice( const CRYPT_DEVICE cryptDevic
 		puts( " device needs to be initialised." );
 		if( willInitialise )
 			{
-			/* Check for devices that can't be intialised in software and 
+			/* Check for devices that can't be initialised in software and 
 			   warn about attempts to initialise them */
 			if( !strcmp( tokenLabel, "Software Only" ) || \
 				!strcmp( tokenLabel, "Alice" ) )
@@ -1020,7 +1019,7 @@ static BOOLEAN testDeviceHighlevel( const CRYPT_DEVICE cryptDevice,
 	   their presence.  Although generally we can re-use a private key
 	   context for both public and private operations, some devices or drivers
 	   (and by logical extension thereof the cryptlib kernel) don't allow
-	   public-key ops with private keys so we have to eplicitly handle public
+	   public-key ops with private keys so we have to explicitly handle public
 	   and private keys.  This gets somewhat messy because some devices don't
 	   have public keys but allow public-key ops with their private keys,
 	   while others separate public and private keys and don't allow the
@@ -1501,11 +1500,11 @@ int testDevices( void )
 *																			*
 ****************************************************************************/
 
-/* The following code takes two unitialised devices and turns one into a
+/* The following code takes two uninitialised devices and turns one into a
    fully initialised CA device, which then runs a PnP PKI session that turns
    the other into a fully initialised user device.
 
-   The following configuration options can be used to change the beaviour of
+   The following configuration options can be used to change the behaviour of
    the self-test, for example to run it on the local machine in loopback mode
    vs. running on two distinct machines.  Defining an IP address (or host
    name) for SERVER_MACHINE_ADDRESS will have the client connect to that

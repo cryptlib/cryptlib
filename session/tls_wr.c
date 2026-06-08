@@ -710,7 +710,7 @@ int wrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Calculate the payload length information */
 	REQUIRES( !checkOverflowAdd( offset, sessionInfoPtr->sendBufStartOfs ) );
-	status = calculateStreamObjectLength( stream, 
+	status = streamOffsetFromPosition( stream, 
 								offset + sessionInfoPtr->sendBufStartOfs,
 								&payloadLength );
 	if( cryptStatusError( status ) )

@@ -32,7 +32,7 @@
 
 /* Optionally include and activate the Visual Leak Detector library if
    we're running a debug build under VC++ 6.0.  Note that this can't be
-   run at the same time as Bounds Checker, since the two interefere with
+   run at the same time as Bounds Checker, since the two interfere with
    each other */
 
 #if defined( _MSC_VER ) && ( _MSC_VER == 1200 ) && 0
@@ -215,8 +215,8 @@ static void updateConfig( void )
 								FALSE );
 	if( cryptStatusError( status ) )
 		{
-		printf( "\n\nError comitting device driver profile update to disk, "
-				"status %d.\n", status );
+		printf( "\n\nError committing device driver profile update to "
+				"disk, status %d.\n", status );
 		cleanupAndExit( EXIT_FAILURE );
 		}
 
@@ -302,7 +302,7 @@ static void checkDebugReleaseMismatch( void )
 		Library		Test code	Result
 		-------		---------	------
 		Debug		Debug		OK
-		Debug		Release		Some unexpected results
+		Debug		Release		TLS session cache active in library, not in test code.
 		Release		Debug		Tests will fail
 		Release		Release		OK */
 	if( !libraryIsRelease && testIsRelease )
@@ -979,7 +979,7 @@ static int fuzz( const char *cmd, const char *arg )
 //	cmd = "certchain"; arg = "test/fuzz/certchain.dat";
 //	cmd = "certreq"; arg = "test/fuzz/certreq.dat";
 //	cmd = "cms"; arg = "test/fuzz/cms.dat";
-//	cmd = "pgp"; arg = "test/fuzz/pgp.dat";
+	cmd = "pgp"; arg = "test/fuzz/pgp.dat";
 //	cmd = "pkcs12"; arg = "test/fuzz/pkcs12.dat";
 //	cmd = "pkcs15"; arg = "test/fuzz/pkcs15.dat";
 //
@@ -987,7 +987,7 @@ static int fuzz( const char *cmd, const char *arg )
 //	cmd = "tls-server"; arg = "test/fuzz/tls_cli.dat";
 //	cmd = "tls13-server"; arg = "test/fuzz/tls13_cli.dat";
 //	cmd = "ssh-client"; arg = "test/fuzz/ssh_svr.dat";
-	cmd = "ssh-server"; arg = "test/fuzz/ssh_cli.dat";
+//	cmd = "ssh-server"; arg = "test/fuzz/ssh_cli.dat";
 //	cmd = "ocsp-client"; arg = "test/fuzz/ocsp_svr.dat";
 //	cmd = "ocsp-server"; arg = "test/fuzz/ocsp_cli.dat";
 //	cmd = "scvp-client"; arg = "test/fuzz/scvp_svr.dat";
@@ -1160,6 +1160,12 @@ static void testKludge( const char *cmd, const char *arg )
 	checkCreateDatabaseKeysets();
 	testCertManagement();
 #endif /* 0 */
+
+	/* Fault-injection test harness */
+#ifdef CONFIG_FAULTS
+	testFaults();
+	cleanupAndExit( EXIT_SUCCESS );
+#endif /* CONFIG_FAULTS */
 
 	/* Fuzzing test harness.  This is a noreturn function */
 #ifdef CONFIG_FUZZ
@@ -1540,7 +1546,9 @@ TInt E32Dll( TDllReason )
 #elif defined( __clang__ )
   #pragma clang diagnostic ignored "-Wmacro-redefined"
 #endif /* Warnings about macro redefinitions */
-#define ALIGN_DATA_TYPE( x )	void *x
+#if defined( __INTEL_COMPILER ) || defined( _MSC_VER )
+  #define ALIGN_DATA_TYPE( x )	void *x
+#endif /* Intel CC || Visual Studio */
 #ifdef _MSC_VER
   #undef VC_16BIT
   #undef VC_LE_VC6

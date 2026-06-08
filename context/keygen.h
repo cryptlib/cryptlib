@@ -55,7 +55,7 @@ int initSieve( IN_ARRAY( sieveSize ) BOOLEAN *sieveArray,
 			   const BIGNUM *candidate );
 CHECK_RETVAL_RANGE( 0, SIEVE_SIZE ) \
 int nextSievePosition( IN_INT_SHORT int value );
-CHECK_RETVAL_RANGE( 0, PRIME_TABLE_SIZE ) \
+CHECK_RETVAL_LENGTH_SHORT \
 int getSieveEntry( IN_RANGE( 0, PRIME_TABLE_SIZE - 1 ) int position );
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN primeCheckQuick( const BIGNUM *candidate );
@@ -82,7 +82,7 @@ int generatePrimeRSA( INOUT_PTR PKC_INFO *pkcInfo,
 					  INOUT_PTR BIGNUM *candidate, 
 					  IN_LENGTH_SHORT_MIN( bytesToBits( MIN_PKCSIZE ) / 2 ) \
 							const int noBits, 
-					  IN_INT const long exponent );
+					  IN_INT const int exponent );
 
 #endif /* _KEYGEN_DEFINED */
 

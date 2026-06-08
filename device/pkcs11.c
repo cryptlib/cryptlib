@@ -412,7 +412,7 @@ static int controlFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 	   move into an undesired state once the SSO -> user change is triggered.
 
 	   The FSM for initialisation on devices that perform a multi-stage
-	   bootstrap and require all of the various intialisation functions to
+	   bootstrap and require all of the various initialisation functions to
 	   be used one after the other (e.g. Fortezza) is:
 
 			uninitialised/zeroised

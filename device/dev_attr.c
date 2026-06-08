@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *					cryptlib Crypto Device Attribute Routines				*
-*						Copyright Peter Gutmann 1997-2019					*
+*						Copyright Peter Gutmann 1997-2025					*
 *																			*
 ****************************************************************************/
 
@@ -116,12 +116,13 @@ static int getRandomChecked( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	REQUIRES( getRandomFunction != NULL );
 
 	/* Get random data from the device and check it using the FIPS 140 
-	   tests.  If it's less than MIN_KEYSIZE then we let it pass since the 
-	   sample size is too small to be useful.  Samples this small are only 
-	   ever drawn from the generator for use as padding with crypto keys 
-	   that are always >= MIN_KEYSIZE which will themselves have been 
-	   checked when they were read, so a problem with the generator will be 
-	   detected even if we don't check small samples */
+	   tests, retrying for NO_ENTROPY_FAILURES if the attempt fails.  If 
+	   it's less than MIN_KEYSIZE then we let it pass since the sample size 
+	   is too small to be useful.  Samples this small are only ever drawn 
+	   from the generator for use as padding with crypto keys that are 
+	   always >= MIN_KEYSIZE which will themselves have been checked when 
+	   they were read, so a problem with the generator will be detected 
+	   even if we don't check small samples */
 	LOOP_SMALL( i = 0, i < NO_ENTROPY_FAILURES, i++ )
 		{
 		int status;
@@ -252,7 +253,6 @@ int getDeviceAttribute( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 									CRYPT_DEVINFO_LOGGEDIN, NULL, 0, NULL );
 				if( cryptStatusError( status ) )
 					return( status );
-				assert( !isMessageObjectUnlocked( messageExtInfo ) );
 				}
 			*valuePtr = TEST_FLAG( deviceInfoPtr->flags, 
 								   DEVICE_FLAG_LOGGEDIN ) ? TRUE : FALSE;
@@ -262,7 +262,7 @@ int getDeviceAttribute( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 		case CRYPT_IATTRIBUTE_HWSTORAGE:
 			REQUIRES( deviceInfoPtr->type == CRYPT_DEVICE_HARDWARE );
 
-			*valuePtr = deviceInfoPtr->deviceHardware->iCryptKeyset;
+			*valuePtr = deviceInfoPtr->iCryptKeyset;
 			return( CRYPT_OK );
 #endif /* CONFIG_CRYPTO_HW1 || CONFIG_CRYPTO_HW2 */
 		}

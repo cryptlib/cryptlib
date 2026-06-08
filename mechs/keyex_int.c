@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						Internal Key Exchange Routines						*
-*						Copyright Peter Gutmann 1993-2019					*
+*						Copyright Peter Gutmann 1993-2025					*
 *																			*
 ****************************************************************************/
 
@@ -328,7 +328,10 @@ int exportPublicKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
 								  IMESSAGE_GETATTRIBUTE, &value, 
 								  CRYPT_OPTION_ENCR_HASH );
 		if( cryptStatusError( status ) )
+			{
+			clearMechanismInfo( &mechanismInfo );
 			return( status );
+			}
 		mechanismInfo.auxInfo = value;
 #if 0	/* Currently we always use SHA-256, since OAEP isn't used for 
 		   anything.  If it's necessary to use other variants then it'll
@@ -338,7 +341,10 @@ int exportPublicKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
 								  IMESSAGE_GETATTRIBUTE, &value, 
 								  CRYPT_OPTION_ENCR_HASHPARAM );
 		if( cryptStatusError( status ) )
+			{
+			clearMechanismInfo( &mechanismInfo );
 			return( status );
+			}
 		mechanismInfo.auxInfoParam = value;
 #endif /* 0 */
 		}
@@ -358,7 +364,7 @@ int exportPublicKey( OUT_BUFFER_OPT( encryptedKeyMaxLength, \
 				  getKeyexTypeName( keyexType ) ) );
 		}
 
-	/* If we're perfoming a dummy export for a length check, set up a dummy 
+	/* If we're performing a dummy export for a length check, set up a dummy 
 	   value to write */
 	if( encryptedKey == NULL )
 		{
@@ -484,14 +490,16 @@ int importConventionalKey( IN_BUFFER( encryptedKeyLength ) \
 	if( importAlgo != queryInfo.cryptAlgo || \
 		importMode != queryInfo.cryptMode )
 		{
+		const CRYPT_ALGO_TYPE cryptAlgo = queryInfo.cryptAlgo;
+		const CRYPT_MODE_TYPE cryptMode = queryInfo.cryptMode;
+		
 		zeroise( &queryInfo, sizeof( QUERY_INFO ) );
 		retExt( CRYPT_ARGERROR_NUM1,
 				( CRYPT_ARGERROR_NUM1, errorInfo,
 				  "Key import algorithm %s-%s doesn't match required "
 				  "algorithm %s-%s", getAlgoName( importAlgo ), 
-				  getModeName( importMode ), 
-				  getAlgoName( queryInfo.cryptAlgo ), 
-				  getModeName( queryInfo.cryptMode ) ) );
+				  getModeName( importMode ), getAlgoName( cryptAlgo ), 
+				  getModeName( cryptMode ) ) );
 		}
 
 	/* Extract the encrypted key from the buffer and decrypt it.  Since we

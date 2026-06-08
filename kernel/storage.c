@@ -92,9 +92,10 @@
    always assigned to the system device and default user.
    
    For example for SSH we need two AES contexts and two HMAC-SHA2 contexts, 
-   for TLS we need two AES context, two SHA-2 contexts (for hanshake hashes), 
-   and two HMAC-SHA2 contexts, and for both we need a SHA-1 context for legacy 
-   hashing before SHA-2 can be negotiated.  The full context list is:
+   for TLS we need two AES context, two SHA-2 contexts (for handshake 
+   hashes), and two HMAC-SHA2 contexts, and for both we need a SHA-1 context 
+   for legacy hashing before SHA-2 can be negotiated.  The full context list 
+   is:
 
 	Selftest for object creation: AES.
 
@@ -314,9 +315,7 @@ typedef struct {
 	const STORAGE_CANARY_DATA scoreboardInfoCanary;
 #endif /* USE_TLS */
 
-	/* The config option information.  This has a size defined by a complex
-	   preprocessor expression (it's not a fixed struct) so we allocate it
-	   as a byte array and let the caller manage it */
+	/* The config option information */
 	ALIGN_STRUCT_FIELD OPTION_INFO optionInfo[ OPTION_INFO_COUNT + 2 ];
 
 	/* Object-specific storage.  We have to individually align each structure
@@ -337,7 +336,7 @@ typedef struct {
 #ifdef USE_KEYSETS
 	ALIGN_STRUCT_FIELD KEYSET_STORAGE keysetStorage0;
   #if NO_KEYSET_OBJECTS > 1
-	ALIGN_STRUCT_FIELDKEYSET_STORAGE keysetStorage1;
+	ALIGN_STRUCT_FIELD KEYSET_STORAGE keysetStorage1;
   #endif /* NO_KEYSET_OBJECTS > 1 */
 	BOOLEAN keysetStorageUsed[ NO_KEYSET_OBJECTS ];
 #endif /* USE_KEYSETS */
@@ -481,7 +480,7 @@ void clearKernelData( void )
 	{
 	KERNEL_DATA *krnlDataPtr = &systemStorage.krnlData;
 
-#ifdef __STDC__
+#if defined( __STDC__ )
 	zeroise( ( BYTE * ) krnlDataPtr + offsetof( KERNEL_DATA, initLevel ), 
 			 sizeof( KERNEL_DATA ) - offsetof( KERNEL_DATA, initLevel ) );
 #else
@@ -741,7 +740,7 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 					
 					if( index == CRYPT_ERROR )
 						break;
-					TRACE_DIAG(( "Allocated static AES object #%d", i ));
+					TRACE_DIAG(( "Allocated static AES object #%d", index ));
 					systemStorage.aesStorageUsed[ index ] = TRUE;
 					return( ( index == 0 ) ? &systemStorage.aesStorage0 : \
 											 &systemStorage.aesStorage1 );
@@ -768,7 +767,7 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 					
 					if( index == CRYPT_ERROR )
 						break;
-					TRACE_DIAG(( "Allocated static SHA2 object #%d", i ));
+					TRACE_DIAG(( "Allocated static SHA2 object #%d", index ));
 					systemStorage.sha2StorageUsed[ index ] = TRUE;
 					return( ( index == 0 ) ? &systemStorage.sha2Storage0 : \
 											 &systemStorage.sha2Storage1 );
@@ -786,7 +785,7 @@ void *getBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 					
 					if( index == CRYPT_ERROR )
 						break;
-					TRACE_DIAG(( "Allocated static HMAC-SHA2 object #%d", i ));
+					TRACE_DIAG(( "Allocated static HMAC-SHA2 object #%d", index ));
 					systemStorage.hmacSha2StorageUsed[ index ] = TRUE;
 					return( ( index == 0 ) ? &systemStorage.hmacSha2Storage0 : \
 											 &systemStorage.hmacSha2Storage1 );
@@ -897,7 +896,7 @@ int releaseBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 				if( index == CRYPT_ERROR )
 					break;
 				ENSURES( systemStorage.aesStorageUsed[ index ] == TRUE );
-				TRACE_DIAG(( "Freed static AES object #%d", i ));
+				TRACE_DIAG(( "Freed static AES object #%d", index ));
 				systemStorage.aesStorageUsed[ index ] = FALSE;
 				return( CRYPT_OK );
 				}
@@ -921,7 +920,7 @@ int releaseBuiltinObjectStorage( IN_ENUM( OBJECT_TYPE ) const OBJECT_TYPE type,
 				if( index == CRYPT_ERROR )
 					break;
 				ENSURES( systemStorage.sha2StorageUsed[ index ] == TRUE );
-				TRACE_DIAG(( "Freed static SHA2 object #%d", i ));
+				TRACE_DIAG(( "Freed static SHA2 object #%d", index ));
 				systemStorage.sha2StorageUsed[ index ] = FALSE;
 				return( CRYPT_OK );
 				}

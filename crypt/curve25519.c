@@ -5883,50 +5883,87 @@ int clib_ed25519_public_from_private( uint8_t public_key[ 32 ],
 	return( TRUE );
 	}
 
-/* Check whether the public key is valid.  Since these are public values we 
-   don't bother sanitising temporary storage */
+/* Check whether the public value is valid.  Since these are public values 
+   we don't bother sanitising temporary storage */
 
 int clib_x25519_pubkey_verify( const uint8_t public_key[ 32 ] )
 	{
-	fe A;
+	fe A, one, uMinusOne, uPlusOne, uPlusOneInv, edY;
+	ge_p3 edPoint;
 	uint8_t pubKeyPrime[ 32 ];
 
-	/* Catch someone feeding us oddball non-canonical encodings */
+	/* Catch someone feeding us oddball non-canonical encodings, which would
+	   otherwise slip past the checks below */
 	fe_frombytes( A, public_key );
 	fe_tobytes( pubKeyPrime, A );
 	if( memcmp( public_key, pubKeyPrime, 32 ) )
 		return( FALSE );
 
-	/* Since we've already got a checking function for Ed25519 keys it's
-	   easiest to just convert the key and reuse that function, with all 
-	   required checks consistently done in the same place.  This takes an
-	   Ed25519 (x, y) point and converts it to a Curve25519 (u, v) form as
-	   the u coordinate and a sign bit by computing u = ( 1 + y ) / ( 1 - y )
-	   (except for the point at infinity).
-	   
-	   However this doesn't work for all Curve25519 keys for reasons that 
-	   need (but will probably never get) further exploration, so for now we 
-	   rely on the fact that x25519_scalar_mult() produces an all-zero 
-	   output if fed a point with small order.  
-	   
-	   This in turn though only provides a check once it's too late, which 
-	   can leak timing information about the multiplication by the secret
-	   scalar.  Because of this we blacklist the small-order points in 
-	   higher-level code */
-#if 0
-	fe Z, zplusy, zminusy, zminusy_inv;
-	uint8_t , ed25519pubKey[ 32 ];
+	/* Check for u = 0, a point of order 2 on both the curve and its twist.  
+	   The caller has already done this for us in its small-order check but 
+	   we make it explicit here */
+	if( fe_iszero( A ) )
+		return( FALSE );
 
-	fe_1( Z );
-	fe_add( zplusy, Z, A );
-	fe_sub( zminusy, Z, A );
-	fe_invert( zminusy_inv, zminusy );
-	fe_mul( zplusy, zplusy, zminusy_inv );
-	fe_tobytes( ed25519pubKey, zplusy );
-	return( clib_ed25519_pubkey_verify( ed25519pubKey ) );
-#else
+	/* Check for u = 1 and u = -1 (mod p), the order-4 points.  u = 1 is 
+	   order 4 on the curve, u = -1 is also degenerate since it makes the 
+	   denominator of the birational map to Edwards form zero, i.e. the 
+	   point maps to infinity */
+	fe_1( one );
+	fe_sub( uMinusOne, A, one );
+	if( fe_iszero( uMinusOne ) )
+		return( FALSE );
+	fe_add( uPlusOne, A, one );
+	if( fe_iszero( uPlusOne ) )
+		return( FALSE );
+
+	/* Convert the Curve25519 u-coordinate to an Ed25519 y-coordinate using 
+	   the birational map y = ( u - 1 ) / ( u + 1 ), then check for the 
+	   remaining small-order cases using the existing Ed25519 check.  If the 
+	   resulting y doesn't correspond to a valid Ed25519 point, so
+	   ge_frombytes_vartime() fails, then the Curve25519 point is on the 
+	   quadratic twist rather than the curve itself.  The twist has cofactor 
+	   4 so its small-order points have order dividing 4 which we've already 
+	   caught using the u = 0, u = +/-1 check above */
+	fe_invert( uPlusOneInv, uPlusOne );
+	fe_mul( edY, uMinusOne, uPlusOneInv );
+	fe_tobytes( pubKeyPrime, edY );
+	if( ge_frombytes_vartime( &edPoint, pubKeyPrime ) != 0 )
+		return( TRUE );		/* Twist point, not small order */
+
+#if 1
+	/* Check for small order on the Ed25519 curve.  We reuse the code from 
+	   clib_ed25519_has_small_order() rather than calling it directly since 
+	   it treats a decode failure as small order which doesn't apply here 
+	   (the twist case is already handled above).  The sign bit in the 
+	   encoding doesn't affect these checks since they test x = 0, y = 0, 
+	   and y * sqrt( -1 ) = +/-x, all of which are invariant under x -> -x.
+	   
+	   TODO: Redo clib_ed25519_has_small_order() to be usable for both
+	   Ed25519 and X25519 checks, the following is a quick cut&paste for
+	   now */
+{
+fe x, x_neg, y, y_sqrtm1, recip, c;
+
+	fe_invert( recip, edPoint.Z );
+	fe_mul( x, edPoint.X, recip );
+	if( fe_iszero( x ) )
+		return( FALSE );
+	fe_mul( y, edPoint.Y, recip );
+	if( fe_iszero( y ) )
+		return( FALSE );
+	fe_neg( x_neg, edPoint.X );
+	fe_mul( y_sqrtm1, y, sqrtm1 );
+	fe_sub( c, y_sqrtm1, x );
+	if( fe_iszero( c ) )
+		return( FALSE );
+	fe_sub( c, y_sqrtm1, x_neg );
+	if( fe_iszero( c ) )
+		return( FALSE );
+}
+#endif /* 0 */
+
 	return( TRUE );
-#endif
 	}
 
 int

@@ -509,7 +509,7 @@ static int writeObjectIDs( INOUT_PTR STREAM *stream,
 	return( status );
 	}
 
-/* Write atributes to a buffer */
+/* Write attributes to a buffer */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4, 6, 7 ) ) \
 int writeKeyAttributes( OUT_BUFFER( privKeyAttributeMaxLen, \

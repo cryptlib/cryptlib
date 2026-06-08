@@ -259,7 +259,7 @@ static int refillStream( INOUT_PTR STREAM *stream )
 		/* If partial reads are allowed let the caller know.  This only 
 		   works once, after this the persistent error state will return an 
 		   underflow error before we get to this point */
-		stream->status = CRYPT_ERROR_UNDERFLOW;
+		sSetError( stream, CRYPT_ERROR_UNDERFLOW );
 		return( TEST_FLAG( stream->flags, STREAM_FLAG_PARTIALREAD ) ? \
 				OK_SPECIAL : CRYPT_ERROR_UNDERFLOW );
 		}
@@ -279,7 +279,7 @@ static int refillStream( INOUT_PTR STREAM *stream )
 			   reads are allowed let the caller know.  This only works once, 
 			   after this the persistent error state will return an 
 			   underflow error before we get to this point */
-			stream->status = CRYPT_ERROR_UNDERFLOW;
+			sSetError( stream, CRYPT_ERROR_UNDERFLOW );
 			return( TEST_FLAG( stream->flags, STREAM_FLAG_PARTIALREAD ) ? \
 					OK_SPECIAL : CRYPT_ERROR_UNDERFLOW );
 			}
@@ -305,7 +305,7 @@ static int refillStream( INOUT_PTR STREAM *stream )
 		   one byte of data available */
 		if( length <= stream->bufPos )
 			{
-			stream->status = CRYPT_ERROR_UNDERFLOW;
+			sSetError( stream, CRYPT_ERROR_UNDERFLOW );
 			return( CRYPT_ERROR_UNDERFLOW );
 			}
 		}
@@ -386,6 +386,7 @@ static int expandVirtualFileStream( INOUT_PTR STREAM *stream,
 	/* If it's a small buffer allocated when we initially read a file and it 
 	   doesn't look like we'll be overflowing a standard-size buffer, just 
 	   expand it up to STREAM_VFILE_BUFSIZE */
+	REQUIRES_S( !checkOverflowAdd( stream->bufPos, length ) );
 	if( stream->bufSize < STREAM_VFILE_BUFSIZE && \
 		stream->bufPos + length < STREAM_VFILE_BUFSIZE - 1024 )
 		newSize = STREAM_VFILE_BUFSIZE;
@@ -401,13 +402,11 @@ static int expandVirtualFileStream( INOUT_PTR STREAM *stream,
 	   that wipes the original buffer.  If the malloc fails we return 
 	   CRYPT_ERROR_OVERFLOW rather than CRYPT_ERROR_MEMORY since the former 
 	   is more appropriate for the emulated-I/O environment */
-	REQUIRES_S( isIntegerRangeNZ( stream->bufSize + STREAM_VFILE_BUFSIZE ) );
-	if( ( newBuffer = clDynAlloc( "expandVirtualFileStream", \
-								  stream->bufSize + STREAM_VFILE_BUFSIZE ) ) == NULL )
+	REQUIRES_S( isIntegerRangeNZ( newSize ) );
+	if( ( newBuffer = clDynAlloc( "expandVirtualFileStream", 
+								  newSize ) ) == NULL )
 		return( sSetError( stream, CRYPT_ERROR_OVERFLOW ) );
-	REQUIRES_S_PTR( rangeCheck( stream->bufEnd, 1, 
-								stream->bufSize + STREAM_VFILE_BUFSIZE ),
-								newBuffer );
+	REQUIRES_S_PTR( rangeCheck( stream->bufEnd, 1, newSize ), newBuffer );
 	memcpy( newBuffer, stream->buffer, stream->bufEnd );
 	REQUIRES_S_PTR( isIntegerRangeNZ( stream->bufEnd ), newBuffer ); 
 	zeroise( stream->buffer, stream->bufEnd );
@@ -1294,13 +1293,15 @@ static int seekStream( INOUT_PTR STREAM *stream,
 #ifdef USE_FILES
 		case STREAM_TYPE_FILE:
 			{
-			const int blockOffset = ( stream->bufSize > 0 ) ? \
-									position / stream->bufSize : 0;
-			const int byteOffset = ( stream->bufSize > 0 ) ? \
-								   position % stream->bufSize : 0;
+			int blockOffset = 0;
+			int byteOffset = 0;
 
-			ENSURES_S( stream->bufSize == 0 || \
-					   !checkOverflowDiv( position, stream->bufSize ) );
+			if( stream->bufSize > 0 )
+				{
+				ENSURES_S( !checkOverflowDiv( position, stream->bufSize ) );
+				blockOffset = position / stream->bufSize; 
+				byteOffset = position % stream->bufSize; 
+				}
 
 			/* If it's a currently-disconnected file stream then all we can 
 			   do is rewind the stream.  This occurs when we're doing an 
@@ -1470,10 +1471,10 @@ static int skipStream( INOUT_PTR STREAM *stream,
 		/* Since the position in a file stream is quantised we have to 
 		   perform the range check slightly differently, including handling 
 		   of potential overflows, although in practice MAX_BUFFER_SIZE is
-		   set well below INT_MAX / LONG_MAX so we shouldn't get any 
-		   overflow.  First we check that the current position, made up
-		   from bufCount and bufSize, won't overflow once the offset is
-		   added to it.  This checks:
+		   set well below INT_MAX so we shouldn't get any overflow.  First 
+		   we check that the current position, made up from bufCount and 
+		   bufSize, won't overflow once the offset is added to it.  This 
+		   checks:
 
 			( ( bufCount * bufSize ) + bufPos + offset < MAX_BUFFER_SIZE
 		
@@ -1780,21 +1781,17 @@ int sioctlSet( INOUT_PTR STREAM *stream,
 
 			REQUIRES_S( netStream != NULL && sanityCheckNetStream( netStream ) );
 			REQUIRES_S( value == TRUE );
-			REQUIRES_S( !TEST_FLAG( netStream->nFlags, 
-									STREAM_NFLAG_USERSOCKET ) );
 
-			/* Set up the function pointers.  We have to do this after the 
-			   netStream check otherwise we'd potentially be dereferencing a 
-			   NULL pointer */
+			/* Set up the function pointers */
 			transportDisconnectFunction = \
 						( STM_TRANSPORTDISCONNECT_FUNCTION ) \
 						FNPTR_GET( netStream->transportDisconnectFunction );
 			REQUIRES_S( transportDisconnectFunction != NULL );
 
-			/* If this is a user-supplied socket we can't perform a partial 
-			   close without affecting the socket as seen by the user so we 
-			   only perform the partial close if it's a cryptlib-controlled 
-			   socket */
+			/* If this is a user-supplied socket then we can't perform a 
+			   partial close without affecting the socket as seen by the 
+			   user so we only perform the partial close if it's a cryptlib-
+			   controlled socket */
 			if( !TEST_FLAG( netStream->nFlags, STREAM_NFLAG_USERSOCKET ) )
 				transportDisconnectFunction( netStream, FALSE );
 
@@ -2042,12 +2039,12 @@ int sioctlGet( INOUT_PTR STREAM *stream,
 			const STM_GETMETADATA_FUNCTION_OPT getMetadataFunction = \
 					( STM_GETMETADATA_FUNCTION_OPT ) \
 					FNPTR_GET( netStream->getMetadataFunctionOpt );
-			int length;
+			int dummy;
 
 			REQUIRES_S( getMetadataFunction != NULL );
 
 			return( getMetadataFunction( stream, data, dataMaxLen, 
-										 &length ) );
+										 &dummy ) );
 			}
 
 		case STREAM_IOCTL_GETEXTRADATALEN:
@@ -2086,16 +2083,16 @@ int sioctlGet( INOUT_PTR STREAM *stream,
 *																			*
 ****************************************************************************/
 
-/* Calculate the length of a stream object.  This is used when we've read
-   an object's data after marking its start position and want to know how
-   much data is present between the start position and where we are now.
-   This isn't as simple as stell( &stream ) - startPos because we need to
-   perform quite a bit of error checking */
+/* Calculate the offset in a stream from a given start position.  This is 
+   used when we've read an object's data after marking its start position 
+   and want to know how much data is present between the start position and 
+   where we are now.  This isn't as simple as stell( &stream ) - startPos 
+   because we need to perform quite a bit of error checking */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
-int calculateStreamObjectLength( INOUT_PTR STREAM *stream,
-								 IN_DATALENGTH_Z const int startOffset,
-								 OUT_DATALENGTH_Z int *length )
+int streamOffsetFromPosition( INOUT_PTR STREAM *stream,
+							  IN_DATALENGTH_Z const int startOffset,
+							  OUT_DATALENGTH_Z int *length )
 	{
 	const int currentOffset = stell( stream );
 
@@ -2110,8 +2107,7 @@ int calculateStreamObjectLength( INOUT_PTR STREAM *stream,
 	/* Make sure that we're returning valid data */
 	if( cryptStatusError( currentOffset ) )
 		return( CRYPT_ERROR_BADDATA );
-	if( currentOffset < startOffset || \
-		checkOverflowSub( currentOffset, startOffset ) )
+	if( currentOffset < startOffset )
 		return( CRYPT_ERROR_BADDATA );
 
 	REQUIRES( !checkOverflowSub( currentOffset, startOffset ) );
