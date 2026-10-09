@@ -36,10 +36,12 @@ static DATAPTR_ATTRIBUTE *getEntryAttributeListHead( const CERT_INFO *certInfoPt
 		case CRYPT_CERTTYPE_RTCS_REQUEST:
 		case CRYPT_CERTTYPE_RTCS_RESPONSE:
 			{
-			CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
+			const CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 			VALIDITY_INFO *validityInfoPtr;
 
-			validityInfoPtr = DATAPTR_GET( certValInfo->currentValidity );
+			REQUIRES_N( valInfo != NULL );
+
+			validityInfoPtr = DATAPTR_GET( valInfo->currentValidity );
 			if( validityInfoPtr == NULL )
 				return( NULL );
 			return( &validityInfoPtr->attributes );
@@ -51,10 +53,12 @@ static DATAPTR_ATTRIBUTE *getEntryAttributeListHead( const CERT_INFO *certInfoPt
 		case CRYPT_CERTTYPE_OCSP_REQUEST:
 		case CRYPT_CERTTYPE_OCSP_RESPONSE:
 			{
-			const CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+			const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 			REVOCATION_INFO *revInfoPtr;
 
-			revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+			REQUIRES_N( revInfo != NULL );
+
+			revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 			if( revInfoPtr == NULL )
 				return( NULL );
 			return( &revInfoPtr->attributes );
@@ -203,11 +207,11 @@ int deleteCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 		/* Find the requested GeneralName component.  Since 
 		   selectGeneralNameComponent() changes the current selection within 
 		   the GeneralName, we save the selection state around the call */
-		saveSelectionState( selectionState, certInfoPtr );
+		saveSelectionState( &selectionState, certInfoPtr );
 		status = selectGeneralNameComponent( certInfoPtr, certInfoType );
 		if( cryptStatusOK( status ) )
 			attributePtr = certInfoPtr->attributeCursor;
-		restoreSelectionState( selectionState, certInfoPtr );
+		restoreSelectionState( &selectionState, certInfoPtr );
 		if( cryptStatusError( status ))
 			return( status );
 		ENSURES( DATAPTR_ISSET( attributePtr ) );
@@ -266,10 +270,16 @@ int deleteCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 										  certInfoPtr->currentSelection.dnPtr ) );
 
 		case CRYPT_CERTINFO_TRUSTED_USAGE:
-			if( certInfoPtr->cCertCert->trustedUsage == CRYPT_ERROR )
+			{
+			CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+			REQUIRES( certInfo != NULL );
+
+			if( certInfo->trustedUsage == CRYPT_ERROR )
 				return( CRYPT_ERROR_NOTFOUND );
-			certInfoPtr->cCertCert->trustedUsage = CRYPT_ERROR;
+			certInfo->trustedUsage = CRYPT_ERROR;
 			return( CRYPT_OK );
+			}
 
 		case CRYPT_CERTINFO_TRUSTED_IMPLICIT:
 			return( krnlSendMessage( certInfoPtr->ownerHandle,
@@ -316,10 +326,17 @@ int deleteCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 
 #ifdef USE_PKIUSER
 		case CRYPT_CERTINFO_PKIUSER_RA:
-			if( !certInfoPtr->cCertUser->isRA )
+			{
+			CERT_PKIUSER_INFO *pkiUserInfo = \
+					DATAPTR_GET_PKIUSER( certInfoPtr );
+
+			REQUIRES( pkiUserInfo != NULL );
+
+			if( !pkiUserInfo->isRA )
 				return( CRYPT_ERROR_NOTFOUND );
-			certInfoPtr->cCertUser->isRA = FALSE;
+			pkiUserInfo->isRA = FALSE;
 			return( CRYPT_OK );
+			}
 #endif /* USE_PKIUSER */
 		}
 

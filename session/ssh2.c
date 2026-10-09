@@ -610,7 +610,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int processControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								  IN_DATALENGTH_Z const int payloadLength )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	BYTE *bufPtr = sessionInfoPtr->receiveBuffer + \
 				   sessionInfoPtr->receiveBufPos;
 	STREAM stream;
@@ -619,6 +619,7 @@ static int processControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES( isBufsizeRange( payloadLength ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Putty 0.59 erroneously sent zero-length SSH_MSG_IGNORE packets, if 
 	   we find one of these then we convert it into a valid packet.  Writing 
@@ -677,7 +678,7 @@ static int readHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   OUT_ENUM_OPT( READINFO ) \
 									READSTATE_INFO *readInfo )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	BYTE *bufPtr = sessionInfoPtr->receiveBuffer + \
 				   sessionInfoPtr->receiveBufPos;
 #ifdef USE_SSH_OPENSSH
@@ -696,6 +697,7 @@ static int readHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				   "SSH header size read" );
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Clear return value */
 	*readInfo = READINFO_NONE;
@@ -893,35 +895,41 @@ CHECK_RETVAL_LENGTH STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int processBodyFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								OUT_ENUM_OPT( READINFO ) READSTATE_INFO *readInfo )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
-	BYTE *dataRemainingPtr = sessionInfoPtr->receiveBuffer + \
-							 sessionInfoPtr->receiveBufPos + \
-							 sshInfo->partialPacketDataLength;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
+	BYTE *dataRemainingPtr;
 #ifdef USE_SSH_OPENSSH
 	const BOOLEAN useETM = \
 			TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_ETM ) ? \
 			TRUE : FALSE;
 #endif /* USE_SSH_OPENSSH */
-	const int dataRemainingSize = sessionInfoPtr->pendingPacketLength - \
-								  sshInfo->partialPacketDataLength;
-	const int dataLength = dataRemainingSize - sessionInfoPtr->authBlocksize;
-	int payloadLength, status = CRYPT_OK;
+	int dataRemainingSize, dataLength, payloadLength, status = CRYPT_OK;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( readInfo, sizeof( READSTATE_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
+	REQUIRES( sshInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
 	REQUIRES( !checkOverflowAdd( sessionInfoPtr->receiveBufPos,
 								 sshInfo->partialPacketDataLength ) );
-	REQUIRES( boundsCheck( sessionInfoPtr->receiveBufPos + \
-							sshInfo->partialPacketDataLength,
-						   dataRemainingSize, sessionInfoPtr->receiveBufEnd ) );
 	REQUIRES( !checkOverflowSub( sessionInfoPtr->pendingPacketLength,
 								 sshInfo->partialPacketDataLength ) );
+	dataRemainingSize = sessionInfoPtr->pendingPacketLength - \
+								sshInfo->partialPacketDataLength;
+	dataRemainingPtr = sessionInfoPtr->receiveBuffer + \
+					   sessionInfoPtr->receiveBufPos + \
+					   sshInfo->partialPacketDataLength;
 	REQUIRES( !checkOverflowSub( dataRemainingSize,
 								 sessionInfoPtr->authBlocksize ) );
+	REQUIRES( boundsCheck( sessionInfoPtr->receiveBufPos + \
+											sshInfo->partialPacketDataLength,
+						   dataRemainingSize, sessionInfoPtr->receiveBufEnd ) );
+	dataLength = dataRemainingSize - sessionInfoPtr->authBlocksize;
 	ENSURES( dataRemainingSize >= sessionInfoPtr->authBlocksize && \
 			 dataLength >= 0 && dataLength < dataRemainingSize );
+
 
 	/* All errors processing the payload are fatal, and for the following 
 	   operations specifically fatal crypto errors */
@@ -1063,7 +1071,7 @@ static int processBodyFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL_LENGTH STDC_NONNULL_ARG( ( 1 ) ) \
 static int preparePacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
-	const SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	const SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM stream;
 	const int dataLength = sessionInfoPtr->sendBufPos - \
 						   ( SSH2_HEADER_SIZE + SSH2_PAYLOAD_HEADER_SIZE );
@@ -1072,6 +1080,7 @@ static int preparePacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
+	REQUIRES( sshInfo != NULL );
 	REQUIRES( !TEST_FLAG( sessionInfoPtr->flags, 
 						  SESSION_FLAG_SENDCLOSED ) );
 	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufPos, 

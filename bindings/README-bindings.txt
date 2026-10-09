@@ -1,10 +1,10 @@
 #----------------------------#
 README-bindings
-Ralf Senderek, April 2026
+Ralf Senderek, September 2026
 #----------------------------#
 
 cryptlib is written in C, but it can also be used with a number of programming languages,
-such as PYTHON3, PERL and JAVA.
+such as PYTHON3, PERL, C# and JAVA.
 
 This README explains what you need to do in order to be able to use the cryptlib shared 
 library in your own project, written in one of the programming languages mentioned above.
@@ -96,7 +96,7 @@ Please use the Python site-package directory for your python installation.
 #----------------------------#
 
 Building the shared library for the PERL binding requires two additional files, that you can 
-find on my web server.
+find on my web server (ppport.h and typemap).
 
      wget https://senderek.ie/fedora/cryptlib-perlfiles.tar.gz .
      /usr/bin/tar xpzf cryptlib-perlfiles.tar.gz
@@ -106,7 +106,8 @@ find on my web server.
      -rw-r--r-- ralph/ralph      46 2009-03-03 08:35 typemap
 
      /usr/bin/cp ../tools/GenPerl.pl .
-     export PERL_CRYPT_LIB_HEADER=cryptlib-perl.h
+     /usr/bin/cp ../cryptlib.h .
+     export PERL_CRYPT_LIB_HEADER=cryptlib.h
      /usr/bin/perl Makefile.PL INSTALLDIRS=vendor
      make
 
@@ -140,9 +141,9 @@ And the manual page goes into :
 The use of JAVA is disabled by default. If you wish to use cryptlib with JAVA, you need
 to re-build the cryptlib shared library with USE_JAVA enabled. 
 It's best to enable the use of JAVA JNI in the config file misc/config.h by uncommenting
-line 299 or you can use the sed command to do that automatically :
+line 300 or you can use the sed command to do that automatically :
 
-     299 #define USE_JAVA 
+     300 #define USE_JAVA 
 
      # enable JAVA in config
      sed -i 's/\/\* #define USE_JAVA \*\// #define USE_JAVA /' misc/config.h
@@ -196,4 +197,4 @@ Feel free to check out the test programs that I publish on my web site:
     https://senderek.ie/fedora/cryptlib-tests.tar.gz
     https://senderek.ie/fedora/cryptlib-tools.tar.gz
 
-(c) Version 1.0 April 2026
+(c) Version 1.1 September 2026

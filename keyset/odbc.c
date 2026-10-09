@@ -1025,8 +1025,8 @@ static int getBlobInfo( INOUT_PTR DBMS_STATE_INFO *dbmsInfo,
 	   specific oddities like specifying 'ByteaAsLongVarBinary=1' in the 
 	   connect string.  So even though the back-end sort-of supports blobs 
 	   we can't actually use them */
-	if( ( type == SQL_LONGVARBINARY ) && \
-		( dbmsInfo->backendType != DBMS_POSTGRES ) )
+	if( ( type == SQL_VARBINARY || type == SQL_LONGVARBINARY ) && \
+		dbmsInfo->backendType != DBMS_POSTGRES )
 		dbmsInfo->hasBinaryBlobs = TRUE;
 	dbmsInfo->blobType = type;
 
@@ -1162,7 +1162,9 @@ static int getDatatypeInfo( INOUT_PTR DBMS_STATE_INFO *dbmsInfo,
 	*featureFlags = DBMS_FEATURE_FLAG_NONE;
 
 	/* First we see what the back-end's blob data type is.  Usually it'll
-	   be binary blobs, if that doesn't work we try for char blobs */
+	   be binary blobs, if that doesn't work we try for char blobs.  We
+	   can't use SQL_VARBINARY for this because the largest VARBINARY field 
+	   size can be as low as 512 bytes for MS Access */
 	status = getBlobInfo( dbmsInfo, SQL_LONGVARBINARY, &maxBlobSize );
 	if( cryptStatusError( status ) )
 		status = getBlobInfo( dbmsInfo, SQL_LONGVARCHAR, &maxBlobSize );
@@ -1735,11 +1737,31 @@ static int fetchData( const SQLHSTMT hStmt,
 		   data that we've written and we ask for up to 
 		   MAX_QUERY_RESULT_SIZE back, but we perform a sanity-check for it
 		   and warn if it occurs */
-		DEBUG_DIAG(( "Stored data was larger than MAX_QUERY_RESULT_SIZE" ));
+		DEBUG_DIAG(( "Stored data was larger than %d / "
+					 "MAX_QUERY_RESULT_SIZE", dataMaxLength ));
 		assert( DEBUG_WARN );	/* Catch this if it ever occurs */
 		return( CRYPT_ERROR_UNDERFLOW );
 		}
-	REQUIRES( isIntegerRange( length ) );
+	if( length == SQL_NULL_DATA )
+		{
+		/* The queried column was NULL, another should-never-occur situation
+		   since we've written the data such that what we're querying should
+		   be present, but can occur if the database was modified 
+		   externally */
+		DEBUG_DIAG(( "SQLGetData() returned SQL_NULL_DATA" ));
+		assert( DEBUG_WARN );
+		return( CRYPT_ERROR_NOTFOUND );
+		}
+	if( length <= 0 )
+		{
+		/* There are in theory other indicators like SQL_NO_TOTAL or SQL_NTS 
+		   possible but we should never be seeing these.  If we do we 
+		   convert them to a CRYPT_ERROR_NOTFOUND, alongside 0 bytes returned
+		   (which we also shouldn't be seeing) */
+		DEBUG_DIAG(( "SQLGetData() returned length value %d", length ));
+		assert( DEBUG_WARN );
+		return( CRYPT_ERROR_NOTFOUND );
+		}
 	*dataLength = ( int ) length;
 
 	return( CRYPT_OK );

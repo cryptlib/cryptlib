@@ -239,7 +239,7 @@ static int calculateKeyIDFromEncoded( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 						DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	CONTEXT_INFO staticContextInfo;
 	PKC_INFO staticContextData;
-	PKC_INFO *publicKey = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *publicKey = DATAPTR_GET_PKC( contextInfoPtr );
 	const BOOLEAN isPgpAlgo = \
 		( cryptAlgo == CRYPT_ALGO_RSA || cryptAlgo == CRYPT_ALGO_DSA || \
 		  cryptAlgo == CRYPT_ALGO_ELGAMAL || \
@@ -384,7 +384,7 @@ static int calculateOpenPGPKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 						DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *publicKey = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *publicKey = DATAPTR_GET_PKC( contextInfoPtr );
 	HASH_FUNCTION hashFunction;
 	HASHINFO hashInfo;
 	STREAM stream;
@@ -452,7 +452,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int calculatePGPKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 							  IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -566,7 +566,7 @@ static int calculateKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 						   IN_ALGO const CRYPT_ALGO_TYPE hashAlgo )
 	{
 	CRYPT_ALGO_TYPE cryptAlgo;
-	PKC_INFO *publicKey = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *publicKey = DATAPTR_GET_PKC( contextInfoPtr );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 						DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	STREAM stream;
@@ -662,7 +662,7 @@ static int calculateKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 STDC_NONNULL_ARG( ( 1 ) ) \
 void initKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -707,7 +707,7 @@ static int calculateKeyIDDummy( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 STDC_NONNULL_ARG( ( 1 ) ) \
 void initKeyID( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 

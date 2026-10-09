@@ -315,9 +315,13 @@ int testCertProcess( void )
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ELGAMAL, NULL ) ) && \
 		!certProcess( CRYPT_ALGO_ELGAMAL, "Elgamal", cryptCAKey, FALSE ) )
 		return( FALSE );
+#if 0	/* 7/9/26 3.4.9.6 removed the ability to create key-agreement 
+				  algorithm certificates, these were never used in the real
+				  world */
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_DH, NULL ) ) && \
 		!certProcess( CRYPT_ALGO_DH, "Diffie-Hellman", cryptCAKey, FALSE ) )
 		return( FALSE );
+#endif /* 0 */
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ECDSA, NULL ) ) && \
 		!certProcess( CRYPT_ALGO_ECDSA, "ECDSA", cryptCAKey, FALSE ) )
 		return( FALSE );
@@ -331,9 +335,13 @@ int testCertProcess( void )
 	if( !certProcess( CRYPT_ALGO_ECDH, "ECDH", cryptCAKey, FALSE ) )
 		return( FALSE );
 #endif /* 0 */
+#if 0	/* 7/9/26 3.4.9.6 removed the ability to create key-agreement 
+				  algorithm certificates, these were never used in the real
+				  world */
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_25519, NULL ) ) && \
 		!certProcess( CRYPT_ALGO_25519, "Curve25519", cryptCAKey, FALSE ) )
 		return( FALSE );
+#endif /* 0 */
 	if( cryptStatusOK( cryptQueryCapability( CRYPT_ALGO_ED25519, NULL ) ) && \
 		!certProcess( CRYPT_ALGO_ED25519, "Ed25519", cryptCAKey, FALSE ) )
 		return( FALSE );
@@ -1071,6 +1079,18 @@ int testCertManagement( void )
 				getchar();
 				}
 			}
+
+		/* In theory since this is a certificate to be revoked we should 
+		   revoke it at this point, however this requires a revocation 
+		   request which we can't generate as a standalone item (outside of
+		   the context of a certificate management protocol) so we can't do
+		   it now */
+		status = cryptCACertManagement( NULL, CRYPT_CERTACTION_REVOKE_CERT,
+										cryptCertStore, CRYPT_UNUSED,
+										cryptCert );
+		assert( cryptStatusError( status ) );
+		status = CRYPT_OK;	/* Clear residual error status */
+
 		cryptDestroyCert( cryptCert );
 		}
 	if( cryptStatusError( status ) )

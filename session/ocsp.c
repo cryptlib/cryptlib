@@ -106,13 +106,26 @@ static int checkNonce( IN_HANDLE const CRYPT_CERTIFICATE iCertResponse,
 		return( CRYPT_ERROR_NOTFOUND );
 
 	/* Make sure that the two nonces match.  The comparison is in theory 
-	   somewhat complex because OCSP never specifies how the nonce is meant 
-	   to be encoded so it's possible that some implementations will use 
-	   things like TSP's bizarre INTEGER rather than the obvious and logical 
-	   OCTET STRING.  In theory this means that we might need to check for 
-	   the INTEGER-encoding alternatives that arise due to sign bits, but 
-	   this doesn't seem to be required in practice since everyone uses a de 
-	   facto encoding of OCTET STRING.
+	   somewhat complex because OCSP (RFC 2560) never specifies how the 
+	   nonce is meant to be encoded so it's possible that some 
+	   implementations will use things like TSP's bizarre INTEGER rather 
+	   than the obvious and logical OCTET STRING.  In theory this means that 
+	   we might need to check for the INTEGER-encoding alternatives that 
+	   arise due to sign bits, but this doesn't seem to be required in 
+	   practice since everyone uses a de facto encoding of OCTET STRING.
+	   
+	   Fourteen years later, someone finally realised that not specifying
+	   what the nonce actually was was a bit of a problem, and it was 
+	   finally made explicit in RFC 6960 (section 4.4.1):
+	   
+		Nonce ::= OCTET STRING
+	   
+	   This was then modified another seven years later in RFC 8954 to
+	   specify a length for it (1-32 bytes), and again a few years later in 
+	   RFC 9654 to take the length up to 128 bytes for no good reason.
+	   
+	   25 years to fix just one fundamental mistake in a PKI protocol is
+	   actually pretty good going by PKIX standards.
 	   
 	   We use a memcmp() rather than compareDataConstTime() because the 
 	   nonce is a public value */
@@ -195,7 +208,7 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	/* Read the response from the responder.  This may be only a few bytes 
-	   in the case of an error response, so we allow a datagram size of 4 
+	   in the case of an error response so we allow a datagram size of 4 
 	   bytes and then later explicitly check for a valid length if we get a 
 	   non-error response */
 	status = readPkiDatagram( sessionInfoPtr, 4,
@@ -236,7 +249,12 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	/* If it's an error status, try and translate it into something a bit 
 	   more meaningful.  Some of the translations are a bit questionable, 
 	   but it's better than the generic no va response (which should 
-	   actually be "no marcha" in any case) */
+	   actually be "no marcha" in any case).
+	   
+	   All of this is completely unauthenticated, so the entire OCSP process 
+	   can be trivially defeated by returning one of these error codes, 
+	   which makes the queried certificate not-revoked and therefore OK to 
+	   use */
 	switch( errorCode )
 		{
 		case OCSP_RESP_SUCCESSFUL:
@@ -363,11 +381,7 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		}
 	CFI_CHECK_UPDATE( "importCertFromStream" );
 
-	/* If we're fuzzing the input then we're reading static data for which 
-	   the nonces won't match so the check that follows will fail, so we 
-	   have to exit now */
-	FUZZ_EXIT();
-
+#ifndef CONFIG_FUZZ
 	/* If the request went out with a nonce included (which it does by
 	   default), make sure that it matches the nonce in the response */
 	setMessageData( &msgData, nonceBuffer, CRYPT_MAX_HASHSIZE );
@@ -386,12 +400,15 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			   here is a signature error to indicate that the integrity 
 			   check failed.
 			   
-			   Note that a later modification to OCSP, in an attempt to make 
-			   it scale, removed the nonce, thus breaking the security of 
-			   the protocol against replay attacks.  Since the protocol is 
-			   now broken against attack we treat a nonce-less response from 
-			   one of these responders as a failure, since it's 
-			   indistinguishable from an actual attack */
+			   Note that a later modification to OCSP, RFC 5019 with the
+			   euphemistic title of "The Lightweight Online Certificate 
+			   Status Protocol (OCSP) Profile", in an attempt to make it 
+			   scale, removed the nonce, thus breaking the security of the 
+			   protocol against replay attacks, and every single public CA
+			   followed it.  Since the protocol is now broken against attack 
+			   we treat a nonce-less response from one of these responders 
+			   as a failure, since it's indistinguishable from an actual 
+			   attack */
 			krnlSendNotifier( iCertResponse, IMESSAGE_DECREFCOUNT );
 			retExt( CRYPT_ERROR_SIGNATURE,
 					( CRYPT_ERROR_SIGNATURE, SESSION_ERRINFO, 
@@ -401,13 +418,37 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 					  "request" ) );
 			}
 		}
+#endif /* CONFIG_FUZZ */
+	CFI_CHECK_UPDATE( "checkNonce" );
+	
+	/* Check the response against the request to make sure that they're 
+	   consistent (RFC 2560 section 2.2, "A definitive response message is 
+	   composed of [...] responses for each of the certificates in a 
+	   request").  This doesn't really achieve much except change the error
+	   message being returned because a blocklist can only say "revoked"
+	   while anything else, including "unknown" due to a MITM removing or
+	   changing the IDs for certificates in a request, is !revoked and 
+	   therefore OK (see the long discussion in cert/cert_rev.c on this) */
+	status = krnlSendMessage( sessionInfoPtr->iCertRequest,
+							  IMESSAGE_SETATTRIBUTE, &iCertResponse,
+							  CRYPT_IATTRIBUTE_OCSPRESPONSE );
+	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( iCertResponse, IMESSAGE_DECREFCOUNT );
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, SESSION_ERRINFO,
+				  "OCSP response doesn't match OCSP request" ) );
+		}
+	CFI_CHECK_UPDATE( "checkReqResp" );
+	
+	/* Clean up the request */
 	krnlSendNotifier( sessionInfoPtr->iCertRequest, IMESSAGE_DECREFCOUNT );
 	sessionInfoPtr->iCertRequest = CRYPT_ERROR;
 	sessionInfoPtr->iCertResponse = iCertResponse;
-	CFI_CHECK_UPDATE( "checkNonce" );
 
-	ENSURES( CFI_CHECK_SEQUENCE_4( "readPkiDatagram", "readEnumerated", 
-								   "importCertFromStream", "checkNonce" ) );
+	ENSURES( CFI_CHECK_SEQUENCE_5( "readPkiDatagram", "readEnumerated", 
+								   "importCertFromStream", "checkNonce",
+								   "checkReqResp" ) );
 
 	return( CRYPT_OK );
 	}
@@ -527,6 +568,7 @@ static int readClientRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 							  IMESSAGE_SETATTRIBUTE, &iOcspRequest,
 							  CRYPT_IATTRIBUTE_OCSPREQUEST );
 	krnlSendNotifier( iOcspRequest, IMESSAGE_DECREFCOUNT );
+	iOcspRequest = CRYPT_ERROR;
 	if( cryptStatusOK( status ) )
 		{
 		MESSAGE_DATA msgData;
@@ -740,7 +782,18 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   check the immutable attribute but have to perform a dummy export for 
 	   which the certificate export code will return an error status if 
 	   there's a problem with the request.  If not, it pseudo-signs the 
-	   request (if it hasn't already done so) and prepares it for use */
+	   request (if it hasn't already done so) and prepares it for use.
+	   
+	   Note that this fixes the OCSP nonce for the request, so if the caller 
+	   submits exactly the same query using exactly the same OCSP request 
+	   object over and over it'll go out with the same nonce.  It's not 
+	   clear why anyone would ever do that, the CA will ignore the nonce in 
+	   any case, and cryptlib's built in OCSP checking mechanism via 
+	   cryptCheckCert(), which is the one that's expected to be used for
+	   these checks, always generates a fresh request and destroys it again 
+	   as soon as it's added to the session 
+	   (cert/certschk.c:checkResponder()) so that the nonce that the CA then 
+	   ignores is fresh each time */
 	status = krnlSendMessage( ocspRequest, IMESSAGE_CRT_EXPORT, &msgData,
 							  CRYPT_ICERTFORMAT_DATA );
 	if( cryptStatusError( status ) )

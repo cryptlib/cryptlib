@@ -664,6 +664,7 @@ static int dhGenerateKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 									   CRYPT_IATTRIBUTE_KEY_SPKI );
 		}
 	krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+	createInfo.cryptHandle = CRYPT_ERROR;
 	if( cryptStatusError( cryptStatus ) )
 		return( cryptStatus );
 
@@ -1171,7 +1172,7 @@ static int rsaSign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	static const CK_MECHANISM mechanism = { CKM_RSA_PKCS, NULL_PTR, 0 };
 	CRYPT_DEVICE iCryptDevice;
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 	PKCS11_INFO *pkcs11Info;
 	BYTE *bufPtr = buffer;
 	int keySize, cryptStatus;
@@ -1224,7 +1225,7 @@ static int rsaVerify( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	BYTE data[ CRYPT_MAX_PKCSIZE + 8 ];
 	int cryptStatus;
 #endif /* 0 */
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 	int keySize;
 
 	REQUIRES( pkcInfo != NULL );
@@ -1266,7 +1267,7 @@ static int rsaEncrypt( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	static const CK_MECHANISM mechanism = { CKM_RSA_PKCS, NULL_PTR, 0 };
 	CRYPT_DEVICE iCryptDevice;
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 	PKCS11_INFO *pkcs11Info;
 	BYTE *bufPtr = buffer;
 	int keySize, cryptStatus;
@@ -1322,7 +1323,7 @@ static int rsaDecrypt( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	static const CK_MECHANISM mechanism = { CKM_RSA_PKCS, NULL_PTR, 0 };
 	CRYPT_DEVICE iCryptDevice;
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 	PKCS11_INFO *pkcs11Info;
 	MESSAGE_DATA msgData;
 	BYTE *bufPtr = buffer;
@@ -1659,6 +1660,7 @@ static int dsaInitKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 									   IMESSAGE_GETATTRIBUTE_S, &msgData, 
 									   CRYPT_IATTRIBUTE_KEY_SPKI );
 		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+		createInfo.cryptHandle = CRYPT_ERROR;
 		if( cryptStatusError( cryptStatus ) )
 			return( cryptStatus );
 		sMemConnect( &stream, msgData.data, msgData.length );
@@ -1840,6 +1842,7 @@ static int dsaGenerateKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 									   CRYPT_IATTRIBUTE_KEY_SPKI );
 		}
 	krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+	createInfo.cryptHandle = CRYPT_ERROR;
 	if( cryptStatusError( cryptStatus ) )
 		return( cryptStatus );
 
@@ -2541,7 +2544,7 @@ static int ecdsaSign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	static const CK_MECHANISM mechanism = { CKM_ECDSA, NULL_PTR, 0 };
 	CRYPT_DEVICE iCryptDevice;
 	PKCS11_INFO *pkcs11Info;
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	DLP_PARAMS *eccParams = ( DLP_PARAMS * ) buffer;

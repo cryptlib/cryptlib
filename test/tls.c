@@ -104,7 +104,8 @@ typedef enum {
 	TLS_TEST_BULKTRANSER,		/* Bulk data transfer */
 	TLS_TEST_CLIENTCERT,		/* User auth.with client certificate */
 	TLS_TEST_NOCLIENTCERT,		/* User auth.with absent client certificate */
-	TLS_TEST_CLIENTCERT_MANUAL,	/* User auth.client certificate manual verif.*/
+	TLS_TEST_CLCERT_MANUAL_ALLOW,/* User auth.client certificate manual verif.*/
+	TLS_TEST_CLCERT_MANUAL_DENY,/* User auth.client certificate manual verif.*/
 	TLS_TEST_SNI,				/* Server certificate switching via SNI */
 	TLS_TEST_FORCEVER_CLI,		/* Force use of given TLS version on client */
 	TLS_TEST_FORCEVER_SVR,		/* Force use of given TLS version on server */
@@ -1212,7 +1213,8 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 			 localSession ? "local " : "", versionStr[ version ],
 			 ( testType == TLS_TEST_CLIENTCERT ) ? " with client cert" : \
 			 ( testType == TLS_TEST_NOCLIENTCERT ) ? " with absent client cert" : \
-			 ( testType == TLS_TEST_CLIENTCERT_MANUAL ) ? " with manual verification of client cert" : \
+			 ( testType == TLS_TEST_CLCERT_MANUAL_ALLOW ) ? " with allowed manual verification of client cert" : \
+			 ( testType == TLS_TEST_CLCERT_MANUAL_DENY ) ? " with denied manual verification of client cert" : \
 			 ( testType == TLS_TEST_SNI ) ? " with SNI-based server key selection" : \
 			 ( testType == TLS_TEST_FORCEVER_CLI || \
 			   testType == TLS_TEST_FORCEVER_SVR ) ? " with forced TLS version" : \
@@ -1444,7 +1446,9 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 										cryptKeyset );
 			cryptKeysetClose( cryptKeyset );
 			}
-		if( cryptStatusOK( status ) && testType == TLS_TEST_CLIENTCERT_MANUAL )
+		if( cryptStatusOK( status ) && \
+			( testType == TLS_TEST_CLCERT_MANUAL_ALLOW || \
+			  testType == TLS_TEST_CLCERT_MANUAL_DENY ) )
 			{
 			status = cryptSetAttribute( cryptSession, 
 										CRYPT_SESSINFO_TLS_OPTIONS,
@@ -1573,7 +1577,8 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 			}
 		if( cryptStatusOK( status ) && \
 			( testType == TLS_TEST_CLIENTCERT || \
-			  testType == TLS_TEST_CLIENTCERT_MANUAL ) )
+			  testType == TLS_TEST_CLCERT_MANUAL_ALLOW || \
+			  testType == TLS_TEST_CLCERT_MANUAL_DENY  ) )
 			{
 			CRYPT_CONTEXT privateKey;
 			char filenameBuffer[ FILENAME_BUFFER_SIZE ];
@@ -1958,10 +1963,26 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 				}
 			}
 		}
-	if( isServer && testType == TLS_TEST_CLIENTCERT_MANUAL && \
+	if( isServer && \
+		( testType == TLS_TEST_CLCERT_MANUAL_ALLOW || \
+		  testType == TLS_TEST_CLCERT_MANUAL_DENY ) && \
 		status == CRYPT_ENVELOPE_RESOURCE )
 		{
 		CRYPT_CERTIFICATE cryptCertChain;
+		int autResponse = ( testType == TLS_TEST_CLCERT_MANUAL_ALLOW ) ? \
+							TRUE : FALSE;
+
+		/* Make sure that a repeated attemt to activate the session is 
+		   blocked until we set CRYPT_SESSINFO_AUTHRESPONSE */
+		status = cryptSetAttribute( cryptSession,
+									CRYPT_SESSINFO_ACTIVE, TRUE );
+		if( status != CRYPT_ERROR_NOTINITED )
+			{
+			cryptDestroySession( cryptSession );
+			fputs( "SVR: Continuing session without authResponse set "
+				   "succeeded, should have failed.\n", outputStream );
+			return( FALSE );
+			}
 
 		/* Allow the auth.and complete the handshake */
 		fputs( "SVR: Manually verifying client certificate...\n", 
@@ -1975,7 +1996,8 @@ static int connectTLS( const CRYPT_SESSION_TYPE sessionType,
 			   to continue */
 			cryptDestroyCert( cryptCertChain );
 			status = cryptSetAttribute( cryptSession,
-										CRYPT_SESSINFO_AUTHRESPONSE, TRUE );
+										CRYPT_SESSINFO_AUTHRESPONSE, 
+										autResponse );
 			}
 		else
 			{
@@ -2090,7 +2112,8 @@ dualThreadContinue:
 		if( isErrorTest || testType == TLS_TEST_PSK_CLIONLY || \
 			testType == TLS_TEST_PSK_SVRONLY || \
 			testType == TLS_TEST_ALLOWLIST_FAIL || \
-			testType == TLS_TEST_NOCLIENTCERT )
+			testType == TLS_TEST_NOCLIENTCERT || \
+			testType == TLS_TEST_CLCERT_MANUAL_DENY )
 			{
 			/* These tests are supposed to fail, so if this happens then the 
 			   overall test has succeeded */
@@ -2126,7 +2149,8 @@ dualThreadContinue:
 	if( testType == TLS_TEST_PSK_CLIONLY || \
 		testType == TLS_TEST_PSK_SVRONLY || \
 		testType == TLS_TEST_ALLOWLIST_FAIL || \
-		testType == TLS_TEST_NOCLIENTCERT )
+		testType == TLS_TEST_NOCLIENTCERT || \
+		testType == TLS_TEST_CLCERT_MANUAL_DENY )
 		{
 		cryptDestroySession( cryptSession );
 		fprintf( outputStream, "%sTest type %d should have failed but "
@@ -2171,7 +2195,8 @@ dualThreadContinue:
 							   testType != TLS_TEST_RESUME ),
 				( isServer && ( testType == TLS_TEST_CLIENTCERT || \
 								testType == TLS_TEST_NOCLIENTCERT || \
-								testType == TLS_TEST_CLIENTCERT_MANUAL ) ) ) )
+								testType == TLS_TEST_CLCERT_MANUAL_ALLOW || \
+								testType == TLS_TEST_CLCERT_MANUAL_DENY ) ) ) )
 			{
 			cryptDestroySession( cryptSession );
 			if( testType == TLS_TEST_BULKTRANSER )
@@ -2202,7 +2227,8 @@ dualThreadContinue:
 	if( ( !localSession && !isServer && testType != TLS_TEST_PSK ) ||
 		( localSession && isServer && \
 		  ( testType == TLS_TEST_CLIENTCERT || \
-			testType == TLS_TEST_CLIENTCERT_MANUAL ) ) )
+			testType == TLS_TEST_CLCERT_MANUAL_ALLOW || \
+			testType == TLS_TEST_CLCERT_MANUAL_DENY ) ) )
 #else
 	if( !localSession && !isServer && testType != TLS_TEST_PSK )
 #endif /* NO_SESSION_CACHE */
@@ -2882,7 +2908,7 @@ int testSessionTLS12ServerClientCertManual( void )
 
 	createMutex();
 
-	status = connectTLS( CRYPT_SESSION_TLS_SERVER, TLS_TEST_CLIENTCERT_MANUAL, 3, CRYPT_UNUSED, TRUE );
+	status = connectTLS( CRYPT_SESSION_TLS_SERVER, TLS_TEST_CLCERT_MANUAL_ALLOW, 3, CRYPT_UNUSED, TRUE );
 	destroyMutex();
 
 	return( status );
@@ -3361,12 +3387,24 @@ int testSessionTLS12NoClientCertClientServer( void )
 	{
 	return( tls12ClientServer( TLS_TEST_NOCLIENTCERT ) );
 	}
-int testSessionTLS12ClientCertManualClientServer( void )
+int testSessionTLS12ClientCertManualAllowClientServer( void )
 	{
 	/* The client certificate check can only be done if the session cache
 	   isn't in use, otherwise it will just resume a previous session */
 #ifdef NO_SESSION_CACHE
-	return( tls12ClientServer( TLS_TEST_CLIENTCERT_MANUAL ) );
+	return( tls12ClientServer( TLS_TEST_CLCERT_MANUAL_ALLOW ) );
+#else
+	fputs( "Skipping manual client certificate check because the session "
+		   "cache is in use.\n\n", outputStream );
+	return( TRUE );
+#endif /* !NO_SESSION_CACHE */
+	}
+int testSessionTLS12ClientCertManualDenyClientServer( void )
+	{
+	/* The client certificate check can only be done if the session cache
+	   isn't in use, otherwise it will just resume a previous session */
+#ifdef NO_SESSION_CACHE
+	return( tls12ClientServer( TLS_TEST_CLCERT_MANUAL_DENY ) );
 #else
 	fputs( "Skipping manual client certificate check because the session "
 		   "cache is in use.\n\n", outputStream );

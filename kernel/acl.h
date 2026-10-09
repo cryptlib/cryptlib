@@ -725,6 +725,7 @@ typedef enum {
 	PARAM_VALUE_STRING_OPT,			/* Byte string or (NULL, 0) */
 	PARAM_VALUE_STRING_NONE,		/* Empty (NULL, 0) string */
 	PARAM_VALUE_OBJECT,				/* Object handle */
+	PARAM_VALUE_OBJECT_OPT,			/* Object handle or CRYPT_UNUSED */
 	PARAM_VALUE_LAST				/* Last valid parameter type */
 	} PARAM_VALUE_TYPE;
 
@@ -756,6 +757,8 @@ typedef struct {
 			{ PARAM_VALUE_STRING_NONE, 0, 0, 0, 0, 0, 0 }
 #define MKACP_O( subTypeA, flags ) \
 			{ PARAM_VALUE_OBJECT, 0, 0, subTypeA, ST_NONE, ST_NONE, flags }
+#define MKACP_O_OPT( subTypeA, flags ) \
+			{ PARAM_VALUE_OBJECT_OPT, 0, 0, subTypeA, ST_NONE, ST_NONE, flags }
 #define MKACP_O_NONE() \
 			{ PARAM_VALUE_NUMERIC, CRYPT_UNUSED, CRYPT_UNUSED, 0, 0, 0, 0 }
 
@@ -851,8 +854,8 @@ typedef struct CRA {
 typedef struct {
 	const CRYPT_CERTACTION_TYPE action;	/* Cert mgmt.action */
 	const int access;				/* Permitted access type */
-	const PARAM_ACL paramACL[ 3 ];	/* Parameter ACL information */
-	const PARAM_ACL secParamACL[ 3 ];/* Parameter ACL for dep.objects */
+	const PARAM_ACL paramACL[ 4 ];	/* Parameter ACL information */
+	const PARAM_ACL secParamACL[ 4 ];/* Parameter ACL for dep.objects */
 	} CERTMGMT_ACL;
 
 /* Compare-message ACL entry */
@@ -874,6 +877,9 @@ typedef struct {
 
 /* Macros to set up compare ACLs */
 
+#define MK_CMPACL_N( objSTA, lowRange, highRange ) \
+			{ objSTA, ST_NONE, ST_NONE, ACL_FLAG_HIGH_STATE }, \
+			{ MKACP_N( lowRange, highRange ) }
 #define MK_CMPACL_S( objSTA, lowRange, highRange ) \
 			{ objSTA, ST_NONE, ST_NONE, ACL_FLAG_HIGH_STATE }, \
 			{ MKACP_S( lowRange, highRange ) }

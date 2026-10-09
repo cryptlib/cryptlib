@@ -37,6 +37,7 @@ public class crypt
 	public const int ALGO_ECDH               = 106; // ECDH
 	public const int ALGO_25519              = 107; // X25519
 	public const int ALGO_ED25519            = 108; // Ed25519
+	public const int ALGO_MLKEM              = 109; // ML-KEM
 	public const int ALGO_RESERVED4          = 200; // Formerly MD2
 	public const int ALGO_RESERVED5          = 201; // Formerly MD4
 	public const int ALGO_MD5                = 202; // MD5 (only used internally for TLS 1.0/1.1)
@@ -344,7 +345,7 @@ public class crypt
 	public const int CERTINFO_QCSTATEMENT_SEMANTICS              = 2215; // qcStatement.statementInfo.semanticsIdentifier
 	public const int CERTINFO_QCSTATEMENT_REGISTRATIONAUTHORITY  = 2216; // qcStatement.statementInfo.nameRegistrationAuthorities
 	public const int CERTINFO_IPADDRESSBLOCKS                    = 2217;
-	public const int CERTINFO_IPADDRESSBLOCKS_ADDRESSFAMILY      = 2218; // addressFamily */	CRYPT_CERTINFO_IPADDRESSBLOCKS_PREFIX,	/* ipAddress.addressPrefix
+	public const int CERTINFO_IPADDRESSBLOCKS_ADDRESSFAMILY      = 2218; // addressFamily 
 	public const int CERTINFO_IPADDRESSBLOCKS_PREFIX             = 2219; // ipAddress.addressPrefix
 	public const int CERTINFO_IPADDRESSBLOCKS_MIN                = 2220; // ipAddress.addressRangeMin
 	public const int CERTINFO_IPADDRESSBLOCKS_MAX                = 2221; // ipAddress.addressRangeMax
@@ -752,6 +753,7 @@ public class crypt
 	/* Certificate checking compliance levels */
 	
 	// CRYPT_COMPLIANCELEVEL_TYPE
+	public const int COMPLIANCELEVEL_NONE         = 0;
 	public const int COMPLIANCELEVEL_OBLIVIOUS    = 0;
 	public const int COMPLIANCELEVEL_REDUCED      = 1;
 	public const int COMPLIANCELEVEL_STANDARD     = 2;
@@ -832,9 +834,14 @@ public class crypt
 	
 	/* OCSP revocation status */
 	
-	public const int OCSPSTATUS_NOTREVOKED = 0;
-	public const int OCSPSTATUS_REVOKED    = 1;
-	public const int OCSPSTATUS_UNKNOWN    = 2;
+	typedef enum 
+		{
+		CRYPT_OCSPSTATUS_NONE,			/* No OCSP status */ 
+		CRYPT_OCSPSTATUS_NOTREVOKED,	/* Status not-revoked */
+		CRYPT_OCSPSTATUS_REVOKED,		/* Status revoked */
+		CRYPT_OCSPSTATUS_UNKNOWN,		/* Status unknown */
+		CRYPT_OCSPSTATUS_LAST			/* Last possible OCSP status */
+		} CRYPT_OCSPSTATUS_TYPE;
 	
 	/* The amount of detail to include in signatures when signing certificate
 	   objects */
@@ -932,12 +939,13 @@ public class crypt
 	public const int CERTACTION_CERT_CREATION_REVERSE  = 13; // Cancel of creation w.revocation
 	public const int CERTACTION_RESTART_CLEANUP        = 14; // Delete reqs after restart
 	public const int CERTACTION_RESTART_REVOKE_CERT    = 15; // Complete revocation after restart
-	public const int CERTACTION_ISSUE_CERT             = 16; // Cert issue
-	public const int CERTACTION_ISSUE_CRL              = 17; // CRL issue
-	public const int CERTACTION_REVOKE_CERT            = 18; // Cert revocation
-	public const int CERTACTION_EXPIRE_CERT            = 19; // Cert expiry
-	public const int CERTACTION_CLEANUP                = 20; // Clean up on restart
-	public const int CERTACTION_LAST                   = 21; // Last possible cert store log action
+	public const int CERTACTION_ADDREQUEST             = 16; // Add certificate request
+	public const int CERTACTION_ISSUE_CERT             = 17; // Cert issue
+	public const int CERTACTION_ISSUE_CRL              = 18; // CRL issue
+	public const int CERTACTION_REVOKE_CERT            = 19; // Cert revocation
+	public const int CERTACTION_EXPIRE_CERT            = 20; // Cert expiry
+	public const int CERTACTION_CLEANUP                = 21; // Clean up on restart
+	public const int CERTACTION_LAST                   = 22; // Last possible cert store log action
 	
 	/* Session sub-protocol types */
 	
@@ -968,8 +976,6 @@ public class crypt
 	public const int TLSOPTION_DISABLE_CERTVERIFY             = 0x020; // Disable certificate check
 	public const int TLSOPTION_SERVER_SNI                     = 0x040; // Enable SNI-based key selection
 	public const int TLSOPTION_RESUMED                        = 0x080; // TLS session is resumed
-	public const int TLSOPTION_SUITEB_128                     = 0x100; // SuiteB security levels (will
-	public const int TLSOPTION_SUITEB_256                     = 0x200; // vanish in future releases)
 	
 	/****************************************************************************
 	*																			*
@@ -991,6 +997,7 @@ public class crypt
 	   CONFIG_PKC_ALLOCSIZE define in order to conserve memory */
 	
 	public const int MAX_PKCSIZE_ECC                          = 72  ;
+	public const int MAX_PKCSIZE_PQC                          = 2560;
 	
 	/* The maximum hash size - 512 bits.  Before 3.4 this was 256 bits, in the 
 	   3.4 release it was increased to 512 bits to accommodate SHA-3 */
@@ -1206,8 +1213,25 @@ public class crypt
 	//	int privLen;				/* Length of private value in bits */
 	//	} CRYPT_PKCINFO_DJB;
 	
+	//CRYPTLIBCONVERTER - NOT SUPPORTED:
+	//typedef struct {
+	//	/* Status information */
+	//	int isPublicKey;			/* Whether this is a public or private key */
+	//
+	//	/* Public components */
+	//	unsigned char pub[ CRYPT_MAX_PKCSIZE_PQC ];	/* Public value */
+	//	int pubLen;					/* Length of public value in bits */
+	//
+	//	/* Private components */
+	//	unsigned char priv[ CRYPT_MAX_PKCSIZE_PQC ];/* Private value */
+	//	int privLen;				/* Length of private value in bits */
+	//	} CRYPT_PKCINFO_PQC;
+	
 	/* Macros to initialise and destroy the structure that stores the components
-	   of a public key */
+	   of a public key.  Note that the latter may be optimised away because it's
+	   an an external API without access to cryptlib-internal safety mechanisms, 
+	   however these operations, which work with raw keys as memory blobs, are 
+	   unlikely to ever be used  */
 	
 	//CRYPTLIBCONVERTER - NOT SUPPORTED:
 	//#define cryptInitComponents( componentInfo, componentKeyType ) \
@@ -1218,7 +1242,11 @@ public class crypt
 	//#define cryptDestroyComponents( componentInfo ) \
 	//	memset( ( componentInfo ), 0, sizeof( *componentInfo ) )
 	
-	/* Macros to set a component of a public key */
+	/* Macros to set a component of a public key.  Note that there's no bounds 
+	   check on this since it's an external API without access to cryptlib-
+	   internal safety mechanisms, so it's up to the caller to make sure that
+	   they get the length right.  However these operations, which work with
+	   raw keys as memory blobs, are unlikely to ever be used */
 	
 	//CRYPTLIBCONVERTER - NOT SUPPORTED:
 	//#define cryptSetComponent( destination, source, length ) \
@@ -1469,7 +1497,7 @@ public class crypt
 							int cryptHandle, // CRYPT_HANDLE
 							int attributeType, // CRYPT_ATTRIBUTE_TYPE
 							String value
-							) { SetAttributeString(cryptHandle, attributeType, value == null ? null : Encoding.ASCII.GetBytes(value), 0, value == null ? 0 : Encoding.ASCII.GetByteCount(value)); }
+							) { SetAttributeString(cryptHandle, attributeType, value == null ? null : getCStringBytes(value), 0, value == null ? 0 : Encoding.ASCII.GetByteCount(value)); }
 	
 	public static int GetAttribute(
 								int cryptHandle, // CRYPT_HANDLE
@@ -1566,7 +1594,7 @@ public class crypt
 							) { AddRandom(randomData, 0, randomData == null ? 0 : randomData.Length); }
 	public static void AddRandom(
 							String randomData
-							) { AddRandom(randomData == null ? null : Encoding.ASCII.GetBytes(randomData), 0, randomData == null ? 0 : Encoding.ASCII.GetByteCount(randomData)); }
+							) { AddRandom(randomData == null ? null : getCStringBytes(randomData), 0, randomData == null ? 0 : Encoding.ASCII.GetByteCount(randomData)); }
 	public static void AddRandom(
 		                    int pollType
 		                    )
@@ -1604,7 +1632,7 @@ public class crypt
 							) { return QueryObject(objectData, 0, objectData == null ? 0 : objectData.Length); }
 	public static CRYPT_OBJECT_INFO QueryObject(
 							String objectData
-							) { return QueryObject(objectData == null ? null : Encoding.ASCII.GetBytes(objectData), 0, objectData == null ? 0 : Encoding.ASCII.GetByteCount(objectData)); }
+							) { return QueryObject(objectData == null ? null : getCStringBytes(objectData), 0, objectData == null ? 0 : Encoding.ASCII.GetByteCount(objectData)); }
 	
 	/****************************************************************************
 	*																			*
@@ -1612,9 +1640,51 @@ public class crypt
 	*																			*
 	****************************************************************************/
 	
+	/* Warnings for deprecated export/import functions which are renamed to 
+	   wrap/unwrap functions after 3.4.9.  The clang one is fairly noisy, with 
+	   the recommended:
+	
+		__attribute__(( deprecated( "cryptExportKey", "cryptWrapKey" ) ))
+	
+	   it prints a somewhat confusing:
+	
+		file.c:123:45: warning: 'cryptExportKey' is deprecated: cryptExportKey [-Wdeprecated-declarations]
+						status = cryptExportKey( encryptedKeyBlob, 1024, &length, cryptContext,
+								 ^~~~~~~~~~~~~~
+								 cryptWrapKey
+		./cryptlib.h:2220:47: note: 'cryptExportKey' has been explicitly marked deprecated here
+							  C_IN CRYPT_CONTEXT sessionKeyContext ) ATTRIBUTE_DEPRECATED;
+		./cryptlib.h:2199:23: note: expanded from macro 'ATTRIBUTE_DEPRECATED'
+							  __attribute__(( deprecated( "cryptExportKey", "cryptWrapKey" ) ))
+	
+	   Using a single string as per the gcc form produces:
+	
+		file.c:123:45: warning: 'cryptExportKey' is deprecated: Use cryptWrapKey instead [-Wdeprecated-declarations]
+					   status = cryptExportKey( encryptedKeyBlob, 1024, &length, cryptContext,
+								^
+		[...]
+	
+	   gcc prints:
+	
+		file.c: In function 'conventionalExportImport':
+		file.c:123:45: warning: 'cryptExportKey' is deprecated: Use cryptWrapKey instead [-Wdeprecated-declarations]
+					   status = cryptExportKey( NULL, 0, &length, cryptContext,
+								^~~~~~
+	
+	   MSVC doesn't print anything no matter how the __declspec is placed and the
+	   decorations are rearranged for any version from VS 2008 to VS 2026, so we
+	   use the clunkier pragma form instead */
+	
+	
 	/* Export and import an encrypted session key */
 	
-	public static int ExportKey(
+	
+	
+	
+	
+	
+	
+	public static int WrapKey(
 								byte[] encryptedKey,
 								int encryptedKeyOffset,
 								int encryptedKeyMaxLength,
@@ -1627,11 +1697,11 @@ public class crypt
 		IntPtr encryptedKeyPtr = IntPtr.Zero;
 		try
 		{
-			processStatus(wrapped_ExportKey(encryptedKeyPtr, encryptedKeyMaxLength, encryptedKeyLengthPtr, exportKey, sessionKeyContext));
+			processStatus(wrapped_WrapKey(encryptedKeyPtr, encryptedKeyMaxLength, encryptedKeyLengthPtr, exportKey, sessionKeyContext));
 			int encryptedKeyLength = Marshal.ReadInt32(encryptedKeyLengthPtr);
 			checkIndices(encryptedKey, encryptedKeyOffset, encryptedKeyLength);
 			getPointer(encryptedKey, encryptedKeyOffset, ref encryptedKeyHandle, ref encryptedKeyPtr);
-			processStatus(wrapped_ExportKey(encryptedKeyPtr, encryptedKeyMaxLength, encryptedKeyLengthPtr, exportKey, sessionKeyContext));
+			processStatus(wrapped_WrapKey(encryptedKeyPtr, encryptedKeyMaxLength, encryptedKeyLengthPtr, exportKey, sessionKeyContext));
 			return Marshal.ReadInt32(encryptedKeyLengthPtr);
 		}
 		finally
@@ -1640,14 +1710,14 @@ public class crypt
 			releasePointer(encryptedKeyHandle);
 		}
 	}
-	public static int ExportKey(
+	public static int WrapKey(
 							byte[] encryptedKey,
 							int encryptedKeyMaxLength,
 							int exportKey, // CRYPT_HANDLE
 							int sessionKeyContext // CRYPT_CONTEXT
-							) { return ExportKey(encryptedKey, 0, encryptedKeyMaxLength, exportKey, sessionKeyContext); }
+							) { return WrapKey(encryptedKey, 0, encryptedKeyMaxLength, exportKey, sessionKeyContext); }
 	
-	public static int ExportKeyEx(
+	public static int WrapKeyEx(
 								byte[] encryptedKey,
 								int encryptedKeyOffset,
 								int encryptedKeyMaxLength,
@@ -1661,11 +1731,11 @@ public class crypt
 		IntPtr encryptedKeyPtr = IntPtr.Zero;
 		try
 		{
-			processStatus(wrapped_ExportKeyEx(encryptedKeyPtr, encryptedKeyMaxLength, encryptedKeyLengthPtr, formatType, exportKey, sessionKeyContext));
+			processStatus(wrapped_WrapKeyEx(encryptedKeyPtr, encryptedKeyMaxLength, encryptedKeyLengthPtr, formatType, exportKey, sessionKeyContext));
 			int encryptedKeyLength = Marshal.ReadInt32(encryptedKeyLengthPtr);
 			checkIndices(encryptedKey, encryptedKeyOffset, encryptedKeyLength);
 			getPointer(encryptedKey, encryptedKeyOffset, ref encryptedKeyHandle, ref encryptedKeyPtr);
-			processStatus(wrapped_ExportKeyEx(encryptedKeyPtr, encryptedKeyMaxLength, encryptedKeyLengthPtr, formatType, exportKey, sessionKeyContext));
+			processStatus(wrapped_WrapKeyEx(encryptedKeyPtr, encryptedKeyMaxLength, encryptedKeyLengthPtr, formatType, exportKey, sessionKeyContext));
 			return Marshal.ReadInt32(encryptedKeyLengthPtr);
 		}
 		finally
@@ -1674,15 +1744,15 @@ public class crypt
 			releasePointer(encryptedKeyHandle);
 		}
 	}
-	public static int ExportKeyEx(
+	public static int WrapKeyEx(
 							byte[] encryptedKey,
 							int encryptedKeyMaxLength,
 							int formatType, // CRYPT_FORMAT_TYPE
 							int exportKey, // CRYPT_HANDLE
 							int sessionKeyContext // CRYPT_CONTEXT
-							) { return ExportKeyEx(encryptedKey, 0, encryptedKeyMaxLength, formatType, exportKey, sessionKeyContext); }
+							) { return WrapKeyEx(encryptedKey, 0, encryptedKeyMaxLength, formatType, exportKey, sessionKeyContext); }
 	
-	public static void ImportKey(
+	public static void UnwrapKey(
 								byte[] encryptedKey,
 								int encryptedKeyOffset,
 								int encryptedKeyLength,
@@ -1696,25 +1766,25 @@ public class crypt
 		{
 			checkIndices(encryptedKey, encryptedKeyOffset, encryptedKeyLength);
 			getPointer(encryptedKey, encryptedKeyOffset, ref encryptedKeyHandle, ref encryptedKeyPtr);
-			processStatus(wrapped_ImportKey(encryptedKeyPtr, encryptedKeyLength, importKey, sessionKeyContext));
+			processStatus(wrapped_UnwrapKey(encryptedKeyPtr, encryptedKeyLength, importKey, sessionKeyContext));
 		}
 		finally
 		{
 			releasePointer(encryptedKeyHandle);
 		}
 	}
-	public static void ImportKey(
+	public static void UnwrapKey(
 							byte[] encryptedKey,
 							int importKey, // CRYPT_CONTEXT
 							int sessionKeyContext // CRYPT_CONTEXT
-							) { ImportKey(encryptedKey, 0, encryptedKey == null ? 0 : encryptedKey.Length, importKey, sessionKeyContext); }
-	public static void ImportKey(
+							) { UnwrapKey(encryptedKey, 0, encryptedKey == null ? 0 : encryptedKey.Length, importKey, sessionKeyContext); }
+	public static void UnwrapKey(
 							String encryptedKey,
 							int importKey, // CRYPT_CONTEXT
 							int sessionKeyContext // CRYPT_CONTEXT
-							) { ImportKey(encryptedKey == null ? null : Encoding.ASCII.GetBytes(encryptedKey), 0, encryptedKey == null ? 0 : Encoding.ASCII.GetByteCount(encryptedKey), importKey, sessionKeyContext); }
+							) { UnwrapKey(encryptedKey == null ? null : getCStringBytes(encryptedKey), 0, encryptedKey == null ? 0 : Encoding.ASCII.GetByteCount(encryptedKey), importKey, sessionKeyContext); }
 	
-	public static int ImportKeyEx(
+	public static int UnwrapKeyEx(
 								byte[] encryptedKey,
 								int encryptedKeyOffset,
 								int encryptedKeyLength,
@@ -1729,7 +1799,7 @@ public class crypt
 		{
 			checkIndices(encryptedKey, encryptedKeyOffset, encryptedKeyLength);
 			getPointer(encryptedKey, encryptedKeyOffset, ref encryptedKeyHandle, ref encryptedKeyPtr);
-			processStatus(wrapped_ImportKeyEx(encryptedKeyPtr, encryptedKeyLength, importKey, sessionKeyContext, returnedContextPtr));
+			processStatus(wrapped_UnwrapKeyEx(encryptedKeyPtr, encryptedKeyLength, importKey, sessionKeyContext, returnedContextPtr));
 			return Marshal.ReadInt32(returnedContextPtr);
 		}
 		finally
@@ -1738,16 +1808,16 @@ public class crypt
 			releasePointer(encryptedKeyHandle);
 		}
 	}
-	public static int ImportKeyEx(
+	public static int UnwrapKeyEx(
 							byte[] encryptedKey,
 							int importKey, // CRYPT_CONTEXT
 							int sessionKeyContext // CRYPT_CONTEXT
-							) { return ImportKeyEx(encryptedKey, 0, encryptedKey == null ? 0 : encryptedKey.Length, importKey, sessionKeyContext); }
-	public static int ImportKeyEx(
+							) { return UnwrapKeyEx(encryptedKey, 0, encryptedKey == null ? 0 : encryptedKey.Length, importKey, sessionKeyContext); }
+	public static int UnwrapKeyEx(
 							String encryptedKey,
 							int importKey, // CRYPT_CONTEXT
 							int sessionKeyContext // CRYPT_CONTEXT
-							) { return ImportKeyEx(encryptedKey == null ? null : Encoding.ASCII.GetBytes(encryptedKey), 0, encryptedKey == null ? 0 : Encoding.ASCII.GetByteCount(encryptedKey), importKey, sessionKeyContext); }
+							) { return UnwrapKeyEx(encryptedKey == null ? null : getCStringBytes(encryptedKey), 0, encryptedKey == null ? 0 : Encoding.ASCII.GetByteCount(encryptedKey), importKey, sessionKeyContext); }
 	
 	/* Create and check a digital signature */
 	
@@ -1851,7 +1921,7 @@ public class crypt
 							String signature,
 							int sigCheckKey, // CRYPT_HANDLE
 							int hashContext // CRYPT_CONTEXT
-							) { CheckSignature(signature == null ? null : Encoding.ASCII.GetBytes(signature), 0, signature == null ? 0 : Encoding.ASCII.GetByteCount(signature), sigCheckKey, hashContext); }
+							) { CheckSignature(signature == null ? null : getCStringBytes(signature), 0, signature == null ? 0 : Encoding.ASCII.GetByteCount(signature), sigCheckKey, hashContext); }
 	
 	public static int CheckSignatureEx(
 								byte[] signature,
@@ -1886,7 +1956,7 @@ public class crypt
 							String signature,
 							int sigCheckKey, // CRYPT_HANDLE
 							int hashContext // CRYPT_CONTEXT
-							) { return CheckSignatureEx(signature == null ? null : Encoding.ASCII.GetBytes(signature), 0, signature == null ? 0 : Encoding.ASCII.GetByteCount(signature), sigCheckKey, hashContext); }
+							) { return CheckSignatureEx(signature == null ? null : getCStringBytes(signature), 0, signature == null ? 0 : Encoding.ASCII.GetByteCount(signature), sigCheckKey, hashContext); }
 	
 	/****************************************************************************
 	*																			*
@@ -1906,7 +1976,7 @@ public class crypt
 		IntPtr keysetPtr = Marshal.AllocHGlobal(4);
 		GCHandle nameHandle = new GCHandle();
 		IntPtr namePtr = IntPtr.Zero;
-		byte[] nameArray = Encoding.ASCII.GetBytes(name);
+		byte[] nameArray = getCStringBytes(name);
 		try
 		{
 			getPointer(nameArray, 0, ref nameHandle, ref namePtr);
@@ -1938,7 +2008,7 @@ public class crypt
 		IntPtr cryptContextPtr = Marshal.AllocHGlobal(4);
 		GCHandle keyIDHandle = new GCHandle();
 		IntPtr keyIDPtr = IntPtr.Zero;
-		byte[] keyIDArray = Encoding.ASCII.GetBytes(keyID);
+		byte[] keyIDArray = getCStringBytes(keyID);
 		try
 		{
 			getPointer(keyIDArray, 0, ref keyIDHandle, ref keyIDPtr);
@@ -1962,10 +2032,10 @@ public class crypt
 		IntPtr cryptContextPtr = Marshal.AllocHGlobal(4);
 		GCHandle keyIDHandle = new GCHandle();
 		IntPtr keyIDPtr = IntPtr.Zero;
-		byte[] keyIDArray = Encoding.ASCII.GetBytes(keyID);
+		byte[] keyIDArray = getCStringBytes(keyID);
 		GCHandle passwordHandle = new GCHandle();
 		IntPtr passwordPtr = IntPtr.Zero;
-		byte[] passwordArray = Encoding.ASCII.GetBytes(password);
+		byte[] passwordArray = getCStringBytes(password);
 		try
 		{
 			getPointer(keyIDArray, 0, ref keyIDHandle, ref keyIDPtr);
@@ -1991,10 +2061,10 @@ public class crypt
 		IntPtr cryptContextPtr = Marshal.AllocHGlobal(4);
 		GCHandle keyIDHandle = new GCHandle();
 		IntPtr keyIDPtr = IntPtr.Zero;
-		byte[] keyIDArray = Encoding.ASCII.GetBytes(keyID);
+		byte[] keyIDArray = getCStringBytes(keyID);
 		GCHandle passwordHandle = new GCHandle();
 		IntPtr passwordPtr = IntPtr.Zero;
-		byte[] passwordArray = Encoding.ASCII.GetBytes(password);
+		byte[] passwordArray = getCStringBytes(password);
 		try
 		{
 			getPointer(keyIDArray, 0, ref keyIDHandle, ref keyIDPtr);
@@ -2028,7 +2098,7 @@ public class crypt
 	{
 		GCHandle passwordHandle = new GCHandle();
 		IntPtr passwordPtr = IntPtr.Zero;
-		byte[] passwordArray = Encoding.ASCII.GetBytes(password);
+		byte[] passwordArray = getCStringBytes(password);
 		try
 		{
 			getPointer(passwordArray, 0, ref passwordHandle, ref passwordPtr);
@@ -2048,7 +2118,7 @@ public class crypt
 	{
 		GCHandle keyIDHandle = new GCHandle();
 		IntPtr keyIDPtr = IntPtr.Zero;
-		byte[] keyIDArray = Encoding.ASCII.GetBytes(keyID);
+		byte[] keyIDArray = getCStringBytes(keyID);
 		try
 		{
 			getPointer(keyIDArray, 0, ref keyIDHandle, ref keyIDPtr);
@@ -2108,7 +2178,7 @@ public class crypt
 		IntPtr criticalFlagPtr = Marshal.AllocHGlobal(4);
 		GCHandle oidHandle = new GCHandle();
 		IntPtr oidPtr = IntPtr.Zero;
-		byte[] oidArray = Encoding.ASCII.GetBytes(oid);
+		byte[] oidArray = getCStringBytes(oid);
 		GCHandle extensionHandle = new GCHandle();
 		IntPtr extensionPtr = IntPtr.Zero;
 		try
@@ -2146,7 +2216,7 @@ public class crypt
 	{
 		GCHandle oidHandle = new GCHandle();
 		IntPtr oidPtr = IntPtr.Zero;
-		byte[] oidArray = Encoding.ASCII.GetBytes(oid);
+		byte[] oidArray = getCStringBytes(oid);
 		GCHandle extensionHandle = new GCHandle();
 		IntPtr extensionPtr = IntPtr.Zero;
 		try
@@ -2173,7 +2243,7 @@ public class crypt
 							String oid,
 							int criticalFlag,
 							String extension
-							) { AddCertExtension(certificate, oid, criticalFlag, extension == null ? null : Encoding.ASCII.GetBytes(extension), 0, extension == null ? 0 : Encoding.ASCII.GetByteCount(extension)); }
+							) { AddCertExtension(certificate, oid, criticalFlag, extension == null ? null : getCStringBytes(extension), 0, extension == null ? 0 : Encoding.ASCII.GetByteCount(extension)); }
 	
 	public static void DeleteCertExtension(
 								int certificate, // CRYPT_CERTIFICATE
@@ -2182,7 +2252,7 @@ public class crypt
 	{
 		GCHandle oidHandle = new GCHandle();
 		IntPtr oidPtr = IntPtr.Zero;
-		byte[] oidArray = Encoding.ASCII.GetBytes(oid);
+		byte[] oidArray = getCStringBytes(oid);
 		try
 		{
 			getPointer(oidArray, 0, ref oidHandle, ref oidPtr);
@@ -2244,7 +2314,7 @@ public class crypt
 	public static int ImportCert(
 							String certObject,
 							int cryptUser // CRYPT_USER
-							) { return ImportCert(certObject == null ? null : Encoding.ASCII.GetBytes(certObject), 0, certObject == null ? 0 : Encoding.ASCII.GetByteCount(certObject), cryptUser); }
+							) { return ImportCert(certObject == null ? null : getCStringBytes(certObject), 0, certObject == null ? 0 : Encoding.ASCII.GetByteCount(certObject), cryptUser); }
 	
 	public static int ExportCert(
 								byte[] certObject,
@@ -2299,7 +2369,7 @@ public class crypt
 		IntPtr certificatePtr = Marshal.AllocHGlobal(4);
 		GCHandle keyIDHandle = new GCHandle();
 		IntPtr keyIDPtr = IntPtr.Zero;
-		byte[] keyIDArray = Encoding.ASCII.GetBytes(keyID);
+		byte[] keyIDArray = getCStringBytes(keyID);
 		try
 		{
 			getPointer(keyIDArray, 0, ref keyIDHandle, ref keyIDPtr);
@@ -2322,7 +2392,7 @@ public class crypt
 	{
 		GCHandle keyIDHandle = new GCHandle();
 		IntPtr keyIDPtr = IntPtr.Zero;
-		byte[] keyIDArray = Encoding.ASCII.GetBytes(keyID);
+		byte[] keyIDArray = getCStringBytes(keyID);
 		try
 		{
 			getPointer(keyIDArray, 0, ref keyIDHandle, ref keyIDPtr);
@@ -2447,7 +2517,7 @@ public class crypt
 	public static int PushData(
 							int envelope, // CRYPT_HANDLE
 							String buffer
-							) { return PushData(envelope, buffer == null ? null : Encoding.ASCII.GetBytes(buffer), 0, buffer == null ? 0 : Encoding.ASCII.GetByteCount(buffer)); }
+							) { return PushData(envelope, buffer == null ? null : getCStringBytes(buffer), 0, buffer == null ? 0 : Encoding.ASCII.GetByteCount(buffer)); }
 	
 	public static void FlushData(
 								int envelope // CRYPT_HANDLE
@@ -2506,7 +2576,7 @@ public class crypt
 		IntPtr devicePtr = Marshal.AllocHGlobal(4);
 		GCHandle nameHandle = new GCHandle();
 		IntPtr namePtr = IntPtr.Zero;
-		byte[] nameArray = Encoding.ASCII.GetBytes(name);
+		byte[] nameArray = getCStringBytes(name);
 		try
 		{
 			getPointer(nameArray, 0, ref nameHandle, ref namePtr);
@@ -2583,10 +2653,10 @@ public class crypt
 		IntPtr userPtr = Marshal.AllocHGlobal(4);
 		GCHandle nameHandle = new GCHandle();
 		IntPtr namePtr = IntPtr.Zero;
-		byte[] nameArray = Encoding.ASCII.GetBytes(name);
+		byte[] nameArray = getCStringBytes(name);
 		GCHandle passwordHandle = new GCHandle();
 		IntPtr passwordPtr = IntPtr.Zero;
-		byte[] passwordArray = Encoding.ASCII.GetBytes(password);
+		byte[] passwordArray = getCStringBytes(password);
 		try
 		{
 			getPointer(nameArray, 0, ref nameHandle, ref namePtr);
@@ -2664,17 +2734,17 @@ public class crypt
 	[DllImport("cl32.dll", EntryPoint="cryptQueryObject")]
 	private static extern int wrapped_QueryObject(IntPtr objectData, int objectDataLength, IntPtr cryptObjectInfo);
 
-	[DllImport("cl32.dll", EntryPoint="cryptExportKey")]
-	private static extern int wrapped_ExportKey(IntPtr encryptedKey, int encryptedKeyMaxLength, IntPtr encryptedKeyLength, int exportKey, int sessionKeyContext);
+	[DllImport("cl32.dll", EntryPoint="cryptWrapKey")]
+	private static extern int wrapped_WrapKey(IntPtr encryptedKey, int encryptedKeyMaxLength, IntPtr encryptedKeyLength, int exportKey, int sessionKeyContext);
 
-	[DllImport("cl32.dll", EntryPoint="cryptExportKeyEx")]
-	private static extern int wrapped_ExportKeyEx(IntPtr encryptedKey, int encryptedKeyMaxLength, IntPtr encryptedKeyLength, int formatType, int exportKey, int sessionKeyContext);
+	[DllImport("cl32.dll", EntryPoint="cryptWrapKeyEx")]
+	private static extern int wrapped_WrapKeyEx(IntPtr encryptedKey, int encryptedKeyMaxLength, IntPtr encryptedKeyLength, int formatType, int exportKey, int sessionKeyContext);
 
-	[DllImport("cl32.dll", EntryPoint="cryptImportKey")]
-	private static extern int wrapped_ImportKey(IntPtr encryptedKey, int encryptedKeyLength, int importKey, int sessionKeyContext);
+	[DllImport("cl32.dll", EntryPoint="cryptUnwrapKey")]
+	private static extern int wrapped_UnwrapKey(IntPtr encryptedKey, int encryptedKeyLength, int importKey, int sessionKeyContext);
 
-	[DllImport("cl32.dll", EntryPoint="cryptImportKeyEx")]
-	private static extern int wrapped_ImportKeyEx(IntPtr encryptedKey, int encryptedKeyLength, int importKey, int sessionKeyContext, IntPtr returnedContext);
+	[DllImport("cl32.dll", EntryPoint="cryptUnwrapKeyEx")]
+	private static extern int wrapped_UnwrapKeyEx(IntPtr encryptedKey, int encryptedKeyLength, int importKey, int sessionKeyContext, IntPtr returnedContext);
 
 	[DllImport("cl32.dll", EntryPoint="cryptCreateSignature")]
 	private static extern int wrapped_CreateSignature(IntPtr signature, int signatureMaxLength, IntPtr signatureLength, int signContext, int hashContext);
@@ -2793,6 +2863,15 @@ public class crypt
 
     /* Helper Functions */
 
+    private static byte[] getCStringBytes(String value)
+    {
+         byte[] stringBytes = Encoding.ASCII.GetBytes(value);
+         byte[] cStringBytes = new byte[stringBytes.Length + 1];
+         Array.Copy(stringBytes, cStringBytes, stringBytes.Length);
+         cStringBytes[stringBytes.Length] = \0;
+         return cStringBytes;
+    }
+
     private static void processStatus(int status)
     {
         if (status < crypt.OK)
@@ -2867,12 +2946,12 @@ public class CRYPT_OBJECT_INFO
     public int cryptAlgo;
     public int cryptMode;
     public int hashAlgo;
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst=32)]public byte[] salt;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst=64)]public byte[] salt = new byte[64];
     public int saltSize;
+    public int iterations;
 
     public CRYPT_OBJECT_INFO()
     {
-        salt = new byte[64];
         saltSize = 64;
     }
 

@@ -76,10 +76,12 @@ CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN sanityCheckSessionTSP( IN_PTR \
 										const SESSION_INFO *sessionInfoPtr )
 	{
-	const TSP_INFO *tspInfo = sessionInfoPtr->sessionTSP;
+	const TSP_INFO *tspInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( tspInfo, sizeof( TSP_INFO ) ) );
+
+	REQUIRES_B( tspInfo != NULL );
 
 	/* Check the general envelope state */
 	if( !sanityCheckSession( sessionInfoPtr ) )
@@ -425,6 +427,7 @@ static int signTSToken( OUT_BUFFER( tsaRespMaxLength, *tsaRespLength ) \
 								  CRYPT_IATTRIBUTE_INCLUDESIGCERT );
 		}
 	krnlSendNotifier( iCmsAttributes, IMESSAGE_DECREFCOUNT );
+	iCmsAttributes = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
@@ -465,13 +468,15 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int sendClientRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  INOUT_PTR TSP_PROTOCOL_INFO *protocolInfo )
 	{
-	const TSP_INFO *tspInfo = sessionInfoPtr->sessionTSP;
+	const TSP_INFO *tspInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM stream;
 	void *msgImprintPtr;
 	int position DUMMY_INIT, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( protocolInfo, sizeof( TSP_PROTOCOL_INFO ) ) );
+
+	REQUIRES( tspInfo != NULL );
 
 	/* If we're fuzzing, there's no request to send out */
 #ifdef CONFIG_FUZZ
@@ -849,15 +854,17 @@ static int sendServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
+	const TSP_INFO *tspInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	TSP_PROTOCOL_INFO protocolInfo;
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionTSP( sessionInfoPtr ) );
+	REQUIRES( tspInfo != NULL );
 
 	/* Make sure that we have all of the needed information */
-	if( sessionInfoPtr->sessionTSP->imprintSize <= 0 )
+	if( tspInfo->imprintSize <= 0 )
 		{
 		setObjectErrorInfo( sessionInfoPtr, 
 							CRYPT_SESSINFO_TSP_MSGIMPRINT,
@@ -986,13 +993,14 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
 	CRYPT_CONTEXT hashContext = *( ( CRYPT_CONTEXT * ) data );
-	TSP_INFO *tspInfo = sessionInfoPtr->sessionTSP;
+	TSP_INFO *tspInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int imprintAlgo, status;	/* int vs.enum */
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( data, sizeof( int ) ) );
 
 	REQUIRES( type == CRYPT_SESSINFO_TSP_MSGIMPRINT );
+	REQUIRES( tspInfo != NULL );
 
 	if( tspInfo->imprintSize != 0 )
 		return( CRYPT_ERROR_INITED );

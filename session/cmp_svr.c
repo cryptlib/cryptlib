@@ -60,7 +60,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int initServerAuthentMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 						  INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo )
 	{
-	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_KEYMGMT_INFO getkeyInfo;
 	MESSAGE_DATA msgData;
 	char password[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -71,17 +71,14 @@ int initServerAuthentMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionCMP( sessionInfoPtr ) );
 	REQUIRES( sanityCheckCMPProtocolInfo( protocolInfo ) );
+	REQUIRES( cmpInfo != NULL );
 
-	/* Set up general authentication information and if there's user 
-	   information still present from a previous transaction, clear it */
-	status = setCMPprotocolInfo( protocolInfo, NULL, 0, 
-								 CMP_INIT_FLAG_MACCTX, TRUE );
-	if( cryptStatusError( status ) )
-		return( status );
-	if( cmpInfo->userInfo != CRYPT_ERROR )
+	/* If there's user information still present from a previous transaction, 
+	   clear it */
+	if( cmpInfo->iPkiUser != CRYPT_ERROR )
 		{
-		krnlSendNotifier( cmpInfo->userInfo, IMESSAGE_DECREFCOUNT );
-		cmpInfo->userInfo = CRYPT_ERROR;
+		krnlSendNotifier( cmpInfo->iPkiUser, IMESSAGE_DECREFCOUNT );
+		cmpInfo->iPkiUser = CRYPT_ERROR;
 		}
 	if( protocolInfo->altMacKeySize > 0 )
 		{
@@ -91,8 +88,14 @@ int initServerAuthentMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	protocolInfo->userIsRA = FALSE;
 
 	/* Get the user information for the user identified by the user ID from 
-	   the certificate store.  If we get a not-found error we report it as 
-	   "signer not trusted", which can also mean "signer unknown" */
+	   the certificate store.  Since this isn't a standard KEYID_SIZE value
+	   (it's either a decoded 17-byte pkiUserID giving 9 bytes when coming
+	   from cryptlib or who-knows-what from something other than cryptlib) 
+	   we denote it as a CRYPT_IKEYID_KEYID to make sure it gets hashed down 
+	   to a fixed-size ID by the database lookup code.
+	   
+	   If we get a not-found error we report it as "signer not trusted", 
+	   which can also mean "signer unknown" */
 	setMessageKeymgmtInfo( &getkeyInfo, CRYPT_IKEYID_KEYID,
 						   protocolInfo->userID, protocolInfo->userIDsize, 
 						   NULL, 0, KEYMGMT_FLAG_NONE );
@@ -137,19 +140,19 @@ int initServerAuthentMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 "Couldn't find PKI user information for the requested "
 					 "user" ) );
 		}
-	cmpInfo->userInfo = getkeyInfo.cryptHandle;
+	cmpInfo->iPkiUser = getkeyInfo.cryptHandle;
 	protocolInfo->userIDchanged = FALSE;
 
 	/* Get the password from the PKI user object */
 	setMessageData( &msgData, password, CRYPT_MAX_TEXTSIZE );
-	status = krnlSendMessage( cmpInfo->userInfo, IMESSAGE_GETATTRIBUTE_S, 
+	status = krnlSendMessage( cmpInfo->iPkiUser, IMESSAGE_GETATTRIBUTE_S, 
 							  &msgData, CRYPT_CERTINFO_PKIUSER_ISSUEPASSWORD );
 	if( cryptStatusOK( status ) )
 		{
 		status = updateSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD, 
 									password, msgData.length, 
-									CRYPT_MAX_TEXTSIZE, 
-									ATTR_FLAG_ENCODEDVALUE );
+									ATTR_FLAG_ENCODEDVALUE | \
+										ATTR_FLAG_FIXEDWIDTHTEXT );
 		}
 	zeroise( password, CRYPT_MAX_TEXTSIZE );
 	if( cryptStatusError( status ) )
@@ -168,7 +171,7 @@ int initServerAuthentMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   password if we get a revocation request rather than an issue
 	   request */
 	setMessageData( &msgData, password, CRYPT_MAX_TEXTSIZE );
-	status = krnlSendMessage( cmpInfo->userInfo, IMESSAGE_GETATTRIBUTE_S, 
+	status = krnlSendMessage( cmpInfo->iPkiUser, IMESSAGE_GETATTRIBUTE_S, 
 							  &msgData, CRYPT_CERTINFO_PKIUSER_REVPASSWORD );
 	if( cryptStatusOK( status ) )
 		{
@@ -186,7 +189,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int initServerAuthentSign( INOUT_PTR SESSION_INFO *sessionInfoPtr, 
 						   INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo )
 	{
-	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_KEYMGMT_INFO getkeyInfo;
 	MESSAGE_DATA msgData;
 	char userName[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -198,6 +201,7 @@ int initServerAuthentSign( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionCMP( sessionInfoPtr ) );
 	REQUIRES( sanityCheckCMPProtocolInfo( protocolInfo ) );
+	REQUIRES( cmpInfo != NULL );
 
 	/* Set up general authentication information and if there's client 
 	   authentication information still present from a previous transaction, 
@@ -206,10 +210,10 @@ int initServerAuthentSign( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 TRUE );
 	if( cryptStatusError( status ) )
 		return( status );
-	if( cmpInfo->userInfo != CRYPT_ERROR )
+	if( cmpInfo->iPkiUser != CRYPT_ERROR )
 		{
-		krnlSendNotifier( cmpInfo->userInfo, IMESSAGE_DECREFCOUNT );
-		cmpInfo->userInfo = CRYPT_ERROR;
+		krnlSendNotifier( cmpInfo->iPkiUser, IMESSAGE_DECREFCOUNT );
+		cmpInfo->iPkiUser = CRYPT_ERROR;
 		}
 	if( sessionInfoPtr->iAuthInContext != CRYPT_ERROR )
 		{
@@ -244,7 +248,7 @@ int initServerAuthentSign( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 "Couldn't find PKI user information for owner of CMP "
 					 "requesting certificate" ) );
 		}
-	cmpInfo->userInfo = getkeyInfo.cryptHandle;
+	cmpInfo->iPkiUser = getkeyInfo.cryptHandle;
 
 	/* Update the user ID from the PKI user object and record whether the 
 	   user is an RA rather than a standard user */
@@ -257,8 +261,8 @@ int initServerAuthentSign( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		userNameLen = msgData.length;
 		status = updateSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME, 
 									userName, userNameLen, 
-									CRYPT_MAX_TEXTSIZE, 
-									ATTR_FLAG_ENCODEDVALUE );
+									ATTR_FLAG_ENCODEDVALUE | \
+										ATTR_FLAG_FIXEDWIDTHTEXT );
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -287,9 +291,17 @@ int initServerAuthentSign( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  KEYMGMT_ITEM_PUBLICKEY );
 	if( cryptStatusError( status ) )
 		{
+		const BOOLEAN isRevocation = \
+				( status == CRYPT_ERROR_NOTFOUND && \
+				  protocolInfo->operation == CTAG_PB_RR ) ? TRUE : FALSE;
+		
 		protocolInfo->pkiFailInfo = CMPFAILINFO_SIGNERNOTTRUSTED;
 		retExtObj( status, 
 				   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
+				     isRevocation ? \
+					 "Certificate for requested PKI user '%s' couldn't be "
+					 "fetched from certificate store, has this certificate "
+					 "already been revoked?" : \
 					 "Certificate for requested PKI user '%s' couldn't be "
 					 "fetched from certificate store",
 					 sanitiseString( userName, CRYPT_MAX_TEXTSIZE, 
@@ -306,6 +318,7 @@ int initServerAuthentSign( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int cleanupFailedIssue( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,
+							   IN_PTR const CMP_INFO *cmpInfo,
 							   IN_STATUS const int status )
 	{
 	MESSAGE_CERTMGMT_INFO certMgmtInfo;
@@ -313,6 +326,7 @@ static int cleanupFailedIssue( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( protocolInfo, sizeof( CMP_PROTOCOL_INFO ) ) );
+	assert( isReadPtr( cmpInfo, sizeof( CMP_INFO ) ) );
 
 	REQUIRES( cryptStatusOK( status ) || cryptStatusError( status ) );
 			  /* A no-op, but we're just documenting the state */
@@ -323,7 +337,10 @@ static int cleanupFailedIssue( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   issued certificate, returning the status that caused the failure if we 
 	   were called because of an error */
 	setMessageCertMgmtInfo( &certMgmtInfo, CRYPT_UNUSED,
-							sessionInfoPtr->iCertResponse );
+				sessionInfoPtr->iCertResponse,
+				( isHandleRangeValid( sessionInfoPtr->iAuthInContext ) ) ? \
+				  sessionInfoPtr->iAuthInContext : CRYPT_UNUSED,
+				cmpInfo->iPkiUser, CERTMGMT_OPTION_NONE );
 	localStatus = krnlSendMessage( sessionInfoPtr->cryptKeyset,
 								   IMESSAGE_KEY_CERTMGMT, &certMgmtInfo,
 								   CRYPT_CERTACTION_CERT_CREATION_REVERSE );
@@ -424,9 +441,8 @@ static void sendErrorResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
-	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_CERTMGMT_INFO certMgmtInfo;
-	MESSAGE_KEYMGMT_INFO setkeyInfo;
 	STREAM stream;
 	CMP_PROTOCOL_INFO protocolInfo;
 	const SESSION_ATTRIBUTE_LIST *userNamePtr;
@@ -439,6 +455,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionCMP( sessionInfoPtr ) );
+	REQUIRES( cmpInfo != NULL );
 
 	/* Initialise the server-side protocol state information.  Since the 
 	   server doesn't have a user ID (it uses what the client sends it), we 
@@ -484,10 +501,9 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			return( status );
 			}
 
-		/* We're (potentially) re-using user information from a previous 
-		   session, if there are cryptographic credentials associated with
-		   the user information then we have to move them over to the 
-		   current protocol state data */
+		/* If we're re-using user information from a previous PKIBoot 
+		   operation, move the cryptographic credentials over to the current 
+		   protocol state data */
 		if( cmpInfo->iSavedMacContext != CRYPT_ERROR )
 			{
 			protocolInfo.iMacContext = cmpInfo->iSavedMacContext;
@@ -580,8 +596,9 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			return( status );
 			}
 
-		/* Remember the authentication context in case we can reuse it for 
-		   another transaction */
+		/* The PKIBoot exchange precedes any standard exchange, remember the
+		   cryptographic credentials in case we can reuse it for a following 
+		   transaction */
 		cmpInfo->iSavedMacContext = protocolInfo.iMacContext;
 		protocolInfo.iMacContext = CRYPT_ERROR;
 		destroyCMPprotocolInfo( &protocolInfo );
@@ -621,17 +638,18 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	CFI_CHECK_UPDATE( "IMESSAGE_CRT_SIGCHECK" );
 
 	/* Add the request to the certificate store */
-	setMessageKeymgmtInfo( &setkeyInfo, CRYPT_KEYID_NONE, NULL, 0, NULL, 0,
-						   ( protocolInfo.operation == CTAG_PB_IR ) ? \
-								KEYMGMT_FLAG_INITIALOP : \
-						   ( protocolInfo.operation == CTAG_PB_KUR ) ? \
-								KEYMGMT_FLAG_UPDATE : KEYMGMT_FLAG_NONE );
-	setkeyInfo.cryptHandle = sessionInfoPtr->iCertRequest;
+	setMessageCertMgmtInfo( &certMgmtInfo, sessionInfoPtr->iCertRequest,
+				sessionInfoPtr->iCertRequest,
+				( isHandleRangeValid( sessionInfoPtr->iAuthInContext ) ) ? \
+				  sessionInfoPtr->iAuthInContext : CRYPT_UNUSED,
+				cmpInfo->iPkiUser, 
+				( protocolInfo.operation == CTAG_PB_IR ) ? \
+				  CERTMGMT_OPTION_INITIAL : \
+				( protocolInfo.operation == CTAG_PB_KUR ) ? \
+				  CERTMGMT_OPTION_RENEWAL : CERTMGMT_OPTION_NONE );
 	status = krnlSendMessage( sessionInfoPtr->cryptKeyset,
-							  IMESSAGE_KEY_SETKEY, &setkeyInfo, 
-							  ( protocolInfo.operation == CTAG_PB_RR ) ? \
-								KEYMGMT_ITEM_REVREQUEST : \
-								KEYMGMT_ITEM_REQUEST );
+							  IMESSAGE_KEY_CERTMGMT, &certMgmtInfo,
+							  CRYPT_CERTACTION_ADDREQUEST );
 	if( cryptStatusError( status ) )
 		{
 		const CMP_MESSAGE_TYPE operation = protocolInfo.operation;
@@ -657,6 +675,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		destroyCMPprotocolInfo( &protocolInfo );
 		if( operation == CTAG_PB_IR && status == CRYPT_ERROR_DUPLICATE )
 			{
+			/* An ir is a special-case once-only operation */
 			retExtObj( status, 
 					   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
 						 "CMP initialisation request for '%s' couldn't be "
@@ -666,13 +685,20 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 						 getCertHolderName( sessionInfoPtr->iCertRequest, 
 											certName, CRYPT_MAX_TEXTSIZE ) ) );
 			}
+		if( operation == CTAG_PB_RR )
+			{
+			/* Revocation requests don't have holder names */
+			retExtObj( status, 
+					   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
+						 "CMP revocation request couldn't be added to the "
+						 "certificate store" ) );
+			}
 		retExtObj( status, 
 				   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
 					 "CMP %s request for '%s' couldn't be added to the "
 					 "certificate store", 
 					 ( operation == CTAG_PB_IR ) ? "initialisation" : \
 					 ( operation == CTAG_PB_KUR ) ? "key update" : \
-					 ( operation == CTAG_PB_RR ) ? "revocation" : \
 												   "certificate",
 					 getCertHolderName( sessionInfoPtr->iCertRequest, 
 										certName, CRYPT_MAX_TEXTSIZE ) ) );
@@ -683,7 +709,14 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	if( protocolInfo.operation != CTAG_PB_RR )
 		{
 		setMessageCertMgmtInfo( &certMgmtInfo, sessionInfoPtr->privateKey,
-								sessionInfoPtr->iCertRequest );
+				sessionInfoPtr->iCertRequest,
+				( isHandleRangeValid( sessionInfoPtr->iAuthInContext ) ) ? \
+				  sessionInfoPtr->iAuthInContext : CRYPT_UNUSED,
+				cmpInfo->iPkiUser, 
+				( protocolInfo.operation == CTAG_PB_IR ) ? \
+				  CERTMGMT_OPTION_INITIAL : \
+				( protocolInfo.operation == CTAG_PB_KUR ) ? \
+				  CERTMGMT_OPTION_RENEWAL : CERTMGMT_OPTION_NONE );
 		status = krnlSendMessage( sessionInfoPtr->cryptKeyset,
 								  IMESSAGE_KEY_CERTMGMT, &certMgmtInfo,
 								  CRYPT_CERTACTION_CERT_CREATION );
@@ -713,7 +746,10 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	else
 		{
 		setMessageCertMgmtInfo( &certMgmtInfo, CRYPT_UNUSED,
-								sessionInfoPtr->iCertRequest );
+				sessionInfoPtr->iCertRequest,
+				( isHandleRangeValid( sessionInfoPtr->iAuthInContext ) ) ? \
+				  sessionInfoPtr->iAuthInContext : CRYPT_UNUSED,
+				cmpInfo->iPkiUser, CERTMGMT_OPTION_NONE );
 		status = krnlSendMessage( sessionInfoPtr->cryptKeyset,
 								  IMESSAGE_KEY_CERTMGMT, &certMgmtInfo,
 								  CRYPT_CERTACTION_REVOKE_CERT );
@@ -729,11 +765,18 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		delayRandom();	/* Dither error timing info */
 		sendErrorResponse( sessionInfoPtr, &protocolInfo, status );
 		destroyCMPprotocolInfo( &protocolInfo );
+		if( operation == CTAG_PB_RR )
+			{
+			/* Revocation requests don't have holder names */
+			retExtObj( status, 
+					   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
+						 "CMP certificate revocation was denied by the "
+						 "certificate store" ) );
+			}
 		retExtObj( status, 
 				   ( status, SESSION_ERRINFO, sessionInfoPtr->cryptKeyset,
-					 "CMP certificate %s for '%s' was denied by certificate "
-					 "store",
-					 ( operation != CTAG_PB_RR ) ? "issue" : "revocation",
+					 "CMP certificate issue for '%s' was denied by the "
+					 "certificate store",
 					 getCertHolderName( sessionInfoPtr->iCertRequest, 
 										certName, CRYPT_MAX_TEXTSIZE ) ) );
 		}
@@ -757,7 +800,10 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		if( protocolInfo.operation != CTAG_PB_RR )
 			{
 			setMessageCertMgmtInfo( &certMgmtInfo, CRYPT_UNUSED,
-									sessionInfoPtr->iCertResponse );
+					sessionInfoPtr->iCertResponse,
+					( isHandleRangeValid( sessionInfoPtr->iAuthInContext ) ) ? \
+					  sessionInfoPtr->iAuthInContext : CRYPT_UNUSED,
+					cmpInfo->iPkiUser, CERTMGMT_OPTION_NONE );
 			( void ) krnlSendMessage( sessionInfoPtr->cryptKeyset,
 									  IMESSAGE_KEY_CERTMGMT, &certMgmtInfo,
 									  CRYPT_CERTACTION_CERT_CREATION_DROP );
@@ -776,7 +822,10 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		if( protocolInfo.operation != CTAG_PB_RR )
 			{
 			setMessageCertMgmtInfo( &certMgmtInfo, CRYPT_UNUSED,
-									sessionInfoPtr->iCertResponse );
+					sessionInfoPtr->iCertResponse,
+					( isHandleRangeValid( sessionInfoPtr->iAuthInContext ) ) ? \
+					  sessionInfoPtr->iAuthInContext : CRYPT_UNUSED,
+					cmpInfo->iPkiUser, CERTMGMT_OPTION_NONE );
 			( void ) krnlSendMessage( sessionInfoPtr->cryptKeyset,
 									  IMESSAGE_KEY_CERTMGMT, &certMgmtInfo,
 									  CRYPT_CERTACTION_CERT_CREATION_DROP );
@@ -790,11 +839,6 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	   done */
 	if( protocolInfo.operation == CTAG_PB_RR )
 		{
-		/* Remember the authentication context in case we can reuse it for 
-		   another transaction */
-		cmpInfo->iSavedMacContext = protocolInfo.iMacContext;
-		protocolInfo.iMacContext = CRYPT_ERROR;
-
 		destroyCMPprotocolInfo( &protocolInfo );
 
 		ENSURES( CFI_CHECK_SEQUENCE_8( "initCMPprotocolInfo", "readPkiDatagram", 
@@ -816,7 +860,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		/* There's no need for a delayRandom() at this point yet because
 		   we haven't performed any crypto ops */
 		sendErrorResponse( sessionInfoPtr, &protocolInfo, status );
-		return( cleanupFailedIssue( sessionInfoPtr, &protocolInfo, 
+		return( cleanupFailedIssue( sessionInfoPtr, &protocolInfo, cmpInfo,
 									status ) );
 		}
 	DEBUG_DUMP_CMP( protocolInfo.operation, 3, sessionInfoPtr );
@@ -826,7 +870,7 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		{
 		delayRandom();	/* Dither error timing info */
 		sendErrorResponse( sessionInfoPtr, &protocolInfo, status );
-		return( cleanupFailedIssue( sessionInfoPtr, &protocolInfo, 
+		return( cleanupFailedIssue( sessionInfoPtr, &protocolInfo, cmpInfo,
 									status ) );
 		}
 	if( protocolInfo.status == CRYPT_ERROR )
@@ -850,14 +894,17 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 												   "client's certificate "
 												   "rejection" ) );
 			}
-		return( cleanupFailedIssue( sessionInfoPtr, &protocolInfo, 
+		return( cleanupFailedIssue( sessionInfoPtr, &protocolInfo, cmpInfo,
 									status ) );
 		}
 	CFI_CHECK_UPDATE( "confMessage" );
 
 	/* The client has confirmed the certificate creation, finalise it */
 	setMessageCertMgmtInfo( &certMgmtInfo, CRYPT_UNUSED,
-							sessionInfoPtr->iCertResponse );
+				sessionInfoPtr->iCertResponse,
+				( isHandleRangeValid( sessionInfoPtr->iAuthInContext ) ) ? \
+				  sessionInfoPtr->iAuthInContext : CRYPT_UNUSED,
+				cmpInfo->iPkiUser, CERTMGMT_OPTION_NONE );
 	status = krnlSendMessage( sessionInfoPtr->cryptKeyset,
 							  IMESSAGE_KEY_CERTMGMT, &certMgmtInfo,
 							  CRYPT_CERTACTION_CERT_CREATION_COMPLETE );
@@ -899,10 +946,6 @@ static int serverTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		}
 	CFI_CHECK_UPDATE( "writePkiMessage" );
 
-	/* Remember the authentication context in case we can reuse it for 
-	   another transaction */
-	cmpInfo->iSavedMacContext = protocolInfo.iMacContext;
-	protocolInfo.iMacContext = CRYPT_ERROR;
 	destroyCMPprotocolInfo( &protocolInfo );
 
 	ENSURES( CFI_CHECK_SEQUENCE_12( "initCMPprotocolInfo", "readPkiDatagram", 

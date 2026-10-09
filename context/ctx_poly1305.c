@@ -354,7 +354,7 @@ static int hash( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				 IN_BUFFER( noBytes ) BYTE *buffer, 
 				 IN_LENGTH_Z int noBytes )
 	{
-	MAC_INFO *macInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 	POLY1305_MAC_STATE *poly1305Info;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -396,7 +396,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					IN_BUFFER( keyLength ) const void *key, 
 					IN_LENGTH_SHORT const int keyLength )
 	{
-	MAC_INFO *macInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 	POLY1305_MAC_STATE *poly1305Info;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );

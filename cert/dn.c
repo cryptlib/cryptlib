@@ -270,7 +270,7 @@ static int dnSortOrder( IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -1182,7 +1182,8 @@ int copyDN( OUT_DATAPTR DATAPTR_DN *dnDestPtr,
 		   information.  Since we're copying over the contents of an 
 		   existing DN_COMPONENT structure we have to zero the list links 
 		   after the copy */
-		REQUIRES( isShortIntegerRangeNZ( sizeofVarStruct( srcCursor, \
+		REQUIRES( checkVarStruct( srcCursor ) && \
+				  isShortIntegerRangeNZ( sizeofVarStruct( srcCursor, \
 														  DN_COMPONENT ) ) );
 		if( ( newElement = ( DN_COMPONENT * ) \
 				clAlloc( "copyDN", \
@@ -1370,7 +1371,7 @@ int convertEmail( INOUT_PTR CERT_INFO *certInfoPtr,
 	   unfortunate consequence of the fact that what we're doing is a 
 	   behind-the-scenes switch to move an initialised certificate component 
 	   from where it is to where it really should be */
-	saveSelectionState( selectionState, certInfoPtr );
+	saveSelectionState( &selectionState, certInfoPtr );
 	DATAPTR_SET( certData, certInfoPtr->certificate );
 	certDataSize = certInfoPtr->certificateSize;
 	DATAPTR_SET( subjectDNData, certInfoPtr->subjectDNptr );
@@ -1430,7 +1431,7 @@ int convertEmail( INOUT_PTR CERT_INFO *certInfoPtr,
 	certInfoPtr->publicKeyInfo = DATAPTR_GET( publicKeyData );
 	certInfoPtr->publicKeyInfoSize = publicKeyDataSize;
 	ENSURES( sanityCheckCert( certInfoPtr ) );
-	restoreSelectionState( selectionState, certInfoPtr );
+	restoreSelectionState( &selectionState, certInfoPtr );
 
 	return( status );
 	}

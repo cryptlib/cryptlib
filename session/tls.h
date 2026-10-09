@@ -1459,7 +1459,7 @@ int readSupportedGroups( INOUT_PTR STREAM *stream,
 						 OUT_BOOL BOOLEAN *extErrorInfoSet );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeSupportedGroups( INOUT_PTR STREAM *stream,
-						  const SESSION_INFO *sessionInfoPtr );
+						  IN_PTR const SESSION_INFO *sessionInfoPtr );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int getTLSGroupInfo( OUT_PTR_PTR const TLS_GROUP_INFO **groupInfoPtrPtr,
 					 OUT_INT_Z int *noGroupInfoEntries );

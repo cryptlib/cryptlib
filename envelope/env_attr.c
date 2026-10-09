@@ -535,6 +535,7 @@ static int getCurrentAttributeInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		status = addInfoFunction( envelopeInfoPtr, CRYPT_ENVINFO_PRIVATEKEY,
 								  getkeyInfo.cryptHandle );
 		krnlSendNotifier( getkeyInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+		getkeyInfo.cryptHandle = CRYPT_ERROR;
 		if( status == CRYPT_ERROR_BADDATA )
 			{
 			/* We've reached a can't-continue condition, report it to the
@@ -2000,6 +2001,7 @@ int setEnvelopeAttributeS( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 									  getkeyInfo.cryptHandle );
 			krnlSendNotifier( getkeyInfo.cryptHandle,
 							  IMESSAGE_DECREFCOUNT );
+			getkeyInfo.cryptHandle = CRYPT_ERROR;
 			break;
 			}
 

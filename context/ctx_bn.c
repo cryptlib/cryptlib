@@ -339,8 +339,6 @@ void EC_GROUP_clear( INOUT_PTR EC_GROUP *ecGroup )
 		EC_POINT_free( ecGroup->generator );
 		ecGroup->generator = NULL;
 		}
-	BN_free( &ecGroup->order );
-	BN_free( &ecGroup->cofactor );
 	if( ecGroup->seed != NULL )
 		{
 		OPENSSL_free( ecGroup->seed );
@@ -440,16 +438,16 @@ void BN_swap( INOUT_PTR BIGNUM *bignum1, INOUT_PTR BIGNUM *bignum2 )
 
 /* A constant-time version of the above.  We can either use an incredibly 
    complicated Rube-Goldberg kludge or perform a dummy set of operations 
-   that take about the same time as the atual swap.  This isn't absolutely
+   that take about the same time as the actual swap.  This isn't absolutely
    constant-time but the few extra cycles are buried in the noise of the
    other operations, and it's only called a single time from the even
    noisier EC multiply code bn/ec_mult.c:ec_mul_consttime().  Timing tests 
    indicate no measurable difference across the two, and indeed no
-   measurable difference whether it's a const-time swap or not */
+   measurable difference whether it's a constant-time swap or not */
 
 #if defined( USE_ECDSA ) || defined( USE_ECDH )
 
-STDC_NONNULL_ARG( ( 1, 2 ) ) \
+STDC_NONNULL_ARG( ( 2, 3 ) ) \
 void BN_consttime_swap( const BN_ULONG condition, 
 						INOUT_PTR BIGNUM *bignum1, 
 						INOUT_PTR BIGNUM *bignum2, 

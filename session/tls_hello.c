@@ -282,7 +282,7 @@ static int handleSignallingSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											TLS_LAST_SUITE ) \
 										const int cipherSuite )
 	{
-	const TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
@@ -339,6 +339,7 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	{
 	const CIPHERSUITE_INFO **cipherSuiteInfo;
 	const PROTOCOL_INFO *protocolInfo;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	const BOOLEAN isServer = isServer( sessionInfoPtr ) ? TRUE : FALSE;
 	BOOLEAN allowDH = algoAvailable( CRYPT_ALGO_DH ) ? TRUE : FALSE;
 	BOOLEAN allowECDH = algoAvailable( CRYPT_ALGO_ECDH ) ? TRUE : FALSE;
@@ -348,7 +349,6 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	const BOOLEAN allowTLS12 = \
 		( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS12 ) ? TRUE : FALSE;
 	BOOLEAN allowTLS13 = FALSE;
-	const int tlsMinVersion = sessionInfoPtr->sessionTLS->minVersion;
 	int suiteIndex = 999, eccSuiteIndex = 999, tls13SuiteIndex = 999;
 	int suiteRunSuite = 999, suiteRunCount = 0;
 	int cipherSuiteInfoSize, invalidSuiteCount = 0, status;
@@ -360,6 +360,7 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( noSuites > 0 && noSuites <= MAX_CIPHERSUITES );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Check whether TLS 1.3 is enabled.  We can't check version in the 
 	   session information as we do for TLS 1.2 because TLS 1.3 identifies 
@@ -371,7 +372,7 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	ENSURES( protocolInfo != NULL );
 	if( allowTLS12 && \
 		protocolInfo->maxVersion >= TLS_MINOR_VERSION_TLS13 && \
-		sessionInfoPtr->sessionTLS->maxVersion >= TLS_MINOR_VERSION_TLS13 )
+		tlsInfo->maxVersion >= TLS_MINOR_VERSION_TLS13 )
 		allowTLS13 = TRUE;
 
 	/* Get the information for the supported cipher suites */
@@ -686,18 +687,18 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  "TLS 1.3.\n", cipherSuiteInfoPtr->debugText ));
 			continue;
 			}
-		if( tlsMinVersion >= TLS_MINOR_VERSION_TLS12 && \
+		if( tlsInfo->minVersion >= TLS_MINOR_VERSION_TLS12 && \
 			!( cipherSuiteInfoPtr->flags & ( CIPHERSUITE_FLAG_TLS12 | \
 											 CIPHERSUITE_FLAG_TLS13 ) ) )
 			{
 			/* It's not a TLS 1.2/TLS 1.3 suite */
 			DEBUG_PRINT(( "  Rejected non-TLS 1.%d suite %s.\n", 
-						  ( tlsMinVersion >= TLS_MINOR_VERSION_TLS13 ) ? \
+						  ( tlsInfo->minVersion >= TLS_MINOR_VERSION_TLS13 ) ? \
 							3 : 2, cipherSuiteInfoPtr->debugText ));
 			continue;
 			}
 #ifdef USE_TLS13
-		if( tlsMinVersion >= TLS_MINOR_VERSION_TLS13 && \
+		if( tlsInfo->minVersion >= TLS_MINOR_VERSION_TLS13 && \
 			!( cipherSuiteInfoPtr->flags & CIPHERSUITE_FLAG_TLS13 ) )
 			{
 			/* It's not a TLS 1.3 suite */
@@ -799,11 +800,17 @@ static int processCipherSuite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_TLS13
 	if( suiteIndex >= cipherSuiteInfoSize )
 		{
+		/* If we've only got TLS 1.3 suites then we can only be doing TLS 
+		   1.3 even if we haven't hit an extension telling us this yet */
 		suiteIndex = tls13SuiteIndex;
 		tls13SuiteIndex = 999;
 		handshakeInfo->fallbackType = TLS_FALLBACK_TLS13;
 		DEBUG_PRINT(( "  No standard or ECC suites available, falling back "
-					  "to TLS 1.3 suites.\n" ));
+					  "to TLS 1.3 suites and\n" ));
+		DEBUG_PRINT(( "    forcing protocol version from TLS 1.%d to TLS "
+					  "1.3.\n", sessionInfoPtr->version - 1 ));
+		tlsInfo->minVersion = \
+			sessionInfoPtr->version = TLS_MINOR_VERSION_TLS13;
 		}
 #endif /* USE_TLS13 */
 

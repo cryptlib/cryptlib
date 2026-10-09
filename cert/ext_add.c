@@ -28,7 +28,7 @@
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -375,10 +375,15 @@ assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_BLOB_PAYLOAD | ATTR_FLAG_CRITICA
 		   we have to create a dummy entry in order to check the raw
 		   attribute components */
 		memset( &checkAttribute, 0, sizeof( ATTRIBUTE_LIST ) );
+		SAFEINT_SET( checkAttribute.storageSize, 0 );
+					 /* We can't use initVarStruct() because the 'data' 
+					    element of ATTRIBUTE_LIST is a union, not a DATAPTR, 
+					    since simple types like booleans and ints are stored 
+					    in it directly */
 		checkAttribute.attributeID = checkAttribute.fieldID = fieldID;
 		checkAttribute.subFieldID = subFieldID;
-		checkAttribute.dataValue = ( void * ) data;
-		checkAttribute.dataValueLength = dataLength;
+		checkAttribute.attrDataValue = ( void * ) data;
+		checkAttribute.attrDataValueLength = dataLength;
 		INIT_FLAGS( checkAttribute.flags, flags );
 		checkAttribute.fieldType = attributeInfoPtr->fieldType;
 		DATAPTR_SET( checkAttribute.next, NULL );
@@ -660,14 +665,14 @@ assert( ( flags & ~( ATTR_FLAG_NONE | ATTR_FLAG_IGNORED | ATTR_FLAG_BLOB | ATTR_
 					   clAlloc( "addAttribute", sizeof( ATTRIBUTE_LIST ) + \
 												dataLength + oidLength ) ) == NULL )
 		return( CRYPT_ERROR_MEMORY );
-	initVarStruct( newElement, ATTRIBUTE_LIST, dataLength + oidLength, dataValue );
+	initVarStruct( newElement, ATTRIBUTE_LIST, dataLength + oidLength, attrDataValue );
 	newElement->oid = newElement->storage + dataLength;
 	memcpy( newElement->oid, oid, oidLength );
 	INIT_FLAGS( newElement->flags,
 				( flags & ATTR_FLAG_IGNORED ) | \
 				( critical ? ATTR_FLAG_CRITICAL : ATTR_FLAG_NONE ) );
-	memcpy( newElement->dataValue, data, dataLength );
-	newElement->dataValueLength = dataLength;
+	memcpy( newElement->attrDataValue, data, dataLength );
+	newElement->attrDataValueLength = dataLength;
 	DATAPTR_SET( newElement->prev, NULL );
 	DATAPTR_SET( newElement->next, NULL );
 	ENSURES( sanityCheckAttributePtr( newElement ) );
@@ -762,6 +767,11 @@ assert( ( flags & ~( ATTR_FLAG_CRITICAL | ATTR_FLAG_MULTIVALUED | ATTR_FLAG_BLOB
 	newElement->fieldID = fieldID;
 	newElement->subFieldID = subFieldID;
 	INIT_FLAGS( newElement->flags, flags );
+	SAFEINT_SET( newElement->storageSize, 0 );
+				 /* We can't use setVarStruct() because the 'data' element
+				    of ATTRIBUTE_LIST is a union, not a DATAPTR, since 
+				    simple types like booleans and ints are stored in it 
+				    directly */
 	newElement->fieldType = attributeInfoPtr->fieldType;
 	DATAPTR_SET( newElement->prev, NULL );
 	DATAPTR_SET( newElement->next, NULL );
@@ -772,7 +782,7 @@ assert( ( flags & ~( ATTR_FLAG_CRITICAL | ATTR_FLAG_MULTIVALUED | ATTR_FLAG_BLOB
 			TRACE_DEBUG(( "Adding boolean %s %lX at %lX.\n", 
 						  value ? "true" : "false", newElement, 
 						  insertPoint ));
-			newElement->intValue = value ? TRUE : FALSE;
+			newElement->attrIntValue = value ? TRUE : FALSE;
 			break;
 
 		case BER_INTEGER:
@@ -782,7 +792,7 @@ assert( ( flags & ~( ATTR_FLAG_CRITICAL | ATTR_FLAG_MULTIVALUED | ATTR_FLAG_BLOB
 		case FIELDTYPE_ALGOID:
 			TRACE_DEBUG(( "Adding numeric value %d  %lX at %lX.\n", 
 						  value, newElement, insertPoint ));
-			newElement->intValue = value;
+			newElement->attrIntValue = value;
 			break;
 
 		case FIELDTYPE_CHOICE:
@@ -793,7 +803,7 @@ assert( ( flags & ~( ATTR_FLAG_CRITICAL | ATTR_FLAG_MULTIVALUED | ATTR_FLAG_BLOB
 						  value, newElement, insertPoint ));
 			REQUIRES_PTR( value > 0 && value < 100,
 						  newElement );
-			newElement->intValue = value;
+			newElement->attrIntValue = value;
 			break;
 
 		case FIELDTYPE_DN:
@@ -803,14 +813,14 @@ assert( ( flags & ~( ATTR_FLAG_CRITICAL | ATTR_FLAG_MULTIVALUED | ATTR_FLAG_BLOB
 			   instantiated (value == CRYPT_UNUSED) and when reading an 
 			   encoded certificate this is the decoded DN structure 
 			   (data == DATAPTR_DN) */
-			DATAPTR_SET( newElement->dnValue, NULL );
+			DATAPTR_SET( newElement->attrDNValue, NULL );
 			ENSURES_PTR( value == CRYPT_UNUSED,
 						 newElement );
 			break;
 
 		case FIELDTYPE_IDENTIFIER:
 			/* This is a placeholder entry with no explicit value */
-			newElement->intValue = CRYPT_UNUSED;
+			newElement->attrIntValue = CRYPT_UNUSED;
 			break;
 
 		default:
@@ -922,7 +932,7 @@ assert( ( flags & ~( ATTR_FLAG_BLOB_PAYLOAD | ATTR_FLAG_CRITICAL | ATTR_FLAG_MUL
 					   clAlloc( "addAttributeField", sizeof( ATTRIBUTE_LIST ) + \
 													 storageSize ) ) == NULL )
 		return( CRYPT_ERROR_MEMORY );
-	initVarStruct( newElement, ATTRIBUTE_LIST, storageSize, dataValue );
+	initVarStruct( newElement, ATTRIBUTE_LIST, storageSize, attrDataValue );
 	newElement->attributeID = attributeID;
 	newElement->fieldID = fieldID;
 	newElement->subFieldID = subFieldID;
@@ -940,14 +950,14 @@ assert( ( flags & ~( ATTR_FLAG_BLOB_PAYLOAD | ATTR_FLAG_CRITICAL | ATTR_FLAG_MUL
 			TRACE_DUMPDATA( data, dataLength );
 			if( ( ( const BYTE * ) data )[ 0 ] == BER_OBJECT_IDENTIFIER )
 				{
-				memcpy( newElement->dataValue, data, dataLength );
-				newElement->dataValueLength = dataLength;
+				memcpy( newElement->attrDataValue, data, dataLength );
+				newElement->attrDataValueLength = dataLength;
 				}
 			else
 				{
-				status = textToOID( data, dataLength, newElement->dataValue, 
-									storageSize, 
-									&newElement->dataValueLength );
+				status = textToOID( data, dataLength, 
+									newElement->attrDataValue, storageSize, 
+									&newElement->attrDataValueLength );
 				ENSURES( cryptStatusOK( status ) );
 				}
 			break;
@@ -967,7 +977,7 @@ assert( ( flags & ~( ATTR_FLAG_BLOB_PAYLOAD | ATTR_FLAG_CRITICAL | ATTR_FLAG_MUL
 			   instantiated (value == CRYPT_UNUSED) and when reading an 
 			   encoded certificate this is the decoded DN structure 
 			   (data == DATAPTR_DN *) */
-			newElement->dnValue = dn;
+			newElement->attrDNValue = dn;
 			break;
 			}
 
@@ -975,8 +985,8 @@ assert( ( flags & ~( ATTR_FLAG_BLOB_PAYLOAD | ATTR_FLAG_CRITICAL | ATTR_FLAG_MUL
 			TRACE_DEBUG(( "Adding data %lX at %lX\n", 
 						  newElement, insertPoint )); 
 			TRACE_DUMPDATA( data, dataLength );
-			memcpy( newElement->dataValue, data, dataLength );
-			newElement->dataValueLength = dataLength;
+			memcpy( newElement->attrDataValue, data, dataLength );
+			newElement->attrDataValueLength = dataLength;
 			break;
 		}
 	ENSURES( sanityCheckAttributePtr( newElement ) );

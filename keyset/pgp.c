@@ -435,6 +435,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	{
 	CRYPT_CONTEXT iDecryptionKey DUMMY_INIT, iLocalContext;
 	CRYPT_KEYID_TYPE localKeyIDtype = keyIDtype;
+	FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	PGP_INFO *pgpInfo = DATAPTR_GET( keysetInfoPtr->keyData ), *pgpInfoPtr;
 	PGP_KEYINFO *keyInfo;
 	MESSAGE_CREATEOBJECT_INFO createInfo;
@@ -469,6 +470,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 			  ( auxInfo != NULL && \
 				isShortIntegerRangeNZ( *auxInfoLength ) ) );
 	REQUIRES( isFlagRangeZ( flags, KEYMGMT ) );
+	REQUIRES( fileInfo != NULL );
 	REQUIRES( pgpInfo != NULL );
 
 	/* Clear return value */
@@ -557,9 +559,9 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		   addition since the matching key can be any of the collection of
 		   physical keys associated with a single logical key, we return
 		   information on the particular subkey in keyInfo */
-		sseek( &keysetInfoPtr->keysetFile->stream, 0 );
-		status = pgpScanPubKeyring( &keysetInfoPtr->keysetFile->stream,
-									pgpInfo, &keyMatchInfo, &keyInfo, 
+		sseek( &fileInfo->stream, 0 );
+		status = pgpScanPubKeyring( &fileInfo->stream, pgpInfo, 
+									&keyMatchInfo, &keyInfo, 
 									KEYSET_ERRINFO );
 		if( cryptStatusError( status ) && status != OK_SPECIAL )
 			return( status );
@@ -1022,7 +1024,8 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	{
-	PGP_INFO *pgpInfo;
+	FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
+	PGP_INFO *pgpInfo = DATAPTR_GET( keysetInfoPtr->keyData );
 	int status = CRYPT_OK;
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
@@ -1031,13 +1034,12 @@ static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	REQUIRES( keysetInfoPtr->type == KEYSET_FILE && \
 			  ( keysetInfoPtr->subType == KEYSET_SUBTYPE_PGP_PUBLIC || 
 				keysetInfoPtr->subType == KEYSET_SUBTYPE_PGP_PRIVATE ) );
+	REQUIRES( fileInfo != NULL );
+	REQUIRES( pgpInfo != NULL );
 
 	/* If there's no PGP key information present, we're done */
 	if( DATAPTR_ISNULL( keysetInfoPtr->keyData ) )
 		return( CRYPT_OK );
-
-	pgpInfo = DATAPTR_GET( keysetInfoPtr->keyData );
-	ENSURES( pgpInfo != NULL );
 
 	/* If we're performing a shutdown (and flush to disk) with an update
 	   incomplete then we can't write what we've currently got, treat it as
@@ -1051,7 +1053,7 @@ static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	/* If the contents have been changed, commit the changes to disk */
 	if( TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_DIRTY ) )
 		{
-		STREAM *stream = &keysetInfoPtr->keysetFile->stream;
+		STREAM *stream = &fileInfo->stream;
 		BYTE ALIGN_STACK_DATA buffer[ SAFEBUFFER_SIZE( STREAM_BUFSIZE ) + 8 ];
 
 		sseek( stream, 0 );
@@ -1149,6 +1151,7 @@ static int initPrivateFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 								IN_ENUM( CRYPT_KEYOPT ) \
 									const CRYPT_KEYOPT_TYPE options )
 	{
+	FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	PGP_INFO *pgpInfo;
 	int status;
 
@@ -1160,6 +1163,7 @@ static int initPrivateFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( name == NULL && nameLength == 0 );
 	REQUIRES( options == CRYPT_KEYOPT_NONE || \
 			  options == CRYPT_KEYOPT_CREATE );
+	REQUIRES( fileInfo != NULL );
 
 	/* Allocate the PGP object information */
 	REQUIRES( isShortIntegerRangeNZ( sizeof( PGP_INFO ) * MAX_PGP_OBJECTS ) );
@@ -1175,8 +1179,8 @@ static int initPrivateFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		return( CRYPT_OK );
 
 	/* Read all of the keys in the keyring */
-	status = pgpReadPrivKeyring( &keysetInfoPtr->keysetFile->stream, 
-								 pgpInfo, MAX_PGP_OBJECTS, KEYSET_ERRINFO );
+	status = pgpReadPrivKeyring( &fileInfo->stream, pgpInfo, 
+								 MAX_PGP_OBJECTS, KEYSET_ERRINFO );
 	if( status == OK_SPECIAL )
 		{
 		/* We couldn't process one or more packets, make the keyset read-

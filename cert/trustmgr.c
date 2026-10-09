@@ -15,8 +15,18 @@
    the key in the certificate, the certificate, or the owner of the 
    certificate (corresponding to subjectKeyIdentifier, issuerAndSerialNumber/
    certHash, or subject DN).  The generally accepted form is to trust the 
-   subject so we check for this in the certificate.  The modification for 
-   trusting the key is fairly simple to make if required.
+   subject so we check for this in the certificate.  This leads to a problem 
+   though in that an attacker who can present us with a complete certificate 
+   chain can duplicate the subject DN of a trusted certificate, which will 
+   then match in a DN-only lookup.  On the other hand checking by 
+   certificate fingerprint means that if the subject's certificate is re-
+   issued, for example to update the key or the validity period in it, then 
+   the subject that was trusted before the update becomes untrusted after it
+   even though it's the same subject.
+
+   There isn't any obvious solution to this problem, the best that we can do 
+   is warn about a subject DN match but certificate fingerprint mismatch in 
+   the debug build.
    
    Since the trust data sits in memory for extended periods of time, we're
    especially careful to defend against memory corruption issues */
@@ -160,9 +170,10 @@ void *findTrustEntry( IN_DATAPTR const DATAPTR trustInfo,
 					  IN_BOOL const BOOLEAN getIssuerEntry )
 	{
 	const DATAPTR *trustInfoIndex;
+	MESSAGE_DATA msgData;
 	LOOP_INDEX_PTR const TRUST_INFO *trustInfoCursor;
 	DYNBUF nameDB;
-	BYTE sHash[ HASH_DATA_SIZE + 8 ];
+	BYTE sHash[ HASH_DATA_SIZE + 8 ], certID[ HASH_DATA_SIZE + 8 ];
 	BOOLEAN nameHashed = FALSE;
 	int sCheck, trustInfoEntry, status;
 
@@ -199,6 +210,11 @@ void *findTrustEntry( IN_DATAPTR const DATAPTR trustInfo,
 	sCheck = checksumData( dynData( nameDB ), dynLength( nameDB ) );
 	trustInfoEntry = sCheck & ( TRUSTINFO_SIZE - 1 );
 	ENSURES_N( trustInfoEntry >= 0 && trustInfoEntry < TRUSTINFO_SIZE );
+	setMessageData( &msgData, certID, CRYPT_MAX_HASHSIZE );
+	status = krnlSendMessage( iCryptCert, IMESSAGE_GETATTRIBUTE_S, 
+							  &msgData, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+	if( cryptStatusError( status ) )
+		return( NULL );
 
 	/* Check to see whether something with the requested DN is present */
 	LOOP_MED( trustInfoCursor = DATAPTR_GET( trustInfoIndex[ trustInfoEntry ] ), 
@@ -222,6 +238,26 @@ void *findTrustEntry( IN_DATAPTR const DATAPTR trustInfo,
 			if( !memcmp( trustInfoCursor->sHash, sHash, HASH_DATA_SIZE ) )
 				{
 				dynDestroy( &nameDB );
+				
+				/* If we're doing a certificate match, make sure that the 
+				   certificate fingerprint matches as well.  A non-match at
+				   this point is a sign of something odd happening, either a
+				   certificate that's been re-issued, for example with an
+				   updated key or expiry date, or, less likely, an attack
+				   where the attacker has submitted a fraudulent (CA) 
+				   certificate as part of a certificate chain whose subject 
+				   name matches that of a legitimate certificate */
+				if( !getIssuerEntry && \
+					memcmp( trustInfoCursor->certID, certID, 
+							HASH_DATA_SIZE ) )
+					{
+					DEBUG_DIAG(( "Trusted certificate matches on name but "
+								 "not certificate fingerprint" ));
+					assert( DEBUG_WARN );
+					
+					return( NULL );
+					}
+				
 				return( ( TRUST_INFO * ) trustInfoCursor );
 				}
 			}
@@ -480,11 +516,12 @@ static int addEntry( IN_DATAPTR const DATAPTR trustInfo,
 					 IN_LENGTH_SHORT_Z const int certObjectLength )
 	{
 	CRYPT_CERTIFICATE iLocalCert;
-	DYNBUF subjectDB;
+	MESSAGE_DATA msgData;
+	DYNBUF subjectDB DUMMY_INIT_STRUCT;
 	const DATAPTR *trustInfoIndex;
 	DATAPTR *trustInfoIndexEntryPtr;
 	TRUST_INFO *trustInfoListEnd, *newElement;
-	BYTE sHash[ HASH_DATA_SIZE + 8 ];
+	BYTE sHash[ HASH_DATA_SIZE + 8 ], certID[ CRYPT_MAX_HASHSIZE + 8 ];
 	BOOLEAN recreateCert = FALSE;
 	int sCheck, status;
 
@@ -573,8 +610,16 @@ static int addEntry( IN_DATAPTR const DATAPTR trustInfo,
 		}
 
 	/* Get the ID information for the certificate by generating the checksum 
-	   and hash of the certificate object's subject name and key ID */
-	status = dynCreate( &subjectDB, iLocalCert, CRYPT_IATTRIBUTE_SUBJECT );
+	   and hash of the certificate object's subject name (used for lookup), 
+	   and the certificate fingerprint (used for an exact match) */
+	setMessageData( &msgData, certID, CRYPT_MAX_HASHSIZE );
+	status = krnlSendMessage( iLocalCert, IMESSAGE_GETATTRIBUTE_S, 
+							  &msgData, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+	if( cryptStatusOK( status ) )
+		{
+		status = dynCreate( &subjectDB, iLocalCert, 
+							CRYPT_IATTRIBUTE_SUBJECT );
+		}
 	if( cryptStatusError( status ) )
 		{
 		if( certObject != NULL )
@@ -585,21 +630,11 @@ static int addEntry( IN_DATAPTR const DATAPTR trustInfo,
 	hashData( sHash, HASH_DATA_SIZE, dynData( subjectDB ), 
 			  dynLength( subjectDB ) );
 	dynDestroy( &subjectDB );
-#if 0	/* sKID lookup isn't used at present */
-	DYNBUF subjectKeyDB;
-	status = dynCreate( &subjectKeyDB, iLocalCert, 
-						CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER );
-	if( cryptStatusOK( status ) )
-		{
-		kCheck = checksumData( dynData( subjectKeyDB ), 
-							   dynLength( subjectKeyDB ) );
-		hashData( kHash, HASH_DATA_SIZE, dynData( subjectKeyDB ), 
-				  dynLength( subjectKeyDB ) );
-		dynDestroy( &subjectKeyDB );
-		}
-#endif /* 0 */
 	if( certObject != NULL )
+		{
 		krnlSendNotifier( iLocalCert, IMESSAGE_DECREFCOUNT );
+		iLocalCert = CRYPT_ERROR;
+		}
 
 	/* Find the insertion point */
 	status = findInsertionPoint( trustInfoIndex, sCheck, 
@@ -617,6 +652,7 @@ static int addEntry( IN_DATAPTR const DATAPTR trustInfo,
 	memset( newElement, 0, sizeof( TRUST_INFO ) );
 	newElement->sCheck = sCheck;
 	memcpy( newElement->sHash, sHash, HASH_DATA_SIZE );
+	memcpy( newElement->certID, certID, HASH_DATA_SIZE );
 	DATAPTR_SET( newElement->certObject, NULL );
 	DATAPTR_SET( newElement->prev, NULL );
 	DATAPTR_SET( newElement->next, NULL );

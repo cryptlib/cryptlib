@@ -100,7 +100,8 @@ static const HTTP_HEADER_PARSE_INFO httpHeaderParseInfo[] = {
    indications of what we've encountered in preference to the generic "it's
    IIS", see
    https://learn.microsoft.com/en-us/lifecycle/products/internet-information-services-iis
-   for the list */
+   for the list.  As of 2026 the latest version is still IIS 10 on Windows 
+   Server 2019 */
 
 typedef struct {
 	const char *idString;			/* String used to ID the system */
@@ -523,7 +524,7 @@ int parseUriInfo( INOUT_BUFFER( dataInLength, *dataOutLength ) char *data,
 	   catch any attempts at using encoding tricks, with the end result 
 	   being a guaranteed-clean (via isValidTextChar()) text string.
 	   
-	   What it does mean though is that if someon puts a WAF or similar in 
+	   What it does mean though is that if someone puts a WAF or similar in 
 	   front of us then that and cryptlib will have a different view of the 
 	   decoded form, but again since HTTP-as-a-substrate isn't a Web 
 	   Application it seems unlikely that either anyone would use a WAF with 

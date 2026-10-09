@@ -216,7 +216,8 @@ static int performQuery( INOUT_PTR DBMS_INFO *dbmsInfo,
 	if( dataLength != NULL && \
 		( *dataLength <= 0 || *dataLength > MAX_QUERY_RESULT_SIZE ) )
 		{
-		DEBUG_DIAG(( "Database backend return invalid data size" ));
+		DEBUG_DIAG(( "Database backend return invalid data size %d in "
+					 "response to command '%s'", *dataLength, command ));
 		assert( DEBUG_WARN );
 		REQUIRES( isShortIntegerRangeNZ( dataMaxLength ) ); 
 		memset( data, 0, min( 16, dataMaxLength ) );
@@ -662,7 +663,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initDbxSession( INOUT_PTR KEYSET_INFO *keysetInfoPtr, 
 					IN_ENUM( CRYPT_KEYSET ) const CRYPT_KEYSET_TYPE type )
 	{
-	DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+	DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	DBMS_STATE_INFO *dbmsStateInfo;
 	int status;
 
@@ -670,6 +671,7 @@ int initDbxSession( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 
 	REQUIRES( keysetInfoPtr->type == KEYSET_DBMS );
 	REQUIRES( isEnumRange( type, CRYPT_KEYSET ) );
+	REQUIRES( dbmsInfo != NULL );
 
 	/* Initialise the DBMS information */
 	memset( dbmsInfo, 0, sizeof( DBMS_INFO ) );

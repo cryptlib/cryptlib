@@ -864,7 +864,7 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				 INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 				 IN_LENGTH_FIXED( sizeof( DLP_PARAMS ) ) int noBytes )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BERNSTEIN_KEY_INFO *bernsteinKey;
 	DLP_PARAMS *eccParams = ( DLP_PARAMS * ) buffer;
 	MESSAGE_DATA msgData;
@@ -964,7 +964,7 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					 IN_BUFFER( noBytes ) BYTE *buffer, 
 					 IN_LENGTH_FIXED( sizeof( DLP_PARAMS ) ) int noBytes )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BERNSTEIN_KEY_INFO *bernsteinKey;
 	DLP_PARAMS *eccParams = ( DLP_PARAMS * ) buffer;
 	BYTE hRAM[ CRYPT_MAX_HASHSIZE + 8 ];
@@ -1057,7 +1057,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( key != NULL )
 		{
 		const CRYPT_PKCINFO_DJB *ed25519Key = ( CRYPT_PKCINFO_DJB * ) key;
-		PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+		PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 		BERNSTEIN_KEY_INFO *bernsteinKey;
 
 		REQUIRES( pkcInfo != NULL );

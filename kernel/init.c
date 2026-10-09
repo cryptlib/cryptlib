@@ -57,7 +57,9 @@ BOOLEAN sanityCheckObject( const OBJECT_INFO *objectInfoPtr )
 	if( objectInfoPtr->type == OBJECT_TYPE_CONTEXT && \
 		objectInfoPtr->subType == SUBTYPE_CTX_PKC )
 		{
-		if( !isIntegerRangeMin( objectInfoPtr->objectSize, 1024 ) )
+		const int objectSize = SAFEINT_GET( objectInfoPtr->objectSize );
+		
+		if( !isIntegerRangeMin( objectSize, 1024 ) )
 			{
 			DEBUG_PUTS(( "sanityCheckObject: PKC object size" ));
 			return( FALSE );
@@ -65,7 +67,9 @@ BOOLEAN sanityCheckObject( const OBJECT_INFO *objectInfoPtr )
 		}
 	else
 		{
-		if( !isShortIntegerRangeMin( objectInfoPtr->objectSize, 32 ) )
+		const int objectSize = SAFEINT_GET( objectInfoPtr->objectSize );
+		
+		if( !isShortIntegerRangeMin( objectSize, 32 ) )
 			{
 			DEBUG_PUTS(( "sanityCheckObject: Object size" ));
 			return( FALSE );

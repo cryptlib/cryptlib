@@ -38,7 +38,7 @@ static const MAP_TABLE enumToCertStatusMapTbl[] = {
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -359,7 +359,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int checkRTCSResponse( INOUT_PTR CERT_INFO *certInfoPtr,
 					   IN_HANDLE const CRYPT_KEYSET iCryptKeyset )
 	{
-	const CERT_VAL_INFO *valInfo = certInfoPtr->cCertVal;
+	const CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 	LOOP_INDEX_PTR VALIDITY_INFO *validityInfo;
 	BOOLEAN isInvalid = FALSE;
 
@@ -367,6 +367,7 @@ int checkRTCSResponse( INOUT_PTR CERT_INFO *certInfoPtr,
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
 	REQUIRES( isHandleRangeValid( iCryptKeyset ) );
+	REQUIRES( valInfo != NULL );
 
 	/* Walk down the list of validity entries fetching status information
 	   on each one from the certificate store */

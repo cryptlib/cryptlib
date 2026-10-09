@@ -473,6 +473,7 @@ static int verifyEncKey( INOUT_HANDLE CRYPT_CONTEXT *iCryptContext,
 			}
 		}
 	krnlSendNotifier( iMacContext, IMESSAGE_DECREFCOUNT );
+	iMacContext = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		krnlSendNotifier( iDerivedCryptContext, IMESSAGE_DECREFCOUNT );
@@ -715,6 +716,7 @@ int readPrivateKeyComponents( IN_PTR const PKCS15_INFO *pkcs15infoPtr,
 									MECHANISM_PRIVATEKEYWRAP );
 	clearMechanismInfo( &mechanismInfo );
 	krnlSendNotifier( iCryptContext, IMESSAGE_DECREFCOUNT );
+	iCryptContext = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		/* We can end up here due to a whole range of possible low-level 

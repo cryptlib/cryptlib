@@ -509,25 +509,34 @@ int writeFixedsizeValue( INOUT_PTR STREAM *stream,
 
 /* Check client/server-specific required values */
 
-CHECK_RETVAL_ENUM( CRYPT_ATTRIBUTE ) STDC_NONNULL_ARG( ( 1 ) ) \
-static CRYPT_ATTRIBUTE_TYPE checkClientParameters( IN_PTR const SESSION_INFO *sessionInfoPtr )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int checkClientParameters( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
 	const BOOLEAN serverNamePresent = \
 			findSessionInfo( sessionInfoPtr, \
 							 CRYPT_SESSINFO_SERVER_NAME ) != NULL ? TRUE : FALSE;
+	int status;
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	/* Make sure that the network comms parameters are present */
 	if( sessionInfoPtr->networkSocket == CRYPT_ERROR && \
 		!serverNamePresent )
-		return( CRYPT_SESSINFO_SERVER_NAME );
+		{
+		setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_SERVER_NAME, 
+							CRYPT_ERRTYPE_ATTR_ABSENT );
+		return( CRYPT_ERROR_NOTINITED );
+		}
 
 	/* Make sure that the username + password and/or user private key are 
 	   present if required */
 	if( ( sessionInfoPtr->clientReqAttrFlags & SESSION_NEEDS_USERID ) && \
 		findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME ) == NULL )
-		return( CRYPT_SESSINFO_USERNAME );
+		{
+		setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME, 
+							CRYPT_ERRTYPE_ATTR_ABSENT );
+		return( CRYPT_ERROR_NOTINITED );
+		}
 	if( ( sessionInfoPtr->clientReqAttrFlags & SESSION_NEEDS_PASSWORD ) && \
 		findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD ) == NULL )
 		{
@@ -536,7 +545,11 @@ static CRYPT_ATTRIBUTE_TYPE checkClientParameters( IN_PTR const SESSION_INFO *se
 		if( !( sessionInfoPtr->clientReqAttrFlags & \
 			   SESSION_NEEDS_KEYORPASSWORD ) || \
 			sessionInfoPtr->privateKey == CRYPT_ERROR )
-			return( CRYPT_SESSINFO_PASSWORD );
+			{
+			setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD, 
+								CRYPT_ERRTYPE_ATTR_ABSENT );
+			return( CRYPT_ERROR_NOTINITED );
+			}
 		}
 	if( ( sessionInfoPtr->clientReqAttrFlags & SESSION_NEEDS_PRIVATEKEY ) && \
 		sessionInfoPtr->privateKey == CRYPT_ERROR )
@@ -546,13 +559,28 @@ static CRYPT_ATTRIBUTE_TYPE checkClientParameters( IN_PTR const SESSION_INFO *se
 		if( !( sessionInfoPtr->clientReqAttrFlags & \
 			   SESSION_NEEDS_KEYORPASSWORD ) || \
 			findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD ) == NULL )
-			return( CRYPT_SESSINFO_PRIVATEKEY );
+			{
+			setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_PRIVATEKEY, 
+								CRYPT_ERRTYPE_ATTR_ABSENT );
+			return( CRYPT_ERROR_NOTINITED );
+			}
+		}
+	if( sessionInfoPtr->privateKey != CRYPT_ERROR )
+		{
+		status = checkPrivateKey( sessionInfoPtr, 
+								  sessionInfoPtr->privateKey );
+		if( cryptStatusError( status ) )
+			return( status );
 		}
 
 	/* Make sure that request/response protocol data is present if required */
 	if( ( sessionInfoPtr->clientReqAttrFlags & SESSION_NEEDS_REQUEST ) && \
 		sessionInfoPtr->iCertRequest == CRYPT_ERROR )
-		return( CRYPT_SESSINFO_REQUEST );
+			{
+			setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_REQUEST, 
+								CRYPT_ERRTYPE_ATTR_ABSENT );
+			return( CRYPT_ERROR_NOTINITED );
+			}
 
 	/* Check for subprotocol-specific information */
 #ifdef USE_EAP
@@ -560,18 +588,28 @@ static CRYPT_ATTRIBUTE_TYPE checkClientParameters( IN_PTR const SESSION_INFO *se
 		sessionInfoPtr->subProtocol == CRYPT_SUBPROTOCOL_PEAP )
 		{
 		if( findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME ) == NULL )
-			return( CRYPT_SESSINFO_USERNAME );
+			{
+			setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME, 
+								CRYPT_ERRTYPE_ATTR_ABSENT );
+			return( CRYPT_ERROR_NOTINITED );
+			}
 		if( findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD ) == NULL )
-			return( CRYPT_SESSINFO_PASSWORD );
+			{
+			setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD, 
+								CRYPT_ERRTYPE_ATTR_ABSENT );
+			return( CRYPT_ERROR_NOTINITED );
+			}
 		}
 #endif /* USE_EAP */
 
-	return( CRYPT_ATTRIBUTE_NONE );
+	return( CRYPT_OK );
 	}
 
-CHECK_RETVAL_ENUM( CRYPT_ATTRIBUTE ) STDC_NONNULL_ARG( ( 1 ) ) \
-static CRYPT_ATTRIBUTE_TYPE checkServerParameters( IN_PTR const SESSION_INFO *sessionInfoPtr )
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int checkServerParameters( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
+	int status;
+	
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	/* Make sure that server key and keyset information is present if 
@@ -584,13 +622,28 @@ static CRYPT_ATTRIBUTE_TYPE checkServerParameters( IN_PTR const SESSION_INFO *se
 		if( !( sessionInfoPtr->serverReqAttrFlags & \
 			   SESSION_NEEDS_KEYORPASSWORD ) || \
 			findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD ) == NULL )
-			return( CRYPT_SESSINFO_PRIVATEKEY );
+			{
+			setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_PRIVATEKEY, 
+								CRYPT_ERRTYPE_ATTR_ABSENT );
+			return( CRYPT_ERROR_NOTINITED );
+			}
 		}
 	if( ( sessionInfoPtr->serverReqAttrFlags & SESSION_NEEDS_KEYSET ) && \
 		sessionInfoPtr->cryptKeyset == CRYPT_ERROR )
-		return( CRYPT_SESSINFO_KEYSET );
+			{
+			setObjectErrorInfo( sessionInfoPtr, CRYPT_SESSINFO_KEYSET, 
+								CRYPT_ERRTYPE_ATTR_ABSENT );
+			return( CRYPT_ERROR_NOTINITED );
+			}
+	if( sessionInfoPtr->privateKey != CRYPT_ERROR )
+		{
+		status = checkPrivateKey( sessionInfoPtr, 
+								  sessionInfoPtr->privateKey );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
 
-	return( CRYPT_ATTRIBUTE_NONE );
+	return( CRYPT_OK );
 	}
 
 /* Activate the network connection for a session */
@@ -598,7 +651,6 @@ static CRYPT_ATTRIBUTE_TYPE checkServerParameters( IN_PTR const SESSION_INFO *se
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int activateConnection( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
-	CRYPT_ATTRIBUTE_TYPE errorAttribute;
 	const PROTOCOL_INFO *protocolInfo;
 	int status;
 
@@ -610,15 +662,11 @@ static int activateConnection( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	REQUIRES( protocolInfo != NULL );
 
 	/* Make sure that everything is set up ready to go */
-	errorAttribute = isServer( sessionInfoPtr ) ? \
-					 checkServerParameters( sessionInfoPtr ) : \
-					 checkClientParameters( sessionInfoPtr );
-	if( errorAttribute != CRYPT_ATTRIBUTE_NONE )
-		{
-		setObjectErrorInfo( sessionInfoPtr, errorAttribute, 
-							CRYPT_ERRTYPE_ATTR_ABSENT );
-		return( CRYPT_ERROR_NOTINITED );
-		}
+	status = isServer( sessionInfoPtr ) ? \
+				checkServerParameters( sessionInfoPtr ) : \
+				checkClientParameters( sessionInfoPtr );
+	if( cryptStatusError( status ) )
+		return( status );
 	ENSURES( isServer( sessionInfoPtr ) || \
 			 findSessionInfo( sessionInfoPtr, 
 							  CRYPT_SESSINFO_SERVER_NAME ) != NULL || \
@@ -1247,7 +1295,8 @@ static int defaultServerStartupFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr 
 	DEBUG_PRINT(( "Received connection from '%.*s'.\n", 
 				  nameLen, sessionInfoPtr->receiveBuffer ));
 	status = addSessionInfoS( sessionInfoPtr, CRYPT_SESSINFO_CLIENT_NAME, 
-							  sessionInfoPtr->receiveBuffer, nameLen );
+							  sessionInfoPtr->receiveBuffer, nameLen,
+							  ATTR_FLAG_NONE );
 	if( cryptStatusError( status ) )
 		return( status );
 	status = sioctlGet( &sessionInfoPtr->stream, STREAM_IOCTL_GETCLIENTPORT, 

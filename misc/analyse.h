@@ -477,7 +477,7 @@
 #define IN_LENGTH_KEYID_Z		_In_range_( 0, MAX_ATTRIBUTE_SIZE )
 #define IN_LENGTH_NAME			_In_range_( MIN_NAME_LENGTH, MAX_ATTRIBUTE_SIZE )
 #define IN_LENGTH_NAME_Z		_In_range_( 0, MAX_ATTRIBUTE_SIZE )
-#define IN_LENGTH_OID			_In_range_( 7, MAX_OID_SIZE )
+#define IN_LENGTH_OID			_In_range_( MIN_OID_SIZE, MAX_OID_SIZE )
 #define IN_LENGTH_PKC			_In_range_( 1, CRYPT_MAX_PKCSIZE )
 #define IN_LENGTH_PKC_BITS		_In_range_( 1, bytesToBits( CRYPT_MAX_PKCSIZE ) )
 #define IN_LENGTH_PKC_Z			_In_range_( 0, CRYPT_MAX_PKCSIZE )
@@ -906,7 +906,7 @@
 					   IN_BUFFER( attributeLength ) const void * _Nonnull attribute, 
 					   IN_LENGTH_SHORT_Z const int attributeLength );
 
-   Since it's a full a keyword in clang it has to be used in specific 
+   Since it's a full keyword in clang it has to be used in specific 
    locations, for example you can't conveniently overload INOUT_PTR in the 
    above and turn it into:
 
@@ -968,6 +968,19 @@
    Bugs Matter" (discussed further down) points out, "it is impractical for 
    compiler users to remember and follow all these rules.  Even given the 
    full list of UB, these rules can be easily misunderstood or ignored".
+
+   The reason for all of this braindamage is C's reification rule, that the 
+   700 pages of the ISO C standard specify a theoretical abstract machine 
+   which is what the compiler is targeting, not the actual physical machine 
+   that it's generating code for.  The as-if rule, a.k.a. the reification 
+   rule, says that the code has to behave as if it was running on the 
+   abstract machine, not the actual machine that the code is being generated 
+   for.
+
+	People love to talk about "safe C", but compiler people have actively 
+	tried to make C unsafer for decades. The C standards committee has been 
+	complicit.
+		- Linus Torvalds, https://lkml.org/lkml/2025/2/21/1616
    
    Other comments from John Regehr's "Embedded in Academia" blog referenced 
    above:
@@ -1111,16 +1124,16 @@
    a UB bug or not being able to sort it out at all.
    
    The way that LLVM handles this is by annotating code with various 
-   attributes like mustprogress, dereferencable, undef/noundef, and inbounds
-   and then passing the result on to the optimizer.  If it can prove, guided
-   by the annotations, that the code triggers UB, then it's game over for 
-   the code.  So instead of the optimiser acting to generate the most
-   efficient/optimal code, it acts as a pen-tester that, when it wins, gets
-   to break users code, a truly bizarre way to look at things.  To put this
-   into perspective, imagine if engineering software behaved like this.
-   The first electrocution due to a design rules check failing or a bridge
-   collapsing would result in the software vendor being sued into oblivion,
-   but for a compiler it's just the way of things.
+   attributes like mustprogress, dereferenceable, undef/noundef, and 
+   inbounds and then passing the result on to the optimizer.  If it can 
+   prove, guided by the annotations, that the code triggers UB, then it's 
+   game over for the code.  So instead of the optimiser acting to generate 
+   the most efficient/optimal code, it acts as a pen-tester that, when it 
+   wins, gets to break users code, a truly bizarre way to look at things.  
+   To put this into perspective, imagine if engineering software behaved 
+   like this.  The first electrocution due to a design rules check failing 
+   or a bridge collapsing would result in the software vendor being sued 
+   into oblivion, but for a compiler it's just the way of things.
 
    The icing on the cake is that all of this breakage produces little gain 
    in performance, see "Exploiting Undefined Behavior in C/C++ Programs for

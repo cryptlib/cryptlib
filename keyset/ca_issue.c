@@ -23,10 +23,10 @@
 *																			*
 ****************************************************************************/
 
-/* Get the issue type (new request, renewal, etc) for a particular 
-   certificate request or certificate */
+/* Get the issue type (request vs. renewal) for a particular certificate 
+   request or certificate */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 static int getCertIssueType( INOUT_PTR DBMS_INFO *dbmsInfo,
 							 IN_HANDLE const CRYPT_CERTIFICATE iCertificate,
 							 OUT_ENUM_OPT( CERTADD ) CERTADD_TYPE *issueType,
@@ -52,7 +52,7 @@ static int getCertIssueType( INOUT_PTR DBMS_INFO *dbmsInfo,
 					   iCertificate, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
 	if( cryptStatusOK( status ) && isCert )
 		{
-		/* If it's a certificate we have to apply an extra level of 
+		/* If it's a certificate then we have to apply an extra level of 
 		   indirection to get the request that resulted in its creation */
 		initBoundData( boundDataPtr );
 		setBoundData( boundDataPtr, 0, certID, certIDlength );
@@ -108,6 +108,11 @@ static int getCertIssueType( INOUT_PTR DBMS_INFO *dbmsInfo,
 						DBMS_QUERY_NORMAL );
 	if( cryptStatusError( status ) )
 		return( status );
+	if( length < 1 )
+		{
+		/* Safety check for should-never-occur situation */
+		return( CRYPT_ERROR_BADDATA );
+		}
 	switch( certData[ 0 ] )
 		{
 		case CRYPT_CERTACTION_REQUEST_CERT:
@@ -256,7 +261,9 @@ static int checkDuplicateAdd( INOUT_PTR DBMS_INFO *dbmsInfo,
 		return( CRYPT_OK );
 
 	/* Check whether a certificate with this keyID is already present in the 
-	   store */
+	   store.  Note that this fails open on a (should-never-occur) error, as
+	   with other errors of this type it's a coin-toss as to what to do to
+	   handle something that should never happen */
 	status = getCertKeyID( keyID, ENCODED_DBXKEYID_SIZE, &keyIDlength, 
 						   iLocalCertificate );
 	if( cryptStatusError( status ) )
@@ -279,15 +286,17 @@ static int checkDuplicateAdd( INOUT_PTR DBMS_INFO *dbmsInfo,
 	ESC1 -> ESC2	CERTADD_PARTIAL_RENEWAL		First half of renewal
 	ESC2 -> std		CERTADD_RENEWAL_COMPLETE	Second half of renewal */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 6 ) ) \
 static int completeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 						 IN_HANDLE const CRYPT_CERTIFICATE iCertificate,
+						 IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+						 IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
 						 IN_ENUM( CERTADD ) const CERTADD_TYPE addType,
 						 INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ], *boundDataPtr = boundData;
-	char certID[ ENCODED_DBXKEYID_SIZE + 8 ];
-	int certIDlength, status;
+	CERTID_INFO certIDinfo;
+	int status;
 
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
 	
@@ -297,8 +306,8 @@ static int completeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 			  addType == CERTADD_RENEWAL_COMPLETE );
 	REQUIRES( errorInfo != NULL );
 
-	status = getKeyID( certID, ENCODED_DBXKEYID_SIZE, &certIDlength, 
-					   iCertificate, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+	status = getCertIDinfo( &certIDinfo, iCertificate, iAuthCert, 
+							iPkiUser );
 	if( cryptStatusError( status ) )
 		return( status );
 	status = addCert( dbmsInfo, iCertificate, CRYPT_CERTTYPE_CERTIFICATE,
@@ -309,18 +318,16 @@ static int completeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 		{
 		char specialCertID[ ENCODED_DBXKEYID_SIZE + 8 ];
 
-		/* Turn the general certID into the form required for special-case
-		   certificate data by overwriting the first two bytes with an out-
-		   of-band value */
-		REQUIRES( rangeCheck( certIDlength, KEYID_ESC_SIZE + 1, 
-							  ENCODED_DBXKEYID_SIZE ) );
-		memcpy( specialCertID, ( addType == CERTADD_RENEWAL_COMPLETE ) ? \
-				KEYID_ESC2 : KEYID_ESC1, KEYID_ESC_SIZE );
-		REQUIRES( !checkOverflowSub( certIDlength, KEYID_ESC_SIZE ) );
-		memcpy( specialCertID + KEYID_ESC_SIZE, certID + KEYID_ESC_SIZE, 
-				certIDlength - KEYID_ESC_SIZE );
+		/* Modify the certID to identify an item from part one of a two-part
+		   operation */
+		REQUIRES( certIDinfo.certIDlength == ENCODED_DBXKEYID_SIZE );
+		memcpy( specialCertID, certIDinfo.certID, ENCODED_DBXKEYID_SIZE );
+		modifyCertIssueID( specialCertID, ENCODED_DBXKEYID_SIZE,
+						   ( addType != CERTADD_RENEWAL_COMPLETE ) ? 
+							 IDMOD_CERTISSUE_STD : IDMOD_CERTISSUE_RENEW );
 		initBoundData( boundDataPtr );
-		setBoundData( boundDataPtr, 0, specialCertID, certIDlength );
+		setBoundData( boundDataPtr, 0, specialCertID, 
+					  certIDinfo.certIDlength );
 		status = dbmsUpdate( 
 			"DELETE FROM certificates WHERE certID = ?",
 							 boundDataPtr,
@@ -331,10 +338,17 @@ static int completeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 		{
 		if( addType != CERTADD_PARTIAL_RENEWAL )
 			{
-			status = updateCertLog( dbmsInfo,
-									CRYPT_CERTACTION_CERT_CREATION_COMPLETE,
-									NULL, 0, NULL, 0, certID, certIDlength, 
-									NULL, 0, DBMS_UPDATE_COMMIT );
+			/* This certID is already recorded in the log from the first
+			   half of the certificate issue operation so we modify it for 
+			   the completion log entry */
+			modifyUniqueID( certIDinfo.certID, certIDinfo.certIDlength, 
+							IDMOD_CERTISSUE_COMPLETE );
+			status = updateCertLogEx( dbmsInfo,
+						CRYPT_CERTACTION_CERT_CREATION_COMPLETE,
+						certIDinfo.certID, certIDinfo.certIDlength, NULL, 0, 
+						certIDinfo.authCertIDptr, certIDinfo.authCertIDlength,
+						certIDinfo.pkiUserIDptr, certIDinfo.pkiUserIDlength,
+						NULL, 0, DBMS_UPDATE_COMMIT );
 			}
 		}
 	else
@@ -343,13 +357,14 @@ static int completeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 		dbmsUpdate( NULL, NULL, DBMS_UPDATE_ABORT );
 		}
 
-	/* If the operation failed, record the details */
+	/* If the operation failed, record the details.  We've already got a log
+	   entry with this ID present so we pass the certID as the reqCertID */
 	if( cryptStatusError( status ) )
 		{
 		updateCertErrorLog( dbmsInfo, status,
 							"Certificate creation - completion operation "
-							"failed", NULL, 0, NULL, 0, 
-							certID, certIDlength, NULL, 0 );
+							"failed", certIDinfo.certID, 
+							certIDinfo.certIDlength );
 		retExtErr( status, 
 				   ( status, errorInfo, getDbmsErrorInfo( dbmsInfo ),
 					 "Certificate creation - completion operation "
@@ -368,81 +383,123 @@ static int completeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 /* Complete a certificate renewal operation by revoking the certificate to 
    be replaced and replacing it with the newly-issued certificate */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
 int completeCertRenewal( INOUT_PTR DBMS_INFO *dbmsInfo,
-						 IN_HANDLE const CRYPT_CERTIFICATE iReplaceCertificate,
+						 IN_HANDLE const CRYPT_CERTIFICATE iNewCertificate,
+						 IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+						 IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
 						 INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	CRYPT_CERTIFICATE iOrigCertificate DUMMY_INIT;
-	char keyID[ ENCODED_DBXKEYID_SIZE + 8 ];
-	int keyIDlength, dummy, status;
+	CRYPT_CERTIFICATE iOrigCertificate = iAuthCert;
+	int status;
 
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
 
-	REQUIRES( isHandleRangeValid( iReplaceCertificate ) );
+	REQUIRES( isHandleRangeValid( iNewCertificate ) );
+	REQUIRES( iAuthCert == CRYPT_UNUSED || isHandleRangeValid( iAuthCert ) );
+	REQUIRES( iPkiUser == CRYPT_UNUSED || isHandleRangeValid( iPkiUser ) );
 	REQUIRES( errorInfo != NULL );
 
-	/* Extract the key ID from the new certificate and use it to fetch the 
-	   existing certificate issued for the same key */
-	status = getCertKeyID( keyID, ENCODED_DBXKEYID_SIZE, &keyIDlength, 
-						   iReplaceCertificate );
-	if( cryptStatusOK( status ) )
+	/* If we're not being used with a higher-level protocol that provides us 
+	   with the authorising certificate, recover it via the certificate 
+	   log.  This is a multi-step process, first we have to get the certID
+	   of the authorising certificate, then convert it into a binary keyID,
+	   and finally call getItemData() on that */
+	if( iAuthCert == CRYPT_UNUSED )
 		{
-		status = getItemData( dbmsInfo, &iOrigCertificate, &dummy,
-							  KEYMGMT_ITEM_PUBLICKEY, CRYPT_IKEYID_KEYID, 
-							  keyID, keyIDlength, KEYMGMT_FLAG_NONE, 
-							  errorInfo );
-		if( status == CRYPT_ERROR_NOTFOUND )
+		BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ];
+		BOUND_DATA *boundDataPtr = boundData;
+		BYTE certData[ MAX_QUERY_RESULT_SIZE + 8 ];
+		char certID[ ENCODED_DBXKEYID_SIZE + 8 ];
+		int certDataLength DUMMY_INIT, certIDlength, dummy;
+
+		status = getKeyID( certID, ENCODED_DBXKEYID_SIZE, &certIDlength, 
+						   iNewCertificate, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+		if( cryptStatusOK( status ) )
+			{
+			initBoundData( boundDataPtr );
+			setBoundData( boundDataPtr, 0, certID, certIDlength );
+			status = dbmsQuery(
+						"SELECT authCertID FROM certLog WHERE certID = ?",
+								certData, MAX_QUERY_RESULT_SIZE, 
+								&certDataLength, boundDataPtr, 
+								DBMS_CACHEDQUERY_NONE, DBMS_QUERY_NORMAL );
+			}
+		if( cryptStatusOK( status ) )
+			{
+			if( certDataLength > ENCODED_DBXKEYID_SIZE )
+				certDataLength = ENCODED_DBXKEYID_SIZE;
+			status = getItemData( dbmsInfo, &iOrigCertificate, &dummy,
+								  KEYMGMT_ITEM_PUBLICKEY, CRYPT_IKEYID_CERTID, 
+								  certData, certDataLength, 
+								  KEYMGMT_FLAG_NONE, errorInfo );
+			}
+		if( cryptStatusError( status ) )
 			{
 			/* If the original certificate fetch fails with a notfound error 
-			   this is OK since we may be resuming from a point where the 
-			   revocation has already occurred or the certificate may have 
-			   already expired or been otherwise replaced, so we just slide 
-			   in the new certificate */
-			return( completeCert( dbmsInfo, iReplaceCertificate,
-								  CERTADD_RENEWAL_COMPLETE, errorInfo ) );
+			   then this is OK since we may be resuming from a point where 
+			   the revocation has already occurred or the certificate may 
+			   have already expired or been otherwise replaced, so we just 
+			   slide in the new certificate */
+			if( status == CRYPT_ERROR_NOTFOUND )
+				{
+				DEBUG_DIAG(( "Couldn't find original certificate to revoke "
+							 "for update request, continuing on the "
+							 "assumption that the certificate has been "
+							 "otherwise replaced or revoked" ));
+				return( completeCert( dbmsInfo, iNewCertificate, CRYPT_UNUSED,
+									  iPkiUser, CERTADD_RENEWAL_COMPLETE, 
+									  errorInfo ) );
+				}
+			retExtErr( status, 
+					   ( status, errorInfo, getDbmsErrorInfo( dbmsInfo ),
+						 "Couldn't get information for the certificate to "
+						 "be renewed" ) );
 			}
-		}
-	if( cryptStatusError( status ) )
-		{
-		retExtErr( status, 
-				   ( status, errorInfo, getDbmsErrorInfo( dbmsInfo ),
-					 "Couldn't get information for the certificate to be "
-					 "renewed" ) );
+		
+		/* We've recovered the authorising certificate, fall through */
 		}
 
 	/* Replace the original certificate with the new one */
-	status = revokeCertDirect( dbmsInfo, iOrigCertificate,
-							   CRYPT_CERTACTION_REVOKE_CERT, errorInfo );
+	status = revokeCertDirect( dbmsInfo, iOrigCertificate, iAuthCert, 
+							   iPkiUser, CRYPT_CERTACTION_REVOKE_CERT, 
+							   errorInfo );
 	if( cryptStatusOK( status ) )
 		{
-		status = completeCert( dbmsInfo, iReplaceCertificate,
-							   CERTADD_RENEWAL_COMPLETE, errorInfo );
+		status = completeCert( dbmsInfo, iNewCertificate, iAuthCert,
+							   iPkiUser, CERTADD_RENEWAL_COMPLETE, 
+							   errorInfo );
 		}
-	krnlSendNotifier( iOrigCertificate, IMESSAGE_DECREFCOUNT );
+	if( iAuthCert == CRYPT_UNUSED )
+		krnlSendNotifier( iOrigCertificate, IMESSAGE_DECREFCOUNT );
 
 	return( status );
 	}
 
 /* Issue a certificate from a certificate request */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 6 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 9 ) ) \
 int caIssueCert( INOUT_PTR DBMS_INFO *dbmsInfo, 
 				 OUT_OPT_HANDLE_OPT CRYPT_CERTIFICATE *iCertificate,
 				 IN_HANDLE const CRYPT_CERTIFICATE caKey,
 				 IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
-				 IN_ENUM( CRYPT_CERTACTION ) const CRYPT_CERTACTION_TYPE action,
+				 IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+				 IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
+				 IN_ENUM( CRYPT_CERTACTION ) \
+					const CRYPT_CERTACTION_TYPE action,
+				 IN_ENUM_OPT( CERTMGMT_OPTION ) \
+					const CERTMGMT_OPTION_TYPE option,
 				 INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	CRYPT_CERTIFICATE iLocalCertificate;
 	MESSAGE_CREATEOBJECT_INFO createInfo;
 	BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ], *boundDataPtr = boundData;
+	CERTID_INFO certIDinfo;
 	BYTE certData[ MAX_CERT_SIZE + 8 ];
 	char issuerID[ ENCODED_DBXKEYID_SIZE + 8 ];
-	char certID[ ENCODED_DBXKEYID_SIZE + 8 ];
 	char reqCertID[ ENCODED_DBXKEYID_SIZE + 8 ];
 	CERTADD_TYPE addType = CERTADD_NORMAL, issueType;
-	int certDataLength DUMMY_INIT, issuerIDlength, certIDlength;
+	int certDataLength DUMMY_INIT, issuerIDlength;
 	int reqCertIDlength DUMMY_INIT, status;
 
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
@@ -451,15 +508,22 @@ int caIssueCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 
 	REQUIRES( isHandleRangeValid( caKey ) );
 	REQUIRES( isHandleRangeValid( iCertRequest ) );
-	REQUIRES( action == CRYPT_CERTACTION_ISSUE_CERT || \
+	REQUIRES( iAuthCert == CRYPT_UNUSED || isHandleRangeValid( iAuthCert ) );
+	REQUIRES( iPkiUser == CRYPT_UNUSED || isHandleRangeValid( iPkiUser ) );
+	REQUIRES( ( action == CRYPT_CERTACTION_ISSUE_CERT && \
+				option == CERTMGMT_OPTION_NONE ) || \
 			  action == CRYPT_CERTACTION_CERT_CREATION );
+			  /* A one-step certificate issue can't have any partial-issue
+			     options associated with it */
+	REQUIRES( isEnumRangeOpt( option, CERTMGMT_OPTION ) );
 	REQUIRES( errorInfo != NULL );
 
 	/* Clear return value */
 	if( iCertificate != NULL )
 		*iCertificate = CRYPT_ERROR;
 
-	/* Extract the information that we need from the certificate request */
+	/* Extract the information that we need from the certificate request and
+	   optional authorising certificate */
 	status = getCertIssueType( dbmsInfo, iCertRequest, &issueType, FALSE );
 	if( cryptStatusOK( status ) )
 		{
@@ -476,9 +540,20 @@ int caIssueCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 					 "Couldn't extract certificate request information "
 					 "needed to issue certificate" ) );
 		}
+	ENSURES( ( option == CERTMGMT_OPTION_RENEWAL && \
+			   issueType == CERTADD_PARTIAL_RENEWAL ) || \
+			 ( option != CERTMGMT_OPTION_RENEWAL && \
+			   issueType != CERTADD_PARTIAL_RENEWAL ) );
 
 	/* We're ready to perform the certificate issue transaction.  First we 
-	   turn the request into a certificate */
+	   turn the request into a certificate.  Note that when working with PKI
+	   protocols like CMP the encoded request data is that of the original
+	   request but the actual information held in the request has been 
+	   augmented with any required PKI user information via
+	   session/cmp_rdmsg.c:readRequestBody().  This means that any further
+	   checks that need to be done have to be done on the final certificate
+	   which is created from the (pkiUser-augmented) information held in the
+	   request, rather than the encoded request data */
 	setMessageCreateObjectInfo( &createInfo, CRYPT_CERTTYPE_CERTIFICATE );
 	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_DEV_CREATEOBJECT,
 							  &createInfo, OBJECT_TYPE_CERTIFICATE );
@@ -523,10 +598,60 @@ int caIssueCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 					 "request" ) );
 		}
 
+	/* We've now got the unified information in the request (see the comment
+	   above) in the certificate, perform any additional checks, in this 
+	   case that the subject name in a certificate renewal matches the 
+	   subject name in the authorising certificate, which is the one that's 
+	   being renewed.  As usual the spec (CMP) is silent on what the 
+	   requirements for a renewed certificate are so we have to invent our
+	   own, which is that at least the subject name should match from
+	   renewing -> renewed certificate.  We could perhaps also check for
+	   altName matches and other things, but if the user really wants to
+	   change anything they like then they can just submit exactly the same
+	   request as a CMP cr rather than a CMP kur and no checks will be 
+	   performed (which they could also do to change the subject name), so
+	   we just perform the subject name check in order to at least have 
+	   something that separates a cr from a kur.
+	   
+	   This also serves a secondary purpose, by verifying that the iAuthCert 
+	   corresponds to the newly-issued certificate, in other words that it's
+	   the renewing certificate, then when we do the caIssueCertComplete() 
+	   below we can revoke the iAuthCert as the renewing certificate */
+	if( option == CERTMGMT_OPTION_RENEWAL )
+		{
+		MESSAGE_DATA msgData;
+		DYNBUF subjectDB;
+
+		REQUIRES( isHandleRangeValid( iAuthCert ) );
+		
+		/* Get the name in the authorising certificate (the one requesting 
+		   the renewal) and make sure that it matches the one in the renewed 
+		   certificate */
+		status = dynCreate( &subjectDB, iAuthCert, 
+							CRYPT_IATTRIBUTE_SUBJECT );
+		if( cryptStatusOK( status ) )
+			{
+			setMessageData( &msgData, dynData( subjectDB ), 
+							dynLength( subjectDB ) );
+			status = krnlSendMessage( iLocalCertificate, IMESSAGE_COMPARE,
+									  &msgData, MESSAGE_COMPARE_SUBJECT );
+			dynDestroy( &subjectDB );
+			}
+		if( cryptStatusError( status ) )
+			{
+			krnlSendNotifier( iLocalCertificate, IMESSAGE_DECREFCOUNT );
+			retExtArg( CRYPT_ERROR_INVALID, 
+					   ( CRYPT_ERROR_INVALID, errorInfo, 
+						 "Name in the requested renewed certificate doesn't "
+						 "match the name in the certificate requesting "
+						 "renewal" ) );
+			}
+		}
+
 	/* Extract the information that we need from the newly-created 
 	   certificate */
-	status = getKeyID( certID, ENCODED_DBXKEYID_SIZE, &certIDlength, 
-					   iLocalCertificate, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+	status = getCertIDinfo( &certIDinfo, iLocalCertificate, iAuthCert, 
+							iPkiUser );
 	if( cryptStatusOK( status ) )
 		{
 		status = getKeyID( issuerID, ENCODED_DBXKEYID_SIZE, &issuerIDlength, 
@@ -572,10 +697,11 @@ int caIssueCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 					  addType, DBMS_UPDATE_BEGIN, errorInfo );
 	if( cryptStatusOK( status ) )
 		{
-		status = updateCertLog( dbmsInfo, action, certID, certIDlength, 
-								reqCertID, reqCertIDlength, NULL, 0,
-								certData, certDataLength,
-								DBMS_UPDATE_CONTINUE );
+		status = updateCertLogEx( dbmsInfo, action, certIDinfo.certID, 
+						certIDinfo.certIDlength, reqCertID, reqCertIDlength, 
+						certIDinfo.authCertIDptr, certIDinfo.authCertIDlength, 
+						certIDinfo.pkiUserIDptr, certIDinfo.pkiUserIDlength, 
+						certData, certDataLength, DBMS_UPDATE_CONTINUE );
 		}
 	if( cryptStatusOK( status ) )
 		{
@@ -598,8 +724,7 @@ int caIssueCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 							( action == CRYPT_CERTACTION_ISSUE_CERT ) ? \
 								"Certificate issue operation failed" : \
 								"Certificate creation operation failed",
-							NULL, 0, reqCertID, reqCertIDlength, NULL, 0, 
-							NULL, 0 );
+							reqCertID, reqCertIDlength );
 		krnlSendNotifier( iLocalCertificate, IMESSAGE_DECREFCOUNT );
 		retExtErr( status, 
 				   ( status, errorInfo, getDbmsErrorInfo( dbmsInfo ),
@@ -620,31 +745,31 @@ int caIssueCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 	return( CRYPT_OK );
 	}
 
-/* Complete a previously-started certificate issue */
+/* Complete a previously-started certificate issue.  This is the completion 
+   of the process started in caIssueCert(), so we don't need to re-check
+   the things that were already checked there, for example the iAuthCert ->
+   iCertificate correspondence for a renewal */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 6 ) ) \
 int caIssueCertComplete( INOUT_PTR DBMS_INFO *dbmsInfo, 
 						 IN_HANDLE const CRYPT_CERTIFICATE iCertificate,
+						 IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+						 IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
 						 IN_ENUM( CRYPT_CERTACTION ) \
 							const CRYPT_CERTACTION_TYPE action,
 						 INOUT_PTR ERROR_INFO *errorInfo )
 	{
-	char certID[ ENCODED_DBXKEYID_SIZE + 8 ];
-	int certIDlength, status;
-
+	int status;
+	
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
 
 	REQUIRES( isHandleRangeValid( iCertificate ) );
+	REQUIRES( iAuthCert == CRYPT_UNUSED || isHandleRangeValid( iAuthCert ) );
+	REQUIRES( iPkiUser == CRYPT_UNUSED || isHandleRangeValid( iPkiUser ) );
 	REQUIRES( action == CRYPT_CERTACTION_CERT_CREATION_COMPLETE || \
 			  action == CRYPT_CERTACTION_CERT_CREATION_DROP || \
 			  action == CRYPT_CERTACTION_CERT_CREATION_REVERSE );
 	REQUIRES( errorInfo != NULL );
-
-	/* Extract the information that we need from the certificate */
-	status = getKeyID( certID, ENCODED_DBXKEYID_SIZE, &certIDlength, 
-					   iCertificate, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
-	if( cryptStatusError( status ) )
-		return( status );
 
 	/* If we're completing the certificate issue process, replace the
 	   incomplete certificate with the completed one and exit */
@@ -658,18 +783,22 @@ int caIssueCertComplete( INOUT_PTR DBMS_INFO *dbmsInfo,
 			retExt( status, 
 					( status, errorInfo, 
 					  "Couldn't get original certificate issue type to "
-					  "complete certificate issue operation: " ) );
+					  "complete certificate issue operation" ) );
 			}
-		status = completeCert( dbmsInfo, iCertificate, issueType, errorInfo );
+		status = completeCert( dbmsInfo, iCertificate, iAuthCert, iPkiUser, 
+							   issueType, errorInfo );
 		if( cryptStatusError( status ) )
 			return( status );
 
 		/* If we're doing a certificate renewal, complete the multi-phase 
-		   update required to replace an existing certificate */
+		   update required to replace an existing certificate.  We know that
+		   the iAuthCert that requested the renewal is the one being 
+		   renewed via the check in caIssueCert() above, so this is the one
+		   that gets revoked */
 		if( issueType == CERTADD_PARTIAL_RENEWAL )
 			{
-			return( completeCertRenewal( dbmsInfo, iCertificate, 
-										 errorInfo ) );
+			return( completeCertRenewal( dbmsInfo, iCertificate, iAuthCert, 
+										 iPkiUser, errorInfo ) );
 			}
 
 		return( CRYPT_OK );
@@ -679,28 +808,41 @@ int caIssueCertComplete( INOUT_PTR DBMS_INFO *dbmsInfo,
 	   incomplete certificate and exit */
 	if( action == CRYPT_CERTACTION_CERT_CREATION_DROP )
 		{
+		CERTID_INFO certIDinfo;
 		BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ], *boundDataPtr = boundData;
 		char incompleteCertID[ ENCODED_DBXKEYID_SIZE + 8 ];
 
-		/* Turn the general certID into the form required for special-case
-		   certificate data by overwriting the first two bytes with an out-
-		   of-band value, then delete the object with that ID */
-		REQUIRES( rangeCheck( certIDlength, KEYID_ESC_SIZE + 1, 
-							  ENCODED_DBXKEYID_SIZE ) );
-		memcpy( incompleteCertID, KEYID_ESC1, KEYID_ESC_SIZE );
-		REQUIRES( !checkOverflowSub( certIDlength, KEYID_ESC_SIZE ) );
-		memcpy( incompleteCertID + KEYID_ESC_SIZE, certID + KEYID_ESC_SIZE, 
-				certIDlength - KEYID_ESC_SIZE );
+		/* Extract the information that we need from the certificates */
+		status = getCertIDinfo( &certIDinfo, iCertificate, iAuthCert, 
+								iPkiUser );
+		if( cryptStatusError( status ) )
+			return( status );
+
+		/* Modify the certID to identify an item from part one of a two-part 
+		   operation, then delete the object with that ID */
+		REQUIRES( certIDinfo.certIDlength == ENCODED_DBXKEYID_SIZE );
+		memcpy( incompleteCertID, certIDinfo.certID, ENCODED_DBXKEYID_SIZE );
+		modifyCertIssueID( incompleteCertID, ENCODED_DBXKEYID_SIZE, 
+						   IDMOD_CERTISSUE_STD );
 		initBoundData( boundDataPtr );
-		setBoundData( boundDataPtr, 0, incompleteCertID, certIDlength );
+		setBoundData( boundDataPtr, 0, incompleteCertID, 
+					  ENCODED_DBXKEYID_SIZE );
 		status = dbmsUpdate( 
 			"DELETE FROM certificates WHERE certID = ?",
 							 boundDataPtr, DBMS_UPDATE_BEGIN );
 		if( cryptStatusOK( status ) )
 			{
-			status = updateCertLog( dbmsInfo, action, NULL, 0, NULL, 0, 
-									certID, certIDlength, NULL, 0, 
-									DBMS_UPDATE_COMMIT );
+			/* This certID is already recorded in the log from the first
+			   half of the certificate issue operation so we modify it for 
+			   the drop log entry */
+			modifyUniqueID( certIDinfo.certID, certIDinfo.certIDlength, 
+							IDMOD_CERTISSUE_COMPLETE );
+			status = updateCertLogEx( dbmsInfo, 
+						CRYPT_CERTACTION_CERT_CREATION_DROP, 
+						certIDinfo.certID, certIDinfo.certIDlength, NULL, 0, 
+						certIDinfo.authCertIDptr, certIDinfo.authCertIDlength, 
+						certIDinfo.pkiUserIDptr, certIDinfo.pkiUserIDlength, 
+						NULL, 0, DBMS_UPDATE_COMMIT );
 			}
 		else
 			{
@@ -711,11 +853,12 @@ int caIssueCertComplete( INOUT_PTR DBMS_INFO *dbmsInfo,
 			return( CRYPT_OK );
 
 		/* The drop operation failed, record the details and fall back to a
-		   straight delete */
+		   straight delete.  We've already got a log entry with this ID 
+		   present so we pass the certID as the reqCertID */
 		updateCertErrorLog( dbmsInfo, status,
 							"Certificate creation - drop operation failed, "
-							"performing straight delete", NULL, 0, NULL, 0, 
-							certID, certIDlength, NULL, 0 );
+							"performing straight delete", 
+							certIDinfo.certID, certIDinfo.certIDlength );
 		status = dbmsUpdate( 
 			"DELETE FROM certificates WHERE certID = ?",
 							 boundDataPtr, DBMS_UPDATE_NORMAL );
@@ -735,7 +878,7 @@ int caIssueCertComplete( INOUT_PTR DBMS_INFO *dbmsInfo,
 	   certificate rather than just deleting it */
 	ENSURES( action == CRYPT_CERTACTION_CERT_CREATION_REVERSE );
 
-	return( revokeCertDirect( dbmsInfo, iCertificate,
+	return( revokeCertDirect( dbmsInfo, iCertificate, iAuthCert, iPkiUser,
 							  CRYPT_CERTACTION_CERT_CREATION_REVERSE, 
 							  errorInfo ) );
 	}

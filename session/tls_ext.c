@@ -783,7 +783,7 @@ int writeClientExtensions( INOUT_PTR STREAM *stream,
 	{
 	const PROTOCOL_INFO *protocolInfo = \
 							DATAPTR_GET( sessionInfoPtr->protocolInfo );
-	const TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	EXT_SIZE_INFO extSizeInfo;
 	int minVersion, status;
 
@@ -795,6 +795,7 @@ int writeClientExtensions( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckTLSHandshakeInfo( handshakeInfo ) );
 	REQUIRES( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS );
 	REQUIRES( protocolInfo != NULL );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Get the minimum protocol version.  We have to do it at this point 
 	   after ensuring that protocolInfo is valid */

@@ -409,9 +409,16 @@ static int recoverCertData( INOUT_PTR CERT_INFO *certInfoPtr,
 							  IMESSAGE_SETDEPENDENT,
 							  &certInfoPtr->iPubkeyContext,
 							  SETDEP_OPTION_NOINCREF );
-	if( cryptStatusOK( status ) )
-		CLEAR_FLAG( certInfoPtr->flags, CERT_FLAG_DATAONLY );
-	return( status );
+	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( certInfoPtr->iPubkeyContext, 
+						  IMESSAGE_DECREFCOUNT );
+		certInfoPtr->iPubkeyContext = CRYPT_ERROR;
+		return( status );
+		}
+	CLEAR_FLAG( certInfoPtr->flags, CERT_FLAG_DATAONLY );
+
+	return( CRYPT_OK );
 	}
 
 /* Check that the ECC domain parameters used by the CA match the ones used 
@@ -668,11 +675,12 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int copySigningCertChain( INOUT_PTR CERT_INFO *certInfoPtr,
 								 IN_HANDLE const CRYPT_CONTEXT iSignContext )
 	{
-	CERT_CERT_INFO *certInfo = certInfoPtr->cCertCert;
+	CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( isHandleRangeValid( iSignContext ) );
+	REQUIRES( certInfo != NULL );
 
 	/* If there's a chain of certificates present (for example from a 
 	   previous signing attempt that wasn't completed due to an error), free 
@@ -768,6 +776,10 @@ static int setCertTimeinfo( INOUT_PTR CERT_INFO *certInfoPtr,
 	if( certInfoPtr->type == CRYPT_CERTTYPE_CRL || \
 		certInfoPtr->type == CRYPT_CERTTYPE_OCSP_RESPONSE )
 		{
+		CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
+
+		REQUIRES( revInfo != NULL );
+
 		/* If the time is messed up then we can't provide an indication of 
 		   the revocation time */
 		if( currentTime <= MIN_TIME_VALUE )
@@ -809,8 +821,8 @@ static int setCertTimeinfo( INOUT_PTR CERT_INFO *certInfoPtr,
 					return( status );
 				}
 			}
-		if( certInfoPtr->cCertRev->revocationTime <= MIN_TIME_VALUE )
-			certInfoPtr->cCertRev->revocationTime = currentTime;
+		if( revInfo->revocationTime <= MIN_TIME_VALUE )
+			revInfo->revocationTime = currentTime;
 		}
 #endif /* USE_CERTREV */
 
@@ -894,24 +906,54 @@ static int initSignatureInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 	/* If it's a certificate chain, copy over the signing certificate(s) */
 	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 		{
+		const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+		
 		REQUIRES( isHandleRangeValid( iSignContext ) );
 
 		status = copySigningCertChain( certInfoPtr, iSignContext );
 		if( cryptStatusError( status ) )
-			return( status );
+			{
+			retExt( status,
+					( status, CERTIFICATE_ERRINFO,
+					  "Couldn't copy signing certificates across to "
+					  "certificate chain" ) );
+			}
+
+		/* If at the end of the copy there's only a single certificate 
+		   present then this isn't a valid certificate chain.  In theory we 
+		   could also just convert the type to a standard certificate, which 
+		   it is, but it's probably best to report an error rather than
+		   silently return a different object subtype */
+		if( certInfo->chainEnd <= 0 )
+			{
+			retExt( CRYPT_ERROR_INVALID,
+					( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO,
+					  "Certificate chain only contains a single "
+					  "certificate" ) );
+			}
 		}
 
 	/* Set up any required timestamps */
 	status = setCertTimeinfo( certInfoPtr, iSignContext, isCertificate );
 	if( cryptStatusError( status ) )
-		return( status );
+		{
+		retExt( status,
+				( status, CERTIFICATE_ERRINFO,
+				  "Couldn't set %s time information",
+				  getCertTypeNameLC( certInfoPtr->type ) ) );
+		}
 
 	/* If it's a certificate, set up the certificate serial number */
 	if( isCertificate )
 		{
 		status = setSerialNumber( certInfoPtr, NULL, 0 );
 		if( cryptStatusError( status ) )
-			return( status );
+			{
+			retExt( status,
+					( status, CERTIFICATE_ERRINFO,
+					  "Couldn't set %s serial number",
+					  getCertTypeNameLC( certInfoPtr->type ) ) );
+			}
 		}
 
 	/* Determine the hash algorithm to use and if it's a certificate or 
@@ -958,16 +1000,24 @@ static int initSignatureInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 		certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN || \
 		certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT )
 		{
-		certInfoPtr->cCertCert->hashAlgo = *hashAlgo;
-		certInfoPtr->cCertCert->hashParam = *hashParam;
+		CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+		REQUIRES( certInfo != NULL );
+
+		certInfo->hashAlgo = *hashAlgo;
+		certInfo->hashParam = *hashParam;
 		}
 #ifdef USE_CERTREV
 	else
 		{
 		if( certInfoPtr->type == CRYPT_CERTTYPE_CRL )
 			{
-			certInfoPtr->cCertRev->hashAlgo = *hashAlgo;
-			certInfoPtr->cCertRev->hashParam = *hashParam;
+			CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
+
+			REQUIRES( revInfo != NULL );
+
+			revInfo->hashAlgo = *hashAlgo;
+			revInfo->hashParam = *hashParam;
 			}
 		}
 #endif /* USE_CERTREV */
@@ -1438,14 +1488,7 @@ int signCert( INOUT_PTR CERT_INFO *certInfoPtr,
 	{
 	CRYPT_ALGO_TYPE hashAlgo;
 	CERT_INFO *issuerCertInfoPtr = NULL;
-#ifdef USE_CERTREV
-	const CRYPT_SIGNATURELEVEL_TYPE signatureLevel = \
-				( certInfoPtr->type == CRYPT_CERTTYPE_OCSP_REQUEST ) ? \
-					certInfoPtr->cCertRev->signatureLevel : \
-					CRYPT_SIGNATURELEVEL_NONE;
-#else
-	const CRYPT_SIGNATURELEVEL_TYPE signatureLevel = CRYPT_SIGNATURELEVEL_NONE;
-#endif /* USE_CERTREV */
+	CRYPT_SIGNATURELEVEL_TYPE signatureLevel = CRYPT_SIGNATURELEVEL_NONE;
 	const BOOLEAN isCertificate = \
 			( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
@@ -1459,6 +1502,19 @@ int signCert( INOUT_PTR CERT_INFO *certInfoPtr,
 	REQUIRES( certInfoPtr->certificate == NULL );
 	REQUIRES( iSignContext == CRYPT_UNUSED || \
 			  isHandleRangeValid( iSignContext ) );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+#ifdef USE_CERTREV
+	if( certInfoPtr->type == CRYPT_CERTTYPE_OCSP_REQUEST ) 
+		{
+		const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
+
+		REQUIRES( revInfo != NULL );
+
+		signatureLevel = revInfo->signatureLevel;
+		}
+#endif /* USE_CERTREV */
 
 	/* If it's a non-signing key then we have to create a special format of 
 	   certificate request that isn't signed but contains an indication that 
@@ -1536,10 +1592,10 @@ int signCert( INOUT_PTR CERT_INFO *certInfoPtr,
 		{
 		if( issuerCertAcquired == TRUE )
 			krnlReleaseObject( issuerCertInfoPtr->objectHandle );
-		retExt( status,
-				( status, CERTIFICATE_ERRINFO,
-				  "Couldn't initialise %s signing information",
-				  getCertTypeNameLC( certInfoPtr->type ) ) );
+		retExtErr( status,
+				   ( status, CERTIFICATE_ERRINFO, CERTIFICATE_ERRINFO,
+					 "Couldn't initialise %s signing information",
+					 getCertTypeNameLC( certInfoPtr->type ) ) );
 		}
 
 	/* Create the signed certificate object */

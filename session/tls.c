@@ -41,10 +41,12 @@
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN sanityCheckSessionTLS( IN_PTR const SESSION_INFO *sessionInfoPtr )
 	{
-	const TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( tlsInfo, sizeof( TLS_INFO ) ) );
+
+	REQUIRES_B( tlsInfo != NULL );
 
 	/* Check the general session state */
 	if( !sanityCheckSession( sessionInfoPtr ) )
@@ -292,7 +294,7 @@ static int initHandshakeInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	{
 	const PROTOCOL_INFO *protocolInfo = \
 							DATAPTR_GET( sessionInfoPtr->protocolInfo );
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -300,6 +302,7 @@ static int initHandshakeInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( isBooleanValue( isServer ) );
 	ENSURES( protocolInfo != NULL );
+	REQUIRES( tlsInfo != NULL );
 
 	memset( handshakeInfo, 0, sizeof( TLS_HANDSHAKE_INFO ) );
 	if( isServer )
@@ -358,7 +361,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int pushHandshakeInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	void *savedHandshakeInfo;
 	const int bufPos = sessionInfoPtr->sendBufSize - \
 					   sizeof( TLS_HANDSHAKE_INFO );
@@ -367,6 +370,7 @@ static int pushHandshakeInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
+	REQUIRES( tlsInfo != NULL );
 	REQUIRES( !checkOverflowSub( sessionInfoPtr->sendBufSize, 
 								 sizeof( TLS_HANDSHAKE_INFO ) ) );
 
@@ -404,7 +408,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int popHandshakeInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 OUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	void *savedHandshakeInfo;
 	int checksum;
 
@@ -412,6 +416,7 @@ static int popHandshakeInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Restore the saved handshake state so that we can continue a partially-
 	   completed handshake */
@@ -575,10 +580,12 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int checkTLS13Options( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( handshakeInfo, sizeof( TLS_HANDSHAKE_INFO ) ) );
+
+	REQUIRES( tlsInfo != NULL );
 
 	/* TLS 1.3 requires a bunch of new algorithms and mechanisms including 
 	   AES-GCM, so if the user has requested TLS 1.3 or newer we need to 
@@ -977,7 +984,8 @@ int readTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		   and not worth aborting the handshake for */
 		( void ) addSessionInfoS( sessionInfoPtr,
 								  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
-								  certFingerprint, certFingerprintLength );
+								  certFingerprint, certFingerprintLength,
+								  ATTR_FLAG_NONE );
 		}
 
 	/* Make sure that we can perform the required operation using the key
@@ -1143,11 +1151,12 @@ int writeTLSCertChain( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 STDC_NONNULL_ARG( ( 1 ) ) \
 static void shutdownFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
-	const TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES_V( sanityCheckSessionTLS( sessionInfoPtr ) );
+	REQUIRES_V( tlsInfo != NULL );
 
 	/* Clean up TLS-specific objects if required */
 	if( DATAPTR_ISSET( tlsInfo->savedHandshakeInfo ) )
@@ -1335,6 +1344,10 @@ static int commonStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	else
 		{
+		/* The higher-level session code has verified that an authentication
+		   response has been recorded before letting control get to here */
+		REQUIRES( sessionInfoPtr->authResponse != AUTHRESPONSE_NONE );
+		
 		/* We're continuing a partially-completed handshake, restore the 
 		   handshake state */
 		status = popHandshakeInfo( sessionInfoPtr, &handshakeInfo );
@@ -1342,10 +1355,30 @@ static int commonStartup( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		/* Reset the partial-open state since we're about to complete the 
 		   open.  This is also done by the calling code once the handshake
-		   completes successfully, but we want to do it preemptively 
+		   completes successfully, but we want to do it preemptively and
 		   unconditionally */
 		CLEAR_FLAG( sessionInfoPtr->flags, SESSION_FLAG_PARTIALOPEN );
+
+		/* If the caller has denied the client's certificate authentication, 
+		   abort the handshake.  This is more usually done by closing the
+		   session rather than continuing the session activation only to 
+		   immediately abort it without progressing any further, but we 
+		   provide this option in case the caller decides to do it this way */
+		if( isServer && sessionInfoPtr->authResponse != AUTHRESPONSE_SUCCESS )
+			{
+			handshakeInfo.failAlertType = TLS_ALERT_ACCESS_DENIED;
+			( void ) abortStartup( sessionInfoPtr, &handshakeInfo, TRUE,
+								  CRYPT_ERROR_PERMISSION );
+			retExt( CRYPT_ERROR_PERMISSION,
+					( CRYPT_ERROR_PERMISSION, SESSION_ERRINFO, 
+					  "TLS session aborted due to failed client "
+					  "certificate authentication" ) );
+			}
 		}
+
+	/* We've made it past the preliminaries, reset the authResponse value in
+	   case it's used later, for example for EAP tunnelled protocols */
+	sessionInfoPtr->authResponse = AUTHRESPONSE_NONE;
 
 	/* Complete the handshake */
 	status = completeHandshakeTLS( sessionInfoPtr, &handshakeInfo, 
@@ -1410,8 +1443,11 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		case CRYPT_SESSINFO_TLS_OPTIONS:
 			{
-			const TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+			const TLS_INFO *tlsInfo = \
+					DATAPTR_GET( sessionInfoPtr->sessionInfo );
 			int *valuePtr = ( int * ) data;
+
+			REQUIRES( tlsInfo != NULL );
 
 			*valuePtr = tlsInfo->minVersion & TLS_MINVER_MASK;
 #ifdef CONFIG_SUITEB
@@ -1576,7 +1612,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 IN_PTR const void *data,
 								 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int value;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -1586,17 +1622,25 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  type == CRYPT_SESSINFO_TLS_OPTIONS || \
 			  type == CRYPT_SESSINFO_TLS_SUBPROTOCOL || \
 			  type == CRYPT_SESSINFO_TLS_WSPROTOCOL );
+	REQUIRES( tlsInfo != NULL );
 
 	/* The authentication response isn't usually a protocol-specific 
 	   attribute, but in some cases it needs to be set as part of another
 	   protocol layered over TLS.  This is complicated by the fact that it
 	   may have to be specified twice, once for the TLS handshake and a 
-	   second time for the protocol layered over TLS */
+	   second time for the protocol layered over TLS.
+	   
+	   Note that this value has been reflected down to us by the higher-
+	   level code, which also stores it, so once it gets here it's merely a 
+	   notification rather than something to be recorded */
 	if( type == CRYPT_SESSINFO_AUTHRESPONSE )
 		{
 #ifdef USE_EAP
 		int status;
 #endif /* USE_EAP */
+
+		value = *( ( int * ) data );
+		REQUIRES( isEnumRange( value, AUTHRESPONSE ) );
 
 		/* If we're expecting an authentication response for a certificate 
 		   provided during the TLS handshake, it has to be given during the 
@@ -1637,10 +1681,22 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		
 		   For the client the message is an EAP ACK to allow the negotiation 
 		   to continue, for the server this is a RADIUS Access-Accept to 
-		   conclude the negotiation.  
+		   conclude the negotiation, see io/eap_wr.c:writeFunction().
 		   
 		   Note that the magic values used must be sync'd with the
 		   RADIUS_DATA_xxx values in io/eap.h */
+		if( value != AUTHRESPONSE_SUCCESS )
+			{
+			/* Possibly a bit pedantic since it's only being used to trigger
+			   a change in the EAP protocol state machine rather than 
+			   allowing or denying anything, but we enforce it to avoid any
+			   impression that setting it to a deny value and continuing is 
+			   an error */
+			retExt( CRYPT_ARGERROR_VALUE, 
+					( CRYPT_ARGERROR_VALUE, SESSION_ERRINFO, 
+					  "EAP authentication response action doesn't allow "
+					  "continuing the EAP negotiation" ) );
+			}
 		if( isServer( sessionInfoPtr ) )
 			status = swrite( &sessionInfoPtr->stream, "ACCESSACCEPT", 12 );
 		else
@@ -1686,7 +1742,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		/* Remember the sub-protocol type */
 		return( addSessionInfoS( sessionInfoPtr, type, msgData->data, 
-								 msgData->length ) );
+								 msgData->length, ATTR_FLAG_NONE ) );
 		}
 #endif /* USE_WEBSOCKETS */
 	ENSURES( type == CRYPT_SESSINFO_TLS_OPTIONS );
@@ -1929,7 +1985,7 @@ static int readHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   OUT_ENUM_OPT( READINFO ) \
 									READSTATE_INFO *readInfo )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM stream;
 	int packetLength, status;
 
@@ -1937,6 +1993,7 @@ static int readHeaderFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( readInfo, sizeof( READSTATE_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return value */
 	*readInfo = READINFO_NONE;
@@ -2002,10 +2059,12 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int discardPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  OUT_ENUM_OPT( READINFO ) READSTATE_INFO *readInfo )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( readInfo, sizeof( READSTATE_INFO ) ) );
+
+	REQUIRES( tlsInfo != NULL );
 
 	/* The packet is noise like a session ticket or rehandshake request, 
 	   discard it */
@@ -2048,13 +2107,14 @@ static int processBodyFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								OUT_ENUM_OPT( READINFO ) \
 									READSTATE_INFO *readInfo )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int length, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( readInfo, sizeof( READSTATE_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* All errors processing the payload are fatal, and specifically fatal 
 	   crypto errors */
@@ -2259,9 +2319,11 @@ int setAccessMethodTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			   the payload */
 		MAX_PACKET_SIZE				/* (Default) maximum packet size */
 		};
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+
+	REQUIRES( tlsInfo != NULL );
 
 	/* Make sure that the huge list of cipher suites is set up correctly */
 	assert( SSL_NULL_WITH_NULL == 0x00 );

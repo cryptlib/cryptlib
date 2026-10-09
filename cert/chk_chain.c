@@ -12,9 +12,9 @@
 #endif /* Compiler-specific includes */
 
 /* This module and chk_cert.c implement the following PKIX checks.  For
-   simplicity we use the more compact form of RFC 2459 rather than the 18
-   page long one from RFC 3280.  For the process of building the chain 
-   that's being checked, see chain.c.
+   simplicity we use the more compact form of RFC 2459 updated with RFC 3280
+   changes rather than the 18 page long one from RFC 3280.  For the process 
+   of building the chain that's being checked, see cert/chain.c.
 
 	General:
 
@@ -93,13 +93,42 @@
 		sequence) 
 
 	(m) If a key usage extension is marked critical, ensure that the 
-		keyCertSign bit is set */
+		keyCertSign bit is set 
+		
+   Note that as of cryptlib 3.4.3 in 2016 the full-PKIX compliance level has 
+   been disabled by default for purposes of attack surface reduction and 
+   because of the numerous problems with the standards described in the long 
+   comment for checkConstraints() below, with builds that enable them 
+   triggering a #error requesting a report to the cryptlib developers (see
+   cert/comp_cert.c, also kernel/attr_acl.c:optionACL[] which limits the 
+   maximum value that can be set based on MAX_COMPLIANCE_LEVEL from 
+   misc/config.h).  The default setting in 
+   misc/user_config.c:builtinOptionInfo[] then sets the default setting to
+   CRYPT_COMPLIANCELEVEL_STANDARD, requiring it to be explicitly raised by
+   the user so that they're explicitly made aware that strange behaviour 
+   will result.
+   
+   In the more than a decade since then no-one has ever reported this, 
+   indicating that it's never been used (outside of the self-test/
+   development/fuzzing builds).  In fact the only times changes have been
+   reported is for CRYPT_COMPLIANCELEVEL_REDUCED and 
+   CRYPT_COMPLIANCELEVEL_OBLIVIOUS as users try and make broken certificates
+   "work".  This means that we've achieved considerable attack surface 
+   reduction on the PKI code without any actual impact on users, but also 
+   that the full-PKIX-level code below has never been run on any real-world 
+   certificates that rely on it, because there aren't any that cryptlib 
+   users have ever reported.  This in turn means that disabling it by 
+   default is pure attack surface reduction, since only an attacker with 
+   custom-created certificates would ever trigger it.
+   
+	The [...] most reliable components of a computer system are those that 
+	aren't there - Gordon Bell */
 
 #ifdef USE_CERTIFICATES
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -112,11 +141,12 @@ static int getCertInfo( const CERT_INFO *certInfoPtr,
 						OUT_PTR_PTR_COND CERT_INFO **certChainPtr, 
 						IN_RANGE( -1, MAX_CHAINLENGTH - 1 ) const int certChainIndex )
 	{
-	const CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+	const CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isWritePtr( certChainPtr, sizeof( CERT_INFO * ) ) );
 
+	REQUIRES( certChainInfo != NULL );
 	REQUIRES( certChainIndex >= -1 && \
 			  certChainIndex <= certChainInfo->chainEnd && \
 			  certChainIndex < MAX_CHAINLENGTH );
@@ -178,7 +208,7 @@ static int performAbsTrustOperation( INOUT_PTR CERT_INFO *certInfoPtr,
 									 OUT_OPT_HANDLE_OPT CRYPT_CERTIFICATE *iIssuerCert )
 	{
 	CRYPT_CERTIFICATE iLocalCert;
-	CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+	CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 	SELECTION_STATE savedState;
 	int status;
 
@@ -186,6 +216,7 @@ static int performAbsTrustOperation( INOUT_PTR CERT_INFO *certInfoPtr,
 	assert( iIssuerCert == NULL || \
 			isWritePtr( iIssuerCert, sizeof( CRYPT_CERTIFICATE ) ) );
 
+	REQUIRES( certChainInfo != NULL );
 	REQUIRES( certChainIndex >= -1 && \
 			  certChainIndex < certChainInfo->chainEnd && \
 			  certChainIndex < MAX_CHAINLENGTH );
@@ -195,7 +226,7 @@ static int performAbsTrustOperation( INOUT_PTR CERT_INFO *certInfoPtr,
 		*iIssuerCert = CRYPT_ERROR;
 
 	/* Perform the required operation at an absolute chain position */
-	saveSelectionState( savedState, certInfoPtr );
+	saveSelectionState( &savedState, certInfoPtr );
 	certChainInfo->chainPos = certChainIndex;
 	if( certChainIndex == -1 )
 		{
@@ -206,12 +237,13 @@ static int performAbsTrustOperation( INOUT_PTR CERT_INFO *certInfoPtr,
 		{
 		/* It's an index into the certificate chain, use the certificate at 
 		   that position */
+		REQUIRES( rangeCheck( certChainIndex, 0, MAX_CHAINLENGTH - 1 ) );
 		iLocalCert = certChainInfo->chain[ certChainIndex ];
 		}
 	status = krnlSendMessage( certInfoPtr->ownerHandle, 
 							  IMESSAGE_USER_TRUSTMGMT, &iLocalCert, 
 							  operation );
-	restoreSelectionState( savedState, certInfoPtr );
+	restoreSelectionState( &savedState, certInfoPtr );
 	if( cryptStatusError( status ) )
 		return( status );
 	if( iIssuerCert != NULL )
@@ -255,7 +287,7 @@ static int findTrustAnchor( INOUT_PTR CERT_INFO *certInfoPtr,
 							OUT_HANDLE_OPT CRYPT_CERTIFICATE *trustAnchorCert )
 	{
 	CRYPT_CERTIFICATE iIssuerCert DUMMY_INIT;
-	const CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+	const CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 	LOOP_INDEX trustAnchorIndex;
 	int status;
 
@@ -263,8 +295,10 @@ static int findTrustAnchor( INOUT_PTR CERT_INFO *certInfoPtr,
 	assert( isWritePtr( trustAnchorIndexPtr, sizeof( int ) ) );
 	assert( isWritePtr( trustAnchorCert, sizeof( CRYPT_CERTIFICATE ) ) );
 
-	/* Clear return value */
-	*trustAnchorIndexPtr = CRYPT_ERROR;
+	REQUIRES( certChainInfo != NULL );
+
+	/* Clear return values */
+	*trustAnchorIndexPtr = -1;
 	*trustAnchorCert = CRYPT_ERROR;
 
 	/* If the leaf certificate is implicitly trusted, exit.  Since this is a
@@ -294,15 +328,23 @@ static int findTrustAnchor( INOUT_PTR CERT_INFO *certInfoPtr,
 	   
 	   This means that trustAnchorIndex may end up referencing a certificate 
 	   past the end of the chain if the trust anchor is present in the trust 
-	   database but not in the chain */
-	REQUIRES( certChainInfo->chainEnd >= 0 );
+	   database but not in the chain.  However, while we allow the 
+	   trustAnchorIndex to go one past the end of the chain, we don't allow 
+	   it to exceed the overall MAX_CHAINLENGTH - 1 since this would result 
+	   in a chain with an overall length of MAX_CHAINLENGTH + 1 when counted
+	   from the leaf at position -1.
+	   
+	   The loop bound is given as MAX_CHAINLENGTH + 2 because we iterate from
+	   0 to MAX_CHAINLENGTH inclusive, so MAX_CHAINLENGTH + 1 iterations in 
+	   total */
+	REQUIRES( rangeCheck( certChainInfo->chainEnd, 0, MAX_CHAINLENGTH ) );
 	LOOP_EXT( trustAnchorIndex = 0,
 			  trustAnchorIndex <= certChainInfo->chainEnd,
-			  trustAnchorIndex++, MAX_CHAINLENGTH + 1 )
+			  trustAnchorIndex++, MAX_CHAINLENGTH + 2 )
 		{
 		ENSURES( LOOP_INVARIANT_EXT( trustAnchorIndex, 0, \
 									 certChainInfo->chainEnd,
-									 MAX_CHAINLENGTH + 1 ) );
+									 MAX_CHAINLENGTH + 2 ) );
 
 		/* Try and get a reference to a trusted issuer of the certificate at
 		   the given level.  This returns a reference to an existing object
@@ -317,7 +359,8 @@ static int findTrustAnchor( INOUT_PTR CERT_INFO *certInfoPtr,
 		}
 	ENSURES( LOOP_BOUND_OK );
 	if( cryptStatusError( status ) || \
-		trustAnchorIndex > certChainInfo->chainEnd )
+		trustAnchorIndex > certChainInfo->chainEnd || \
+		!rangeCheck( trustAnchorIndex, 0, MAX_CHAINLENGTH - 1 ) )
 		return( CRYPT_ERROR_NOTFOUND );
 	*trustAnchorIndexPtr = trustAnchorIndex;
 	*trustAnchorCert = iIssuerCert;
@@ -325,9 +368,16 @@ static int findTrustAnchor( INOUT_PTR CERT_INFO *certInfoPtr,
 	/* If there are more certificates in the chain beyond the one that we 
 	   stopped at check to see whether the next certificate is the same as 
 	   the trust anchor.  If it is then we use the copy of the certificate 
-	   in the chain rather than the external one from the trust database */
+	   in the chain rather than the external one from the trust database.
+	   
+	   A secondary reason for this apart from not instantiating objects 
+	   unnecessarily is that the caller could have changed some of the 
+	   properties of the certificate in the chain, for example the 
+	   CRYPT_CERTINFO_TRUSTED_USAGE, which won't be reflected in a copy
+	   instantiated from the trust database */
 	if( trustAnchorIndex < certChainInfo->chainEnd )
 		{
+		REQUIRES( rangeCheck( trustAnchorIndex, 0, MAX_CHAINLENGTH - 1 ) );
 		status = krnlSendMessage( certChainInfo->chain[ trustAnchorIndex ],
 								  IMESSAGE_COMPARE, &iIssuerCert, 
 								  MESSAGE_COMPARE_CERTOBJ );
@@ -344,13 +394,18 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int setTrustAnchorErrorInfo( INOUT_PTR CERT_INFO *certInfoPtr )
 	{
 	CRYPT_ATTRIBUTE_TYPE attributeType;
-	CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+	CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 	CERT_INFO *subjectCertInfoPtr;
-	const int lastCertIndex = certChainInfo->chainEnd - 1;
 	BOOLEAN_INT selfSigned;
-	int status;
+	int lastCertIndex, status;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
+
+	REQUIRES( certChainInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	lastCertIndex = certChainInfo->chainEnd - 1;
 
 	/* We can get a certificate chain object with no chain attached from a 
 	   single certificate imported with KEYMGMT_FLAG_CERT_AS_CERTCHAIN so
@@ -376,6 +431,7 @@ static int setTrustAnchorErrorInfo( INOUT_PTR CERT_INFO *certInfoPtr )
 	   this certificate rather than the encapsulating chain object.  To get 
 	   around this we set the error information for the selected certificate 
 	   rather than the chain */
+	REQUIRES( rangeCheck( lastCertIndex, 0, MAX_CHAINLENGTH - 1 ) );
 	status = krnlSendMessage( certChainInfo->chain[ lastCertIndex ], 
 							  IMESSAGE_GETATTRIBUTE, &selfSigned, 
 							  CRYPT_CERTINFO_SELFSIGNED );
@@ -417,14 +473,17 @@ static int setTrustAnchorErrorInfo( INOUT_PTR CERT_INFO *certInfoPtr )
 /* Check whether a policy is already present in the policy set */
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 3 ) ) \
-static BOOLEAN isPolicyPresent( IN_PTR const POLICY_DATA *policyData,
-								IN_RANGE( 0, MAX_POLICIES ) const int policyCount,
-								IN_BUFFER( policyValueLength ) const void *policyValue,
+static BOOLEAN isPolicyPresent( IN_ARRAY_C( MAX_POLICIES ) \
+									const POLICY_DATA *policyData,
+								IN_RANGE( 0, MAX_POLICIES - 1 ) \
+									const int policyCount,
+								IN_BUFFER( policyValueLength ) \
+									const void *policyValue,
 								IN_LENGTH_OID const int policyValueLength )
 	{
 	LOOP_INDEX i;
 
-	assert( isReadPtr( policyData, sizeof( POLICY_DATA ) ) );
+	assert( isReadPtr( policyData, sizeof( POLICY_DATA ) * MAX_POLICIES ) );
 	assert( isReadPtrDynamic( policyValue, policyValueLength ) );
 
 	REQUIRES_B( policyCount >= 0 && policyCount < MAX_POLICIES );
@@ -452,8 +511,8 @@ static BOOLEAN isPolicyPresent( IN_PTR const POLICY_DATA *policyData,
 /* Add a policy to the policy set */
 
 CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1 ) ) \
-static int addPolicy( INOUT_ARRAY( policyCount ) POLICY_DATA *policyData,
-					  IN_RANGE( 0, MAX_POLICIES ) const int policyCount,
+static int addPolicy( INOUT_ARRAY_C( MAX_POLICIES ) POLICY_DATA *policyData,
+					  IN_RANGE( 0, MAX_POLICIES - 1 ) const int policyCount,
 					  IN_DATAPTR const DATAPTR_ATTRIBUTE policyAttributePtr,
 					  IN_RANGE( -1, MAX_CHAINLENGTH - 1 ) \
 							const int certChainIndex,
@@ -463,10 +522,10 @@ static int addPolicy( INOUT_ARRAY( policyCount ) POLICY_DATA *policyData,
 	void *policyValuePtr;
 	int policyValueLength, status;
 
-	assert( isWritePtr( policyData, policyCount * sizeof( POLICY_DATA ) ) );
+	assert( isWritePtr( policyData, sizeof( POLICY_DATA ) * MAX_POLICIES ) );
 
 	REQUIRES( policyCount >= 0 && policyCount < MAX_POLICIES );
-	REQUIRES( DATAPTR_ISVALID( policyAttributePtr ) );
+	REQUIRES( DATAPTR_ISSET( policyAttributePtr ) );
 	REQUIRES( certChainIndex >= -1 && certChainIndex < MAX_CHAINLENGTH );
 	REQUIRES( isBooleanValue( isMapped ) );
 
@@ -489,7 +548,9 @@ static int addPolicy( INOUT_ARRAY( policyCount ) POLICY_DATA *policyData,
 	   have to adjust the chain-position indicator by one since it denotes 
 	   the EE, the containing certificate, which has the virtual position -1, 
 	   with the remainder of the certificates in the chain having positions 
-	   0...n */
+	   0...n.  This value is set but not currently used, see the text for
+	   requireExplicitPolicy in the long comment for checkConstraints() 
+	   below */
 	policyDataPtr = &policyData[ policyCount ];
 	memset( policyDataPtr, 0, sizeof( POLICY_DATA ) );
 	policyDataPtr->level = certChainIndex + 1;
@@ -524,8 +585,8 @@ static int addExplicitPolicies( INOUT_PTR POLICY_INFO *policyInfo,
 				  policyCount < MAX_POLICIES ),
 				attributeCursor = findNextFieldInstance( attributeCursor ) )
 		{
-		ENSURES( LOOP_INVARIANT_LARGE( policyCount, policyInfo->noPolicies, 
-									   MAX_POLICIES - 1 ) );
+		ENSURES( LOOP_INVARIANT_LARGE_XXX( policyCount, 0, \
+										   MAX_POLICIES - 1 ) );
 
 		status = addPolicy( policyInfo->policies, policyCount,
 							attributeCursor, certChainIndex, FALSE );
@@ -580,7 +641,11 @@ static int addMappedPolicies( INOUT_PTR POLICY_INFO *policyInfo,
 		DATAPTR_ISNULL( destPolicyAttributeCursor ) )
 		return( CRYPT_OK );
 
-	/* Add all mapped policies to the policy set */
+	/* Add all mapped policies to the policy set.  We only check 
+	   sourcePolicyAttributeCursor in the loop condition rather than both 
+	   because both the policies are encoded as { source, destination }
+	   pairs so a situation where only one is present would be an internal 
+	   error, which is reported by the REQUIRES() */
 	LOOP_LARGE( policyCount = policyInfo->noPolicies,
 				( DATAPTR_ISSET( sourcePolicyAttributeCursor ) && \
 				  policyCount < MAX_POLICIES ),
@@ -592,8 +657,8 @@ static int addMappedPolicies( INOUT_PTR POLICY_INFO *policyInfo,
 		void *policyValuePtr;
 		int policyValueLength;
 
-		ENSURES( LOOP_INVARIANT_LARGE( policyCount, policyInfo->noPolicies, 
-									   MAX_POLICIES - 1 ) );
+		ENSURES( LOOP_INVARIANT_LARGE_XXX( policyCount, 0, \
+										   MAX_POLICIES - 1 ) );
 
 		REQUIRES( DATAPTR_ISSET( sourcePolicyAttributeCursor ) && \
 				  DATAPTR_ISSET( destPolicyAttributeCursor ) );
@@ -663,7 +728,10 @@ static int createPolicySet( OUT_PTR POLICY_INFO *policyInfo,
 	/* Clear return value */
 	memset( policyInfo, 0, sizeof( POLICY_INFO ) );
 
-	/* Add trust anchor explicit and mapped policies if required */
+	/* Add trust anchor explicit and mapped policies if required.  Note that
+	   we have to add explicit policies before mapped ones so that we can 
+	   check to make sure that mappings don't clash with existing explicit 
+	   policies */
 	if( DATAPTR_ISSET( trustAnchorAttributes ) && \
 		checkAttributeFieldPresent( trustAnchorAttributes, 
 									CRYPT_CERTINFO_CERTPOLICYID ) )
@@ -869,8 +937,11 @@ static int checkConstraints( INOUT_PTR CERT_INFO *certInfoPtr,
 	REQUIRES( DATAPTR_ISVALID( issuerAttributes ) );
 	REQUIRES( isBooleanValue( explicitPolicy ) );
 
-	/* Clear return value */
-	*errorCertIndex = CRYPT_ERROR;
+	/* Clear return value.  This is a bit of a special case because it's 
+	   a value that's read on an error return, so in the absence of any
+	   further information we set it to the leaf certificate as a general
+	   proxy for "something nonspecific in the chain as a whole" */
+	*errorCertIndex = -1;
 
 	/* Clear the various policies */
 	DATAPTR_SET( nameConstraintPtr, NULL );
@@ -958,10 +1029,13 @@ static int checkConstraints( INOUT_PTR CERT_INFO *certInfoPtr,
 		}
 	status = CRYPT_OK;
 
-	/* Walk down the chain checking each certificate against the issuer */
+	/* Walk down the chain checking each certificate against the issuer.  
+	   The loop bound is given as MAX_CHAINLENGTH + 1 because we iterate 
+	   from MAX_CHAINLENGTH - 1 to -1 inclusive, so MAX_CHAINLENGTH + 1
+	   iterations in total */
 	LOOP_EXT_REV( certIndex = startCertIndex, 
 				  cryptStatusOK( status ) && certIndex >= -1,
-				  certIndex--, MAX_CHAINLENGTH + 1 )
+				  certIndex--, MAX_CHAINLENGTH + 2 )
 		{
 		CERT_INFO *subjectCertInfoPtr;
 		POLICY_TYPE policyType;
@@ -1097,7 +1171,7 @@ static int checkConstraints( INOUT_PTR CERT_INFO *certInfoPtr,
 			else
 				{
 				status = checkPathConstraints( subjectCertInfoPtr, 
-											   pathLength );
+											   pathLength, FALSE );
 				}
 			}
 		if( cryptStatusError( status ) )
@@ -1150,7 +1224,7 @@ static int checkConstraints( INOUT_PTR CERT_INFO *certInfoPtr,
 		if( certInfoPtr != subjectCertInfoPtr )
 			krnlReleaseObject( subjectCertInfoPtr->objectHandle );
 		}
-	ENSURES( LOOP_BOUND_EXT_REV_OK( MAX_CHAINLENGTH + 1 ) );
+	ENSURES( LOOP_BOUND_EXT_REV_OK( MAX_CHAINLENGTH + 2 ) );
 
 	return( status );
 	}
@@ -1168,7 +1242,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int checkCertChain( INOUT_PTR CERT_INFO *certInfoPtr )
 	{
 	CRYPT_CERTIFICATE iIssuerCert;
-	CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+	CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 	CERT_INFO *issuerCertInfoPtr, *subjectCertInfoPtr = NULL;
 #ifdef USE_CERTLEVEL_PKIX_FULL
 	POLICY_INFO policyInfo;
@@ -1184,6 +1258,7 @@ int checkCertChain( INOUT_PTR CERT_INFO *certInfoPtr )
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
+	REQUIRES( certChainInfo != NULL );
 
 	/* Determine how much checking we need to perform */
 	status = krnlSendMessage( certInfoPtr->ownerHandle, IMESSAGE_GETATTRIBUTE,
@@ -1218,6 +1293,7 @@ int checkCertChain( INOUT_PTR CERT_INFO *certInfoPtr )
 				( status, CERTIFICATE_ERRINFO, 
 				  "Couldn't find trust anchor for certificate chain" ) );
 		}
+	ENSURES( rangeCheck( certIndex, 0, MAX_CHAINLENGTH - 1 ) );
 	CFI_CHECK_UPDATE( "findTrustAnchor" );
 
 	status = krnlAcquireObject( iIssuerCert, OBJECT_TYPE_CERTIFICATE, 
@@ -1287,16 +1363,18 @@ int checkCertChain( INOUT_PTR CERT_INFO *certInfoPtr )
 	certIndex--;
 
 	/* Walk down the chain from the trusted certificate checking each link 
-	   in turn */
+	   in turn.  The loop bound is given as MAX_CHAINLENGTH + 2 because we 
+	   iterate from MAX_CHAINLENGTH - 1 to -1 inclusive, so 
+	   MAX_CHAINLENGTH + 1 iterations in total */
 	LOOP_EXT_REV_CHECKINC( cryptStatusOK( status ) && certIndex >= -1,
-						   certIndex--, MAX_CHAINLENGTH + 1 )
+						   certIndex--, MAX_CHAINLENGTH + 2 )
 		{
 #if defined( USE_CERTLEVEL_PKIX_PARTIAL ) 
 		int newPathLength;
 #endif /* USE_CERTLEVEL_PKIX_PARTIAL */
 		
 		ENSURES( LOOP_INVARIANT_EXT_REV_XXX( certIndex, -1, MAX_CHAINLENGTH - 1,
-											 MAX_CHAINLENGTH + 1 ) );
+											 MAX_CHAINLENGTH + 2 ) );
 
 		/* Get information for the current certificate in the chain */
 		status = getCertInfo( certInfoPtr, &subjectCertInfoPtr, certIndex );
@@ -1358,14 +1436,16 @@ int checkCertChain( INOUT_PTR CERT_INFO *certInfoPtr )
 						break; 
 						}
 
-					/* Perform a check that all of the other requirements 
-					   are met */
+					/* Perform a check that that the path length constraint
+					   hasn't been triggered, really just an error-handler 
+					   that sets up the appropriate error information if
+					   pathLength reaches zero on a non-EE certificate */
 					status = checkPathConstraints( subjectCertInfoPtr, 
-												   pathLength );
+												   pathLength, FALSE );
 					if( cryptStatusError( status ) )
 						break;
 
-					/* Decrement the path constraint for a non-self-issued 
+					/* Decrement the path constraint for a non-selfsigned
 					   certificate, then set the new constraint to the 
 					   lesser of the current level and any constraint the 
 					   current certificate imposes */
@@ -1392,7 +1472,7 @@ int checkCertChain( INOUT_PTR CERT_INFO *certInfoPtr )
 		issuerCertInfoPtr = subjectCertInfoPtr;
 		subjectCertInfoPtr = NULL;
 		}
-	ENSURES( LOOP_BOUND_EXT_REV_OK( MAX_CHAINLENGTH + 1 ) );
+	ENSURES( LOOP_BOUND_EXT_REV_OK( MAX_CHAINLENGTH + 2 ) );
 	CFI_CHECK_UPDATE( "checkCertDetails" );
 
 	/* If we stopped before we processed all of the certificates in the 
@@ -1401,6 +1481,7 @@ int checkCertChain( INOUT_PTR CERT_INFO *certInfoPtr )
 	   at the time that we early-exited the loop */
 	if( cryptStatusError( status ) )
 		{
+		REQUIRES( rangeCheck( certIndex, -1, MAX_CHAINLENGTH - 1 ) );
 		certChainInfo->chainPos = certIndex;
 		if( subjectCertInfoPtr != NULL && subjectCertInfoPtr != certInfoPtr )
 			krnlReleaseObject( subjectCertInfoPtr->objectHandle );

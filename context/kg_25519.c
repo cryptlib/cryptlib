@@ -515,7 +515,7 @@ static int checkCurve25519PrivateKey( INOUT_PTR PKC_INFO *pkcInfo,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int generate25519Key( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	int status;
@@ -581,7 +581,7 @@ int initCheck25519Key( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BERNSTEIN_KEY_INFO *bernsteinKey;
 	static const BYTE zeroValue[ CURVE25519_SIZE + 8 ] = { 0 };
 	const BOOLEAN isPrivateKey = TEST_FLAG( contextInfoPtr->flags,

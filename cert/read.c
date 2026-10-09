@@ -327,8 +327,23 @@ static int readPublicKeyInfo( INOUT_PTR STREAM *stream,
 									  CRYPT_CTXINFO_ALGO );
 			}
 		}
+	if( cryptStatusError( status ) )
+		return( status );
 
-	return( status );
+	/* Key agreement certificates are never used in practice so, although 
+	   the code theoretically handles them, it's never been tested due to 
+	   lack of any real-world certificates to test it on.  Because of this
+	   we reject any key agreement certificates or attempts to create one
+	   via a certificate request (a similar check in 
+	   cert/comp_cert.c:copyKeyFromCertificate/Context() blocks any attempt 
+	   to create a key agreement certificate directly) */
+	if( isKeyexAlgo( certInfoPtr->publicKeyAlgo ) )
+		{
+		assert_nofuzz( DEBUG_WARN );
+		return( CRYPT_ERROR_NOTAVAIL );
+		}
+
+	return( CRYPT_OK );
 	}
 
 /****************************************************************************
@@ -428,6 +443,7 @@ static int readCertInfo( INOUT_PTR STREAM *stream,
 						 INOUT_PTR CERT_INFO *certInfoPtr )
 	{
 	CRYPT_ALGO_TYPE dummyAlgo;
+	CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 	ALGOID_PARAMS algoIDparams DUMMY_INIT_STRUCT;
 	int length, endPos, tag, status;
 
@@ -435,6 +451,7 @@ static int readCertInfo( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
+	REQUIRES( certInfo != NULL );
 
 	/* Read the outer SEQUENCE and version number if it's present */
 	status = readSequence( stream, &length );
@@ -476,8 +493,8 @@ static int readCertInfo( INOUT_PTR STREAM *stream,
 		return( certErrorReturn( certInfoPtr, "signature algorithm", 
 								 status ) );
 		}
-	certInfoPtr->cCertCert->hashAlgo = algoIDparams.hashAlgo;
-	certInfoPtr->cCertCert->hashParam = algoIDparams.hashParam;
+	certInfo->hashAlgo = algoIDparams.hashAlgo;
+	certInfo->hashParam = algoIDparams.hashParam;
 
 	/* Read the issuer name, validity information, and subject name */
 	status = readIssuerDN( stream, certInfoPtr );
@@ -490,7 +507,28 @@ static int readCertInfo( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( certErrorReturn( certInfoPtr, "subject name", status ) );
 
-	/* Check to see whether it's a self-signed certificate */
+	/* Check to see whether it's a self-signed certificate.  Technically this
+	   makes it self-issued, an artificial distinction introduced in RFC 5280
+	   (section 3.2) apparently in an attempt to deal with the ever-
+	   increasing pileup of kludges needed to make PKIX path-kludge 
+	   certificates work, or at least not fail since it's quite probable that
+	   there are numerous errors and ambiguities in the spec around dealing
+	   with them which persist because no-one has ever looked at this in any
+	   detail.
+	   
+	   Since this leads to so many problems, we use the long-standing 
+	   convention that self-signed = self-issued without trying to get into 
+	   the crazy of trying to deal with path-kludge certificates and their 
+	   accompanying requirement for endless additional kludges to make them 
+	   not fail.
+	   
+	   This is why path-kludge handling has always been restricted to
+	   CRYPT_COMPLIANCELEVEL_PKIX_FULL which the manual warns against and 
+	   which no-one ever enables.  Long term it would probably pay to simply
+	   remove handling for path-kludge certificates in order to keep
+	   nondeterminism out of the certificate processing, thus eliminating
+	   a whole category of problems from both the code and in managing 
+	   users expectations */
 	if( certInfoPtr->issuerDNsize == certInfoPtr->subjectDNsize && \
 		!memcmp( certInfoPtr->issuerDNptr, certInfoPtr->subjectDNptr,
 				 certInfoPtr->subjectDNsize ) )
@@ -611,6 +649,7 @@ static int readAttributeCertInfo( INOUT_PTR STREAM *stream,
 								  INOUT_PTR CERT_INFO *certInfoPtr )
 	{
 	CRYPT_ALGO_TYPE dummyAlgo;
+	CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 	ALGOID_PARAMS algoIDparams;
 	int tag, length, endPos, innerEndPos, position, status;
 
@@ -618,6 +657,7 @@ static int readAttributeCertInfo( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
+	REQUIRES( certInfo != NULL );
 
 	/* Read the outer SEQUENCE and version number */
 	status = readSequence( stream, &length );
@@ -710,8 +750,8 @@ static int readAttributeCertInfo( INOUT_PTR STREAM *stream,
 						   ALGOID_CLASS_PKCSIG );
 	if( cryptStatusError( status ) )
 		return( status );
-	certInfoPtr->cCertCert->hashAlgo = algoIDparams.hashAlgo;
-	certInfoPtr->cCertCert->hashParam =  algoIDparams.hashParam;
+	certInfo->hashAlgo = algoIDparams.hashAlgo;
+	certInfo->hashParam =  algoIDparams.hashParam;
 
 	/* Read the serial number and validity information */
 	status = readSerialNumber( stream, certInfoPtr, DEFAULT_TAG );
@@ -740,6 +780,21 @@ static int readAttributeCertInfo( INOUT_PTR STREAM *stream,
 		}
 	if( cryptStatusError( status ) )
 		return( status );	/* Residual error from peekTag() */
+
+	/* Make sure that a subject and issuer DN are present.  Since attribute
+	   certificates are never used we have no idea what would actually be in
+	   them in practice, but requiring at least a subject and issuer DN means
+	   that things don't break elsewhere */
+	if( certInfoPtr->subjectDNptr == NULL )
+		{
+		return( certErrorReturn( certInfoPtr, "subject DN", 
+								 CRYPT_ERROR_NOTFOUND ) );
+		}
+	if( certInfoPtr->issuerDNptr == NULL )
+		{
+		return( certErrorReturn( certInfoPtr, "issuer DN", 
+								 CRYPT_ERROR_NOTFOUND ) );
+		}
 
 	/* If there are no extensions present, we're done */
 	if( stell( stream ) >= endPos )
@@ -787,7 +842,7 @@ static int readCRLInfo( INOUT_PTR STREAM *stream,
 						INOUT_PTR CERT_INFO *certInfoPtr )
 	{
 	CRYPT_ALGO_TYPE dummyAlgo;
-	CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+	CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 	ALGOID_PARAMS algoIDparams;
 	int tag, length, endPos, status;
 
@@ -795,11 +850,12 @@ static int readCRLInfo( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
+	REQUIRES( revInfo != NULL );
 
 	/* If it's a standalone CRL entry, read the single entry and return */
 	if( TEST_FLAG( certInfoPtr->flags, CERT_FLAG_CRLENTRY ) )
 		{
-		return( readCRLentry( stream, &certRevInfo->revocations, 1,
+		return( readCRLentry( stream, &revInfo->revocations, 1,
 							  CERTIFICATE_ERRINFO, &certInfoPtr->errorLocus,
 							  &certInfoPtr->errorType ) );
 		}
@@ -833,8 +889,8 @@ static int readCRLInfo( INOUT_PTR STREAM *stream,
 		return( certErrorReturn( certInfoPtr, "signature algorithm", 
 				status ) );
 		}
-	certInfoPtr->cCertRev->hashAlgo = algoIDparams.hashAlgo;
-	certInfoPtr->cCertRev->hashParam = algoIDparams.hashParam;
+	revInfo->hashAlgo = algoIDparams.hashAlgo;
+	revInfo->hashParam = algoIDparams.hashParam;
 
 	/* Read the issuer name, update time, and optional next update time */
 	status = readIssuerDN( stream, certInfoPtr );
@@ -863,13 +919,13 @@ static int readCRLInfo( INOUT_PTR STREAM *stream,
 	if( checkStatusLimitsPeekTag( stream, status, tag, endPos ) && \
 		tag == BER_SEQUENCE )
 		{
-		status = readCRLentries( stream, &certRevInfo->revocations,
+		status = readCRLentries( stream, &revInfo->revocations,
 								 CERTIFICATE_ERRINFO,
 								 &certInfoPtr->errorLocus,
 								 &certInfoPtr->errorType );
 		if( cryptStatusError( status ) )
 			return( status );
-		certRevInfo->currentRevocation = certRevInfo->revocations;
+		revInfo->currentRevocation = revInfo->revocations;
 		}
 	if( cryptStatusError( status ) )
 		return( status );	/* Residual error from peekTag() */
@@ -1362,13 +1418,14 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readRtcsRequestInfo( INOUT_PTR STREAM *stream, 
 								INOUT_PTR CERT_INFO *certInfoPtr )
 	{
-	CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
+	CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 	int length, endPos, position, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
+	REQUIRES( valInfo != NULL );
 
 	/* Read the outer wrapper */
 	status = readSequence( stream, &length );
@@ -1382,11 +1439,11 @@ static int readRtcsRequestInfo( INOUT_PTR STREAM *stream,
 
 	/* Read the request information and make the currently selected one the 
 	   start of the list */
-	status = readRTCSRequestEntries( stream, &certValInfo->validityInfo,
+	status = readRTCSRequestEntries( stream, &valInfo->validityInfo,
 									 CERTIFICATE_ERRINFO );
 	if( cryptStatusError( status ) )
 		return( status );
-	certValInfo->currentValidity = certValInfo->validityInfo;
+	valInfo->currentValidity = valInfo->validityInfo;
 
 	/* Read the extensions if there are any present */
 	position = stell( stream );
@@ -1419,23 +1476,24 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readRtcsResponseInfo( INOUT_PTR STREAM *stream, 
 								 INOUT_PTR CERT_INFO *certInfoPtr )
 	{
-	CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
+	CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
+	REQUIRES( valInfo != NULL );
 
 	/* Read the SEQUENCE OF validity information and make the currently 
 	   selected one the start of the list */
-	status = readRTCSResponseEntries( stream, &certValInfo->validityInfo,
+	status = readRTCSResponseEntries( stream, &valInfo->validityInfo,
 									  CERTIFICATE_ERRINFO,
 									  &certInfoPtr->errorLocus,
 									  &certInfoPtr->errorType );
 	if( cryptStatusError( status ) )
 		return( status );
-	certValInfo->currentValidity = certValInfo->validityInfo;
+	valInfo->currentValidity = valInfo->validityInfo;
 
 	return( CRYPT_OK );
 	}
@@ -1475,13 +1533,14 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readOcspRequestInfo( INOUT_PTR STREAM *stream, 
 								INOUT_PTR CERT_INFO *certInfoPtr )
 	{
-	CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+	CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 	int tag, length, position, endPos, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
+	REQUIRES( revInfo != NULL );
 
 	/* Read the wrapper and version information */
 	status = readSequence( stream, &length );
@@ -1505,13 +1564,13 @@ static int readOcspRequestInfo( INOUT_PTR STREAM *stream,
 
 	/* Read the SEQUENCE OF revocation information and make the currently 
 	   selected one the start of the list */
-	status = readOcspRequestEntries( stream, &certRevInfo->revocations,
+	status = readOcspRequestEntries( stream, &revInfo->revocations,
 									 CERTIFICATE_ERRINFO,
 									 &certInfoPtr->errorLocus, 
 									 &certInfoPtr->errorType );
 	if( cryptStatusError( status ) )
 		return( status );
-	certRevInfo->currentRevocation = certRevInfo->revocations;
+	revInfo->currentRevocation = revInfo->revocations;
 
 	/* Read the extensions if there are any present */
 	position = stell( stream );
@@ -1546,13 +1605,14 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int readOcspResponseInfo( INOUT_PTR STREAM *stream, 
 								 INOUT_PTR CERT_INFO *certInfoPtr )
 	{
-	CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+	CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 	int tag, length, endPos, position, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
+	REQUIRES( revInfo != NULL );
 
 	/* Read the wrapper and version information */
 	status = readSequence( stream, &length );
@@ -1592,13 +1652,13 @@ static int readOcspResponseInfo( INOUT_PTR STREAM *stream,
 
 	/* Read the SEQUENCE OF revocation information and make the currently 
 	   selected one the start of the list */
-	status = readOcspResponseEntries( stream, &certRevInfo->revocations,
+	status = readOcspResponseEntries( stream, &revInfo->revocations,
 									  CERTIFICATE_ERRINFO,
 									  &certInfoPtr->errorLocus, 
 									  &certInfoPtr->errorType );
 	if( cryptStatusError( status ) )
 		return( status );
-	certRevInfo->currentRevocation = certRevInfo->revocations;
+	revInfo->currentRevocation = revInfo->revocations;
 
 	/* Read the extensions if there are any present */
 	position = stell( stream );
@@ -1671,11 +1731,20 @@ static int readCmsAttributes( INOUT_PTR STREAM *stream,
 	userData ::= SEQUENCE {
 		name				Name,			-- Name for CMP
 		encAlgo				AlgorithmIdentifier,-- Algo to encrypt passwords
-		encAuthData			OCTET STRING,	-- Encrypted authenticators
-		certAttributes		Attributes		-- Certificate attributes
+		encAuthData			OCTET STRING ( ENC( authData ) ),	
+											-- Encrypted authenticators
+		certAttributes		Attributes		-- Certificate attributes, at 
+											-- least an sKID to identify the 
+											-- user but truncated to 9 bytes
+											-- to create XXXXX-XXXXX-XXXXX
 		userAttributes		SEQUENCE {		-- PKI user attributes
 			isRA			BOOLEAN OPTIONAL -- Whether user is an RA
 			} OPTIONAL
+		} 
+		
+	authData ::= SEQUENCE {
+		issuePW				OCTET STRING SIZE(11),	-- Password for ir
+		revPW				OCTET STRING SIZE(11)	-- Password for rr
 		} */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
@@ -1683,7 +1752,7 @@ static int readPkiUserInfo( INOUT_PTR STREAM *stream,
 							INOUT_PTR CERT_INFO *userInfoPtr )
 	{
 	CRYPT_CONTEXT iCryptContext;
-	CERT_PKIUSER_INFO *certUserInfo = userInfoPtr->cCertUser;
+	CERT_PKIUSER_INFO *pkiUserInfo = DATAPTR_GET_PKIUSER( userInfoPtr );
 	MESSAGE_CREATEOBJECT_INFO createInfo;
 	LOOP_INDEX_PTR DATAPTR_ATTRIBUTE attributeCursor;
 	MESSAGE_DATA msgData;
@@ -1697,6 +1766,7 @@ static int readPkiUserInfo( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( userInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( userInfoPtr ) );
+	REQUIRES( pkiUserInfo != NULL );
 
 	/* Read the user name and encryption algorithm information */
 	status = getStreamObjectLength( stream, &length, 16 );
@@ -1769,6 +1839,7 @@ static int readPkiUserInfo( INOUT_PTR STREAM *stream,
 								  userInfo, userInfoSize );
 		}
 	krnlSendNotifier( iCryptContext, IMESSAGE_DECREFCOUNT );
+	iCryptContext = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		retExt( status, 
@@ -1781,9 +1852,9 @@ static int readPkiUserInfo( INOUT_PTR STREAM *stream,
 	   it's more likely to be the former */
 	sMemConnect( &userInfoStream, userInfo, userInfoSize );
 	readSequence( &userInfoStream, NULL );
-	readOctetString( &userInfoStream, certUserInfo->pkiIssuePW, &length,
+	readOctetString( &userInfoStream, pkiUserInfo->pkiIssuePW, &length,
 					 PKIUSER_AUTHENTICATOR_SIZE, PKIUSER_AUTHENTICATOR_SIZE );
-	status = readOctetString( &userInfoStream, certUserInfo->pkiRevPW,
+	status = readOctetString( &userInfoStream, pkiUserInfo->pkiRevPW,
 							  &length, PKIUSER_AUTHENTICATOR_SIZE, 
 							  PKIUSER_AUTHENTICATOR_SIZE );
 	sMemDisconnect( &userInfoStream );
@@ -1797,13 +1868,15 @@ static int readPkiUserInfo( INOUT_PTR STREAM *stream,
 				  "probably due to incorrect decryption key" ) );
 		}
 
-	/* Read any attributes */
+	/* Read any certificate attributes */
 	status = readAttributes( stream, &userInfoPtr->attributes,
 							 CRYPT_CERTTYPE_PKIUSER, sMemDataLeft( stream ),
 							 PKIUSER_ERRINFO, &userInfoPtr->errorLocus,
 							 &userInfoPtr->errorType );
 	if( cryptStatusError( status ) )
 		return( status );
+		
+	/* Read the user attributes if any are present */
 	if( sMemDataLeft( stream ) > 3 )
 		{
 		int tag;
@@ -1812,7 +1885,7 @@ static int readPkiUserInfo( INOUT_PTR STREAM *stream,
 		if( checkStatusPeekTag( stream, status, tag ) && \
 			tag == BER_BOOLEAN )
 			{
-			status = readBoolean( stream, &certUserInfo->isRA );
+			status = readBoolean( stream, &pkiUserInfo->isRA );
 			}
 		if( cryptStatusError( status ) )
 			return( certErrorReturn( userInfoPtr, "attributes", status ) );

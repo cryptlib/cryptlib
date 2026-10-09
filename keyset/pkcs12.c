@@ -865,8 +865,9 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 						 STDC_UNUSED const int nameLength,
 						 IN_ENUM( CRYPT_KEYOPT ) const CRYPT_KEYOPT_TYPE options )
 	{
+	FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	PKCS12_INFO *pkcs12info;
-	STREAM *stream = &keysetInfoPtr->keysetFile->stream;
+	STREAM *stream;
 	int endPos DUMMY_INIT, status;
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
@@ -877,6 +878,11 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( name == NULL && nameLength == 0 );
 	REQUIRES( options == CRYPT_KEYOPT_NONE || \
 			  options == CRYPT_KEYOPT_CREATE );
+	REQUIRES( fileInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	stream = &fileInfo->stream;
 
 	/* If we're opening an existing keyset skip the outer header.  We do 
 	   this before we perform any setup operations to weed out potential 
@@ -905,9 +911,8 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		return( CRYPT_OK );
 
 	/* Read all of the keys in the keyset */
-	status = pkcs12ReadKeyset( &keysetInfoPtr->keysetFile->stream, 
-							   pkcs12info, MAX_PKCS12_OBJECTS, endPos, 
-							   KEYSET_ERRINFO );
+	status = pkcs12ReadKeyset( stream, pkcs12info, MAX_PKCS12_OBJECTS, 
+							   endPos, KEYSET_ERRINFO );
 	if( cryptStatusError( status ) )
 		{
 		/* Reset the stream position to account for the header information 
@@ -931,6 +936,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	{
+	FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	PKCS12_INFO *pkcs12info = DATAPTR_GET( keysetInfoPtr->keyData );
 	int status = CRYPT_OK;
 
@@ -941,14 +947,16 @@ static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	REQUIRES( sanityCheckKeyset( keysetInfoPtr ) );
 	REQUIRES( keysetInfoPtr->type == KEYSET_FILE && \
 			  keysetInfoPtr->subType == KEYSET_SUBTYPE_PKCS12 );
+	REQUIRES( fileInfo != NULL );
 	REQUIRES( DATAPTR_ISVALID( keysetInfoPtr->keyData ) );
+			  /* pkcs12info may be NULL */
 
 	/* If the contents have been changed, allocate a working I/O buffer for 
 	   the duration of the flush and commit the changes to disk */
 #ifdef USE_PKCS12_WRITE 
 	if( TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_DIRTY ) )
 		{
-		STREAM *stream = &keysetInfoPtr->keysetFile->stream;
+		STREAM *stream = &fileInfo->stream;
 		BYTE ALIGN_STACK_DATA buffer[ SAFEBUFFER_SIZE( STREAM_BUFSIZE ) + 8 ];
 
 		REQUIRES( pkcs12info != NULL );

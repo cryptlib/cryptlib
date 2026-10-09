@@ -908,7 +908,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int readPgpOnepassSigPacket( INOUT_PTR STREAM *stream, 
 							 OUT_PTR QUERY_INFO *queryInfo )
 	{
-	int status;
+	int value, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
@@ -923,11 +923,11 @@ int readPgpOnepassSigPacket( INOUT_PTR STREAM *stream,
 	if( queryInfo->size < 1 + 1 + 1 + 1 + PGP_KEYID_SIZE + 1 )
 		return( CRYPT_ERROR_BADDATA );
 
-	/* Skip the signature type and get the hash algorithm and signature 
-	   algorithms */
-	status = sgetc( stream );	/* Skip signature type */
+	/* Get the signature type and hash and signature algorithms */
+	status = value = sgetc( stream );
 	if( !cryptStatusError( status ) )
 		{
+		queryInfo->signatureType = value;
 		status = readPgpAlgo( stream, &queryInfo->hashAlgo, 
 							  &queryInfo->hashParam, 
 							  PGP_ALGOCLASS_HASH );
@@ -1017,7 +1017,7 @@ static int readOpenPgpSigInfo( INOUT_PTR STREAM *stream,
 							   INOUT_PTR QUERY_INFO *queryInfo,
 							   IN_DATALENGTH_Z const int startPos )
 	{
-	int length, status;
+	int length, value, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
@@ -1035,9 +1035,10 @@ static int readOpenPgpSigInfo( INOUT_PTR STREAM *stream,
 		return( status );
 	queryInfo->attributeLength = PGP_VERSION_SIZE + 1 + \
 								 PGP_ALGOID_SIZE + PGP_ALGOID_SIZE;
-	status = sgetc( stream );	/* Skip signature type */
+	status = value = sgetc( stream );
 	if( !cryptStatusError( status ) )
 		{
+		queryInfo->signatureType = value;
 		status = readPgpAlgo( stream, &queryInfo->cryptAlgo, 
 							  &queryInfo->cryptParam, 
 							  PGP_ALGOCLASS_SIGN );

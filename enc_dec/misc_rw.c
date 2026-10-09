@@ -859,7 +859,7 @@ static int writeInteger( INOUT_PTR STREAM *stream,
 			   and count how many bits are unused and adjust the length by 
 			   that.  When writing bignums, for example for public/private
 			   keys, this isn't a problem since writeBignumInteger16U() has
-			   a seperate special-snowflake code path for this, it's only 
+			   a separate special-snowflake code path for this, it's only 
 			   when writing already-encoded values for signatures or PKC-
 			   encrypted session keys that this becomes an issue */
 			{

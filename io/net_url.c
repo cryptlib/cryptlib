@@ -11,7 +11,8 @@
   #include "io/stream_int.h"
 #endif /* Compiler-specific includes */
 
-#ifdef USE_TCP
+#if defined( USE_TCP ) || defined( USE_CERTLEVEL_PKIX_FULL )
+								   /* Needed to parse nameConstraint URLs */
 
 /****************************************************************************
 *																			*
@@ -147,7 +148,7 @@ static int checkSchema( IN_BUFFER( schemaLen ) const void *schema,
 														 URL_SCHEMA_INFO ) - 1 ) );
 
 		if( urlSchemaInfo[ i ].schemaLength == schemaLen && \
-			strSame( urlSchemaInfo[ i ].schema, schema, schemaLen ) )
+			strSame( schema, urlSchemaInfo[ i ].schema, schemaLen ) )
 			break;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -625,4 +626,4 @@ int parseURL( OUT_PTR URL_INFO *urlInfo,
 
 	return( CRYPT_OK );
 	}
-#endif /* USE_TCP */
+#endif /* USE_TCP || USE_CERTLEVEL_PKIX_FULL */

@@ -203,8 +203,14 @@ typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 											const CRYPT_CERTIFICATE caKey,
 										IN_HANDLE_OPT \
 											const CRYPT_CERTIFICATE request,
+										IN_HANDLE_OPT \
+											const CRYPT_CERTIFICATE authCert,
+										IN_HANDLE_OPT \
+											const CRYPT_CERTIFICATE pkiUser,
 										IN_ENUM( CRYPT_CERTACTION ) \
-											const CRYPT_CERTACTION_TYPE action );
+											const CRYPT_CERTACTION_TYPE action,
+										IN_ENUM_OPT( CERTMGMT_OPTION_TYPE ) \
+											const CERTMGMT_OPTION_TYPE option );
 
 typedef struct {
 	/* The I/O stream and file name */
@@ -307,13 +313,6 @@ typedef struct {
 	CRYPT_CERTTYPE_TYPE objectType;				/* Preferred obj.type to fetch */
 	} LDAP_INFO;
 
-/* Defines to make access to the union fields less messy */
-
-#define keysetFile		keysetInfo.fileInfo
-#define keysetDBMS		keysetInfo.dbmsInfo
-#define keysetHTTP		keysetInfo.httpInfo
-#define keysetLDAP		keysetInfo.ldapInfo
-
 /* The structure that stores information on a keyset */
 
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -412,18 +411,7 @@ typedef struct KI {
 	SAFE_FLAGS flags;				/* Keyset information flags */
 
 	/* Keyset type-specific information */
-	union {
-		FILE_INFO *fileInfo;
-#ifdef USE_DBMS
-		DBMS_INFO *dbmsInfo;
-#endif /* USE_DBMS */
-#ifdef USE_HTTP
-		HTTP_INFO *httpInfo;
-#endif /* USE_HTTP */
-#ifdef USE_LDAP
-		LDAP_INFO *ldapInfo;
-#endif /* USE_LDAP */
-		} keysetInfo;
+	DATAPTR keysetInfo;
 
 	/* Pointers to keyset access methods */
 	FNPTR initFunction, shutdownFunction;

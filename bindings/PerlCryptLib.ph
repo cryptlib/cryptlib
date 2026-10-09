@@ -12,7 +12,7 @@
 #
 # This file has been created automatically by a perl script from the file:
 #
-# "cryptlib.h" dated Tue Feb 10 16:49:48 2026, filesize = 104843.
+# "cryptlib.h" dated Tue Oct  6 18:45:52 2026, filesize = 109940.
 #
 # Please check twice that the file matches the version of cryptlib.h
 # in your cryptlib source! If this is not the right version, try to download an
@@ -81,6 +81,8 @@
 	sub CRYPT_ALGO_25519 { 107 }
 	# Ed25519
 	sub CRYPT_ALGO_ED25519 { 108 }
+	# ML-KEM
+	sub CRYPT_ALGO_MLKEM { 109 }
 
 	# Hash algorithms
 	# Formerly MD2
@@ -1779,13 +1781,16 @@
 ##### BEGIN ENUM CRYPT_COMPLIANCELEVEL_TYPE
 
 
+	sub CRYPT_COMPLIANCELEVEL_NONE { 0 }
+
 	sub CRYPT_COMPLIANCELEVEL_OBLIVIOUS { 0 }
+
 	sub CRYPT_COMPLIANCELEVEL_REDUCED { 1 }
-
 	sub CRYPT_COMPLIANCELEVEL_STANDARD { 2 }
-	sub CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL { 3 }
 
+	sub CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL { 3 }
 	sub CRYPT_COMPLIANCELEVEL_PKIX_FULL { 4 }
+
 	sub CRYPT_COMPLIANCELEVEL_LAST { 5 }
 
 
@@ -1894,10 +1899,14 @@
 
 # OCSP revocation status 
 
-  sub CRYPT_OCSPSTATUS_NOTREVOKED { 0 }
-  sub CRYPT_OCSPSTATUS_REVOKED { 1 }
-  sub CRYPT_OCSPSTATUS_UNKNOWN  { 2 }
-
+typedef enum 
+    {
+    CRYPT_OCSPSTATUS_NONE,          # No OCSP status 
+    CRYPT_OCSPSTATUS_NOTREVOKED,    # Status not-revoked 
+    CRYPT_OCSPSTATUS_REVOKED,       # Status revoked 
+    CRYPT_OCSPSTATUS_UNKNOWN,       # Status unknown 
+    CRYPT_OCSPSTATUS_LAST           # Last possible OCSP status 
+    } CRYPT_OCSPSTATUS_TYPE;
 
 #  The amount of detail to include in signatures when signing certificate
 #  objects 
@@ -2082,18 +2091,20 @@
 	sub CRYPT_CERTACTION_RESTART_CLEANUP { 14 }
 	# Complete revocation after restart
 	sub CRYPT_CERTACTION_RESTART_REVOKE_CERT { 15 }
+	# Add certificate request
+	sub CRYPT_CERTACTION_ADDREQUEST { 16 }
 	# Cert issue
-	sub CRYPT_CERTACTION_ISSUE_CERT { 16 }
+	sub CRYPT_CERTACTION_ISSUE_CERT { 17 }
 	# CRL issue
-	sub CRYPT_CERTACTION_ISSUE_CRL { 17 }
+	sub CRYPT_CERTACTION_ISSUE_CRL { 18 }
 	# Cert revocation
-	sub CRYPT_CERTACTION_REVOKE_CERT { 18 }
+	sub CRYPT_CERTACTION_REVOKE_CERT { 19 }
 	# Cert expiry
-	sub CRYPT_CERTACTION_EXPIRE_CERT { 19 }
+	sub CRYPT_CERTACTION_EXPIRE_CERT { 20 }
 	# Clean up on restart
-	sub CRYPT_CERTACTION_CLEANUP { 20 }
+	sub CRYPT_CERTACTION_CLEANUP { 21 }
 	# Last possible cert store log action
-	sub CRYPT_CERTACTION_LAST { 21 }
+	sub CRYPT_CERTACTION_LAST { 22 }
 
 
 ##### END ENUM CRYPT_CERTACTION_TYPE
@@ -2143,10 +2154,6 @@
 # Enable SNI-based key selection 
 	sub CRYPT_TLSOPTION_RESUMED { 0x080 }
 # TLS session is resumed 
-	sub CRYPT_TLSOPTION_SUITEB_128 { 0x100 }
-# SuiteB security levels (will 
-	sub CRYPT_TLSOPTION_SUITEB_256 { 0x200 }
-#  vanish in future releases) 
 
 #****************************************************************************
 #*                                                                           *
@@ -2169,6 +2176,7 @@
 
 	sub CRYPT_MAX_PKCSIZE { 512 }
 	sub CRYPT_MAX_PKCSIZE_ECC { 72 }
+	sub CRYPT_MAX_PKCSIZE_PQC { 2560 }
 
 #  The maximum hash size - 512 bits.  Before 3.4 this was 256 bits, in the 
 #  3.4 release it was increased to 512 bits to accommodate SHA-3 
@@ -2413,8 +2421,26 @@ sub CRYPT_PKCINFO_DJB
 	}
 }
 
+sub CRYPT_PKCINFO_PQC
+{
+	{
+	#  Status information 
+     isPublicKey => 0	#  Whether this is a public or private key 
+	#  Public components 
+    ,pub => ' ' x CRYPT_MAX_PKCSIZE_PQC	#  Public value 
+    ,pubLen => 0	#  Length of public value in bits 
+	#  Private components 
+    ,priv => ' ' x CRYPT_MAX_PKCSIZE_PQC	#  Private value 
+    ,privLen => 0	#  Length of private value in bits 
+    
+	}
+}
+
 #  Macros to initialise and destroy the structure that stores the components
-#  of a public key 
+#  of a public key.  Note that the latter may be optimised away because it's
+#  an an external API without access to cryptlib-internal safety mechanisms, 
+#  however these operations, which work with raw keys as memory blobs, are 
+#  unlikely to ever be used  
 
 # C-macro not translated to Perl code but implemented apart: 
 #   #define cryptInitComponents( componentInfo, componentKeyType ) 
@@ -2427,7 +2453,11 @@ sub CRYPT_PKCINFO_DJB
 #    memset( ( componentInfo ), 0, sizeof( *componentInfo ) )
 #
 
-# Macros to set a component of a public key 
+#  Macros to set a component of a public key.  Note that there's no bounds 
+#  check on this since it's an external API without access to cryptlib-
+#  internal safety mechanisms, so it's up to the caller to make sure that
+#  they get the length right.  However these operations, which work with
+#  raw keys as memory blobs, are unlikely to ever be used 
 
 # C-macro not translated to Perl code but implemented apart: 
 #   #define cryptSetComponent( destination, source, length ) 
@@ -2583,7 +2613,7 @@ sub CRYPT_PKCINFO_DJB
 # C_NONNULL_ARG( ( 2 ) ) 
 ###C_RET cryptEncrypt( C_IN CRYPT_CONTEXT cryptContext, C_INOUT void C_PTR buffer,
 ##                    C_IN int length );
-### C_NONNULL_ARG( ( 2 ) ) 
+### C_CHECK_RETVAL C_NONNULL_ARG( ( 2 ) ) 
 ###C_RET cryptDecrypt( C_IN CRYPT_CONTEXT cryptContext, C_INOUT void C_PTR buffer,
 ##                    C_IN int length );
 ##
@@ -2612,8 +2642,9 @@ sub CRYPT_PKCINFO_DJB
 #  or key data.  These are due to be replaced once a suitable alternative can
 #  be found 
 
-#C_RET cryptAddRandom( C_IN void C_PTR randomData, C_IN int randomDataLength );
-## C_CHECK_RETVAL C_NONNULL_ARG( ( 1, 3 ) ) 
+# C_CHECK_RETVAL 
+###C_RET cryptAddRandom( C_IN void C_PTR randomData, C_IN int randomDataLength );
+### C_CHECK_RETVAL C_NONNULL_ARG( ( 1, 3 ) ) 
 ###C_RET cryptQueryObject( C_IN void C_PTR objectData,
 ##                        C_IN int objectDataLength,
 ##                        C_OUT CRYPT_OBJECT_INFO C_PTR cryptObjectInfo );
@@ -2624,28 +2655,78 @@ sub CRYPT_PKCINFO_DJB
 #*                                                                           *
 #****************************************************************************
 
+#  Warnings for deprecated export/import functions which are renamed to 
+#  wrap/unwrap functions after 3.4.9.  The clang one is fairly noisy, with 
+#  the recommended:
+#
+#   __attribute__(( deprecated( "cryptExportKey", "cryptWrapKey" ) ))
+#
+#  it prints a somewhat confusing:
+#
+#   file.c:123:45: warning: 'cryptExportKey' is deprecated: cryptExportKey [-Wdeprecated-declarations]
+#                   status = cryptExportKey( encryptedKeyBlob, 1024, &length, cryptContext,
+#                            ^~~~~~~~~~~~~~
+#                            cryptWrapKey
+#   ./cryptlib.h:2220:47: note: 'cryptExportKey' has been explicitly marked deprecated here
+#                         C_IN CRYPT_CONTEXT sessionKeyContext ) ATTRIBUTE_DEPRECATED;
+#   ./cryptlib.h:2199:23: note: expanded from macro 'ATTRIBUTE_DEPRECATED'
+#                         __attribute__(( deprecated( "cryptExportKey", "cryptWrapKey" ) ))
+#
+#  Using a single string as per the gcc form produces:
+#
+#   file.c:123:45: warning: 'cryptExportKey' is deprecated: Use cryptWrapKey instead [-Wdeprecated-declarations]
+#                  status = cryptExportKey( encryptedKeyBlob, 1024, &length, cryptContext,
+#                           ^
+#   [...]
+#
+#  gcc prints:
+#
+#   file.c: In function 'conventionalExportImport':
+#   file.c:123:45: warning: 'cryptExportKey' is deprecated: Use cryptWrapKey instead [-Wdeprecated-declarations]
+#                  status = cryptExportKey( NULL, 0, &length, cryptContext,
+#                           ^~~~~~
+#
+#  MSVC doesn't print anything no matter how the __declspec is placed and the
+#  decorations are rearranged for any version from VS 2008 to VS 2026, so we
+#  use the clunkier pragma form instead 
+
+# Selected define ignored:
+#  	sub C_ATTRIBUTE_DEPRECATED { __attribute__ }"Use cryptWrapKey instead" ) ))
+# C-macro not translated to Perl code but implemented apart: 
+#   #define C_DECLSPEC_DEPRECATED
+#
+# C-macro not translated to Perl code but implemented apart: 
+#   #define C_ATTRIBUTE_DEPRECATED
+#
+
 # Export and import an encrypted session key 
 
+# Ignoring deprecated function.
+# Ignoring deprecated function.
+# Ignoring deprecated function.
+# Ignoring deprecated function.
+
+
 # C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) 
-###C_RET cryptExportKey( C_OUT_OPT void C_PTR encryptedKey,
+###C_RET cryptWrapKey( C_OUT_OPT void C_PTR encryptedKey,
+##                    C_IN int encryptedKeyMaxLength,
+##                    C_OUT int C_PTR encryptedKeyLength,
+##                    C_IN CRYPT_HANDLE exportKey,
+##                    C_IN CRYPT_CONTEXT sessionKeyContext );
+### C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) 
+###C_RET cryptWrapKeyEx( C_OUT_OPT void C_PTR encryptedKey,
 ##                      C_IN int encryptedKeyMaxLength,
 ##                      C_OUT int C_PTR encryptedKeyLength,
+##                      C_IN CRYPT_FORMAT_TYPE formatType,
 ##                      C_IN CRYPT_HANDLE exportKey,
 ##                      C_IN CRYPT_CONTEXT sessionKeyContext );
-### C_CHECK_RETVAL C_NONNULL_ARG( ( 3 ) ) 
-###C_RET cryptExportKeyEx( C_OUT_OPT void C_PTR encryptedKey,
-##                        C_IN int encryptedKeyMaxLength,
-##                        C_OUT int C_PTR encryptedKeyLength,
-##                        C_IN CRYPT_FORMAT_TYPE formatType,
-##                        C_IN CRYPT_HANDLE exportKey,
-##                        C_IN CRYPT_CONTEXT sessionKeyContext );
 ### C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) 
-###C_RET cryptImportKey( C_IN void C_PTR encryptedKey,
+###C_RET cryptUnwrapKey( C_IN void C_PTR encryptedKey,
 ##                      C_IN int encryptedKeyLength,
 ##                      C_IN CRYPT_CONTEXT importKey,
 ##                      C_IN CRYPT_CONTEXT sessionKeyContext );
 ### C_CHECK_RETVAL C_NONNULL_ARG( ( 1 ) ) 
-###C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
+###C_RET cryptUnwrapKeyEx( C_IN void C_PTR encryptedKey,
 ##                        C_IN int encryptedKeyLength,
 ##                        C_IN CRYPT_CONTEXT importKey,
 ##                        C_IN CRYPT_CONTEXT sessionKeyContext,

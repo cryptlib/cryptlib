@@ -399,10 +399,6 @@ typedef struct {
 	int macAlgoParamSize;
 	} GENERIC_INFO;
 
-/* Defines to make access to the union fields less messy */
-
-#define ctxPKC		keyingInfo
-
 /* An encryption context */
 
 typedef CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -473,6 +469,37 @@ typedef struct CI {
 	CRYPT_HANDLE objectHandle;
 	CRYPT_USER ownerHandle;
 	} CONTEXT_INFO;
+
+/* The use of DATAPTRs removes type information from object-subtype-specific
+   data in contexts (but then the use of a union for storing the data did as 
+   well).  To deal with this we use subtype-specific versions of 
+   DATAPTR_GET() that verify that they're working with the correct object 
+   subtype */
+
+#define DATAPTR_GET_CONV( name ) \
+		( ( name )->type == CONTEXT_CONV && \
+		  DATAPTR_ISVALID( ( name )->keyingInfo ) ? \
+		( ( name )->keyingInfo.dataPtr ) : NULL )
+
+#define DATAPTR_GET_PKC( name ) \
+		( ( name )->type == CONTEXT_PKC && \
+		  DATAPTR_ISVALID( ( name )->keyingInfo ) ? \
+		( ( name )->keyingInfo.dataPtr ) : NULL )
+
+#define DATAPTR_GET_HASH( name ) \
+		( ( name )->type == CONTEXT_HASH && \
+		  DATAPTR_ISVALID( ( name )->keyingInfo ) ? \
+		( ( name )->keyingInfo.dataPtr ) : NULL )
+
+#define DATAPTR_GET_MAC( name ) \
+		( ( name )->type == CONTEXT_MAC && \
+		  DATAPTR_ISVALID( ( name )->keyingInfo ) ? \
+		( ( name )->keyingInfo.dataPtr ) : NULL )
+
+#define DATAPTR_GET_GENERIC( name ) \
+		( ( name )->type == CONTEXT_GENERIC && \
+		  DATAPTR_ISVALID( ( name )->keyingInfo ) ? \
+		( ( name )->keyingInfo.dataPtr ) : NULL )
 
 #ifdef PKC_CONTEXT 
 

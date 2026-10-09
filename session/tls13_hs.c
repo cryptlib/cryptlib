@@ -1250,6 +1250,7 @@ static int completeHandshakeClient( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						   &stream, transcriptHashContext, TRUE );
 	sMemDisconnect( &stream );
 	krnlSendNotifier( transcriptHashContext, IMESSAGE_DECREFCOUNT );
+	transcriptHashContext = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		return( status );
 	CFI_CHECK_UPDATE( "readFinished" );
@@ -1526,6 +1527,7 @@ static int completeHandshakeServer( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = writeFinished( sessionInfoPtr, handshakeInfo, &stream, 
 							transcriptHashContext, TRUE );
 	krnlSendNotifier( transcriptHashContext, IMESSAGE_DECREFCOUNT );
+	transcriptHashContext = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		sMemDisconnect( &stream );

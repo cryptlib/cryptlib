@@ -72,7 +72,7 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	DLP_PARAMS dlpParamsEncrypt, dlpParamsDecrypt;
 	BYTE buffer[ ( CRYPT_MAX_PKCSIZE * 2 ) + 16 + 8 ];
 	int length, status;
@@ -367,7 +367,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) buffer;
 	const BIGNUM *p, *g, *y;
 	BIGNUM *tmp, *k, *r, *s, *phi_p;
@@ -522,7 +522,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	DLP_PARAMS *dlpParams = ( DLP_PARAMS * ) buffer;
 	const BIGNUM *x, *p;
 	BIGNUM *r, *s, *tmp;
@@ -605,7 +605,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					IN_BUFFER_OPT( keyLength ) const void *key,
 					IN_LENGTH_SHORT_OPT const int keyLength )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( ( key == NULL && keyLength == 0 ) || \

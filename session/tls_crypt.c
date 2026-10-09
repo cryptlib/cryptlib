@@ -467,7 +467,7 @@ int createMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  IN_RANGE( TLS_PACKETTYPE_FIRST, \
 							TLS_PACKETTYPE_LAST ) const int packetType )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_DATA msgData;
 	int status;
 
@@ -481,6 +481,7 @@ int createMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  payloadLength + sessionInfoPtr->authBlocksize <= dataMaxLength );
 	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
 			  packetType <= TLS_PACKETTYPE_LAST );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return values */
 	*dataLength = 0;
@@ -534,7 +535,7 @@ int checkMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						const int packetType,
 				 IN_BOOL const BOOLEAN noReportError )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_DATA msgData;
 	const void *ivPtr = NULL;
 	int ivLength = 0, status;
@@ -549,6 +550,7 @@ int checkMacTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
 			  packetType <= TLS_PACKETTYPE_LAST );
 	REQUIRES( isBooleanValue( noReportError ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* MAC the payload.  If the payload length is zero then there's no data 
 	   payload, this can happen with some versions of OpenSSL that send 
@@ -721,7 +723,7 @@ int initCryptBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						IN_BOOL const BOOLEAN isRead )
 	{
 	CRYPT_CONTEXT iMacContext, iCryptContext;
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM stream;
 	MESSAGE_DATA msgData;
 	BYTE poly1305key[ CRYPT_MAX_KEYSIZE + 8 ];
@@ -734,6 +736,7 @@ int initCryptBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( isBooleanValue( isRead ) );						 
+	REQUIRES( tlsInfo != NULL );
 
 	/* Set up the appropriate values depending on whether it's a read or a 
 	   write */
@@ -935,7 +938,7 @@ int createMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									 TLS_PACKETTYPE_LAST ) \
 								const int packetType )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_DATA msgData;
 	int status;
 
@@ -949,6 +952,7 @@ int createMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  payloadLength + sessionInfoPtr->authBlocksize <= dataMaxLength );
 	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
 			  packetType <= TLS_PACKETTYPE_LAST );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return values */
 	*dataLength = 0;
@@ -999,7 +1003,7 @@ int checkMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									TLS_PACKETTYPE_LAST ) \
 								const int packetType )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_DATA msgData;
 	int status;
 
@@ -1012,6 +1016,7 @@ int checkMacTLSBernstein( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  payloadLength + sessionInfoPtr->authBlocksize <= dataLength );
 	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
 			  packetType <= TLS_PACKETTYPE_LAST );
+	REQUIRES( tlsInfo != NULL );
 
 	/* MAC the payload and metadata */
 	status = macDataTLSBernstein( sessionInfoPtr->iAuthInContext, 

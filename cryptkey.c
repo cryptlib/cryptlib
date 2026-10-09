@@ -114,7 +114,10 @@ BOOLEAN sanityCheckKeyset( const KEYSET_INFO *keysetInfoPtr )
 		case KEYSET_FILE:
 			{
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
-			const FILE_INFO *fileInfo = keysetInfoPtr->keysetFile;
+			const FILE_INFO *fileInfo = \
+					DATAPTR_GET( keysetInfoPtr->keysetInfo );
+
+			REQUIRES_B( fileInfo != NULL );
 
   #if defined( CONFIG_CRYPTO_HW1 ) || defined( CONFIG_CRYPTO_HW2 )
 			if( fileInfo->iHardwareDevice != CRYPT_UNUSED && \
@@ -154,8 +157,11 @@ BOOLEAN sanityCheckKeyset( const KEYSET_INFO *keysetInfoPtr )
 #ifdef USE_HTTP
 		case KEYSET_HTTP:
 			{
-			const HTTP_INFO *httpInfo = keysetInfoPtr->keysetHTTP;
+			const HTTP_INFO *httpInfo = \
+					DATAPTR_GET( keysetInfoPtr->keysetInfo );
 
+			REQUIRES_B( httpInfo != NULL );
+			
 			if( !isBufsizeRange( httpInfo->bufPos ) )
 				{
 				DEBUG_PUTS(( "sanityCheckKeyset: HTTP info" ));
@@ -174,7 +180,10 @@ BOOLEAN sanityCheckKeyset( const KEYSET_INFO *keysetInfoPtr )
 #if defined( USE_DBMS )
 		case KEYSET_DBMS:
 			{
-			const DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+			const DBMS_INFO *dbmsInfo = \
+					DATAPTR_GET( keysetInfoPtr->keysetInfo );
+
+			REQUIRES_B( dbmsInfo != NULL );
 
 			/* Perform a rather ugly check of the DBMS flags, unfortunately
 			   we can't see these values outside dbms.h */
@@ -884,7 +893,7 @@ static int completeKeysetFileOpen( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 								   IN_ENUM_OPT( CRYPT_KEYOPT ) \
 										const CRYPT_KEYOPT_TYPE options )
 	{
-	FILE_INFO *fileInfo = keysetInfoPtr->keysetFile;
+	FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	BYTE ALIGN_STACK_DATA buffer[ SAFEBUFFER_SIZE( STREAM_BUFSIZE ) + 8 ];
 	KEY_INIT_FUNCTION initFunction;
 	int status;
@@ -897,6 +906,7 @@ static int completeKeysetFileOpen( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( nameLength >= MIN_NAME_LENGTH && \
 			  nameLength < MAX_ATTRIBUTE_SIZE );
 	REQUIRES( isEnumRangeOpt( options, CRYPT_KEYOPT ) );
+	REQUIRES( fileInfo != NULL );
 
 	/* Remember the key file's name (as a null-terminated string for 
 	   filesystem access) and I/O stream */
@@ -1004,12 +1014,13 @@ static int completeKeysetFileOpen( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 STDC_NONNULL_ARG( ( 1 ) ) \
 static void completeKeysetFileClose( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	{
-	FILE_INFO *fileInfo = keysetInfoPtr->keysetFile;
+	FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	int status;
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
 
 	REQUIRES_V( keysetInfoPtr->type == KEYSET_FILE );
+	REQUIRES_V( fileInfo != NULL );
 
 	/* Since we cache all information in a file keyset and close the stream 
 	   immediately afterwards if we've opened it in read-only mode, we only 
@@ -1054,13 +1065,14 @@ STDC_NONNULL_ARG( ( 1 ) ) \
 static void completeMemstreamClose( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 									IN_BOOL const BOOLEAN preserveOriginalData )
 	{
-	FILE_INFO *fileInfo = keysetInfoPtr->keysetFile;
+	FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	int dataSize, status;
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
 
 	REQUIRES_V( keysetInfoPtr->type == KEYSET_FILE );
 	REQUIRES_V( isBooleanValue( preserveOriginalData ) );
+	REQUIRES_V( fileInfo != NULL );
 
 	/* Determine what to do with the memory-mapped data.  If the keyset is 
 	   empty, set a data size of zero to indicate that it should be 
@@ -1637,24 +1649,27 @@ static int keysetMessageFunction( INOUT_PTR TYPECAST( KEYSET_INFO * ) \
 #ifdef USE_DBMS
 	if( message == MESSAGE_KEY_CERTMGMT )
 		{
+		const DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 		MESSAGE_CERTMGMT_INFO *certMgmtInfo = \
 								( MESSAGE_CERTMGMT_INFO * ) messageDataPtr;
 
 		REQUIRES( messageValue >= CRYPT_CERTACTION_CERT_CREATION && \
 				  messageValue <= CRYPT_CERTACTION_LAST_USER );
 		REQUIRES( keysetInfoPtr->type == KEYSET_DBMS );
-		REQUIRES( keysetInfoPtr->keysetDBMS->certMgmtFunction != NULL );
+		REQUIRES( dbmsInfo != NULL );
+		REQUIRES( dbmsInfo->certMgmtFunction != NULL );
 
 		/* Perform the certificate management operation */
 		resetErrorInfo( keysetInfoPtr );
 		status = initKeysetUpdate( keysetInfoPtr, NULL, NULL, 0, FALSE );
 		if( cryptStatusError( status ) )
 			return( status );
-		status = keysetInfoPtr->keysetDBMS->certMgmtFunction( keysetInfoPtr,
+		status = dbmsInfo->certMgmtFunction( keysetInfoPtr,
 							( certMgmtInfo->cryptCert != CRYPT_UNUSED ) ? \
 								&certMgmtInfo->cryptCert : NULL, 
 							certMgmtInfo->caKey, certMgmtInfo->request, 
-							messageValue );
+							certMgmtInfo->authCert, certMgmtInfo->pkiUser, 
+							messageValue, certMgmtInfo->option );
 		if( cryptStatusOK( status ) )
 			{
 			/* The update succeeded, remember that the data in the keyset has
@@ -1675,7 +1690,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 7 ) ) \
 static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 					   IN_HANDLE const CRYPT_USER iCryptOwner,
 					   IN_ENUM( CRYPT_KEYSET ) \
-							const CRYPT_KEYSET_TYPE keysetType,
+							const CRYPT_KEYSET_TYPE cryptKeysetType,
 					   IN_BUFFER( nameLength ) const char *name, 
 					   IN_LENGTH_SHORT_MIN( MIN_NAME_LENGTH ) \
 							const int nameLength,
@@ -1685,6 +1700,7 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 	{
 	KEYSET_INFO *keysetInfoPtr;
 	STREAM stream;
+	KEYSET_TYPE keysetType;
 	KEYSET_SUBTYPE_TYPE keysetSubType DUMMY_INIT;
 	OBJECT_SUBTYPE subType;
 	KEY_INIT_FUNCTION initFunction;
@@ -1697,7 +1713,7 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 
 	REQUIRES( ( iCryptOwner == DEFAULTUSER_OBJECT_HANDLE ) || \
 			  isHandleRangeValid( iCryptOwner ) );
-	REQUIRES( isEnumRange( keysetType, CRYPT_KEYSET ) );
+	REQUIRES( isEnumRange( cryptKeysetType, CRYPT_KEYSET ) );
 	REQUIRES( nameLength >= MIN_NAME_LENGTH && \
 			  nameLength < MAX_ATTRIBUTE_SIZE );
 	REQUIRES( isEnumRangeOpt( options, CRYPT_KEYOPT ) );
@@ -1707,7 +1723,7 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 	*keysetInfoPtrPtr = NULL;
 
 	/* Perform general checks that can be done before we create the object */
-	switch( keysetType )
+	switch( cryptKeysetType )
 		{
 		case CRYPT_KEYSET_FILE:
 			if( nameLength > MAX_PATH_LENGTH - 1 )
@@ -1736,15 +1752,17 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 		}
 
 	/* Set up subtype-specific information */
-	switch( keysetType )
+	switch( cryptKeysetType )
 		{
 		case CRYPT_KEYSET_FILE:
+			keysetType = KEYSET_FILE;
 			subType = SUBTYPE_KEYSET_FILE_READONLY;
 			storageSize = sizeof( FILE_INFO );
 			break;
 
 #ifdef USE_HTTP
 		case CRYPT_KEYSET_HTTP:
+			keysetType = KEYSET_HTTP;
 			subType = SUBTYPE_KEYSET_HTTP;
 			storageSize = sizeof( HTTP_INFO );
 			break;
@@ -1752,6 +1770,7 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 
 #ifdef USE_LDAP
 		case CRYPT_KEYSET_LDAP:
+			keysetType = KEYSET_LDAP;
 			subType = SUBTYPE_KEYSET_LDAP;
 			storageSize = sizeof( LDAP_INFO );
 			break;
@@ -1759,11 +1778,13 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 
 #ifdef USE_DBMS
 		case CRYPT_KEYSET_DATABASE:
+			keysetType = KEYSET_DBMS;
 			subType = SUBTYPE_KEYSET_DBMS;
 			storageSize = sizeof( DBMS_INFO );
 			break;
 
 		case CRYPT_KEYSET_DATABASE_STORE:
+			keysetType = KEYSET_DBMS;
 			subType = SUBTYPE_KEYSET_DBMS_STORE;
 			storageSize = sizeof( DBMS_INFO );
 			break;
@@ -1781,7 +1802,7 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 	/* If it's a flat-file keyset which is implemented on top of an I/O 
 	   stream make sure that we can open the stream before we try and 
 	   create the keyset object */
-	if( keysetType == CRYPT_KEYSET_FILE )
+	if( cryptKeysetType == CRYPT_KEYSET_FILE )
 		{
 		BOOLEAN fileReadOnly;
 		
@@ -1856,68 +1877,45 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 							   ACTION_PERM_NONE_ALL, keysetMessageFunction );
 	if( cryptStatusError( status ) )
 		{
-		if( keysetType == CRYPT_KEYSET_FILE )
+		if( cryptKeysetType == CRYPT_KEYSET_FILE )
 			sFileClose( &stream );
 		return( status );
 		}
 	ANALYSER_HINT( keysetInfoPtr != NULL );
 	*keysetInfoPtrPtr = keysetInfoPtr;
+	keysetInfoPtr->type = keysetType;
 	keysetInfoPtr->objectHandle = *iCryptKeyset;
 	keysetInfoPtr->ownerHandle = iCryptOwner;
 	if( isReadOnly )
 		INIT_FLAGS( keysetInfoPtr->flags, KEYSET_FLAG_READONLY );
 	else
 		INIT_FLAGS( keysetInfoPtr->flags, KEYSET_FLAG_NONE );
+	setVarStruct( keysetInfoPtr, storageSize, keysetInfo );
 	DATAPTR_SET( keysetInfoPtr->keyData, NULL );
-	switch( keysetType )
-		{
-		case CRYPT_KEYSET_FILE:
-			keysetInfoPtr->type = KEYSET_FILE;
-			keysetInfoPtr->keysetFile = ( FILE_INFO * ) keysetInfoPtr->storage;
-			break;
-
-#ifdef USE_HTTP
-		case CRYPT_KEYSET_HTTP:
-			keysetInfoPtr->type = KEYSET_HTTP;
-			keysetInfoPtr->keysetHTTP = ( HTTP_INFO * ) keysetInfoPtr->storage;
-			break;
-#endif /* USE_HTTP */
-
-#ifdef USE_LDAP
-		case CRYPT_KEYSET_LDAP:
-			keysetInfoPtr->type = KEYSET_LDAP;
-			keysetInfoPtr->keysetLDAP = ( LDAP_INFO * ) keysetInfoPtr->storage;
-			break;
-#endif /* USE_LDAP */
-
-#ifdef USE_DBMS
-		case CRYPT_KEYSET_DATABASE:
-		case CRYPT_KEYSET_DATABASE_STORE:
-			keysetInfoPtr->type = KEYSET_DBMS;
-			keysetInfoPtr->keysetDBMS = ( DBMS_INFO * ) keysetInfoPtr->storage;
-			break;
-#endif /* USE_DBMS */
-
-		default:
-			retIntError();
-		}
-	keysetInfoPtr->storageSize = storageSize;
 
 	/* If it's a flat-file keyset which is implemented on top of an I/O 
 	   stream, handle it specially */
-	if( keysetType == CRYPT_KEYSET_FILE )
+	if( cryptKeysetType == CRYPT_KEYSET_FILE )
 		{
+		FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
+
+		REQUIRES( fileInfo != NULL );
+
+		/* completeKeysetFileOpen() moves the stream across into the keyset 
+		   information, so after this point it's no longer valid as a 
+		   standalone stream.  This is why we have to close 
+		   'fileInfo->stream' rather than the original copy 'stream' */
 		status = completeKeysetFileOpen( keysetInfoPtr, keysetSubType, 
 										 &stream, name, nameLength, 
 										 options );
 		if( cryptStatusError( status ) )
 			{
-			sFileClose( &keysetInfoPtr->keysetFile->stream );
+			sFileClose( &fileInfo->stream );
 			if( options == CRYPT_KEYOPT_CREATE )
 				{
 				/* It's a newly-created file, make sure that we don't leave 
 				   it lying around on disk */
-				fileErase( keysetInfoPtr->keysetFile->fileName );
+				fileErase( fileInfo->fileName );
 				}
 			return( status );
 			}
@@ -1941,20 +1939,26 @@ static int openKeyset( OUT_HANDLE_OPT CRYPT_KEYSET *iCryptKeyset,
 
 	/* It's a specific type of keyset, set up the access information for it
 	   and connect to it */
-	switch( keysetType )
+	switch( cryptKeysetType )
 		{
+#ifdef USE_DBMS
 		case CRYPT_KEYSET_DATABASE:
 		case CRYPT_KEYSET_DATABASE_STORE:
-			status = setAccessMethodDBMS( keysetInfoPtr, keysetType );
+			status = setAccessMethodDBMS( keysetInfoPtr, cryptKeysetType );
 			break;
+#endif /* USE_DBMS */
 
+#ifdef USE_HTTP
 		case CRYPT_KEYSET_HTTP:
 			status = setAccessMethodHTTP( keysetInfoPtr );
 			break;
+#endif /* USE_HTTP */
 
+#ifdef USE_LDAP
 		case CRYPT_KEYSET_LDAP:
 			status = setAccessMethodLDAP( keysetInfoPtr );
 			break;
+#endif /* USE_LDAP */
 
 		default:
 			retIntError();
@@ -2109,8 +2113,7 @@ int createKeysetIndirect( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 	keysetInfoPtr->type = KEYSET_FILE;
 	keysetInfoPtr->subType = subType;
 	INIT_FLAGS( keysetInfoPtr->flags, KEYSET_FLAG_NONE );
-	keysetInfoPtr->keysetFile = ( FILE_INFO * ) keysetInfoPtr->storage;
-	keysetInfoPtr->storageSize = sizeof( FILE_INFO );
+	setVarStruct( keysetInfoPtr, sizeof( FILE_INFO ), keysetInfo );
 	DATAPTR_SET( keysetInfoPtr->keyData, NULL );
 	switch( subType )
 		{
@@ -2143,7 +2146,8 @@ int createKeysetIndirect( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 	ENSURES( checkKeysetFunctions( keysetInfoPtr ) );
 
 	/* Finish setting up the storage object keyset */
-	fileInfo = keysetInfoPtr->keysetFile;
+	fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
+	REQUIRES( fileInfo != NULL );
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
 	fileInfo->iHardwareDevice = CRYPT_UNUSED;
 	fileInfo->storage = ( void * ) createInfo->strArg1;
@@ -2167,7 +2171,7 @@ int createKeysetIndirect( INOUT_PTR MESSAGE_CREATEOBJECT_INFO *createInfo,
 		ENSURES( streamConnected );
 		memcpy( &fileInfo->stream, &stream, sizeof( STREAM ) );
 		status = initFunction( keysetInfoPtr, NULL, 0, CRYPT_KEYOPT_NONE );
-		sMemDisconnect( &keysetInfoPtr->keysetFile->stream );
+		sMemDisconnect( &fileInfo->stream );
 		}
 	if( cryptStatusError( status ) )
 		{

@@ -1019,15 +1019,51 @@ int activatePersistentServerSession( const CRYPT_SESSION cryptSession,
    a single string and output it in one go to avoid it being broken up by 
    output from another thread */
 
+typedef struct {
+	CRYPT_ATTRIBUTE_TYPE type;
+	const char *description;
+	} ATTRIBUTE_NAME_INFO;
+
+static ATTRIBUTE_NAME_INFO attributeNameInfo[] = {
+	/* Certificate/CRL attributes */
+	{ CRYPT_CERTINFO_AUTHORITYINFOACCESS, "authorityInfoAccess" },
+	{ CRYPT_CERTINFO_OCSP_NONCE, "ocspNonce" },
+	{ CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER, "subjectKeyIdentifier" },
+	{ CRYPT_CERTINFO_KEYUSAGE, "keyUsage" },
+	{ CRYPT_CERTINFO_SUBJECTALTNAME, "subjectAltName" },
+	{ CRYPT_CERTINFO_ISSUERALTNAME, "issuerAltName" },
+	{ CRYPT_CERTINFO_BASICCONSTRAINTS, "basicConstraints" },
+	{ CRYPT_CERTINFO_CRLNUMBER, "crlNumber" },
+	{ CRYPT_CERTINFO_DELTACRLINDICATOR, "deltaCRLIndicator" },
+	{ CRYPT_CERTINFO_ISSUINGDISTRIBUTIONPOINT, "issuingDistributionPoint" },
+	{ CRYPT_CERTINFO_NAMECONSTRAINTS, "nameConstraints" },
+	{ CRYPT_CERTINFO_CRLDISTRIBUTIONPOINT, "cRLDistributionPoint" },
+	{ CRYPT_CERTINFO_CERTIFICATEPOLICIES, "certificatePolicies" },
+	{ CRYPT_CERTINFO_AUTHORITYKEYIDENTIFIER, "authorityKeyIdentifier" },
+	{ CRYPT_CERTINFO_EXTKEYUSAGE, "extKeyUsage" },
+	
+	/* CMS attributes */
+	{ CRYPT_CERTINFO_CMS_CONTENTTYPE, "contentType" },
+	{ CRYPT_CERTINFO_CMS_MESSAGEDIGEST, "messageDigest" },
+	{ CRYPT_CERTINFO_CMS_SIGNINGTIME, "signingTime" },
+	{ CRYPT_CERTINFO_CMS_SMIMECAPABILITIES, "smimeCapabilities" },
+	{ CRYPT_CERTINFO_CMS_SIGNINGCERTIFICATE, "essCertID" },
+	{ CRYPT_CERTINFO_CMS_SIGNINGCERTIFICATEV2, "essCertIDv2" },
+	{ CRYPT_CERTINFO_CMS_NONCE, "randomNonce" },
+	{ CRYPT_CERTINFO_CMS_ALGORITHMPROTECTION, "cmsAlgorithmProtection" },
+	
+	{ CRYPT_ATTRIBUTE_NONE, NULL }
+	};
+
 static int displayAttribute( const CRYPT_HANDLE cryptHandle )
 	{
 	BOOLEAN firstAttr = TRUE;
 	BYTE buffer1[ 128 ], buffer2[ 128 ];
 	char attributeInfoBuffer[ 4096 ];
-	int value, pos = 0, length1 = 0, length2 = 0, status;
+	int groupID, value, pos = 0, length1 = 0, length2 = 0, i, status;
 
 	status = cryptGetAttribute( cryptHandle,
-								CRYPT_ATTRIBUTE_CURRENT_GROUP, &value );
+								CRYPT_ATTRIBUTE_CURRENT_GROUP, &groupID );
 	if( cryptStatusError( status ) )
 		{
 		fprintf( outputStream, "\nCurrent attribute group type read failed "
@@ -1035,7 +1071,7 @@ static int displayAttribute( const CRYPT_HANDLE cryptHandle )
 		return( FALSE );
 		}
 	pos += sprintf( attributeInfoBuffer + pos, 
-					"  Attribute group %d, values =", value );
+					"  Attribute group %d, values =", groupID );
 		
 	/* Display each attribute within the group */
 	do
@@ -1096,6 +1132,15 @@ static int displayAttribute( const CRYPT_HANDLE cryptHandle )
 		}
 	while( cryptSetAttribute( cryptHandle, CRYPT_ATTRIBUTE_CURRENT,
 							  CRYPT_CURSOR_NEXT ) == CRYPT_OK );
+	for( i = 0; attributeNameInfo[ i ].type != CRYPT_ATTRIBUTE_NONE; i++ )
+		{
+		if( groupID == attributeNameInfo[ i ].type )
+			{
+			pos += sprintf( attributeInfoBuffer + pos, " (%s)", 
+							attributeNameInfo[ i ].description );
+			break;
+			}
+		}
 	sprintf( attributeInfoBuffer + pos, ".\n" );
 	fputs( attributeInfoBuffer, outputStream );
 

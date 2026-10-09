@@ -632,6 +632,7 @@ static int createSessionOpenRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
+	const SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM stream;
 	SERVICE_TYPE serviceType;
 	OPENREQUEST_TYPE requestType;
@@ -643,6 +644,7 @@ int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Now that we've checked everything, set up the various values that
 	   we'll need */
@@ -722,7 +724,7 @@ int sendChannelOpen( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	if( cryptStatusError( status ) )
 		return( status );
 	sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
-	if( sessionInfoPtr->sessionSSH->packetType == SSH_MSG_CHANNEL_OPEN_FAILURE )
+	if( sshInfo->packetType == SSH_MSG_CHANNEL_OPEN_FAILURE )
 		{
 		/* The open failed, report the details to the user */
 		status = getOpenFailInfo( sessionInfoPtr, &stream );

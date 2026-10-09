@@ -535,7 +535,7 @@ int printCertInfo( const CRYPT_CERTIFICATE certificate )
 	int length, value, status;
 
 	CHK( cryptGetAttribute( certificate, CRYPT_CERTINFO_CERTTYPE, &value ) );
-	certType = value;
+	certType = value;	/* int vs. enum */
 
 	/* Display the issuer and subject DN */
 	if( certType != CRYPT_CERTTYPE_CERTREQUEST && \
@@ -806,10 +806,6 @@ int printCertInfo( const CRYPT_CERTIFICATE certificate )
 	fputs( "Some of the common extensions/attributes are:\n", outputStream );
 	if( certType == CRYPT_CERTTYPE_CRL )
 		{
-		time_t theTime;
-
-		CHK( cryptSetAttribute( certificate, CRYPT_ATTRIBUTE_CURRENT_GROUP,
-								CRYPT_CURSOR_FIRST ) );
 		status = cryptGetAttribute( certificate, CRYPT_CERTINFO_CRLNUMBER,
 									&value );
 		if( cryptStatusOK( status ) && value )
@@ -818,19 +814,6 @@ int printCertInfo( const CRYPT_CERTIFICATE certificate )
 									&value );
 		if( cryptStatusOK( status ) && value )
 			fprintf( outputStream, "  deltaCRLIndicator = %d.\n", value );
-		status = cryptGetAttribute( certificate, CRYPT_CERTINFO_CRLREASON,
-									&value );
-		if( cryptStatusOK( status ) && value )
-			fprintf( outputStream, "  crlReason = %d.\n", value );
-		status = cryptGetAttributeString( certificate,
-								CRYPT_CERTINFO_INVALIDITYDATE, &theTime, &length );
-#ifndef _WIN32_WCE
-		if( cryptStatusOK( status ) )
-			{
-			fprintf( outputStream, "  invalidityDate = %s.\n", 
-					 getTimeString( theTime, 0 ) );
-			}
-#endif /* _WIN32_WCE */
 		if( cryptStatusOK( \
 				cryptGetAttribute( certificate,
 								   CRYPT_CERTINFO_ISSUINGDIST_FULLNAME, &value ) ) )
@@ -848,6 +831,10 @@ int printCertInfo( const CRYPT_CERTIFICATE certificate )
 		{
 		time_t signingTime;
 
+		status = cryptGetAttribute( certificate,
+									CRYPT_CERTINFO_CMS_CONTENTTYPE, &value );
+		if( cryptStatusOK( status ) )
+			fprintf( outputStream, "CMS content type %d.\n", value );
 		status = cryptGetAttributeString( certificate,
 										  CRYPT_CERTINFO_CMS_SIGNINGTIME,
 										  &signingTime, &length );
@@ -877,22 +864,21 @@ int printCertInfo( const CRYPT_CERTIFICATE certificate )
 		buffer[ length ] ='\0';
 		fprintf( outputStream, "  PKI user revocation password = %s.\n", 
 				 buffer );
-		return( TRUE );
 		}
 	status = cryptGetAttribute( certificate,
 								CRYPT_CERTINFO_KEYUSAGE, &value );
 	if( cryptStatusOK( status ) && value )
 		{
 		static const struct { int flag; const char *name; } usageNames[] = {
-			{ CRYPT_KEYUSAGE_DIGITALSIGNATURE, "digSig" },
-			{ CRYPT_KEYUSAGE_NONREPUDIATION, "nonRep" },
-			{ CRYPT_KEYUSAGE_KEYENCIPHERMENT, "keyEnc" },
-			{ CRYPT_KEYUSAGE_DATAENCIPHERMENT, "dataEnc" },
-			{ CRYPT_KEYUSAGE_KEYAGREEMENT, "keyAgree" },
+			{ CRYPT_KEYUSAGE_DIGITALSIGNATURE, "digitalSignature" },
+			{ CRYPT_KEYUSAGE_NONREPUDIATION, "nonRepudiation" },
+			{ CRYPT_KEYUSAGE_KEYENCIPHERMENT, "keyEncipherment" },
+			{ CRYPT_KEYUSAGE_DATAENCIPHERMENT, "dataEncipherment" },
+			{ CRYPT_KEYUSAGE_KEYAGREEMENT, "keyAgreement" },
 			{ CRYPT_KEYUSAGE_KEYCERTSIGN, "certSign" },
 			{ CRYPT_KEYUSAGE_CRLSIGN, "crlSign" },
-			{ CRYPT_KEYUSAGE_ENCIPHERONLY, "encOnly" },
-			{ CRYPT_KEYUSAGE_DECIPHERONLY, "decOnly" },
+			{ CRYPT_KEYUSAGE_ENCIPHERONLY, "encryptOnly" },
+			{ CRYPT_KEYUSAGE_DECIPHERONLY, "decryptOnly" },
 			{ CRYPT_KEYUSAGE_NONE, NULL }
 			};
 		BOOLEAN printedUsage = FALSE;

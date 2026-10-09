@@ -689,7 +689,7 @@ static int addContextInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	const ENV_CHECKALGO_FUNCTION checkAlgoFunction = \
 				( ENV_CHECKALGO_FUNCTION ) \
 				FNPTR_GET( envelopeInfoPtr->checkAlgoFunction );
-	ACTION_LIST *actionListPtr, *hashActionPtr;
+	ACTION_LIST *actionListPtr, *hashActionPtr, *newActionPointer;
 	ACTION_RESULT actionResult;
 	int algorithm, mode = CRYPT_MODE_NONE, certHashAlgo, status;
 
@@ -721,6 +721,10 @@ static int addContextInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		default:
 			retIntError();
 		}
+
+	/* At this point actionListPtr may be valid or NULL, both of the check
+	   functions moreActionsPossible() and checkAction() will accept a NULL
+	   pointer for an empty action list */
 
 	/* Make sure that we can still add another attribute */
 	if( !moreActionsPossible( actionListPtr ) )
@@ -833,8 +837,8 @@ static int addContextInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		if( cryptStatusError( status ) )
 			return( status );
 		}
-	status = addActionEx( &actionListPtr, envelopeInfoPtr, actionListType, 
-						  actionType, iCryptHandle );
+	status = addActionEx( &newActionPointer, envelopeInfoPtr, 
+						  actionListType, actionType, iCryptHandle );
 	if( cryptStatusError( status ) )
 		{
 		krnlSendNotifier( iCryptHandle, IMESSAGE_DECREFCOUNT );
@@ -844,13 +848,13 @@ static int addContextInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		{
 		/* Remember that we need to hook the hash action up to a signature
 		   action before we start enveloping data */
-		SET_FLAG( actionListPtr->flags, ACTION_FLAG_NEEDSCONTROLLER );
+		SET_FLAG( newActionPointer->flags, ACTION_FLAG_NEEDSCONTROLLER );
 
 		/* If this is a detached signature for which the hash value was 
 		   added explicitly by the user, we don't need to complete the 
 		   hashing ourselves since it's already been done by the user */
 		if( TEST_FLAG( envelopeInfoPtr->flags, ENVELOPE_FLAG_DETACHED_SIG ) )
-			SET_FLAG( actionListPtr->flags, ACTION_FLAG_HASHCOMPLETE );
+			SET_FLAG( newActionPointer->flags, ACTION_FLAG_HASHCOMPLETE );
 		}
 
 	/* If the newly-inserted action isn't a controlling action, we're done */
@@ -914,7 +918,7 @@ static int addContextInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 	/* Connect the signature action to the last hash action that was added
 	   and remember that this action now has a controlling action */
-	DATAPTR_SET( actionListPtr->associatedAction, hashActionPtr );
+	DATAPTR_SET( newActionPointer->associatedAction, hashActionPtr );
 	CLEAR_FLAG( hashActionPtr->flags, ACTION_FLAG_NEEDSCONTROLLER );
 
 	return( CRYPT_OK );

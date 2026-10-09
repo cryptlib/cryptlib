@@ -9,7 +9,7 @@
 
 #define _CRYPTLIB_DEFINED
 
-/* The current cryptlib version: 3.4.9.3 */
+/* The current cryptlib version: 3.4.9.6 */
 
 #define CRYPTLIB_VERSION	349
 
@@ -1376,11 +1376,11 @@ typedef enum {
 	CRYPT_IATTRIBUTE_RESPONDERURL,	/* RTCS/OCSP responder name */
 	CRYPT_IATTRIBUTE_RTCSREQUEST,	/* RTCS req.info added to RTCS resp.*/
 	CRYPT_IATTRIBUTE_OCSPREQUEST,	/* OCSP req.info added to OCSP resp.*/
+	CRYPT_IATTRIBUTE_OCSPRESPONSE,	/* OCSP resp.info checked against OCSP req.*/
 	CRYPT_IATTRIBUTE_REVREQUEST,	/* CRMF rev.request added to CRL */
 	CRYPT_IATTRIBUTE_PKIUSERINFO,	/* Additional user info added to cert.req.*/
 	CRYPT_IATTRIBUTE_BLOCKEDATTRS,	/* Template of disallowed attrs.in cert */
 	CRYPT_IATTRIBUTE_REQFROMRA,		/* Cert request came from RA */
-	CRYPT_IATTRIBUTE_AUTHCERTID,	/* Authorising cert ID for a cert/rev.req.*/
 	CRYPT_IATTRIBUTE_ESSCERTID,		/* ESSCertID */
 	CRYPT_IATTRIBUTE_CERTCOPY,		/* Copy of cert object */
 	CRYPT_IATTRIBUTE_CERTCOPY_DATAONLY,	/* Copy of cert object as data-only cert */
@@ -1513,9 +1513,11 @@ enum { CRYPT_HOLDINSTRUCTION_NONE, CRYPT_HOLDINSTRUCTION_CALLISSUER,
 /* Certificate checking compliance levels */
 
 typedef enum { 
-	CRYPT_COMPLIANCELEVEL_OBLIVIOUS, CRYPT_COMPLIANCELEVEL_REDUCED,
-	CRYPT_COMPLIANCELEVEL_STANDARD, CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL,
-	CRYPT_COMPLIANCELEVEL_PKIX_FULL, CRYPT_COMPLIANCELEVEL_LAST 
+	CRYPT_COMPLIANCELEVEL_NONE, 
+	CRYPT_COMPLIANCELEVEL_OBLIVIOUS = CRYPT_COMPLIANCELEVEL_NONE, 
+	CRYPT_COMPLIANCELEVEL_REDUCED, CRYPT_COMPLIANCELEVEL_STANDARD, 
+	CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL, CRYPT_COMPLIANCELEVEL_PKIX_FULL, 
+	CRYPT_COMPLIANCELEVEL_LAST 
 	} CRYPT_COMPLIANCELEVEL_TYPE;
 
 /* Flags for the Netscape netscape-cert-type extension */
@@ -1582,8 +1584,14 @@ typedef enum {
 
 /* OCSP revocation status */
 
-enum { CRYPT_OCSPSTATUS_NOTREVOKED, CRYPT_OCSPSTATUS_REVOKED,
-	   CRYPT_OCSPSTATUS_UNKNOWN };
+typedef enum 
+	{
+	CRYPT_OCSPSTATUS_NONE,			/* No OCSP status */ 
+	CRYPT_OCSPSTATUS_NOTREVOKED,	/* Status not-revoked */
+	CRYPT_OCSPSTATUS_REVOKED,		/* Status revoked */
+	CRYPT_OCSPSTATUS_UNKNOWN,		/* Status unknown */
+	CRYPT_OCSPSTATUS_LAST			/* Last possible OCSP status */
+	} CRYPT_OCSPSTATUS_TYPE;
 
 /* The amount of detail to include in signatures when signing certificate
    objects */
@@ -1714,6 +1722,7 @@ typedef enum {
 	CRYPT_CERTACTION_CERT_CREATION_REVERSE,	/* Cancel of creation w.revocation */
 	CRYPT_CERTACTION_RESTART_CLEANUP, /* Delete reqs after restart */
 	CRYPT_CERTACTION_RESTART_REVOKE_CERT, /* Complete revocation after restart */
+	CRYPT_CERTACTION_ADDREQUEST,	/* Add certificate request */
 	CRYPT_CERTACTION_ISSUE_CERT,	/* Cert issue */
 	CRYPT_CERTACTION_ISSUE_CRL,		/* CRL issue */
 	CRYPT_CERTACTION_REVOKE_CERT,	/* Cert revocation */
@@ -1742,7 +1751,7 @@ typedef enum {
 #define CRYPT_CMPOPTION_NONE				0x000
 #define CRYPT_CMPOPTION_3GPP				0x001	/* Peer is following 33.310 */
 #ifdef _CRYPT_DEFINED
-#define CRYPT_CMPOPTION_MAX					0x07F	/* Defines for range checking */
+#define CRYPT_CMPOPTION_MAX					0x001	/* Defines for range checking */
 #endif /* _CRYPT_DEFINED */
 
 /* TLS protocol options.  CRYPT_TLSOPTION_MINVER_SSLV3 is the same as 

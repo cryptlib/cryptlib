@@ -33,7 +33,7 @@ enum { X509ACVERSION_1, X509ACVERSION_2 };
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -165,7 +165,7 @@ static int writeCertInfo( INOUT_PTR STREAM *stream,
 						  IN_PTR const CERT_INFO *issuerCertInfoPtr,
 						  IN_HANDLE const CRYPT_CONTEXT iIssuerCryptContext )
 	{
-	const CERT_CERT_INFO *certCertInfo = subjectCertInfoPtr->cCertCert;
+	const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( subjectCertInfoPtr );
 	int algoIdInfoSize, length, extensionSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -175,6 +175,7 @@ static int writeCertInfo( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckCert( subjectCertInfoPtr ) );
 	REQUIRES( sanityCheckCert( issuerCertInfoPtr ) );
 	REQUIRES( isHandleRangeValid( iIssuerCryptContext ) );
+	REQUIRES( certInfo != NULL );
 
 	/* Perform any necessary pre-encoding steps */
 	if( sIsNullStream( stream ) )
@@ -220,8 +221,8 @@ static int writeCertInfo( INOUT_PTR STREAM *stream,
 
 	/* Determine the size of the certificate information */
 	status = algoIdInfoSize = writeSigAlgoInfo( NULL, iIssuerCryptContext, 
-												certCertInfo->hashAlgo, 
-												certCertInfo->hashParam );
+												certInfo->hashAlgo, 
+												certInfo->hashParam );
 	if( cryptStatusError( status ) )
 		return( status );
 	status = extensionSize = \
@@ -229,8 +230,8 @@ static int writeCertInfo( INOUT_PTR STREAM *stream,
 								  CRYPT_CERTTYPE_CERTIFICATE );
 	if( cryptStatusError( status ) )
 		return( status );
-	length = sizeofInteger( certCertInfo->serialNumber,
-							certCertInfo->serialNumberLength ) + \
+	length = sizeofInteger( certInfo->serialNumber,
+							certInfo->serialNumberLength ) + \
 			 algoIdInfoSize + \
 			 subjectCertInfoPtr->issuerDNsize + \
 			 sizeofShortObject( sizeofTime( subjectCertInfoPtr->startTime ) + \
@@ -259,11 +260,10 @@ static int writeCertInfo( INOUT_PTR STREAM *stream,
 		}
 
 	/* Write the serial number and signature algorithm identifier */
-	writeInteger( stream, certCertInfo->serialNumber,
-				  certCertInfo->serialNumberLength, DEFAULT_TAG );
+	writeInteger( stream, certInfo->serialNumber,
+				  certInfo->serialNumberLength, DEFAULT_TAG );
 	status = writeSigAlgoInfo( stream, iIssuerCryptContext, 
-							   certCertInfo->hashAlgo, 
-							   certCertInfo->hashParam );
+							   certInfo->hashAlgo, certInfo->hashParam );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -367,7 +367,7 @@ static int writeAttributeCertInfo( INOUT_PTR STREAM *stream,
 								   IN_PTR const CERT_INFO *issuerCertInfoPtr,
 								   IN_HANDLE const CRYPT_CONTEXT iIssuerCryptContext )
 	{
-	const CERT_CERT_INFO *certCertInfo = subjectCertInfoPtr->cCertCert;
+	const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( subjectCertInfoPtr );
 	ALGOID_PARAMS algoIDparams;
 	int algoIdInfoSize, length, extensionSize;
 	int issuerNameSize, holderNameSize, status;
@@ -379,6 +379,7 @@ static int writeAttributeCertInfo( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckCert( subjectCertInfoPtr ) );
 	REQUIRES( sanityCheckCert( issuerCertInfoPtr ) );
 	REQUIRES( isHandleRangeValid( iIssuerCryptContext ) );
+	REQUIRES( certInfo != NULL );
 
 	/* Perform any necessary pre-encoding steps */
 	if( sIsNullStream( stream ) )
@@ -414,8 +415,8 @@ static int writeAttributeCertInfo( INOUT_PTR STREAM *stream,
 	holderNameSize = length;
 
 	/* Determine the size of the certificate information */
-	initAlgoIDparamsHash( &algoIDparams, certCertInfo->hashAlgo, 
-						  certCertInfo->hashParam );
+	initAlgoIDparamsHash( &algoIDparams, certInfo->hashAlgo, 
+						  certInfo->hashParam );
 	status = algoIdInfoSize = \
 					sizeofContextAlgoIDex( iIssuerCryptContext, 
 										   &algoIDparams );
@@ -434,8 +435,8 @@ static int writeAttributeCertInfo( INOUT_PTR STREAM *stream,
 				sizeofShortObject( \
 					sizeofShortObject( issuerNameSize ) ) ) + \
 			 algoIdInfoSize + \
-			 sizeofInteger( certCertInfo->serialNumber,
-							certCertInfo->serialNumberLength ) + \
+			 sizeofInteger( certInfo->serialNumber,
+							certInfo->serialNumberLength ) + \
 			 sizeofShortObject( sizeofGeneralizedTime() * 2 ) + \
 			 sizeofShortObject( DUMMY_ATTRIBUTE_SIZE );
 	if( extensionSize > 0 )
@@ -477,12 +478,12 @@ static int writeAttributeCertInfo( INOUT_PTR STREAM *stream,
 
 	/* Write the signature algorithm identifier, serial number and validity
 	   period */
-	initAlgoIDparamsHash( &algoIDparams, certCertInfo->hashAlgo, 
-						  certCertInfo->hashParam );
+	initAlgoIDparamsHash( &algoIDparams, certInfo->hashAlgo, 
+						  certInfo->hashParam );
 	writeContextAlgoIDex( stream, iIssuerCryptContext, 
 						  &algoIDparams );
-	writeInteger( stream, certCertInfo->serialNumber,
-				  certCertInfo->serialNumberLength, DEFAULT_TAG );
+	writeInteger( stream, certInfo->serialNumber,
+				  certInfo->serialNumberLength, DEFAULT_TAG );
 	writeSequence( stream, sizeofGeneralizedTime() * 2 );
 	writeGeneralizedTime( stream, subjectCertInfoPtr->startTime, 
 						  DEFAULT_TAG );
@@ -530,7 +531,7 @@ static int writeCRLInfo( INOUT_PTR STREAM *stream,
 						 IN_HANDLE_OPT \
 							const CRYPT_CONTEXT iIssuerCryptContext )
 	{
-	const CERT_REV_INFO *certRevInfo = subjectCertInfoPtr->cCertRev;
+	const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( subjectCertInfoPtr );
 	const BOOLEAN isCrlEntry = ( issuerCertInfoPtr == NULL ) ? TRUE : FALSE;
 	ALGOID_PARAMS algoIDparams;
 	BOOLEAN isV2CRL;
@@ -551,6 +552,7 @@ static int writeCRLInfo( INOUT_PTR STREAM *stream,
 				iIssuerCryptContext == CRYPT_UNUSED ) || \
 			  ( issuerCertInfoPtr != NULL && \
 				isHandleRangeValid( iIssuerCryptContext ) ) );
+	REQUIRES( revInfo != NULL );
 
 	/* Perform any necessary pre-encoding steps */
 	if( sIsNullStream( stream ) )
@@ -583,7 +585,7 @@ static int writeCRLInfo( INOUT_PTR STREAM *stream,
 	subjectCertInfoPtr->version = \
 				( DATAPTR_ISSET( subjectCertInfoPtr->attributes ) ) ? 2 : 1;
 	status = revocationInfoLength = \
-				sizeofCRLentries( certRevInfo->revocations, &isV2CRL );
+				sizeofCRLentries( revInfo->revocations, &isV2CRL );
 	if( cryptStatusError( status ) )
 		return( status );
 	if( isV2CRL )
@@ -600,7 +602,7 @@ static int writeCRLInfo( INOUT_PTR STREAM *stream,
 		{
 		const REVOCATION_INFO *revInfoPtr;
 
-		revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+		revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 		ENSURES_B( revInfoPtr != NULL );
 		return( writeCRLentry( stream, revInfoPtr ) );
 		}
@@ -608,8 +610,8 @@ static int writeCRLInfo( INOUT_PTR STREAM *stream,
 	ENSURES( issuerCertInfoPtr != NULL );
 
 	/* Determine how big the encoded CRL will be */
-	initAlgoIDparamsHash( &algoIDparams, certRevInfo->hashAlgo, 
-						  certRevInfo->hashParam );
+	initAlgoIDparamsHash( &algoIDparams, revInfo->hashAlgo, 
+						  revInfo->hashParam );
 	status = algoIdInfoSize = \
 					sizeofContextAlgoIDex( iIssuerCryptContext, 
 										   &algoIDparams );
@@ -647,8 +649,8 @@ static int writeCRLInfo( INOUT_PTR STREAM *stream,
 		}
 
 	/* Write the signature algorithm identifier, issuer name, and CRL time */
-	initAlgoIDparamsHash( &algoIDparams, certRevInfo->hashAlgo, 
-						  certRevInfo->hashParam );
+	initAlgoIDparamsHash( &algoIDparams, revInfo->hashAlgo, 
+						  revInfo->hashParam );
 	status = writeContextAlgoIDex( stream, iIssuerCryptContext,
 								   &algoIDparams );
 	if( cryptStatusError( status ) )
@@ -667,7 +669,7 @@ static int writeCRLInfo( INOUT_PTR STREAM *stream,
 	   certificate information */
 	status = writeSequence( stream, revocationInfoLength );
 	if( cryptStatusOK( status ) )
-		status = writeCRLentries( stream, certRevInfo->revocations );
+		status = writeCRLentries( stream, revInfo->revocations );
 	if( cryptStatusError( status ) || extensionSize <= 0 )
 		return( status );
 
@@ -900,6 +902,8 @@ static int writeRevRequestInfo( INOUT_PTR STREAM *stream,
 								STDC_UNUSED const CERT_INFO *issuerCertInfoPtr,
 								STDC_UNUSED const CRYPT_CONTEXT iIssuerCryptContext )
 	{
+	const CERT_REQ_INFO *reqInfo = DATAPTR_GET_REQ( subjectCertInfoPtr );
+
 	int payloadLength, extensionSize, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -908,6 +912,7 @@ static int writeRevRequestInfo( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckCert( subjectCertInfoPtr ) );
 	REQUIRES( issuerCertInfoPtr == NULL );
 	REQUIRES( iIssuerCryptContext == CRYPT_UNUSED );
+	REQUIRES( reqInfo != NULL );
 
 	/* Make sure that everything is in order */
 	if( sIsNullStream( stream ) )
@@ -925,8 +930,8 @@ static int writeRevRequestInfo( INOUT_PTR STREAM *stream,
 									  CRYPT_CERTTYPE_REQUEST_REVOCATION );
 	if( cryptStatusError( status ) )
 		return( status );
-	payloadLength = sizeofInteger( subjectCertInfoPtr->cCertReq->serialNumber,
-								   subjectCertInfoPtr->cCertReq->serialNumberLength ) + \
+	payloadLength = sizeofInteger( reqInfo->serialNumber,
+								   reqInfo->serialNumberLength ) + \
 					sizeofShortObject( subjectCertInfoPtr->issuerDNsize );
 
 	/* Write the header, inner header, serial number and issuer DN */
@@ -934,8 +939,7 @@ static int writeRevRequestInfo( INOUT_PTR STREAM *stream,
 						   ( ( extensionSize > 0 ) ? \
 							 sizeofShortObject( extensionSize ) : 0 ) );
 	writeSequence( stream, payloadLength );
-	writeInteger( stream, subjectCertInfoPtr->cCertReq->serialNumber,
-				  subjectCertInfoPtr->cCertReq->serialNumberLength,
+	writeInteger( stream, reqInfo->serialNumber, reqInfo->serialNumberLength,
 				  CTAG_CF_SERIALNUMBER );
 	writeConstructed( stream, subjectCertInfoPtr->issuerDNsize,
 					  CTAG_CF_ISSUER );
@@ -980,7 +984,7 @@ static int writeRtcsRequestInfo( INOUT_PTR STREAM *stream,
 								 STDC_UNUSED \
 									const CRYPT_CONTEXT iIssuerCryptContext )
 	{
-	const CERT_VAL_INFO *certValInfo = subjectCertInfoPtr->cCertVal;
+	const CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( subjectCertInfoPtr );
 	int length, extensionSize, requestInfoLength;
 	int status;
 
@@ -990,6 +994,7 @@ static int writeRtcsRequestInfo( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckCert( subjectCertInfoPtr ) );
 	REQUIRES( issuerCertInfoPtr == NULL );
 	REQUIRES( iIssuerCryptContext == CRYPT_UNUSED );
+	REQUIRES( valInfo != NULL );
 
 	/* Perform any necessary pre-encoding steps */
 	if( sIsNullStream( stream ) )
@@ -1009,7 +1014,7 @@ static int writeRtcsRequestInfo( INOUT_PTR STREAM *stream,
 
 	/* Determine how big the encoded RTCS request will be */
 	status = requestInfoLength = \
-					sizeofRtcsRequestEntries( certValInfo->validityInfo );
+					sizeofRtcsRequestEntries( valInfo->validityInfo );
 	if( cryptStatusError( status ) )
 		return( status );
 	status = extensionSize = \
@@ -1029,7 +1034,7 @@ static int writeRtcsRequestInfo( INOUT_PTR STREAM *stream,
 	if( cryptStatusOK( status ) )
 		{
 		status = writeRtcsRequestEntries( stream, 
-										  certValInfo->validityInfo );
+										  valInfo->validityInfo );
 		}
 	if( cryptStatusError( status ) || extensionSize <= 0 )
 		return( status );
@@ -1053,10 +1058,8 @@ static int writeRtcsResponseInfo( INOUT_PTR STREAM *stream,
 								  STDC_UNUSED \
 									const CRYPT_CONTEXT iIssuerCryptContext )
 	{
-	const CERT_VAL_INFO *certValInfo = subjectCertInfoPtr->cCertVal;
-	const BOOLEAN isExtendedResponse = \
-		( certValInfo->responseType == RTCSRESPONSE_TYPE_EXTENDED ) ? \
-		  TRUE : FALSE;
+	const CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( subjectCertInfoPtr );
+	BOOLEAN isExtendedResponse;
 	int extensionSize, validityInfoLength;
 	int status;
 
@@ -1065,6 +1068,13 @@ static int writeRtcsResponseInfo( INOUT_PTR STREAM *stream,
 
 	REQUIRES( issuerCertInfoPtr == NULL );
 	REQUIRES( iIssuerCryptContext == CRYPT_UNUSED );
+	REQUIRES( valInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	isExtendedResponse = \
+			( valInfo->responseType == RTCSRESPONSE_TYPE_EXTENDED ) ? \
+			  TRUE : FALSE;
 
 	/* RTCS can legitimately return an empty response if there's a problem
 	   with the responder so we don't require that any responses be present
@@ -1081,7 +1091,7 @@ static int writeRtcsResponseInfo( INOUT_PTR STREAM *stream,
 
 	/* Determine how big the encoded RTCS response will be */
 	status = validityInfoLength = \
-					sizeofRtcsResponseEntries( certValInfo->validityInfo,
+					sizeofRtcsResponseEntries( valInfo->validityInfo,
 											   isExtendedResponse );
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1097,7 +1107,7 @@ static int writeRtcsResponseInfo( INOUT_PTR STREAM *stream,
 	if( cryptStatusOK( status ) )
 		{
 		status = writeRtcsResponseEntries( stream, 
-										   certValInfo->validityInfo,
+										   valInfo->validityInfo,
 										   isExtendedResponse );
 		}
 	if( cryptStatusError( status ) || extensionSize <= 0 )
@@ -1146,7 +1156,7 @@ static int writeOcspRequestInfo( INOUT_PTR STREAM *stream,
 								 IN_HANDLE_OPT \
 									const CRYPT_CONTEXT iIssuerCryptContext )
 	{
-	const CERT_REV_INFO *certRevInfo = subjectCertInfoPtr->cCertRev;
+	const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( subjectCertInfoPtr );
 	int length, extensionSize, revocationInfoLength = 0;
 	int status;
 
@@ -1160,6 +1170,7 @@ static int writeOcspRequestInfo( INOUT_PTR STREAM *stream,
 			  sanityCheckCert( issuerCertInfoPtr ) );
 	REQUIRES( iIssuerCryptContext == CRYPT_UNUSED || \
 			  isHandleRangeValid( iIssuerCryptContext ) );/* Not used here */
+	REQUIRES( revInfo != NULL );
 
 	/* Perform any necessary pre-encoding steps */
 	if( sIsNullStream( stream ) )
@@ -1196,7 +1207,7 @@ static int writeOcspRequestInfo( INOUT_PTR STREAM *stream,
 
 	/* Determine how big the encoded OCSP request will be */
 	status = revocationInfoLength = \
-					sizeofOcspRequestEntries( certRevInfo->revocations );
+					sizeofOcspRequestEntries( revInfo->revocations );
 	if( cryptStatusError( status ) )
 		return( status );
 	status = extensionSize = \
@@ -1243,7 +1254,7 @@ static int writeOcspRequestInfo( INOUT_PTR STREAM *stream,
 	   revocation information */
 	status = writeSequence( stream, revocationInfoLength );
 	if( cryptStatusOK( status ) )
-		status = writeOcspRequestEntries( stream, certRevInfo->revocations );
+		status = writeOcspRequestEntries( stream, revInfo->revocations );
 	if( cryptStatusError( status ) || extensionSize <= 0 )
 		return( status );
 
@@ -1269,7 +1280,7 @@ static int writeOcspResponseInfo( INOUT_PTR STREAM *stream,
 								  IN_HANDLE \
 									const CRYPT_CONTEXT iIssuerCryptContext )
 	{
-	const CERT_REV_INFO *certRevInfo = subjectCertInfoPtr->cCertRev;
+	const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( subjectCertInfoPtr );
 	int length, extensionSize, revocationInfoLength = 0, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -1277,6 +1288,7 @@ static int writeOcspResponseInfo( INOUT_PTR STREAM *stream,
 	assert( isReadPtr( issuerCertInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( isHandleRangeValid( iIssuerCryptContext ) );/* Not used here */
+	REQUIRES( revInfo != NULL );
 
 	/* Perform any necessary pre-encoding steps */
 	if( sIsNullStream( stream ) )
@@ -1291,7 +1303,7 @@ static int writeOcspResponseInfo( INOUT_PTR STREAM *stream,
 
 	/* Determine how big the encoded OCSP response will be */
 	status = revocationInfoLength = \
-					sizeofOcspResponseEntries( certRevInfo->revocations );
+					sizeofOcspResponseEntries( revInfo->revocations );
 	if( cryptStatusError( status ) )
 		return( status );
 	status = extensionSize = \
@@ -1324,7 +1336,7 @@ static int writeOcspResponseInfo( INOUT_PTR STREAM *stream,
 	status = writeSequence( stream, revocationInfoLength );
 	if( cryptStatusOK( status ) )
 		{
-		status = writeOcspResponseEntries( stream, certRevInfo->revocations,
+		status = writeOcspResponseEntries( stream, revInfo->revocations,
 										   subjectCertInfoPtr->startTime );
 		}
 	if( cryptStatusError( status ) || extensionSize <= 0 )
@@ -1498,6 +1510,7 @@ static int createPkiUserInfo( INOUT_PTR CERT_PKIUSER_INFO *certUserInfo,
 				PKIUSER_AUTHENTICATOR_SIZE );
 		}
 	krnlSendNotifier( iCryptContext, IMESSAGE_DECREFCOUNT );
+	iCryptContext = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -1595,7 +1608,7 @@ static int writePkiUserInfo( INOUT_PTR STREAM *stream,
 							 STDC_UNUSED const CERT_INFO *issuerCertInfoPtr,
 							 STDC_UNUSED const CRYPT_CONTEXT iIssuerCryptContext )
 	{
-	CERT_PKIUSER_INFO *certUserInfo = userInfoPtr->cCertUser;
+	CERT_PKIUSER_INFO *pkiUserInfo = DATAPTR_GET_PKIUSER( userInfoPtr );
 	BYTE userInfo[ 128 + 8 ], cryptAlgoID[ 128 + 8 ];
 	int certAttributeSize, userAttributeSize = 0, userInfoSize;
 	int cryptAlgoIDSize, length, status;
@@ -1606,6 +1619,7 @@ static int writePkiUserInfo( INOUT_PTR STREAM *stream,
 	REQUIRES( sanityCheckCert( userInfoPtr ) );
 	REQUIRES( issuerCertInfoPtr == NULL );
 	REQUIRES( iIssuerCryptContext == CRYPT_UNUSED );
+	REQUIRES( pkiUserInfo != NULL );
 
 	if( sIsNullStream( stream ) )
 		{
@@ -1678,7 +1692,7 @@ static int writePkiUserInfo( INOUT_PTR STREAM *stream,
 		}
 	else
 		{
-		status = createPkiUserInfo( certUserInfo, userInfo, 128, 
+		status = createPkiUserInfo( pkiUserInfo, userInfo, 128, 
 									&userInfoSize, cryptAlgoID, 128, 
 									&cryptAlgoIDSize );
 		if( cryptStatusError( status ) )
@@ -1696,7 +1710,7 @@ static int writePkiUserInfo( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 	ENSURES( isShortIntegerRangeNZ( certAttributeSize ) );
-	if( certUserInfo->isRA )
+	if( pkiUserInfo->isRA )
 		userAttributeSize += sizeofBoolean();
 
 	/* Write the user DN, encrypted user information, and any supplementary 
@@ -1716,7 +1730,7 @@ static int writePkiUserInfo( INOUT_PTR STREAM *stream,
 	if( cryptStatusOK( status ) && userAttributeSize > 0 )
 		{
 		status = writeSequence( stream, userAttributeSize );
-		if( certUserInfo->isRA )
+		if( pkiUserInfo->isRA )
 			status = writeBoolean( stream, TRUE, DEFAULT_TAG );
 		}
 	return( status );

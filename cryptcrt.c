@@ -46,7 +46,7 @@ static BOOLEAN compareCertInfo( const CERT_INFO *certInfoPtr,
 									const MESSAGE_COMPARE_TYPE compareType,
 								IN_BUFFER_OPT( dataLength ) const void *data,
 								IN_LENGTH_SHORT_Z const int dataLength,
-								IN_HANDLE_OPT const CRYPT_CERTIFICATE iCryptCert )
+								IN_INT const int intValue )
 	{
 	int status;
 
@@ -58,10 +58,14 @@ static BOOLEAN compareCertInfo( const CERT_INFO *certInfoPtr,
 	REQUIRES_B( isEnumRange( compareType, MESSAGE_COMPARE ) );
 	REQUIRES_B( ( compareType == MESSAGE_COMPARE_CERTOBJ && \
 				  data == NULL && dataLength == 0 && \
-				  isHandleRangeValid( iCryptCert ) ) || \
+				  isHandleRangeValid( intValue ) ) || \
+				( compareType == MESSAGE_COMPARE_EKU && \
+				  data == NULL && dataLength == 0 && \
+				  isEnumRange( intValue, CRYPT_ATTRIBUTE ) ) || \
 				( compareType != MESSAGE_COMPARE_CERTOBJ && \
+				  compareType != MESSAGE_COMPARE_EKU && \
 				  data != NULL && isShortIntegerRangeNZ( dataLength ) && \
-				  iCryptCert == CRYPT_UNUSED ) );
+				  intValue == CRYPT_UNUSED ) );
 
 	switch( compareType )
 		{
@@ -74,6 +78,7 @@ static BOOLEAN compareCertInfo( const CERT_INFO *certInfoPtr,
 
 		case MESSAGE_COMPARE_ISSUERANDSERIALNUMBER:
 			{
+			const CERT_CERT_INFO *certInfo;
 			STREAM stream;
 			void *dataPtr DUMMY_INIT_PTR;
 			int dataLeft DUMMY_INIT, serialNoLength, length;
@@ -81,6 +86,9 @@ static BOOLEAN compareCertInfo( const CERT_INFO *certInfoPtr,
 			if( certInfoPtr->type != CRYPT_CERTTYPE_CERTIFICATE && \
 				certInfoPtr->type != CRYPT_CERTTYPE_CERTCHAIN )
 				return( FALSE );
+
+			certInfo = DATAPTR_GET_CERT( certInfoPtr );
+			REQUIRES( certInfo != NULL );
 
 			/* Comparing an iAndS can get quite tricky because of assorted 
 			   braindamage in encoding methods so that two dissimilar 
@@ -104,9 +112,8 @@ static BOOLEAN compareCertInfo( const CERT_INFO *certInfoPtr,
 			   the Entegrity problem this is a level of brokenness up with 
 			   which we will not put */
 			length = sizeofShortObject( \
-							certInfoPtr->issuerDNsize + \
-							sizeofShortObject( \
-								certInfoPtr->cCertCert->serialNumberLength ) );
+						certInfoPtr->issuerDNsize + \
+						sizeofShortObject( certInfo->serialNumberLength ) );
 			if( length < dataLength - 2 || length > dataLength + 2 )
 				{
 				/* Trivial reject, the lengths are too dissimilar for any 
@@ -159,8 +166,8 @@ static BOOLEAN compareCertInfo( const CERT_INFO *certInfoPtr,
 			sMemDisconnect( &stream );
 			if( cryptStatusError( status ) )
 				return( FALSE );
-			if( !compareSerialNumber( certInfoPtr->cCertCert->serialNumber,
-									  certInfoPtr->cCertCert->serialNumberLength,
+			if( !compareSerialNumber( certInfo->serialNumber,
+									  certInfo->serialNumberLength,
 									  dataPtr, serialNoLength ) )
 				return( FALSE );
 
@@ -189,15 +196,16 @@ static BOOLEAN compareCertInfo( const CERT_INFO *certInfoPtr,
 		case MESSAGE_COMPARE_CERTOBJ:
 			{
 			static const MAP_TABLE fingerprintMapTable[] = {
-				{ MESSAGE_COMPARE_CERTOBJ, CRYPT_CERTINFO_FINGERPRINT_SHA1 },
+				{ MESSAGE_COMPARE_CERTOBJ, CRYPT_CERTINFO_FINGERPRINT_SHA2 },
 				{ MESSAGE_COMPARE_FINGERPRINT_SHA1, CRYPT_CERTINFO_FINGERPRINT_SHA1 },
 				{ MESSAGE_COMPARE_FINGERPRINT_SHA2, CRYPT_CERTINFO_FINGERPRINT_SHA2 },
 				{ MESSAGE_COMPARE_FINGERPRINT_SHAng, CRYPT_CERTINFO_FINGERPRINT_SHAng },
 				{ CRYPT_ERROR, 0 }, { CRYPT_ERROR, 0 }
 				};
+			CRYPT_CERTIFICATE iCryptCert = intValue;
 			MESSAGE_DATA msgData;
 			BYTE fingerPrint[ CRYPT_MAX_HASHSIZE + 8 ];
-			int fingerPrintLength, attributeToCompare;
+			int fingerPrintLength, attributeToCompare, subType;
 
 			status = mapValue( compareType, &attributeToCompare, 
 							   fingerprintMapTable,
@@ -229,12 +237,64 @@ static BOOLEAN compareCertInfo( const CERT_INFO *certInfoPtr,
 				}
 			REQUIRES_B( isHandleRangeValid( iCryptCert ) );
 
+			/* Make sure that we're not trying to compare apples and 
+			   Volkswagens */
+			status = krnlSendMessage( iCryptCert, IMESSAGE_GETATTRIBUTE,
+									  &subType, CRYPT_IATTRIBUTE_SUBTYPE );
+			if( cryptStatusError( status ) )
+				return( FALSE );
+			switch( certInfoPtr->type )
+				{
+				case CRYPT_CERTTYPE_CERTIFICATE:
+				case CRYPT_CERTTYPE_CERTCHAIN:
+					if( subType != SUBTYPE_CERT_CERT && \
+						subType != SUBTYPE_CERT_CERTCHAIN )
+						return( FALSE );
+					break;
+			
+				case CRYPT_CERTTYPE_PKIUSER:
+					if( subType != SUBTYPE_CERT_PKIUSER )
+						return( FALSE );
+					break;
+					
+				default:
+					retIntError_Boolean();
+				}
+									  
 			/* It's a full certificate compare, compare the encoded 
 			   certificate data via the fingerprints */
 			setMessageData( &msgData, fingerPrint, fingerPrintLength );
 			status = krnlSendMessage( iCryptCert, IMESSAGE_COMPARE, &msgData,
-									  MESSAGE_COMPARE_FINGERPRINT_SHA1 );
+									  MESSAGE_COMPARE_FINGERPRINT_SHA2 );
 			return( cryptStatusOK( status ) ? TRUE : FALSE );
+			}
+		
+		case MESSAGE_COMPARE_EKU:
+			{
+			const CRYPT_ATTRIBUTE_TYPE certInfoType = intValue;
+			
+			/* Perform the standard PKIX default-fail-open check where if
+			   the extension isn't present then anything goes (RFC 3280
+			   section 4.2.1.13, "If the extension is present then the 
+			   certificate MUST only be used for one of the purposes 
+			   indicated") */
+			if( !checkAttributePresent( certInfoPtr->attributes, 
+										CRYPT_CERTINFO_EXTKEYUSAGE ) )
+				return( TRUE );
+
+			/* Check that the one purpose that we want is present (RFC 3280 
+			   section 4.2.1.13 again, "If multiple purposes are indicated 
+			   the application need not recognize all purposes indicated, 
+			   as long as the intended purpose is present") */
+			if( checkAttributeFieldPresent( certInfoPtr->attributes, 
+											certInfoType ) )
+				return( TRUE );
+				
+			/* In theory we'd also have to check for the anyExtendedKeyUsage 
+			   kludge but this has complicated semantics (see the comment in 
+			   cert/chk_cert.c:checkCert() where it's checked) so we leave 
+			   the check for there */
+			return( FALSE );
 			}
 		}
 
@@ -346,7 +406,7 @@ static int checkCertUsage( INOUT_PTR CERT_INFO *certInfoPtr,
 			   used when there's no signing certificate available but we 
 			   want to perform a generic check that the certificate is 
 			   generally OK, such as not being expired */
-			status = checkCertBasic( certInfoPtr );
+			status = checkCertBasic( certInfoPtr, FALSE );
 			if( cryptStatusError( status ) )
 				{
 				/* Convert the status value to the correct form */
@@ -491,26 +551,32 @@ static int exportCertData( CERT_INFO *certInfoPtr,
 
 	/* If we're exporting a single certificate from a chain, lock the 
 	   currently selected certificate in the chain and export that */
-	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN && \
-		certInfoPtr->cCertCert->chainPos >= 0 && \
-		( certFormat == CRYPT_CERTFORMAT_CERTIFICATE || \
-		  certFormat == CRYPT_CERTFORMAT_TEXT_CERTIFICATE || \
-		  certFormat == CRYPT_CERTFORMAT_XML_CERTIFICATE ) )
+	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 		{
-		CERT_INFO *certChainInfoPtr;
+		const CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 
-		ENSURES( certInfoPtr->cCertCert->chainPos >= 0 && \
-				 certInfoPtr->cCertCert->chainPos < MAX_CHAINLENGTH );
-		status = krnlAcquireObject( certInfoPtr->cCertCert->chain[ certInfoPtr->cCertCert->chainPos ], 
-									OBJECT_TYPE_CERTIFICATE, 
-									( MESSAGE_PTR_CAST ) &certChainInfoPtr,
-									CRYPT_ARGERROR_OBJECT );
-		if( cryptStatusError( status ) )
+		REQUIRES( certChainInfo != NULL );
+		
+		if( certChainInfo->chainPos >= 0 && \
+			( certFormat == CRYPT_CERTFORMAT_CERTIFICATE || \
+			  certFormat == CRYPT_CERTFORMAT_TEXT_CERTIFICATE || \
+			  certFormat == CRYPT_CERTFORMAT_XML_CERTIFICATE ) )
+			{
+			CERT_INFO *certChainInfoPtr;
+
+			ENSURES( certChainInfo->chainPos >= 0 && \
+					 certChainInfo->chainPos < MAX_CHAINLENGTH );
+			status = krnlAcquireObject( certChainInfo->chain[ certChainInfo->chainPos ], 
+										OBJECT_TYPE_CERTIFICATE, 
+										( MESSAGE_PTR_CAST ) &certChainInfoPtr,
+										CRYPT_ARGERROR_OBJECT );
+			if( cryptStatusError( status ) )
+				return( status );
+			status = exportCert( certData, certDataMaxLength, certDataLength, 
+								 certFormat, certChainInfoPtr );
+			krnlReleaseObject( certChainInfoPtr->objectHandle );
 			return( status );
-		status = exportCert( certData, certDataMaxLength, certDataLength, 
-							 certFormat, certChainInfoPtr );
-		krnlReleaseObject( certChainInfoPtr->objectHandle );
-		return( status );
+			}
 		}
 
 	ENSURES( ( TEST_FLAG( certInfoPtr->flags, 
@@ -790,6 +856,7 @@ static int processCertAttribute( INOUT_PTR CERT_INFO *certInfoPtr,
 				  attribute == CRYPT_CERTINFO_TRUSTED_IMPLICIT || \
 				  attribute == CRYPT_IATTRIBUTE_INITIALISED || 
 				  /* Misc.components */
+				  attribute == CRYPT_IATTRIBUTE_OCSPRESPONSE || \
 				  attribute == CRYPT_IATTRIBUTE_PKIUSERINFO );
 
 		/* If it's an initialisation message, there's nothing to do (we get 
@@ -870,25 +937,29 @@ static int certificateMessageFunction( INOUT_PTR TYPECAST( CERT_INFO * ) \
 			certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
 			certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 			{
-			if( certInfoPtr->cCertCert->serialNumber != NULL && \
-				certInfoPtr->cCertCert->serialNumber != \
-					certInfoPtr->cCertCert->serialNumberBuffer )
+			CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+			REQUIRES( certInfo != NULL );
+
+			if( certInfo->serialNumber != NULL && \
+				certInfo->serialNumber != certInfo->serialNumberBuffer )
 				{
-				clFree( "certificateMessageFunction", 
-						certInfoPtr->cCertCert->serialNumber );
-				certInfoPtr->cCertCert->serialNumber = NULL;
+				clFree( "certificateMessageFunction", certInfo->serialNumber );
+				certInfo->serialNumber = NULL;
 				}
 			}
 #ifdef USE_CERTREQ
 		if( certInfoPtr->type == CRYPT_CERTTYPE_REQUEST_REVOCATION )
 			{
-			if( certInfoPtr->cCertReq->serialNumber != NULL && \
-				certInfoPtr->cCertReq->serialNumber != \
-					certInfoPtr->cCertReq->serialNumberBuffer )
+			CERT_REQ_INFO *reqInfo = DATAPTR_GET_REQ( certInfoPtr );
+
+			REQUIRES( reqInfo != NULL );
+
+			if( reqInfo->serialNumber != NULL && \
+				reqInfo->serialNumber != reqInfo->serialNumberBuffer )
 				{
-				clFree( "certificateMessageFunction", 
-						certInfoPtr->cCertReq->serialNumber );
-				certInfoPtr->cCertReq->serialNumber = NULL;
+				clFree( "certificateMessageFunction", reqInfo->serialNumber );
+				reqInfo->serialNumber = NULL;
 				}
 			}
 #endif /* USE_CERTREQ */
@@ -932,11 +1003,14 @@ static int certificateMessageFunction( INOUT_PTR TYPECAST( CERT_INFO * ) \
 			certInfoPtr->type == CRYPT_CERTTYPE_OCSP_REQUEST || \
 			certInfoPtr->type == CRYPT_CERTTYPE_OCSP_RESPONSE )
 			{
-			if( certInfoPtr->cCertRev->responderUrl != NULL )
+			CERT_REV_INFO *revInfo = \
+						DATAPTR_GET( certInfoPtr->certInfo );
+
+			if( revInfo != NULL && revInfo->responderUrl != NULL )
 				{
 				clFree( "certificateMessageFunction", 
-						certInfoPtr->cCertRev->responderUrl );
-				certInfoPtr->cCertRev->responderUrl = NULL;
+						revInfo->responderUrl );
+				revInfo->responderUrl = NULL;
 				}
 			}
 #endif /* USE_CERTREV */
@@ -944,16 +1018,19 @@ static int certificateMessageFunction( INOUT_PTR TYPECAST( CERT_INFO * ) \
 		if( certInfoPtr->type == CRYPT_CERTTYPE_RTCS_REQUEST || \
 			certInfoPtr->type == CRYPT_CERTTYPE_RTCS_RESPONSE )
 			{
-			if( certInfoPtr->cCertVal->responderUrl != NULL )
+			CERT_VAL_INFO *valInfo = \
+					DATAPTR_GET( certInfoPtr->certInfo );
+
+			if( valInfo != NULL && valInfo->responderUrl != NULL )
 				{
 				clFree( "certificateMessageFunction", 
-						certInfoPtr->cCertVal->responderUrl );
-				certInfoPtr->cCertVal->responderUrl = NULL;
+						valInfo->responderUrl );
+				valInfo->responderUrl = NULL;
 				}
 			}
 #endif /* USE_CERTVAL */
 
-		/* Clear the DN's if necessary */
+		/* Clear the DNs if necessary */
 		if( DATAPTR_ISSET( certInfoPtr->issuerName ) )
 			deleteDN( &certInfoPtr->issuerName );
 		if( DATAPTR_ISSET( certInfoPtr->subjectName ) )
@@ -966,10 +1043,11 @@ static int certificateMessageFunction( INOUT_PTR TYPECAST( CERT_INFO * ) \
 		if( certInfoPtr->type == CRYPT_CERTTYPE_RTCS_REQUEST || \
 			certInfoPtr->type == CRYPT_CERTTYPE_RTCS_RESPONSE )
 			{
-			CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
+			CERT_VAL_INFO *valInfo = \
+					DATAPTR_GET( certInfoPtr->certInfo );
 
-			if( DATAPTR_ISSET( certValInfo->validityInfo ) )
-				deleteValidityEntries( &certValInfo->validityInfo );
+			if( valInfo != NULL && DATAPTR_ISSET( valInfo->validityInfo ) )
+				deleteValidityEntries( &valInfo->validityInfo );
 			}
 #endif /* USE_CERTVAL */
 #ifdef USE_CERTREV
@@ -977,27 +1055,34 @@ static int certificateMessageFunction( INOUT_PTR TYPECAST( CERT_INFO * ) \
 			certInfoPtr->type == CRYPT_CERTTYPE_OCSP_REQUEST || \
 			certInfoPtr->type == CRYPT_CERTTYPE_OCSP_RESPONSE )
 			{
-			CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+			CERT_REV_INFO *revInfo = \
+						DATAPTR_GET( certInfoPtr->certInfo );
 
-			if( DATAPTR_ISSET( certRevInfo->revocations ) )
-				deleteRevocationEntries( &certRevInfo->revocations );
+			if( revInfo != NULL && \
+				DATAPTR_ISSET( revInfo->revocations ) )
+				deleteRevocationEntries( &revInfo->revocations );
 			}
 #endif /* USE_CERTREV */
 
 		/* Clear the certificate chain if necessary */
-		if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN && \
-			certInfoPtr->cCertCert->chainEnd > 0 )
+		if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 			{
+			CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 			LOOP_INDEX i;
-			const int chainEnd = certInfoPtr->cCertCert->chainEnd;
+			int chainEnd;
 
-			ENSURES( chainEnd >= 0 && chainEnd <= MAX_CHAINLENGTH );
+			REQUIRES( certChainInfo != NULL );
+			
+			REQUIRES( certChainInfo->chainEnd >= 0 && \
+					  certChainInfo->chainEnd <= MAX_CHAINLENGTH );
+			chainEnd = certChainInfo->chainEnd;
 			LOOP_EXT( i = 0, i < chainEnd, i++, MAX_CHAINLENGTH )
 				{
 				ENSURES( LOOP_INVARIANT_EXT( i, 0, chainEnd - 1,
 											 MAX_CHAINLENGTH ) );
-				krnlSendNotifier( certInfoPtr->cCertCert->chain[ i ],
+				krnlSendNotifier( certChainInfo->chain[ i ],
 								  IMESSAGE_DECREFCOUNT );
+				certChainInfo->chain[ i ] = CRYPT_ERROR;
 				}
 			ENSURES( LOOP_BOUND_OK );
 			}
@@ -1011,33 +1096,40 @@ static int certificateMessageFunction( INOUT_PTR TYPECAST( CERT_INFO * ) \
 		/* If it's a certificate chain lock the currently selected 
 		   certificate in the chain unless the message being processed is a 
 		   certificate cursor movement command or something specifically 
-		   directed at the entire chain (for example a get type or self-
-		   signed status command - we want to get the type/status of the 
-		   chain, not of the certificates within it) */
-		if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN && \
-			certInfoPtr->cCertCert->chainPos >= 0 && \
-			!( ( message == MESSAGE_SETATTRIBUTE ) && \
-			   ( messageValue == CRYPT_CERTINFO_CURRENT_CERTIFICATE ) ) && \
-			!( ( message == MESSAGE_GETATTRIBUTE ) && \
-			   ( messageValue == CRYPT_CERTINFO_CERTTYPE || \
-				 messageValue == CRYPT_CERTINFO_SELFSIGNED ) ) )
+		   directed at the entire chain, for example a get the type - we 
+		   want to get the type of the chain, not of the certificates within 
+		   it */
+		if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 			{
-			CERT_INFO *certChainInfoPtr;
-			int status;
+			const CERT_CERT_INFO *certChainInfo = \
+						DATAPTR_GET_CERT( certInfoPtr );
 
-			ENSURES( certInfoPtr->cCertCert->chainPos >= 0 && \
-					 certInfoPtr->cCertCert->chainPos < MAX_CHAINLENGTH );
-			status = krnlAcquireObject( certInfoPtr->cCertCert->chain[ certInfoPtr->cCertCert->chainPos ], 
-										OBJECT_TYPE_CERTIFICATE, 
-										( MESSAGE_PTR_CAST ) &certChainInfoPtr,
-										CRYPT_ARGERROR_OBJECT );
-			if( cryptStatusError( status ) )
+			REQUIRES( certChainInfo != NULL );
+			
+			if( certChainInfo->chainPos >= 0 && \
+				!( ( message == MESSAGE_SETATTRIBUTE ) && \
+				   ( messageValue == CRYPT_CERTINFO_CURRENT_CERTIFICATE ) ) && \
+				!( ( message == MESSAGE_GETATTRIBUTE ) && \
+				   ( messageValue == CRYPT_CERTINFO_CERTTYPE ) ) )
+				{
+				CERT_INFO *certChainInfoPtr;
+				int status;
+
+				ENSURES( certChainInfo->chainPos >= 0 && \
+						 certChainInfo->chainPos < MAX_CHAINLENGTH );
+				status = krnlAcquireObject( \
+							certChainInfo->chain[ certChainInfo->chainPos ], 
+							OBJECT_TYPE_CERTIFICATE, 
+							( MESSAGE_PTR_CAST ) &certChainInfoPtr,
+							CRYPT_ARGERROR_OBJECT );
+				if( cryptStatusError( status ) )
+					return( status );
+				ANALYSER_HINT( certChainInfoPtr != NULL );
+				status = processCertAttribute( certChainInfoPtr, message, 
+											   messageDataPtr, messageValue );
+				krnlReleaseObject( certChainInfoPtr->objectHandle );
 				return( status );
-			ANALYSER_HINT( certChainInfoPtr != NULL );
-			status = processCertAttribute( certChainInfoPtr, message, 
-										   messageDataPtr, messageValue );
-			krnlReleaseObject( certChainInfoPtr->objectHandle );
-			return( status );
+				}
 			}
 
 		return( processCertAttribute( certInfoPtr, message, messageDataPtr, 
@@ -1049,12 +1141,12 @@ static int certificateMessageFunction( INOUT_PTR TYPECAST( CERT_INFO * ) \
 		{
 		const MESSAGE_DATA *msgData = ( MESSAGE_DATA * ) messageDataPtr;
 
-		if( messageValue == MESSAGE_COMPARE_CERTOBJ )
+		if( messageValue == MESSAGE_COMPARE_CERTOBJ || \
+			messageValue == MESSAGE_COMPARE_EKU )
 			{
-			/* A certificate object compare passes in a certificate handle 
-			   rather than data */
+			/* These compares pass in an integer value rather than data */
 			return( compareCertInfo( certInfoPtr, messageValue, NULL, 0,
-									 *( ( CRYPT_CERTIFICATE * ) messageDataPtr ) ) ? \
+									 *( ( int * ) messageDataPtr ) ) ? \
 									 CRYPT_OK : CRYPT_ERROR );
 			}
 		return( compareCertInfo( certInfoPtr, messageValue, msgData->data,
@@ -1078,14 +1170,14 @@ static int certificateMessageFunction( INOUT_PTR TYPECAST( CERT_INFO * ) \
 				/* Save the current volatile state so that any changes made 
 				   while the object is in use aren't reflected back to the 
 				   caller after the cryptlib-internal use has completed */
-				saveSelectionState( certInfoPtr->selectionState, 
+				saveSelectionState( &certInfoPtr->selectionState, 
 									certInfoPtr );
 				}
 			else
 				{
 				/* Restore the volatile state from before the object was 
 				   used */
-				restoreSelectionState( certInfoPtr->selectionState, 
+				restoreSelectionState( &certInfoPtr->selectionState, 
 									   certInfoPtr );
 				}
 
@@ -1296,6 +1388,7 @@ int createCertificateInfo( OUT_PTR_PTR_COND CERT_INFO **certInfoPtrPtr,
 	certInfoPtr->ownerHandle = iCryptOwner;
 	certInfoPtr->type = certType;
 	INIT_FLAGS( certInfoPtr->flags, CERT_FLAG_NONE );
+	setVarStruct( certInfoPtr, storageSize, certInfo );
 	DATAPTR_SET( certInfoPtr->subjectName, NULL );
 	DATAPTR_SET( certInfoPtr->issuerName, NULL );
 	DATAPTR_SET( certInfoPtr->attributes, NULL );
@@ -1307,64 +1400,78 @@ int createCertificateInfo( OUT_PTR_PTR_COND CERT_INFO **certInfoPtrPtr,
 		case CRYPT_CERTTYPE_ATTRIBUTE_CERT:
 		case CRYPT_CERTTYPE_CERTCHAIN:
 			{
+			CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 			LOOP_INDEX i;
 
-			certInfoPtr->cCertCert = ( CERT_CERT_INFO * ) certInfoPtr->storage;
+			REQUIRES( certInfo != NULL );
+
 			LOOP_SMALL( i = 0, i < MAX_CHAINLENGTH, i++ )
 				{
 				ENSURES( LOOP_INVARIANT_SMALL( i, 0, MAX_CHAINLENGTH - 1 ) );
 		
-				certInfoPtr->cCertCert->chain[ i ] = CRYPT_ERROR;
+				certInfo->chain[ i ] = CRYPT_ERROR;
 				}
 			ENSURES( LOOP_BOUND_OK );
-			certInfoPtr->cCertCert->chainPos = CRYPT_ERROR;
-			certInfoPtr->cCertCert->trustedUsage = CRYPT_ERROR;
+			certInfo->chainPos = CRYPT_ERROR;
+			certInfo->trustedUsage = CRYPT_ERROR;
 			break;
 			}
-
-#ifdef USE_CERTREQ
-		case CRYPT_CERTTYPE_REQUEST_CERT:
-		case CRYPT_CERTTYPE_REQUEST_REVOCATION:
-			certInfoPtr->cCertReq = ( CERT_REQ_INFO * ) certInfoPtr->storage;
-			break;
-#endif /* USE_CERTREQ */
 
 #ifdef USE_CERTREV
 		case CRYPT_CERTTYPE_CRL:
 		case CRYPT_CERTTYPE_OCSP_REQUEST:
 		case CRYPT_CERTTYPE_OCSP_RESPONSE:
-			certInfoPtr->cCertRev = ( CERT_REV_INFO * ) certInfoPtr->storage;
-			DATAPTR_SET( certInfoPtr->cCertRev->revocations, NULL );
-			DATAPTR_SET( certInfoPtr->cCertRev->currentRevocation, NULL );
+			{
+			CERT_REV_INFO *revInfo = \
+					DATAPTR_GET( certInfoPtr->certInfo );
+			REQUIRES( revInfo != NULL );
+
+			DATAPTR_SET( revInfo->revocations, NULL );
+			DATAPTR_SET( revInfo->currentRevocation, NULL );
 			break;
+			}
 #endif /* USE_CERTREV */
 
 #ifdef USE_CERTVAL
 		case CRYPT_CERTTYPE_RTCS_REQUEST:
 		case CRYPT_CERTTYPE_RTCS_RESPONSE:
-			certInfoPtr->cCertVal = ( CERT_VAL_INFO * ) certInfoPtr->storage;
-			DATAPTR_SET( certInfoPtr->cCertVal->validityInfo, NULL );
-			DATAPTR_SET( certInfoPtr->cCertVal->currentValidity, NULL );
+			{
+			CERT_VAL_INFO *valInfo = \
+						DATAPTR_GET( certInfoPtr->certInfo );
+
+			REQUIRES( valInfo != NULL );
+
+			DATAPTR_SET( valInfo->validityInfo, NULL );
+			DATAPTR_SET( valInfo->currentValidity, NULL );
 			break;
+			}
 #endif /* USE_CERTVAL */
 
-#ifdef USE_PKIUSER
-		case CRYPT_CERTTYPE_PKIUSER:
-			certInfoPtr->cCertUser = ( CERT_PKIUSER_INFO * ) certInfoPtr->storage;
-			break;
-#endif /* USE_PKIUSER */
-
-#ifdef USE_CERTREQ
+#if defined( USE_CERTREQ ) || defined( USE_CMSATTR )
+  #ifdef USE_CERTREQ
 		case CRYPT_CERTTYPE_CERTREQUEST:
-			/* No special storage requirements */
-			break;
-#endif /* USE_CERTREQ */
-
-#ifdef USE_CMSATTR
+  #endif /* USE_CERTREQ */
+  #ifdef USE_CMSATTR
 		case CRYPT_CERTTYPE_CMS_ATTRIBUTES:
+  #endif /* USE_CMSATTR */
+			/* These objects have no subtype-specific storage so we set the
+			   subtype-information pointer to NULL to ensure that any 
+			   (spurious) attempt to access it fails */
+			DATAPTR_SET( certInfoPtr->certInfo, NULL );
+			break;
+#endif /* USE_CERTREQ || USE_CMSATTR */
+
+#if defined( USE_CERTREQ ) || defined( USE_PKIUSER )
+  #ifdef USE_CERTREQ
+		case CRYPT_CERTTYPE_REQUEST_CERT:
+		case CRYPT_CERTTYPE_REQUEST_REVOCATION:
+  #endif /* USE_CERTREQ */
+  #ifdef USE_PKIUSER
+		case CRYPT_CERTTYPE_PKIUSER:
+  #endif /* USE_PKIUSER */
 			/* No special storage requirements */
 			break;
-#endif /* USE_CMSATTR */
+#endif /* USE_CERTREQ || USE_PKIUSER */
 
 		default:
 			retIntError();
@@ -1612,22 +1719,28 @@ C_RET cryptGetCertExtension( C_IN CRYPT_CERTIFICATE certificate,
 
 	/* Lock the currently selected certificate in a certificate chain if 
 	   necessary */
-	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN && \
-		certInfoPtr->cCertCert->chainPos >= 0 )
+	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 		{
-		CERT_INFO *certChainInfoPtr;
-		const int chainPos = certInfoPtr->cCertCert->chainPos;
+		const CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 
-		ENSURES_OBJECT( chainPos >= 0 && chainPos < MAX_CHAINLENGTH,
-						certInfoPtr->objectHandle );
-		status = krnlAcquireObject( certInfoPtr->cCertCert->chain[ chainPos ], 
-									OBJECT_TYPE_CERTIFICATE, 
-									( MESSAGE_PTR_CAST ) &certChainInfoPtr, 
-									CRYPT_ERROR_PARAM1 );
-		krnlReleaseObject( certInfoPtr->objectHandle );
-		if( cryptStatusError( status ) )
-			return( status );
-		certInfoPtr = certChainInfoPtr;
+		REQUIRES( certChainInfo != NULL );
+		
+		if( certChainInfo->chainPos >= 0 )
+			{
+			CERT_INFO *certChainInfoPtr;
+			const int chainPos = certChainInfo->chainPos;
+
+			ENSURES_OBJECT( chainPos >= 0 && chainPos < MAX_CHAINLENGTH,
+							certInfoPtr->objectHandle );
+			status = krnlAcquireObject( certChainInfo->chain[ chainPos ], 
+										OBJECT_TYPE_CERTIFICATE, 
+										( MESSAGE_PTR_CAST ) &certChainInfoPtr, 
+										CRYPT_ERROR_PARAM1 );
+			krnlReleaseObject( certInfoPtr->objectHandle );
+			if( cryptStatusError( status ) )
+				return( status );
+			certInfoPtr = certChainInfoPtr;
+			}
 		}
 
 	/* Locate the attribute identified by the OID and get its information */
@@ -1720,12 +1833,22 @@ C_RET cryptAddCertExtension( C_IN CRYPT_CERTIFICATE certificate,
 		krnlReleaseObject( certInfoPtr->objectHandle );
 		return( CRYPT_ERROR_PARAM1 );
 		}
-	if( certInfoPtr->certificate != NULL || \
-		( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN && \
-		  certInfoPtr->cCertCert->chainPos >= 0 ) )
+	if( certInfoPtr->certificate != NULL )
 		{
 		krnlReleaseObject( certInfoPtr->objectHandle );
 		return( CRYPT_ERROR_PERMISSION );
+		}
+	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
+		{
+		const CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+		REQUIRES( certChainInfo != NULL );
+		
+		if( certChainInfo->chainPos >= 0 )
+			{
+			krnlReleaseObject( certInfoPtr->objectHandle );
+			return( CRYPT_ERROR_PERMISSION );
+			}
 		}
 	if( certInfoPtr->type == CRYPT_CERTTYPE_CMS_ATTRIBUTES && \
 		criticalFlag != CRYPT_UNUSED )
@@ -1813,12 +1936,22 @@ C_RET cryptDeleteCertExtension( C_IN CRYPT_CERTIFICATE certificate,
 		krnlReleaseObject( certInfoPtr->objectHandle );
 		return( CRYPT_ERROR_PARAM1 );
 		}
-	if( certInfoPtr->certificate != NULL || \
-		( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN && \
-		  certInfoPtr->cCertCert->chainPos >= 0 ) )
+	if( certInfoPtr->certificate != NULL )
 		{
 		krnlReleaseObject( certInfoPtr->objectHandle );
 		return( CRYPT_ERROR_PERMISSION );
+		}
+	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
+		{
+		const CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+		REQUIRES( certChainInfo != NULL );
+		
+		if( certChainInfo->chainPos >= 0 )
+			{
+			krnlReleaseObject( certInfoPtr->objectHandle );
+			return( CRYPT_ERROR_PERMISSION );
+			}
 		}
 
 	/* Find the attribute identified by the OID and delete it */

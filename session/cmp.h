@@ -85,13 +85,17 @@
    "same as previous".  The user credentials (if MAC authentication is being 
    used) are tied to a MAC context which is maintained as part of the 
    protocol state information.  Since this is recycled on each transaction, 
-   it's copied to the savedMacContext value in the session state in case 
-   it's required in the following transaction.  This is necessary because 
-   the creation of a MAC context is triggered by a new user ID being seen,
-   if it's "same as previous" then no new MAC context will be created.
+   if we start with a PKIBoot (genm) which is almost always followed by an
+   ir we copy it to the savedMacContext value in the session state for 
+   potential ir reuse.  We have to be careful here and only allow it for
+   a PKIBoot -> ir transition because other operations like an rr can also
+   be MAC'd, which means it'd be possible to revoke a certificate with an
+   issue password.  This is mostly a technicality because the revocation
+   is authorised either way, but the CMP design seems to favour distinct
+   revocation passwords.
 
    (An alternative option would be to disable the user ID and MAC context
-   caching, but the main case where MAC authentication is used is in PnPPKI 
+   caching, but case where MAC authentication reuse is used is in PnPPKI 
    where a PKIBoot is always followed by an ir, so it saves CMP messaging, 
    certificate store lookup, and context setup overhead by caching the 
    credentials across transactions).
@@ -318,9 +322,9 @@ typedef enum {
 		  debugDumpCMP( type, level, sessionInfo )
 
   STDC_NONNULL_ARG( ( 3 ) ) \
-  void debugDumpCMP( IN_ENUM( CMP_MESSAGE ) const CMP_MESSAGE_TYPE type, 
+  void debugDumpCMP( IN_ENUM_OPT( CMP_MESSAGE ) const CMP_MESSAGE_TYPE type, 
 					 IN_RANGE( 1, 4 ) const int phase,
-					 const SESSION_INFO *sessionInfoPtr );
+					 IN_PTR const SESSION_INFO *sessionInfoPtr );
 #else
   #define DEBUG_DUMP_CMP( type, level, sessionInfo )
 #endif /* Win32 debug */
@@ -439,6 +443,7 @@ typedef struct {
 	   request */
 	CRYPT_ALGO_TYPE hashAlgo;				/* Hash algo for signature */
 	int hashParam;							/* Optional parameter for hash algo.*/
+	CRYPT_ALGO_TYPE macAlgo;				/* MAC algo for MAC'ing */
 	CRYPT_CONTEXT iMacContext;				/* MAC context */
 	BUFFER( CRYPT_MAX_HASHSIZE, saltSize ) \
 	BYTE salt[ CRYPT_MAX_HASHSIZE + 8 ];	/* MAC password salt  */
@@ -563,6 +568,8 @@ int initMacInfo( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 				 IN_BUFFER( saltLength ) const void *salt, 
 				 IN_LENGTH_SHORT const int saltLength, 
 				 IN_RANGE( 1, CMP_MAX_PW_ITERATIONS ) const int iterations );
+STDC_NONNULL_ARG( ( 1 ) ) \
+void cleanupMacInfo( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
 int readMacInfo( INOUT_PTR STREAM *stream, 
 				 INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,

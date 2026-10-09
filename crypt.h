@@ -240,9 +240,12 @@ typedef struct {
 	VALUE( 0, CRYPT_MAX_HASHSIZE ) \
 	int saltLength;
 
-	/* The hash algorithm for signatures */
+	/* The hash algorithm and PGP signature type for signatures */
 	CRYPT_ALGO_TYPE hashAlgo;		/* Hash algorithm */
 	int hashParam;					/* Optional algorithm parameter */
+#ifdef USE_PGP
+	int signatureType;				/* PGP signature type */
+#endif /* USE_PGP */
 
 	/* The encoded parameter data for authenticated encryption, and the
 	   optional KDF and encryption and MAC algorithm parameter data within 
@@ -529,7 +532,8 @@ typedef struct {
 	( ( algorithm ) == CRYPT_ALGO_RSA || ( algorithm ) == CRYPT_ALGO_DSA || \
 	  ( algorithm ) == CRYPT_ALGO_ECDSA || ( algorithm ) == CRYPT_ALGO_ED25519 )
 #define isCryptAlgo( algorithm ) \
-	( ( algorithm ) == CRYPT_ALGO_RSA || ( algorithm ) == CRYPT_ALGO_ELGAMAL )
+	( ( algorithm ) == CRYPT_ALGO_RSA || ( algorithm ) == CRYPT_ALGO_ELGAMAL || \
+	  ( algorithm ) == CRYPT_ALGO_MLKEM )
 #define isKeyexAlgo( algorithm ) \
 	( ( algorithm ) == CRYPT_ALGO_DH || ( algorithm ) == CRYPT_ALGO_ECDH || \
 	  ( algorithm ) == CRYPT_ALGO_25519 )

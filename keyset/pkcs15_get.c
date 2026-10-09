@@ -266,6 +266,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	CRYPT_CERTIFICATE iDataCert = CRYPT_ERROR;
 	CRYPT_KEYID_TYPE localKeyIDtype = keyIDtype;
 	CRYPT_CONTEXT iCryptContext;
+	const FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	const PKCS15_INFO *pkcs15info = DATAPTR_GET( keysetInfoPtr->keyData );
 	const PKCS15_INFO *pkcs15infoPtr;
 	MESSAGE_DATA msgData;
@@ -273,9 +274,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	const BOOLEAN publicComponentsOnly = \
 					( itemType != KEYMGMT_ITEM_PRIVATEKEY ) ? TRUE : FALSE;
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
-	const BOOLEAN isStorageObject = \
-			( keysetInfoPtr->keysetFile->iHardwareDevice != CRYPT_UNUSED ) ? \
-			TRUE : FALSE;
+	BOOLEAN isStorageObject;
 #else
 	#define isStorageObject		FALSE
 #endif /* USE_HARDWARE || USE_TPM */
@@ -306,10 +305,18 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 			  ( auxInfo != NULL && \
 				isShortIntegerRangeNZ( *auxInfoLength ) ) );
 	REQUIRES( isFlagRangeZ( flags, KEYMGMT ) );
+	REQUIRES( fileInfo != NULL );
 	REQUIRES( pkcs15info != NULL );
 
 	/* Clear return values */
 	*iCryptHandle = CRYPT_ERROR;
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+#if defined( USE_HARDWARE ) || defined( USE_TPM )
+	isStorageObject = ( fileInfo->iHardwareDevice != CRYPT_UNUSED ) ? \
+						TRUE : FALSE;
+#endif /* USE_HARDWARE || USE_TPM */
 
 	/* Locate the appropriate object in the PKCS #15 collection and make 
 	   sure that the components that we need are present: Either a public 
@@ -407,7 +414,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 									  localKeyIDlength, publicComponentsOnly,
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
 									  isStorageObject ? \
-										keysetInfoPtr->keysetFile->iHardwareDevice : 
+										fileInfo->iHardwareDevice : 
 #endif /* USE_HARDWARE || USE_TPM */
 										SYSTEM_OBJECT_HANDLE,
 									  &iCryptContext, &iDataCert,

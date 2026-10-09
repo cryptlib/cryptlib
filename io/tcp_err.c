@@ -1057,6 +1057,7 @@ int diagnoseConnectionProblem( INOUT_PTR NET_STREAM_INFO *netStream,
 	FNPTR_SET( diagnosticNetStream.virtualGetDataFunction, NULL );
 	FNPTR_SET( diagnosticNetStream.virtualPutDataFunction, NULL );
 	FNPTR_SET( diagnosticNetStream.virtualGetErrorInfoFunction, NULL );
+	SAFEINT_SET( diagnosticNetStream.storageSize, 0 );
 	ENSURES( sanityCheckNetStream( &diagnosticNetStream ) );
 
 	/* Ping the remote host */

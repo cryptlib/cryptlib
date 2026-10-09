@@ -247,7 +247,7 @@ static const CERT_DATA certData[] = {
 
 int testBasicCert( void )
 	{
-	CRYPT_CERTIFICATE cryptCert;
+	CRYPT_CERTIFICATE cryptCert, cryptCertCopy;
 	CRYPT_CONTEXT pubKeyContext, privKeyContext;
 	int certificateLength DUMMY_INIT, value, status;
 
@@ -330,6 +330,16 @@ int testBasicCert( void )
 							  __LINE__ ) );
 		}
 
+	/* Repeat the check, this time with the same certificate as the issuing 
+	   certificate.  Since they're the same object, the check will succeed,
+	   later on we check for the same certificate as a different object */
+	status = cryptCheckCert( cryptCert, cryptCert );
+	if( cryptStatusError( status ) )
+		{
+		return( extErrorExit( cryptCert, "cryptCheckCert()", status,
+							  __LINE__ ) );
+		}
+
 	/* Set the certificate usage to untrusted for any purpose, which should 
 	   result in the signature check failing */
 	cryptSetAttribute( cryptCert, CRYPT_CERTINFO_TRUSTED_USAGE,
@@ -384,6 +394,25 @@ int testBasicCert( void )
 						  CRYPT_CERTFORMAT_XML_CERTCHAIN,
 						  "CRYPT_CERTFORMAT_XML_CERTCHAIN" ) )
 		return( FALSE );
+
+	/* Check that a second copy of the certificate also works as the check
+	   object */
+	status = cryptImportCert( certBuffer, certificateLength, 
+							  CRYPT_UNUSED, &cryptCertCopy );
+	if( cryptStatusError( status ) )
+		{
+		cryptDestroyCert( cryptCert );
+		fprintf( outputStream, "Creation of second copy of certificate "
+				 "failed with error code %d, line %d.\n", status, __LINE__ );
+		return( FALSE );
+		}
+	status = cryptCheckCert( cryptCert, cryptCertCopy );
+	cryptDestroyCert( cryptCertCopy );
+	if( cryptStatusError( status ) )
+		{
+		return( extErrorExit( cryptCert, "cryptCheckCert()", status,
+							  __LINE__ ) );
+		}
 
 	/* Destroy the certificate */
 	status = cryptDestroyCert( cryptCert );
@@ -3152,8 +3181,9 @@ int testComplexCRL( void )
 	CRYPT_CERTIFICATE cryptCRL, cryptRevokeCert DUMMY_INIT;
 	CRYPT_CONTEXT cryptCAKey;
 	time_t revocationTime;
+	char errorMessage[ 512 ];
 	int certificateLength, revocationReason DUMMY_INIT, complianceLevel;
-	int dummy, status;
+	int errorMessageLength, dummy, status;
 
 	fputs( "Testing complex CRL creation/export...\n", outputStream );
 
@@ -3188,14 +3218,15 @@ int testComplexCRL( void )
 		return( FALSE );
 		}
 
-	/* Add some CRL components with per-entry attributes.  In this case the
-	   CA is revoking its own key because it was compromised (would you trust
-	   this CRL?) and some keys from test certs */
+	/* Add the overall CRL components */
 	if( !addCertFields( cryptCRL, complexCRLData, __LINE__ ) )
 		{
 		resetComplianceLevel( complianceLevel );
 		return( FALSE );
 		}
+		
+	/* Revoked certificate #1, the CA is revoking its own key because it 
+	   was compromised (would you trust this CRL?), caCompromise reason */
 	status = cryptSetAttribute( cryptCRL, CRYPT_CERTINFO_CERTIFICATE,
 								cryptCAKey );
 	if( cryptStatusOK( status ) )
@@ -3205,53 +3236,16 @@ int testComplexCRL( void )
 									CRYPT_CERTINFO_CRLREASON,
 									CRYPT_CRLREASON_CACOMPROMISE );
 		}
-	if( cryptStatusOK( status ) )
-		{
-		status = importCertFromTemplate( &cryptRevokeCert,
-										 CRLCERT_FILE_TEMPLATE, 1 );
-		}
-	if( cryptStatusOK( status ) )
-		{
-		status = cryptSetAttribute( cryptCRL, CRYPT_CERTINFO_CERTIFICATE,
-									cryptRevokeCert );
-		cryptDestroyCert( cryptRevokeCert );
-		}
-	if( cryptStatusOK( status ) )
-		{
-		/* Hold certificate, call issuer for details */
-		status = cryptSetAttribute( cryptCRL,
-									CRYPT_CERTINFO_CRLREASON,
-									CRYPT_CRLREASON_CERTIFICATEHOLD );
-		if( cryptStatusOK( status ) )
-			{
-#ifdef USE_CERTLEVEL_PKIX_FULL
-			status = cryptSetAttribute( cryptCRL,
-										CRYPT_CERTINFO_HOLDINSTRUCTIONCODE,
-										CRYPT_HOLDINSTRUCTION_CALLISSUER );
-#else
-			status = cryptSetAttribute( cryptCRL, 
-										CRYPT_CERTINFO_HOLDINSTRUCTIONCODE, 
-										CRYPT_HOLDINSTRUCTION_CALLISSUER );
-			if( status != CRYPT_ERROR_PARAM2 )
-				{
-				printf( "Addition of disabled attribute %d wasn't "
-						"detected, line %d.\n", 
-						CRYPT_CERTINFO_HOLDINSTRUCTIONCODE, __LINE__ );
-				resetComplianceLevel( complianceLevel );
-				return( FALSE );
-				}
-			status = CRYPT_OK;
-#endif /* USE_CERTLEVEL_PKIX_FULL */
-			}
-		}
 	if( cryptStatusError( status ) )
 		{
 		resetComplianceLevel( complianceLevel );
-		return( extErrorExit( cryptCRL, "cryptSetAttribute(), certificate "
-							  "#1", status, __LINE__ ) );
+		return( extErrorExit( cryptCRL, "cryptSetAttribute(), CA certificate", 
+							  status, __LINE__ ) );
 		}
+	
+	/* Revoked certificate #2, sample certificate 1, backdated invalidity */
 	status = importCertFromTemplate( &cryptRevokeCert,
-									 CRLCERT_FILE_TEMPLATE, 2 );
+									 CRLCERT_FILE_TEMPLATE, 1 );
 	if( cryptStatusOK( status ) )
 		{
 		status = cryptSetAttribute( cryptCRL, CRYPT_CERTINFO_CERTIFICATE,
@@ -3286,10 +3280,55 @@ int testComplexCRL( void )
 							  "#2", status, __LINE__ ) );
 		}
 
+	/* Revoked certificate #3, sample certificate 2, certificate hold */
+	status = importCertFromTemplate( &cryptRevokeCert,
+									 CRLCERT_FILE_TEMPLATE, 2 );
+	if( cryptStatusOK( status ) )
+		{
+		status = cryptSetAttribute( cryptCRL, CRYPT_CERTINFO_CERTIFICATE,
+									cryptRevokeCert );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		/* Hold certificate, call issuer for details */
+		status = cryptSetAttribute( cryptCRL,
+									CRYPT_CERTINFO_CRLREASON,
+									CRYPT_CRLREASON_CERTIFICATEHOLD );
+		if( cryptStatusOK( status ) )
+			{
+#ifdef USE_CERTLEVEL_PKIX_FULL
+			status = cryptSetAttribute( cryptCRL,
+										CRYPT_CERTINFO_HOLDINSTRUCTIONCODE,
+										CRYPT_HOLDINSTRUCTION_CALLISSUER );
+#else
+			status = cryptSetAttribute( cryptCRL, 
+										CRYPT_CERTINFO_HOLDINSTRUCTIONCODE, 
+										CRYPT_HOLDINSTRUCTION_CALLISSUER );
+			if( status != CRYPT_ERROR_PARAM2 )
+				{
+				printf( "Addition of disabled attribute %d wasn't "
+						"detected, line %d.\n", 
+						CRYPT_CERTINFO_HOLDINSTRUCTIONCODE, __LINE__ );
+				resetComplianceLevel( complianceLevel );
+				return( FALSE );
+				}
+			status = CRYPT_OK;
+#endif /* USE_CERTLEVEL_PKIX_FULL */
+			}
+		}
+	if( cryptStatusError( status ) )
+		{
+		cryptDestroyCert( cryptRevokeCert );
+		resetComplianceLevel( complianceLevel );
+		return( extErrorExit( cryptCRL, "cryptSetAttribute(), certificate "
+							  "#1", status, __LINE__ ) );
+		}
+
 	/* Sign the CRL */
 	status = cryptSignCert( cryptCRL, cryptCAKey );
 	if( cryptStatusError( status ) )
 		{
+		cryptDestroyCert( cryptRevokeCert );
 		resetComplianceLevel( complianceLevel );
 		return( extErrorExit( cryptCRL, "cryptSignCert()", status,
 							  __LINE__ ) );
@@ -3298,6 +3337,7 @@ int testComplexCRL( void )
 	/* Print information on what we've got */
 	if( !printCertInfo( cryptCRL ) )
 		{
+		cryptDestroyCert( cryptRevokeCert );
 		resetComplianceLevel( complianceLevel );
 		return( FALSE );
 		}
@@ -3307,6 +3347,7 @@ int testComplexCRL( void )
 	status = cryptCheckCert( cryptCRL, cryptCAKey );
 	if( cryptStatusError( status ) )
 		{
+		cryptDestroyCert( cryptRevokeCert );
 		resetComplianceLevel( complianceLevel );
 		return( extErrorExit( cryptCRL, "cryptCheckCert()", status,
 							  __LINE__ ) );
@@ -3317,6 +3358,7 @@ int testComplexCRL( void )
 							  CRYPT_CERTFORMAT_CERTIFICATE, cryptCRL );
 	if( cryptStatusError( status ) )
 		{
+		cryptDestroyCert( cryptRevokeCert );
 		resetComplianceLevel( complianceLevel );
 		return( extErrorExit( cryptCRL, "cryptExportCert()", status,
 							  __LINE__ ) );
@@ -3331,6 +3373,7 @@ int testComplexCRL( void )
 		{
 		printf( "cryptDestroyCert() failed with error code %d, line %d.\n",
 				status, __LINE__ );
+		cryptDestroyCert( cryptRevokeCert );
 		resetComplianceLevel( complianceLevel );
 		return( FALSE );
 		}
@@ -3342,23 +3385,66 @@ int testComplexCRL( void )
 		{
 		fprintf( outputStream, "cryptImportCert() failed with error "
 				 "code %d, line %d.\n", status, __LINE__ );
+		cryptDestroyCert( cryptRevokeCert );
 		resetComplianceLevel( complianceLevel );
 		return( FALSE );
 		}
 	status = cryptCheckCert( cryptCRL, cryptCAKey );
 	if( cryptStatusError( status ) )
 		{
+		cryptDestroyCert( cryptRevokeCert );
 		resetComplianceLevel( complianceLevel );
 		return( extErrorExit( cryptCRL, "cryptCheckCert()", status,
 							  __LINE__ ) );
 		}
 
-	/* Check the newly-revoked CA key against the CRL */
+	/* Check the newly-revoked CA key against the CRL.  This should fail 
+	   since it's marked as an EE-only CRL */
 	status = cryptCheckCert( cryptCAKey, cryptCRL );
 	if( status != CRYPT_ERROR_INVALID )
 		{
 		printf( "Revoked certificate wasn't reported as being revoked, "
 				"line %d.\n", __LINE__ );
+		cryptDestroyCert( cryptRevokeCert );
+		resetComplianceLevel( complianceLevel );
+		return( FALSE );
+		}
+	printf( "Revocation information for CA certificate:\n" );
+	printExtError( cryptCRL, NULL, status, __LINE__ );
+	status = cryptGetAttributeString( cryptCRL, CRYPT_ATTRIBUTE_ERRORMESSAGE,
+									  errorMessage, &errorMessageLength );
+	if( cryptStatusError( status ) || \
+		memcmp( errorMessage, "EE-only CRL", 11 ) )
+		{
+		printf( "Revoked CA certificate wasn't rejected by EE-only CRL, "
+				"line %d.\n", __LINE__ );
+		cryptDestroyCert( cryptRevokeCert );
+		resetComplianceLevel( complianceLevel );
+		return( FALSE );
+		}
+	
+	/* Check the EE revoked certificate against the CRL */
+	status = cryptCheckCert( cryptRevokeCert, cryptCRL );
+	cryptDestroyCert( cryptRevokeCert );
+	if( status != CRYPT_ERROR_INVALID )
+		{
+		printf( "Revoked certificate wasn't reported as being revoked, "
+				"line %d.\n", __LINE__ );
+		resetComplianceLevel( complianceLevel );
+		return( FALSE );
+		}
+	printf( "Revocation information for EE certificate:\n" );
+	printExtError( cryptCRL, NULL, status, __LINE__ );
+	status = cryptGetAttributeString( cryptCRL, CRYPT_ATTRIBUTE_ERRORMESSAGE,
+									  errorMessage, &errorMessageLength );
+	if( cryptStatusError( status ) || \
+		memcmp( errorMessage, "Certificate has been", 20 ) )
+		{
+		/* A lot of things can cause a CRYPT_ERROR_INVALID so we explicitly 
+		   check that the revocation check worked */
+		printf( "Revoked certificate wasn't reported as being revoked, "
+				"line %d.\n", __LINE__ );
+		cryptDestroyCert( cryptRevokeCert );
 		resetComplianceLevel( complianceLevel );
 		return( FALSE );
 		}
@@ -3375,10 +3461,11 @@ int testComplexCRL( void )
 		return( extErrorExit( cryptCRL, "cryptGetAttribute()", status,
 							  __LINE__ ) );
 		}
-	if( revocationReason != CRYPT_CRLREASON_CACOMPROMISE )
+	if( revocationReason != CRYPT_CRLREASON_CERTIFICATEHOLD )
 		{
 		printf( "Revocation reason was %d, should have been %d, line %d.\n",
-				revocationReason, CRYPT_CRLREASON_CACOMPROMISE, __LINE__ );
+				revocationReason, CRYPT_CRLREASON_CERTIFICATEHOLD, 
+				__LINE__ );
 		resetComplianceLevel( complianceLevel );
 		return( FALSE );
 		}

@@ -275,7 +275,7 @@ static int encryptDataConv( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 					DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	const CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 	CTX_ENCRYPT_FUNCTION encryptFunction;
 	const int savedDataLength = min( dataLength, ENCRYPT_CHECKSIZE );
 	BYTE savedData[ ENCRYPT_CHECKSIZE + 8 ];
@@ -479,7 +479,7 @@ int processActionMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	/* Get subtype-specific storage if required */
 	if( contextInfoPtr->type == CONTEXT_PKC )
 		{
-		pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+		pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 		REQUIRES( pkcInfo != NULL );
 		}
 
@@ -528,7 +528,10 @@ int processActionMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			status = decryptFunction( contextInfoPtr, data, dataLength );
 			if( contextInfoPtr->type == CONTEXT_PKC && \
 				!TEST_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_DUMMY ) )
+				{
+				ANALYSER_HINT( pkcInfo != NULL );
 				clearTempBignums( pkcInfo );
+				}
 			if( cryptStatusOK( status ) && \
 				!checkContextStateData( contextInfoPtr ) )
 				status = CRYPT_ERROR_FAILED;
@@ -611,7 +614,7 @@ int processActionMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			if( cryptStatusOK( status ) && \
 				contextInfoPtr->type == CONTEXT_MAC )
 				{
-				MAC_INFO *macInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 
 				REQUIRES( macInfo != NULL );
 

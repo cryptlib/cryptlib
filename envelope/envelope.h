@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *						 Enveloping Routines Header File					*
-*						Copyright Peter Gutmann 1996-2020					*
+*						Copyright Peter Gutmann 1996-2025					*
 *																			*
 ****************************************************************************/
 
@@ -298,10 +298,12 @@ typedef struct CL {
 	BUFFER_OPT_FIXED( payloadSize ) \
 	const void *payload;			/* Payload data (e.g. encr.key) */
 	int payloadSize;
+	
+	/* Object-specific information */
 	union {
-		CONTENT_ENCR_INFO contentEncrInfo;	/* Encryption obj-specific info.*/
-		CONTENT_SIG_INFO contentSigInfo;	/* Signature obj-specific info.*/
-		CONTENT_AUTHENC_INFO contentAuthEncInfo;/* Auth-enc obj-spec.info */
+		CONTENT_ENCR_INFO contentEncrInfo;		/* Encryption information */
+		CONTENT_SIG_INFO contentSigInfo;		/* Signature information */
+		CONTENT_AUTHENC_INFO contentAuthEncInfo;/* AuthEnc information */
 		} contentInfo;
 	} CONTENT_LIST;
 
@@ -443,6 +445,20 @@ typedef enum {
 	PGP_DEENVSTATE_LAST				/* Last valid de-enveloping state */
 	} PGP_DEENV_STATE;
 
+/* When pushing and popping data, overflow and underflow errors can be
+   recovered from by adding or removing data so we don't retain the error
+   state for these error types */
+
+#define isRecoverableError( status ) \
+		( ( status ) == CRYPT_ERROR_OVERFLOW || \
+		  ( status ) == CRYPT_ERROR_UNDERFLOW )
+
+/****************************************************************************
+*																			*
+*							Envelope Data Structures						*
+*																			*
+****************************************************************************/
+
 /* Envelope information flags.  These are:
 
 	FLAG_ATTRONLY: The (signed data) envelope only contains authenticated
@@ -465,7 +481,10 @@ typedef enum {
 			include the signing certificates with the data.
 
 	FLAG_ZSTREAMINITED: Whether the zlib compression/decompression stream
-			has been initialised */
+			has been initialised.
+			
+	FLAG_ZSTREAMCOMPLETE: Whether the zlib decompression stream has 
+			reached its EOF, so that no more data can be decompressed */
 
 #define ENVELOPE_FLAG_NONE			0x00	/* No envelope flag */
 #define ENVELOPE_FLAG_ISDEENVELOPE	0x01	/* De-enveloping envelope */
@@ -474,8 +493,9 @@ typedef enum {
 #define ENVELOPE_FLAG_ATTRONLY		0x08	/* Env.contains only auth'd attrs.*/
 #define ENVELOPE_FLAG_ATTRSKIPPED	0x10	/* Env.attributes were skipped */
 #define ENVELOPE_FLAG_ZSTREAMINITED	0x20	/* Whether zlib stream has been inited */
-#define ENVELOPE_FLAG_AUTHENC		0x40	/* Use authenticated encryption */
-#define ENVELOPE_FLAG_MAX			0x7F	/* Maximum possible flag value */
+#define ENVELOPE_FLAG_ZSTREAMCOMPLETE 0x40	/* Whether zlib stream has reached EOF */
+#define ENVELOPE_FLAG_AUTHENC		0x80	/* Use authenticated encryption */
+#define ENVELOPE_FLAG_MAX			0xFF	/* Maximum possible flag value */
 
 /* Envelope data processing flags.  These are:
 
@@ -561,13 +581,13 @@ typedef enum {
 #define ENVCOPY_FLAG_MAX		0x01	/* Maximum possible flag value */
 
 /* The size of the buffers used to handle read-ahead into out-of-band data 
-   at  the start of the payload, and to buffer leftover bytes when the data 
-   that we're given is split exactly over a header (OCTET STRING + length
-   for CMS, partial length for PGP) that we can't leave with the payload 
-   data but have to store until we get fed the rest of the header.  See
-   the longer comments where the variables are declared for details */
+   at  the start of the payload (PGP), and to buffer leftover bytes when the 
+   data that we're given is split exactly over a header (OCTET STRING + 
+   length for CMS, partial length for PGP) that we can't leave with the 
+   payload data but have to store until we get fed the rest of the header.  
+   See the longer comments where the variables are declared for details */
 
-#define OOB_BUFFER_SIZE			8
+#define OOB_BUFFER_SIZE			( 16 + 256 )
 #define PARTIAL_BUFFER_SIZE		16
 
 /* The structure that stores the information on an envelope.  The envInfo 
@@ -793,11 +813,13 @@ typedef struct EI {
 	BYTE partialBuffer[ PARTIAL_BUFFER_SIZE + 8 ];	/* Buffered partial header data */
 	int partialBufPos;
 
-	/* Some data formats place out-of-band data at the start of the payload
-	   rather than putting it in the header, so we need to be able to peek
-	   ahead into the processed (e.g. decrypted) data via a lookahead read 
-	   in order to determine what to do next.  The out-of-band (OOB) buffer 
-	   and associated variables take care of this.
+	/* PGP places out-of-band data at the start of the payload rather than 
+	   putting it in the header, so we need to be able to peek ahead into 
+	   the processed (e.g. decrypted) data via a lookahead read in order 
+	   to determine what to do next.  The out-of-band (OOB) buffer and 
+	   associated variables take care of this, being sized to contain the
+	   largest possible header for a PGP literal data packet, the OOB data
+	   that's stripped on read.
 	   
 	   The OOB data-left variable keeps track of how many bytes of data 
 	   still need to be removed before we can return actual payload data to 
@@ -1001,7 +1023,7 @@ int createContentListItem( OUT_BUFFER_ALLOC_OPT( sizeof( CONTENT_LIST ) ) \
 						   IN_ENUM( CRYPT_FORMAT ) \
 								const CRYPT_FORMAT_TYPE formatType,
 						   IN_BUFFER_OPT( objectSize ) const void *object, 
-						   IN_LENGTH_Z const int objectSize );
+						   IN_LENGTH_SHORT_Z const int objectSize );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int checkContinueDeenv( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \

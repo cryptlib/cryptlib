@@ -36,7 +36,7 @@ static DATAPTR_ATTRIBUTE defaultFieldAttribute, completeAttribute;
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -75,10 +75,10 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 		attributeListPtr->subFieldID == CRYPT_ATTRIBUTE_NONE )
 		{
 		/* Make sure that various fields are set/not set as required */
-		if( attributeListPtr->dataValue == NULL || \
-			!isIntegerRangeNZ( attributeListPtr->dataValueLength ) )
+		if( attributeListPtr->attrDataValue == NULL || \
+			!isIntegerRangeNZ( attributeListPtr->attrDataValueLength ) )
 			{
-			DEBUG_PUTS(( "sanityCheckAttribute: Blob data" ));
+			DEBUG_PUTS(( "sanityCheckAttributePtr: Blob data" ));
 			return( FALSE );
 			}
 		if( attributeListPtr->oid == NULL || \
@@ -87,13 +87,13 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 			TEST_FLAG( attributeListPtr->flags,
 					   ~( ATTR_FLAG_IGNORED | ATTR_FLAG_CRITICAL ) ) )
 			{
-			DEBUG_PUTS(( "sanityCheckAttribute: Blob general information" ));
+			DEBUG_PUTS(( "sanityCheckAttributePtr: Blob general information" ));
 			return( FALSE );
 			}
 		if( !DATAPTR_ISVALID( attributeListPtr->prev ) || \
 			!DATAPTR_ISVALID( attributeListPtr->next ) )
 			{
-			DEBUG_PUTS(( "sanityCheckAttribute: Blob prev/next links" ));
+			DEBUG_PUTS(( "sanityCheckAttributePtr: Blob prev/next links" ));
 			return( FALSE );
 			}
 
@@ -108,7 +108,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 		  !isGeneralNameComponent( attributeListPtr->subFieldID ) && \
 		  !isDNComponent( attributeListPtr->subFieldID ) ) )
 		{
-		DEBUG_PUTS(( "sanityCheckAttribute: Attribute/field/subfield ID" ));
+		DEBUG_PUTS(( "sanityCheckAttributePtr: Attribute/field/subfield ID" ));
 		return( FALSE );
 		}
 	if( !isShortIntegerRange( attributeListPtr->encodedSize ) || \
@@ -117,7 +117,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 		!CHECK_FLAGS( attributeListPtr->flags, ATTR_FLAG_NONE, 
 					  ATTR_FLAG_MAX ) )
 		{
-		DEBUG_PUTS(( "sanityCheckAttribute: General info" ));
+		DEBUG_PUTS(( "sanityCheckAttributePtr: General info" ));
 		return( FALSE );
 		}
 
@@ -126,9 +126,9 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 		{
 		case BER_NULL:
 			/* Placeholder value */
-			if( attributeListPtr->intValue != CRYPT_UNUSED )
+			if( attributeListPtr->attrIntValue != CRYPT_UNUSED )
 				{
-				DEBUG_PUTS(( "sanityCheckAttribute: Null field" ));
+				DEBUG_PUTS(( "sanityCheckAttributePtr: Null field" ));
 				return( FALSE );
 				}
 			break;
@@ -140,9 +140,9 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 		case FIELDTYPE_CHOICE:
 		case FIELDTYPE_ALGOID:
 			/* Numeric value */
-			if( !isIntegerRange( attributeListPtr->intValue ) )
+			if( !isIntegerRange( attributeListPtr->attrIntValue ) )
 				{
-				DEBUG_PUTS(( "sanityCheckAttribute: Numeric data" ));
+				DEBUG_PUTS(( "sanityCheckAttributePtr: Numeric data" ));
 				return( FALSE );
 				}
 			break;
@@ -153,12 +153,12 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 			time_t timeValue = 0;
 
 			/* Time value */
-			if( attributeListPtr->dataValue != NULL )
-				timeValue = *( ( time_t * ) attributeListPtr->dataValue );
+			if( attributeListPtr->attrDataValue != NULL )
+				timeValue = *( ( time_t * ) attributeListPtr->attrDataValue );
 			if( timeValue < MIN_STORED_TIME_VALUE || \
 				timeValue > MAX_TIME_VALUE )
 				{
-				DEBUG_PUTS(( "sanityCheckAttribute: Time data" ));
+				DEBUG_PUTS(( "sanityCheckAttributePtr: Time data" ));
 				return( FALSE );
 				}
 			break;
@@ -168,19 +168,19 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 		case BER_OBJECT_IDENTIFIER:
 		case FIELDTYPE_TEXTSTRING:
 			/* String value */
-			if( attributeListPtr->dataValue == NULL || \
-				!isIntegerRangeNZ( attributeListPtr->dataValueLength ) )
+			if( attributeListPtr->attrDataValue == NULL || \
+				!isIntegerRangeNZ( attributeListPtr->attrDataValueLength ) )
 				{
-				DEBUG_PUTS(( "sanityCheckAttribute: String data" ));
+				DEBUG_PUTS(( "sanityCheckAttributePtr: String data" ));
 				return( FALSE );
 				}
 			break;
 
 		case FIELDTYPE_IDENTIFIER:
 			/* Identifier field with no intrinsic value */
-			if( attributeListPtr->intValue != CRYPT_UNUSED )
+			if( attributeListPtr->attrIntValue != CRYPT_UNUSED )
 				{
-				DEBUG_PUTS(( "sanityCheckAttribute: Identifier field" ));
+				DEBUG_PUTS(( "sanityCheckAttributePtr: Identifier field" ));
 				return( FALSE );
 				}
 			break;
@@ -192,7 +192,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 
 			if( !DATAPTR_ISVALID( dn ) )
 				{
-				DEBUG_PUTS(( "sanityCheckAttribute: DN data" ));
+				DEBUG_PUTS(( "sanityCheckAttributePtr: DN data" ));
 				return( FALSE );
 				}
 			break;
@@ -203,13 +203,13 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 			if( !isStringField( attributeListPtr->fieldType ) && \
 				!isBlobField( attributeListPtr->fieldType ) )
 				{
-				DEBUG_PUTS(( "sanityCheckAttribute: Data payload type" ));
+				DEBUG_PUTS(( "sanityCheckAttributePtr: Data payload type" ));
 				return( FALSE );
 				}
-			if( attributeListPtr->dataValue == NULL || \
-				!isIntegerRangeNZ( attributeListPtr->dataValueLength ) )
+			if( attributeListPtr->attrDataValue == NULL || \
+				!isIntegerRangeNZ( attributeListPtr->attrDataValueLength ) )
 				{
-				DEBUG_PUTS(( "sanityCheckAttribute: String data" ));
+				DEBUG_PUTS(( "sanityCheckAttributePtr: String data" ));
 				return( FALSE );
 				}
 			}
@@ -218,7 +218,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 	if( !DATAPTR_ISVALID( attributeListPtr->prev ) || \
 		!DATAPTR_ISVALID( attributeListPtr->next ) )
 		{
-		DEBUG_PUTS(( "sanityCheckAttribute: Prev/next links" ));
+		DEBUG_PUTS(( "sanityCheckAttributePtr: Prev/next links" ));
 		return( FALSE );
 		}
 
@@ -228,7 +228,7 @@ BOOLEAN sanityCheckAttributePtr( IN_PTR const ATTRIBUTE_LIST *attributeListPtr )
 		attributeListPtr->fifoPos < 0 || \
 		attributeListPtr->fifoPos > attributeListPtr->fifoEnd )
 		{
-		DEBUG_PUTS(( "sanityCheckAttribute: Encoding FIFO info" ));
+		DEBUG_PUTS(( "sanityCheckAttributePtr: Encoding FIFO info" ));
 		return( FALSE );
 		}
 
@@ -1128,7 +1128,7 @@ void setAttributeProperty( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 		case ATTRIBUTE_PROPERTY_VALUE:
 			REQUIRES_V( optValue > 0 );
 
-			attributeListPtr->intValue = optValue;
+			attributeListPtr->attrIntValue = optValue;
 			return;
 
 		case ATTRIBUTE_PROPERTY_LOCKED:
@@ -1323,7 +1323,7 @@ int getAttributeDataValue( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 			  attributeListPtr->fieldType == FIELDTYPE_IDENTIFIER || \
 			  attributeListPtr->fieldType == FIELDTYPE_ALGOID );
 
-	*value = attributeListPtr->intValue;
+	*value = attributeListPtr->attrIntValue;
 
 	return( CRYPT_OK );
 	}
@@ -1343,7 +1343,7 @@ int getAttributeDataTime( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 	REQUIRES( attributeListPtr->fieldType == BER_TIME_GENERALIZED || \
 			  attributeListPtr->fieldType == BER_TIME_UTC );
 
-	*value = *( ( time_t * ) attributeListPtr->dataValue );
+	*value = *( ( time_t * ) attributeListPtr->attrDataValue );
 
 	return( CRYPT_OK );
 	}
@@ -1384,7 +1384,7 @@ int getAttributeDataDNPtr( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 	/* See the comment by the definition of SELECTION_INFO in cert.h for the
 	   reason why we return the address of the pointer rather than the 
 	   pointer itself */
-	*dnPtrPtr = ( DATAPTR_DN * ) &attributeListPtr->dnValue;
+	*dnPtrPtr = ( DATAPTR_DN * ) &attributeListPtr->attrDNValue;
 
 	return( CRYPT_OK );
 	}
@@ -1418,8 +1418,8 @@ int getAttributeDataPtr( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 			  isBlobField( attributeListPtr->fieldType ) );
 #endif /* CONFIG_CUSTOM_1 */
 
-	*dataPtrPtr = attributeListPtr->dataValue;
-	*dataLength = attributeListPtr->dataValueLength;
+	*dataPtrPtr = attributeListPtr->attrDataValue;
+	*dataLength = attributeListPtr->attrDataValueLength;
 
 	return( CRYPT_OK );
 	}
@@ -1444,8 +1444,8 @@ int getBlobAttributeDataPtr( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 	REQUIRES( checkAttributeListProperty( attributeListPtr,
 										  ATTRIBUTE_PROPERTY_BLOBATTRIBUTE ) );
 
-	*dataPtrPtr = attributeListPtr->dataValue;
-	*dataLength = attributeListPtr->dataValueLength;
+	*dataPtrPtr = attributeListPtr->attrDataValue;
+	*dataLength = attributeListPtr->attrDataValueLength;
 
 	return( CRYPT_OK );
 	}
@@ -1580,8 +1580,8 @@ static BOOLEAN compareAttributeField( IN_PTR \
 		{
 		/* Choice/identifier fields store the selection value in the 
 		   intValue */
-		return( ( attributeField1->intValue == attributeField2->intValue ) ? \
-				TRUE : FALSE );
+		return( ( attributeField1->attrIntValue == \
+						attributeField2->attrIntValue ) ? TRUE : FALSE );
 		}
 	if( attributeField1->fieldType == BER_NULL )
 		{
@@ -1594,8 +1594,8 @@ static BOOLEAN compareAttributeField( IN_PTR \
 		attributeField1->fieldType == BER_BITSTRING || \
 		attributeField1->fieldType == BER_BOOLEAN )
 		{
-		return( ( attributeField1->intValue == attributeField2->intValue ) ? \
-				TRUE : FALSE );
+		return( ( attributeField1->attrIntValue == \
+						attributeField2->attrIntValue ) ? TRUE : FALSE );
 		}
 	REQUIRES_B( attributeField1->fieldType == BER_OCTETSTRING || \
 				attributeField1->fieldType == BER_OBJECT_IDENTIFIER || \
@@ -1604,13 +1604,14 @@ static BOOLEAN compareAttributeField( IN_PTR \
 				isStringField( attributeField1->fieldType ) || \
 				attributeField1->fieldType == FIELDTYPE_TEXTSTRING || \
 				isBlobField( attributeField1->fieldType ) );
-	if( attributeField1->dataValueLength != \
-							attributeField2->dataValueLength )
+	if( attributeField1->attrDataValueLength != \
+							attributeField2->attrDataValueLength )
 		return( FALSE );
-	if( attributeField1->dataValueLength > 0 )
+	if( attributeField1->attrDataValueLength > 0 )
 		{
-		if( memcmp( attributeField1->dataValue, attributeField2->dataValue,
-					attributeField1->dataValueLength ) )
+		if( memcmp( attributeField1->attrDataValue, 
+					attributeField2->attrDataValue,
+					attributeField1->attrDataValueLength ) )
 			return( FALSE );
 		}
 

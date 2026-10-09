@@ -262,8 +262,13 @@ typedef struct {
 
 	sizeofObject*( sizeofObject*( length ) + extraLen );
 	
-   would overflow.  This is mostly redundant because we always keep lengths 
-   below MAX_INTLENGTH which means that we can safely apply a series of 
+   would overflow.  Although usually the length is the main value and
+   extraLen is auxiliary data, for example signature + attributes, it 
+   can also be used for things like { AlgorithmIdentifier, Content } so 
+   length is the smaller value and extraLen is the main payload.
+   
+   This check is mostly redundant because we always keep lengths below 
+   MAX_INTLENGTH which means that we can safely apply a series of 
    sizeofObject() operations and add small amounts of extra data like 
    parameters without getting close to INT_MAX, but we provide the check 
    anyway to document that it's been done.
@@ -280,7 +285,7 @@ typedef struct {
 CHECK_RETVAL_BOOL \
 BOOLEAN checkEncodeOverflow( IN_LENGTH const int length,
 							 IN_RANGE( 0, 5 ) const int lengthNestingLevel,
-							 IN_LENGTH_SHORT_Z const int extraLen,
+							 IN_LENGTH_Z const int extraLen,
 							 IN_RANGE( 0, 5 ) const int extraLenNestingLevel );
 
 /* AlgorithmIdentifier routines */

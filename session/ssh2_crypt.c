@@ -504,7 +504,7 @@ static int loadCTR( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					IN_LENGTH_SHORT const int dataLen,
 					IN_BOOL const BOOLEAN isWriteCTR )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	HASHINFO hashInfo;
 	BYTE buffer[ CRYPT_MAX_HASHSIZE + 8 ];
 
@@ -518,6 +518,7 @@ static int loadCTR( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( nonceLen >= 1 && nonceLen <= 4 );
 	REQUIRES( isShortIntegerRangeNZ( dataLen ) );
 	REQUIRES( isBooleanValue( isWriteCTR ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Complete the hashing */
 	memcpy( hashInfo, initialHashInfo, sizeof( HASHINFO ) );
@@ -1483,6 +1484,7 @@ int processAuthDataSig( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						&sigDataInfo, NULL, &localErrorInfo );
 		}
 	krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+	createInfo.cryptHandle = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		if( createSignature )

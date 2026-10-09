@@ -221,6 +221,7 @@ static int readServerResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	status = krnlSendMessage( iCmsAttributes, IMESSAGE_GETATTRIBUTE_S,
 							  &msgData, CRYPT_CERTINFO_CMS_NONCE );
 	krnlSendNotifier( iCmsAttributes, IMESSAGE_DECREFCOUNT );
+	iCmsAttributes = CRYPT_ERROR;
 	if( cryptStatusOK( status ) )
 		{
 		MESSAGE_DATA responseMsgData;
@@ -362,6 +363,7 @@ static int readClientRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			/* We couldn't read the nonce, delete the request object prior 
 			   to exiting */
 			krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+			createInfo.cryptHandle = CRYPT_ERROR;
 			}
 		}
 	if( cryptStatusError( status ) )

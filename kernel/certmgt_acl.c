@@ -31,93 +31,128 @@
 /* The ACL tables for each cert management action */
 
 static const CERTMGMT_ACL certMgmtACLTbl[] = {
-	/* Create cert store */
+	/* Create certificate store */
 	{ CRYPT_CERTACTION_CREATE,
-	  ACTION_PERM_NONE,					/* Cert dbx.use only */
+	  ACTION_PERM_NONE,					/* Cert dbx.internal use only */
 	  { MKACP_END() } },
 
-	/* Connect to cert store */
+	/* Connect to certificate store */
 	{ CRYPT_CERTACTION_CONNECT,
-	  ACTION_PERM_NONE,					/* Cert dbx.use only */
+	  ACTION_PERM_NONE,					/* Cert dbx.internal use only */
 	  { MKACP_END() } },
 
-	/* Disconnect from cert store */
+	/* Disconnect from certificate store */
 	{ CRYPT_CERTACTION_DISCONNECT,
-	  ACTION_PERM_NONE,					/* Cert dbx.use only */
+	  ACTION_PERM_NONE,					/* Cert dbx.internal use only */
 	  { MKACP_END() } },
 
 	/* Error information */
 	{ CRYPT_CERTACTION_ERROR,
-	  ACTION_PERM_NONE,					/* Cert dbx.use only */
+	  ACTION_PERM_NONE,					/* Cert dbx.internal use only */
 	  { MKACP_END() } },
 
 	/* Add PKI user */
 	{ CRYPT_CERTACTION_ADDUSER,
-	  ACTION_PERM_NONE,					/* Cert dbx.use only */
+	  ACTION_PERM_NONE,					/* Cert dbx.internal use only */
 	  { MKACP_END() } },
 
-	/* Cert request */
+	/* Certificate request */
 	{ CRYPT_CERTACTION_REQUEST_CERT,
-	  ACTION_PERM_NONE,					/* Cert dbx.use only */
+	  ACTION_PERM_NONE,					/* Cert dbx.internal use only */
 	  { MKACP_END() } },
 
-	/* Cert renewal request */
+	/* Certificate renewal request */
 	{ CRYPT_CERTACTION_REQUEST_RENEWAL,
-	  ACTION_PERM_NONE,					/* Cert dbx.use only */
+	  ACTION_PERM_NONE,					/* Cert dbx.internal use only */
 	  { MKACP_END() } },
 
-	/* Cert revocation request */
+	/* Certificate revocation request */
 	{ CRYPT_CERTACTION_REQUEST_REVOCATION,
-	  ACTION_PERM_NONE,					/* Cert dbx.use only */
+	  ACTION_PERM_NONE,					/* Cert dbx.internal use only */
 	  { MKACP_END() } },
 
-	/* Cert creation */
+	/* Certificate creation begin */
 	{ CRYPT_CERTACTION_CERT_CREATION,
-	  ACTION_PERM_NONE_EXTERNAL,		/* Cert mgmt.use only */
+	  ACTION_PERM_NONE_EXTERNAL,		/* Cert mgmt.use */
 	  { MKACP_O( ST_CTX_PKC,			/* CA key w/cert (see below) */
 				 ACL_FLAG_HIGH_STATE ),
 		MKACP_O( ST_CERT_CERTREQ | ST_CERT_REQ_CERT,/* Cert request */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O_OPT( ST_CERT_CERT | ST_CERT_CERTCHAIN,	/* Authorising cert */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O( ST_CERT_PKIUSER,		/* PKI user */
 				 ACL_FLAG_HIGH_STATE ) },
 	  { MKACP_O( ST_CERT_CERT | ST_CERT_CERTCHAIN,	/* CA cert */
 				 ACL_FLAG_HIGH_STATE ) } },
 
-	/* Confirmation of cert creation */
+	/* Completion of certificate creation */
 	{ CRYPT_CERTACTION_CERT_CREATION_COMPLETE,
-	  ACTION_PERM_NONE_EXTERNAL,		/* Cert mgmt.use only */
+	  ACTION_PERM_NONE_EXTERNAL,		/* Cert mgmt.use */
 	  { MKACP_O_NONE(),
 		MKACP_O( ST_CERT_CERT,			/* Completed cert */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O_OPT( ST_CERT_CERT | ST_CERT_CERTCHAIN,	/* Authorising cert */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O( ST_CERT_PKIUSER,		/* PKI user */
 				 ACL_FLAG_HIGH_STATE ) } },
 
-	/* Cancellation of cert creation */
+	/* Cancellation of certificate creation */
 	{ CRYPT_CERTACTION_CERT_CREATION_DROP,
-	  ACTION_PERM_NONE_EXTERNAL,		/* Cert mgmt.use only */
+	  ACTION_PERM_NONE_EXTERNAL,		/* Cert mgmt.use */
 	  { MKACP_O_NONE(),
 		MKACP_O( ST_CERT_CERT,			/* Completed cert */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O_OPT( ST_CERT_CERT | ST_CERT_CERTCHAIN,	/* Authorising cert */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O( ST_CERT_PKIUSER,		/* PKI user */
 				 ACL_FLAG_HIGH_STATE ) } },
 
-	/* Cancel of creation w.revocation */
+	/* Cancellation of creation with revocation of already-issued 
+	   certificate */
 	{ CRYPT_CERTACTION_CERT_CREATION_REVERSE,
-	  ACTION_PERM_NONE_EXTERNAL,		/* Cert mgmt.use only */
+	  ACTION_PERM_NONE_EXTERNAL,		/* Cert mgmt.use */
 	  { MKACP_O_NONE(),
 		MKACP_O( ST_CERT_CERT,			/* Completed cert */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O_OPT( ST_CERT_CERT | ST_CERT_CERTCHAIN,	/* Authorising cert */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O( ST_CERT_PKIUSER,		/* PKI user */
 				 ACL_FLAG_HIGH_STATE ) } },
 
-	/* Delete reqs after restart */
+	/* Delete requests after restart */
 	{ CRYPT_CERTACTION_RESTART_CLEANUP,
-	  ACTION_PERM_NONE,					/* Cert dbx.use only */
+	  ACTION_PERM_NONE,					/* Cert dbx.internal use only */
 	  { MKACP_END() } },
 
 	/* Complete revocation after restart */
 	{ CRYPT_CERTACTION_RESTART_REVOKE_CERT,
-	  ACTION_PERM_NONE,					/* Cert dbx.use only */
+	  ACTION_PERM_NONE,					/* Cert dbx.internal use only */
 	  { MKACP_END() } },
 
-	/* Cert issue */
+	/* Add certificate request */
+	{ CRYPT_CERTACTION_ADDREQUEST,
+	  ACTION_PERM_NONE_EXTERNAL,		/* Cert mgmt.use */
+	  { MKACP_O( ST_CERT_CERTREQ | ST_CERT_REQ_CERT | \
+				 ST_CERT_REQ_REV,		/* Cert request */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O( ST_CERT_CERTREQ | ST_CERT_REQ_CERT| \
+				 ST_CERT_REQ_REV,		/* Cert request */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O_OPT( ST_CERT_CERT | ST_CERT_CERTCHAIN,	/* Authorising cert */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O( ST_CERT_PKIUSER,		/* PKI user */
+				 ACL_FLAG_HIGH_STATE ) } },
+
+	/* Certificate issue */
 	{ CRYPT_CERTACTION_ISSUE_CERT,
 	  ACTION_PERM_ALL,					/* Any access */
 	  { MKACP_O( ST_CTX_PKC,			/* CA key w/cert (see below) */
 				 ACL_FLAG_HIGH_STATE ),
 		MKACP_O( ST_CERT_CERTREQ | ST_CERT_REQ_CERT,/* Cert request */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O_OPT( ST_CERT_CERT | ST_CERT_CERTCHAIN,	/* Authorising cert */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O_OPT( ST_CERT_PKIUSER,	/* PKI user */
 				 ACL_FLAG_HIGH_STATE ) },
 	  { MKACP_O( ST_CERT_CERT | ST_CERT_CERTCHAIN,	/* CA cert */
 				 ACL_FLAG_HIGH_STATE ) } },
@@ -127,29 +162,39 @@ static const CERTMGMT_ACL certMgmtACLTbl[] = {
 	  ACTION_PERM_ALL,					/* Any access */
 	  { MKACP_O( ST_CTX_PKC,			/* CA key w/cert (see below) */
 				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O_NONE(),
+		MKACP_O_NONE(),
 		MKACP_O_NONE() },
 	  { MKACP_O( ST_CERT_CERT | ST_CERT_CERTCHAIN,	/* CA cert */
 				 ACL_FLAG_HIGH_STATE ) } },
 
-	/* Cert revocation */
+	/* Certificate revocation */
 	{ CRYPT_CERTACTION_REVOKE_CERT,
-	  ACTION_PERM_ALL,					/* Any access */
+	  ACTION_PERM_NONE_EXTERNAL,		/* Cert mgmt.use */
 	  { MKACP_O_NONE(),
 		MKACP_O( ST_CERT_REQ_REV,		/* Rev.request.  Rev.reqs are usually */
-				 ACL_FLAG_ANY_STATE ) } },/* unsigned, but may be in the high
-										   state if imported from an external
-										   source */
+				 ACL_FLAG_ANY_STATE ),	/* unsigned, but may be in the high */
+										/* state if imported from an external */
+										/* source */
+		MKACP_O_OPT( ST_CERT_CERT | ST_CERT_CERTCHAIN,	/* Authorising cert */
+				 ACL_FLAG_HIGH_STATE ),
+		MKACP_O( ST_CERT_PKIUSER,		/* PKI user */
+				 ACL_FLAG_HIGH_STATE ) } },
 
-	/* Cert expiry */
+	/* Certificate expiry */
 	{ CRYPT_CERTACTION_EXPIRE_CERT,
 	  ACTION_PERM_ALL,					/* Any access */
 	  { MKACP_O_NONE(),
+		MKACP_O_NONE(),
+		MKACP_O_NONE(),
 		MKACP_O_NONE() } },
 
 	/* Clean up on restart */
 	{ CRYPT_CERTACTION_CLEANUP,
 	  ACTION_PERM_ALL,					/* Any access */
 	  { MKACP_O_NONE(),
+		MKACP_O_NONE(),
+		MKACP_O_NONE(),
 		MKACP_O_NONE() } },
 
 	/* End-of-ACL marker */
@@ -214,6 +259,21 @@ int initCertMgmtACL( void )
 				DEBUG_DIAG(( "Certificate management ACLs inconsistent" ));
 				retIntError();
 				}
+			}
+
+		/* If it's a straight add then there's no CA key involved */
+		if( certMgmtACL->action == CRYPT_CERTACTION_ADDREQUEST )
+			{
+			if( paramInfo( certMgmtACL, 0 ).valueType != PARAM_VALUE_OBJECT || \
+				( paramInfo( certMgmtACL, 0 ).subTypeA & \
+					~( ST_CERT_CERTREQ | ST_CERT_REQ_CERT | ST_CERT_REQ_REV ) ) || \
+				paramInfo( certMgmtACL, 1 ).subTypeB != ST_NONE || \
+				paramInfo( certMgmtACL, 1 ).subTypeC != ST_NONE )
+				{
+				DEBUG_DIAG(( "Certificate management ACLs inconsistent" ));
+				retIntError();
+				}
+			continue;
 			}
 
 		/* If it requires a CA key parameter, it must be a private-key
@@ -381,6 +441,50 @@ int preDispatchCheckCertMgmtAccess( IN_HANDLE const int objectHandle,
 
 		if( mechanismInfo->request != CRYPT_UNUSED )
 			return( CRYPT_ARGERROR_NUM2 );
+		}
+	if( paramInfo( certMgmtACL, 2 ).valueType == PARAM_VALUE_OBJECT_OPT )
+		{
+		if( mechanismInfo->authCert != CRYPT_UNUSED )
+			{
+			if( !fullObjectCheck( mechanismInfo->authCert, message ) || \
+				!isSameOwningObject( objectHandle, mechanismInfo->authCert ) )
+				return( CRYPT_ARGERROR_NUM2 );
+			}
+		}
+	else
+		{
+		REQUIRES( paramInfo( certMgmtACL, 2 ).valueType == PARAM_VALUE_NUMERIC && \
+				  paramInfo( certMgmtACL, 2 ).lowRange == CRYPT_UNUSED );
+
+		if( mechanismInfo->authCert != CRYPT_UNUSED )
+			return( CRYPT_ARGERROR_NUM2 );
+		}
+	switch( paramInfo( certMgmtACL, 3 ).valueType )
+		{
+		case PARAM_VALUE_OBJECT:
+			if( !fullObjectCheck( mechanismInfo->pkiUser, message ) || \
+				!isSameOwningObject( objectHandle, mechanismInfo->pkiUser ) )
+				return( CRYPT_ARGERROR_NUM2 );
+			break;
+
+		case PARAM_VALUE_OBJECT_OPT:
+			if( mechanismInfo->pkiUser != CRYPT_UNUSED )
+				{
+				if( !fullObjectCheck( mechanismInfo->pkiUser, message ) || \
+					!isSameOwningObject( objectHandle, mechanismInfo->pkiUser ) )
+					return( CRYPT_ARGERROR_NUM2 );
+				}
+			break;
+			
+		case PARAM_VALUE_NUMERIC:
+			REQUIRES( paramInfo( certMgmtACL, 3 ).lowRange == CRYPT_UNUSED );
+
+			if( mechanismInfo->pkiUser != CRYPT_UNUSED )
+				return( CRYPT_ARGERROR_NUM2 );
+			break;
+			
+		default:
+			retIntError();
 		}
 
 	return( CRYPT_OK );

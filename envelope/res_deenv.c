@@ -117,7 +117,17 @@ static BOOLEAN sanityCheckContentSig( IN_PTR \
 		( contentSigInfo->iSigCheckKey != CRYPT_ERROR && \
 		  !isHandleRangeValid( contentSigInfo->iSigCheckKey ) ) )
 		{
-		DEBUG_PUTS(( "sanityCheckContentList: Signature algorithm info" ));
+		DEBUG_PUTS(( "sanityCheckContentList: Signing parameters" ));
+		return( FALSE );
+		}
+
+	/* Check signature parameters */
+	if( ( contentSigInfo->iExtraData != CRYPT_ERROR && \
+		  !isHandleRangeValid( contentSigInfo->iExtraData ) ) || \
+		( contentSigInfo->iTimestamp != CRYPT_ERROR && \
+		  !isHandleRangeValid( contentSigInfo->iTimestamp ) ) )
+		{
+		DEBUG_PUTS(( "sanityCheckContentList: Signature parameters" ));
 		return( FALSE );
 		}
 
@@ -125,13 +135,11 @@ static BOOLEAN sanityCheckContentSig( IN_PTR \
 	if( !checkDataPointer( contentSigInfo->extraData,
 						   contentSigInfo->extraDataLength, 
 						   1, MAX_INTLENGTH_SHORT - 1 ) || \
-		( contentSigInfo->iTimestamp != CRYPT_ERROR && \
-		  !isHandleRangeValid( contentSigInfo->iTimestamp ) ) || \
 		!checkDataPointer( contentSigInfo->extraData2,
 						   contentSigInfo->extraData2Length, 
 						   1, MAX_INTLENGTH_SHORT - 1 ) )
 		{
-		DEBUG_PUTS(( "sanityCheckContentList: Signature attribute info" ));
+		DEBUG_PUTS(( "sanityCheckContentList: Signature attribute data pointers" ));
 		return( FALSE );
 		}
 	if( objectPtr != NULL )
@@ -401,7 +409,7 @@ int createContentListItem( OUT_BUFFER_ALLOC_OPT( sizeof( CONTENT_LIST ) ) \
 						   IN_ENUM( CRYPT_FORMAT ) \
 								const CRYPT_FORMAT_TYPE formatType,
 						   IN_BUFFER_OPT( objectSize ) const void *object, 
-						   IN_LENGTH_Z const int objectSize )
+						   IN_LENGTH_SHORT_Z const int objectSize )
 	{
 	CONTENT_LIST *newItem;
 
@@ -414,7 +422,7 @@ int createContentListItem( OUT_BUFFER_ALLOC_OPT( sizeof( CONTENT_LIST ) ) \
 	REQUIRES( isEnumRange( formatType, CRYPT_FORMAT ) );
 	REQUIRES( ( object == NULL && objectSize == 0 ) || \
 			  ( object != NULL && \
-				isBufsizeRangeMin( objectSize, 8 ) ) );
+				isShortIntegerRangeMin( objectSize, 8 ) ) );
 
 	/* Clear return value */
 	*newContentListItemPtrPtr = NULL;
@@ -450,6 +458,149 @@ int createContentListItem( OUT_BUFFER_ALLOC_OPT( sizeof( CONTENT_LIST ) ) \
 
 /* Add an item to the content list */
 
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static BOOLEAN isEncrInfoSame( IN_PTR const CONTENT_LIST *contentListPtr,
+							   IN_PTR const CONTENT_LIST *contentListItem )
+	{
+	const CONTENT_ENCR_INFO *encrInfo1 = &contentListPtr->clEncrInfo;
+	const CONTENT_ENCR_INFO *encrInfo2 = &contentListItem->clEncrInfo;
+
+	assert( isReadPtr( contentListPtr, sizeof( CONTENT_LIST ) ) );
+	assert( isReadPtr( contentListItem, sizeof( CONTENT_LIST ) ) );
+
+	REQUIRES_B( contentListPtr->type == CONTENT_CRYPT && \
+				contentListItem->type == CONTENT_CRYPT );
+
+	if( encrInfo1->cryptAlgo != encrInfo2->cryptAlgo || \
+		encrInfo1->cryptMode != encrInfo2->cryptMode || \
+		encrInfo1->saltOrIVsize != encrInfo2->saltOrIVsize || \
+		encrInfo1->keySetupAlgo != encrInfo2->keySetupAlgo || \
+		encrInfo1->keySetupIterations != encrInfo2->keySetupIterations || \
+		encrInfo1->keySize != encrInfo2->keySize )
+		return( FALSE );
+	if( encrInfo1->saltOrIVsize > 0 && \
+		memcmp( encrInfo1->saltOrIV, encrInfo2->saltOrIV, 
+				encrInfo1->saltOrIVsize ) )
+		return( FALSE );
+
+	return( TRUE );
+	}
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static BOOLEAN isSigInfoSame( IN_PTR const CONTENT_LIST *contentListPtr,
+							  IN_PTR const CONTENT_LIST *contentListItem )
+	{
+	const CONTENT_SIG_INFO *sigInfo1 = &contentListPtr->clSigInfo;
+	const CONTENT_SIG_INFO *sigInfo2 = &contentListItem->clSigInfo;
+
+	assert( isReadPtr( contentListPtr, sizeof( CONTENT_LIST ) ) );
+	assert( isReadPtr( contentListItem, sizeof( CONTENT_LIST ) ) );
+
+	REQUIRES_B( contentListPtr->type == CONTENT_SIGNATURE && \
+				contentListItem->type == CONTENT_SIGNATURE );
+
+	if( sigInfo1->hashAlgo != sigInfo2->hashAlgo || \
+		sigInfo1->hashParam != sigInfo2->hashParam || \
+		sigInfo1->extraDataLength != sigInfo2->extraDataLength || \
+		sigInfo1->extraData2Length != sigInfo2->extraData2Length )
+		return( FALSE );
+	if( sigInfo1->extraDataLength > 0 && \
+		memcmp( sigInfo1->extraData, sigInfo2->extraData, 
+				sigInfo1->extraDataLength ) )
+		return( FALSE );
+	if( sigInfo1->extraData2Length > 0 && \
+		memcmp( sigInfo1->extraData2, sigInfo2->extraData2, 
+				sigInfo1->extraData2Length ) )
+		return( FALSE );
+
+	return( TRUE );
+	}
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static BOOLEAN isAuthencInfoSame( IN_PTR const CONTENT_LIST *contentListPtr,
+								  IN_PTR const CONTENT_LIST *contentListItem )
+	{
+	const CONTENT_AUTHENC_INFO *authencInfo1 = &contentListPtr->clAuthEncInfo;
+	const CONTENT_AUTHENC_INFO *authencInfo2 = &contentListItem->clAuthEncInfo;
+
+	assert( isReadPtr( contentListPtr, sizeof( CONTENT_LIST ) ) );
+	assert( isReadPtr( contentListItem, sizeof( CONTENT_LIST ) ) );
+
+	REQUIRES_B( contentListPtr->type == CONTENT_AUTHENC && \
+				contentListItem->type == CONTENT_AUTHENC );
+
+	if( authencInfo1->authEncAlgo != authencInfo2->authEncAlgo || \
+		authencInfo1->authEncKeysize != authencInfo2->authEncKeysize )
+		return( FALSE );
+	if( authencInfo1->authEncParamLength != \
+								authencInfo2->authEncParamLength || \
+		memcmp( authencInfo1->authEncParamData, 
+				authencInfo2->authEncParamData,
+				authencInfo1->authEncParamLength ) )
+		return( FALSE );
+
+	return( TRUE );
+	}
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static BOOLEAN isDuplicateListItem( IN_PTR const CONTENT_LIST *contentListPtr,
+									IN_PTR const CONTENT_LIST *contentListItem )
+	{
+	assert( isReadPtr( contentListPtr, sizeof( CONTENT_LIST ) ) );
+	assert( isReadPtr( contentListItem, sizeof( CONTENT_LIST ) ) );
+
+	/* Quick-reject check for basic properties that don't match */
+	if( contentListPtr->type != contentListItem->type || \
+		contentListPtr->envInfo != contentListItem->envInfo || \
+		contentListPtr->formatType != contentListItem->formatType || \
+		contentListPtr->keyIDsize != contentListItem->keyIDsize || \
+		contentListPtr->issuerAndSerialNumberSize != \
+							contentListItem->issuerAndSerialNumberSize )
+		return( FALSE );
+	if( contentListPtr->keyIDsize > 0 && \
+		memcmp( contentListPtr->keyID, contentListItem->keyID,
+				contentListPtr->keyIDsize ) )
+		return( FALSE );
+	if( contentListPtr->issuerAndSerialNumberSize > 0 && \
+		memcmp( contentListPtr->issuerAndSerialNumber, \
+				contentListItem->issuerAndSerialNumber,
+				contentListPtr->issuerAndSerialNumberSize ) )
+		return( FALSE );
+
+	/* If there's payload data present in both entries, compare them.  This 
+	   isn't necessarily the case, 
+	   envelope/cms_deenv.c:initExternalContentInfo() sets up the content 
+	   list item from information provided externally so there's no payload 
+	   data to compare (the PGP equivalent always has payload data) */
+	if( contentListPtr->payload != NULL && contentListItem->payload != NULL )
+		{
+		if( contentListPtr->payloadSize == contentListItem->payloadSize && \
+			!memcmp( contentListPtr->payload, contentListItem->payload,
+					 contentListPtr->payloadSize ) )
+			return( TRUE );
+		
+		return( FALSE );
+		}
+			  
+	/* The overall object is identical, perform a subtype-specific check */
+	switch( contentListPtr->type )
+		{
+		case CONTENT_CRYPT:
+			return( isEncrInfoSame( contentListPtr, contentListItem ) );
+
+		case CONTENT_SIGNATURE:
+			return( isSigInfoSame( contentListPtr, contentListItem ) );
+
+		case CONTENT_AUTHENC:
+			return( isAuthencInfoSame( contentListPtr, contentListItem ) );
+
+		default:
+			retIntError_Boolean();
+		}
+
+	return( FALSE );
+	}
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int appendContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 						   INOUT_PTR CONTENT_LIST *contentListItem )
@@ -484,6 +635,9 @@ int appendContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 					  contentListPtr = DATAPTR_GET( contentListPtr->next ) ) )
 			{
 			ENSURES( LOOP_INVARIANT_LARGE_GENERIC() );
+
+			if( isDuplicateListItem( contentListPtr, contentListItem ) )
+				return( CRYPT_ERROR_DUPLICATE );
 			}
 		ENSURES( LOOP_BOUND_OK );
 		contentListPtr = prevElementPtr;
@@ -513,14 +667,23 @@ void deleteContentListItem( INOUT_PTR void *memPoolStatePtr,
 	/* Destroy any attached objects if necessary */
 	if( contentListItem->type == CONTENT_SIGNATURE )
 		{
-		const CONTENT_SIG_INFO *sigInfo = &contentListItem->clSigInfo;
+		CONTENT_SIG_INFO *sigInfo = &contentListItem->clSigInfo;
 
 		if( sigInfo->iSigCheckKey != CRYPT_ERROR )
+			{
 			krnlSendNotifier( sigInfo->iSigCheckKey, IMESSAGE_DECREFCOUNT );
+			sigInfo->iSigCheckKey = CRYPT_ERROR;
+			}
 		if( sigInfo->iExtraData != CRYPT_ERROR )
+			{
 			krnlSendNotifier( sigInfo->iExtraData, IMESSAGE_DECREFCOUNT );
+			sigInfo->iExtraData = CRYPT_ERROR;
+			}
 		if( sigInfo->iTimestamp != CRYPT_ERROR )
+			{
 			krnlSendNotifier( sigInfo->iTimestamp, IMESSAGE_DECREFCOUNT );
+			sigInfo->iTimestamp = CRYPT_ERROR;
+			}
 		}
 
 	/* Free any object data */
@@ -588,6 +751,174 @@ int deleteContentList( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 
 /* Process timestamps */
 
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int checkMsgImprint( INOUT_PTR CONTENT_LIST *contentListPtr, 
+							IN_HANDLE const CRYPT_ENVELOPE iTimestampEnvelope )
+	{
+	CRYPT_ALGO_TYPE msgImprintAlgo DUMMY_INIT;
+	MESSAGE_CREATEOBJECT_INFO createInfo;
+	MESSAGE_DATA msgData;
+	STREAM stream;
+	BYTE buffer[ CRYPT_MAX_PKCSIZE + 128 + 8 ];
+	BYTE msgImprint[ CRYPT_MAX_HASHSIZE + 8 ];
+	const void *objectPtr = DATAPTR_GET( contentListPtr->object );
+	const void *signature DUMMY_INIT_PTR;
+	int tag, msgImprintSize DUMMY_INIT, signatureLength DUMMY_INIT;
+	int status;
+
+	assert( isWritePtr( contentListPtr, sizeof( CONTENT_LIST ) ) );
+
+	REQUIRES( isHandleRangeValid( iTimestampEnvelope ) );
+	
+	REQUIRES( objectPtr != NULL );
+
+	/* Dig down into the timestamp to get the message imprint, a.k.a. hash 
+	   of the data being countersigned:
+
+		TSTInfo ::= SEQUENCE {
+			version				INTEGER (1),
+			policy				OBJECT IDENTIFIER,
+			msgImprint			SEQUENCE { ... }	// MessageDigest 
+			serialNo			INTEGER,
+			genTime				GeneralizedTime,
+			[...]
+			}
+
+	   This is somewhat ugly because we're popping data out of the timestamp 
+	   envelope which means that it's no longer accessible to the caller, 
+	   but the timestamp envelope itself is just a carrier for attributes and 
+	   the signature, with the data content not being usable outside of the 
+	   envelope that's currently being processed.  If this is ever a problem, 
+	   the timestamp data can be pushed into a second envelope and the 
+	   TSTInfo retried from that.
+	   
+	   When we pop the data we only take the first CRYPT_MAX_PKCSIZE bytes 
+	   which includes the msgImprint, we don't care about anything else 
+	   that's in there */
+	setMessageData( &msgData, buffer, CRYPT_MAX_PKCSIZE );
+	status = krnlSendMessage( iTimestampEnvelope, IMESSAGE_ENV_POPDATA,
+							  &msgData, 0 );
+	if( cryptStatusOK( status ) && msgData.length < MIN_CRYPT_OBJECTSIZE )
+		{
+		/* Make sure that we don't hit a consistency-check error when we
+		   connect the stream if the timestamp token's eContent is somehow 
+		   empty */
+		status = CRYPT_ERROR_BADDATA;
+		}
+	if( cryptStatusOK( status ) )
+		{
+		/* Read the TSTInfo down to the message imprint */	
+		sMemConnect( &stream, buffer, msgData.length );
+		readSequence( &stream, NULL );					/* tstInfo */
+		readShortInteger( &stream, NULL );				/* version */
+		status = readUniversal( &stream );				/* policy */
+		if( cryptStatusError( status ) )
+			status = CRYPT_ERROR_BADDATA;
+		else
+			{
+			/* Save the message imprint */
+			status = readMessageDigest( &stream, &msgImprintAlgo, 
+										msgImprint, CRYPT_MAX_HASHSIZE, 
+										&msgImprintSize );
+			}
+		sMemDisconnect( &stream );
+		}
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* Now dig down into the signerInfo to get the signature data, which the
+	   msgImprint is a hash of:
+
+		SignerInfo ::= SEQUENCE {
+		    version				INTEGER,
+		    issuerAndSerial		IssuerAndSerialNumber,	// or [0] sKID
+		    hashAlgorithm		AlgorithmIdentifier,
+		    signedAttrs		[0]	SET OF Attribute OPTIONAL,
+		    signatureAlgorithm	AlgorithmIdentifier,
+		    signature			OCTET STRING,
+		    [...] */
+	sMemConnect( &stream, objectPtr, contentListPtr->objectSize );
+	readSequence( &stream, NULL );		/* signerInfo */
+	readShortInteger( &stream, NULL );		/* version */
+	readUniversal( &stream );				/* issuerAndSerial */
+	status = readUniversal( &stream );		/* hashAlgorithm */
+	if( checkStatusPeekTag( &stream, status, tag ) && \
+		tag == MAKE_CTAG( 0 ) )
+		readUniversal( &stream );			/* signedAttrs */
+	status = readUniversal( &stream );		/* signatureAlgorithm */
+	if( cryptStatusError( status ) )
+		status = CRYPT_ERROR_BADDATA;
+	else
+		{
+#if 1	/* Standard CMS countersignature */
+		status = readOctetStringHole( &stream, &signatureLength, 
+									  MIN_HASHSIZE, DEFAULT_TAG );
+		if( cryptStatusOK( status ) )
+			{
+			status = sMemGetDataBlock( &stream, ( void ** ) &signature, 
+									   signatureLength );
+			}
+#else	/* Broken TSP not-quite-countersignature */
+		status = getStreamObjectLength( &stream, &signatureLength, 16 );
+		if( cryptStatusOK( status ) && \
+			signatureLength > CRYPT_MAX_PKCSIZE + 128 )
+			status = CRYPT_ERROR_OVERFLOW;
+		if( cryptStatusOK( status ) )
+			status = sread( &stream, buffer, signatureLength );
+		if( cryptStatusOK( status ) )
+			signature = buffer;
+#endif /* 1 */
+		}
+	sMemDisconnect( &stream );
+	if( cryptStatusError( status ) )
+		return( status );
+	
+	/* Finally, hash the signature to get our copy of the msgImprint value.
+	   Note that this isn't a standard CMS countersignature but TSP's 
+	   inability to correctly copy a single line of text from RFC 3369 
+	   without messing it up, so that what we hash is "The value of 
+	   messageImprint field within TimeStampToken shall be a hash of the 
+	   value of signature field within SignerInfo for the signedData being 
+	   time-stamped [sic]" rather than "the contents octets of the DER 
+	   encoding of the signatureValue field of a SignerInfo value in 
+	   signed-data" */
+	setMessageCreateObjectInfo( &createInfo, msgImprintAlgo );
+	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,
+							  IMESSAGE_DEV_CREATEOBJECT, &createInfo,
+							  OBJECT_TYPE_CONTEXT );
+	if( cryptStatusError( status ) )
+		return( status );
+	if( isParameterisedHashAlgo( msgImprintAlgo ) )
+		{
+		status = krnlSendMessage( createInfo.cryptHandle, 
+								  IMESSAGE_SETATTRIBUTE, 
+								  ( MESSAGE_CAST ) &msgImprintSize, 
+								  CRYPT_CTXINFO_BLOCKSIZE );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH,
+								  ( MESSAGE_CAST ) signature, 
+								  signatureLength );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_CTX_HASH, 
+								  "", 0 );
+		}
+	if( cryptStatusOK( status ) )
+		{
+		setMessageData( &msgData, msgImprint, msgImprintSize );
+		status = krnlSendMessage( createInfo.cryptHandle, IMESSAGE_COMPARE,
+								  &msgData, MESSAGE_COMPARE_HASH );
+		}
+	krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	return( CRYPT_OK );
+	}
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int processTimestamp( INOUT_PTR CONTENT_LIST *contentListPtr, 
 							 IN_BUFFER( timestampLength ) const void *timestamp, 
@@ -595,6 +926,8 @@ static int processTimestamp( INOUT_PTR CONTENT_LIST *contentListPtr,
 								const int timestampLength )
 	{
 	CRYPT_ENVELOPE iTimestampEnvelope;
+	CRYPT_CERTIFICATE iCertificate;
+	CONTENT_SIG_INFO *contentSigInfo = &contentListPtr->clSigInfo;
 	MESSAGE_CREATEOBJECT_INFO createInfo;
 	MESSAGE_DATA msgData;
 	const int bufSize = max( timestampLength + 128, MIN_BUFFER_SIZE );
@@ -606,10 +939,38 @@ static int processTimestamp( INOUT_PTR CONTENT_LIST *contentListPtr,
 	REQUIRES( contentListPtr->type == CONTENT_SIGNATURE );
 	REQUIRES( isBufsizeRangeMin( timestampLength, MIN_CRYPT_OBJECTSIZE ) );
 
+	/* In theory we can have more than one timestamp attached to a CMS 
+	   message, although it's unclear why anyone would do this since the
+	   standard processing for a message is { sign, timestamp } and then
+	   send or store it, fixing the signature in time in case the message
+	   signing key is later revoked.  Some standards like CAdES (ETSI EN 
+	   319 122) specifically allow more than one timestamp, but it's 
+	   unclear whether this is ever used.
+	   
+	   At the moment we can only store a single timestamp per CONTENT_LIST 
+	   entry, with the timestamp being a signature on the CONTENT_LIST's 
+	   signerInfo.signature field.  If we get here and there's already a 
+	   timestamp present then we bail out, but also warn in debug mode so 
+	   that if anyone ever does this then we can find out what it is they're 
+	   doing and decide how to adapt the code for future use, for example
+	   by adding a second iTimestamp entry to the CONTENT_LIST.
+	   
+	   The alternative option would be to skip the second timestamp and
+	   return CRYPT_OK, but this silently swallows the timestamp with no
+	   indication to the user that it's happened, while making a noise
+	   about it allows us to fix things should this ever occur */
+	if( contentSigInfo->iTimestamp != CRYPT_ERROR )
+		{
+		DEBUG_DIAG(( "CMS envelope contains more than one timestamp" ));
+		assert_nofuzz( DEBUG_WARN );
+		
+		return( CRYPT_ERROR_DUPLICATE );
+		}
+
 	/* Create an envelope to contain the timestamp data.  We can't use the
 	   internal enveloping API for this because we want to retain the final
-	   envelope and not just recover the data contents (which for a 
-	   timestamp will be empty anyway) */
+	   envelope and not just recover the data contents, which for a 
+	   timestamp will be empty anyway */
 	setMessageCreateObjectInfo( &createInfo, CRYPT_FORMAT_AUTO );
 	status = krnlSendMessage( SYSTEM_OBJECT_HANDLE, IMESSAGE_DEV_CREATEOBJECT,
 							  &createInfo, OBJECT_TYPE_ENVELOPE );
@@ -640,9 +1001,65 @@ static int processTimestamp( INOUT_PTR CONTENT_LIST *contentListPtr,
 		return( status );
 		}
 
+	/* Check the timestamp msgImprint against the signature value, which is
+	   what's being timestamped.  What to do in case of an error gets a bit 
+	   complicated, we don't want to abort handling the entire envelope just 
+	   because an unauthenticated attribute got messed up so what we do is 
+	   treat the timestamp as not-present, which means that any attempt to 
+	   work with it will produce an error */
+	status = checkMsgImprint( contentListPtr, iTimestampEnvelope );
+	if( cryptStatusError( status ) )
+		{
+		krnlSendNotifier( iTimestampEnvelope, IMESSAGE_DECREFCOUNT );
+		DEBUG_DIAG(( "Received timestamp msgImprint doesn't match our sent "
+					 "msgImprint" ));
+		assert_nofuzz( DEBUG_WARN );
+
+		return( CRYPT_OK );
+		}
+
+	/* There's one other somewhat odd check that we perform here which is 
+	   for the timestamping eKU in the signing certificate.  This is 
+	   something that the caller is supposed to do but won't actually do 
+	   with around 100% certainty.  As with the above check we can't hard-
+	   fail on this but simply treat the timestamp as not-present in order
+	   to create a condition that's always detectable by the caller even 
+	   when they're not otherwise checking.
+	   
+	   Note that this relies on the TSA including their signing certificate
+	   in the response, which is always the case with cryptlib-created
+	   timestamped messages for which the client sets 
+	   TSARequest.includeSigCerts = TRUE, see the comment in 
+	   session/tsp.c:sendClientRequest().  If the certificates aren't 
+	   present, i.e. only the caller has them, we have to rely on the caller
+	   to perform the check, for which see the start of this comment */
+	status = krnlSendMessage( iTimestampEnvelope, IMESSAGE_GETATTRIBUTE,
+							  ( MESSAGE_CAST ) &iCertificate,
+							  CRYPT_ENVINFO_SIGNATURE );
+	if( cryptStatusOK( status ) )
+		{
+		static const int ekuValue = CRYPT_CERTINFO_EXTKEY_TIMESTAMPING;
+
+		/* Check whether the certificate is valid for this purpose using 
+		   the usual PKIX fail-open checking mechanism */
+		status = krnlSendMessage( iCertificate, IMESSAGE_COMPARE,
+								  ( MESSAGE_CAST ) &ekuValue,
+								  MESSAGE_COMPARE_EKU );
+		krnlSendNotifier( iCertificate, IMESSAGE_DECREFCOUNT );
+		if( cryptStatusError( status ) )
+			{
+			krnlSendNotifier( iTimestampEnvelope, IMESSAGE_DECREFCOUNT );
+			DEBUG_DIAG(( "Timestamp signing certificate doesn't contain a "
+						 "timestamping extendedKeyUsage" ));
+			assert_nofuzz( DEBUG_WARN );
+	
+			return( CRYPT_OK );
+			}
+		}
+
 	/* We've got the timestamp info in a sub-envelope, remember it for
 	   later */
-	contentListPtr->clSigInfo.iTimestamp = iTimestampEnvelope;
+	contentSigInfo->iTimestamp = iTimestampEnvelope;
 
 	return( CRYPT_OK );
 	}
@@ -759,17 +1176,18 @@ static int checkCmsSignatureInfo( INOUT_PTR CONTENT_LIST *contentListPtr,
 	REQUIRES( isEnumRange( contentType, CRYPT_CONTENT ) );
 	REQUIRES( objectPtr != NULL );
 
-	/* If it's CMS signed data then the signature check key should be 
-	   included with the signed data as a certificate chain, however it's 
-	   possible (though unlikely) that the certificates may be unrelated to 
-	   the signature, in which case the caller will have provided the 
-	   signature check key from an external source */
+	/* Check the signature using the key that we've been given.  This is 
+	   either a key instantiated from the certificate chain included with 
+	   the signed data in which case it's the same object as 
+	   sigInfo->iSigCheckKey, a key fetched from a keyset, or a key 
+	   explicitly supplied by the caller.  In the last case the caller's key 
+	   takes precedence over any key that we may have instantiated from the 
+	   certificate chain, since the chain is attacker-supplied data while 
+	   the caller's key is what they actually want to verify against */
 	clearErrorInfo( &localErrorInfo );
 	setSigDataInfoHash( &sigDataInfo, iHashContext );
 	status = iCryptCheckSignature( objectPtr, contentListPtr->objectSize, 
-								   CRYPT_FORMAT_CMS,
-								   ( sigInfo->iSigCheckKey == CRYPT_ERROR ) ? \
-									iSigCheckContext : sigInfo->iSigCheckKey,
+								   CRYPT_FORMAT_CMS, iSigCheckContext,
 								   &sigDataInfo, &sigInfo->iExtraData, 
 								   &localErrorInfo );
 	if( cryptStatusError( status ) )
@@ -781,7 +1199,12 @@ static int checkCmsSignatureInfo( INOUT_PTR CONTENT_LIST *contentListPtr,
 
 	/* If there are authenticated attributes present we have to perform an 
 	   extra check to make sure that the Content-type specified in the 
-	   authenticated attributes matches the actual data content type */
+	   authenticated attributes matches the actual data content type.
+	   
+	   Note that this check isn't done if there are no authenticated
+	   attributes present, see the long discussion in the comment for
+	   envelope/cms_env.c:writeMAC(), in particular it would make it
+	   impossible to sign any non-data content using CRYPT_FORMAT_CMS */
 	if( sigInfo->iExtraData != CRYPT_ERROR )
 		{
 		int signatureContentType;
@@ -1368,11 +1791,11 @@ static int addSignatureInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	   match the PSS parameters in the signature.  This requirement is 
 	   mitigated by the fact that RSA-PSS certificates don't exist, but even
 	   if they did it doesn't make any sense to apply the requirement 
-	   because it could lead to a situation where, for example, signature
+	   because it could lead to a situation where, for example, a signature
 	   made with SHA-2 is rejected because the signing certificate used 
 	   SHA-1.  In other words if applied as per the RFC it would prevent the 
-	   use of a hash algorithm stronger than the one used in the signing 
-	   cert */
+	   use of any hash algorithm stronger than the one used in the signing 
+	   certificate */
 #ifdef USE_CMS
 	if( contentListPtr->formatType == CRYPT_FORMAT_CMS )
 		{
@@ -1404,17 +1827,44 @@ static int addSignatureInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 								  "Signature verification failed" );
 #endif /* USE_ERRMSGS */
 			}
+		}
 
-		/* If it's a format that includes signing key information remember 
-		   the key that was used to check the signature in case the user 
-		   wants to query it later */
-		if( contentListPtr->formatType != CRYPT_FORMAT_PGP )
+	/* If it's a format that includes signing key information remember the 
+	   key that was used to check the signature in case the user wants to 
+	   query it later.  We remember the key that actually verified the 
+	   signature, not a key that may already be present, either the same one 
+	   because a call path pre-instantiated it for us or a different one 
+	   from an earlier verification attempt or one from an attached 
+	   certificate chain, in which case we replace it with the one that 
+	   actually verified the signature.
+	   
+	   Note that this leads to one exception condition, if the caller passes
+	   in a raw context to verify the signature, which takes precedence over
+	   the attached certificate chain, then a later attempt to read back
+	   the signing certificate will fail.  This is an obscure-enough corner
+	   case that it's not worth handling */
+	if( cryptStatusOK( status ) && \
+		contentListPtr->formatType != CRYPT_FORMAT_PGP )
+		{
+		if( sigInfo->iSigCheckKey != sigCheckContext )
 			{
-			REQUIRES( sigInfo->iSigCheckKey == CRYPT_ERROR );
+			if( sigInfo->iSigCheckKey != CRYPT_ERROR )
+				{
+				krnlSendNotifier( sigInfo->iSigCheckKey, 
+								  IMESSAGE_DECREFCOUNT );
+				}
 			krnlSendNotifier( sigCheckContext, IMESSAGE_INCREFCOUNT );
 			sigInfo->iSigCheckKey = sigCheckContext;
-			if( isExternalKey )
-				SET_FLAG( contentListPtr->flags, CONTENT_FLAG_EXTERNALKEY );
+			}
+		if( isExternalKey )
+			{
+			SET_FLAG( contentListPtr->flags, 
+					  CONTENT_FLAG_EXTERNALKEY );
+			}
+		else
+			{
+			CLEAR_FLAG( contentListPtr->flags, 
+						CONTENT_FLAG_EXTERNALKEY );
 			}
 		}
 
@@ -2024,6 +2474,14 @@ static int addDeenvelopeInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		case CRYPT_ENVINFO_PRIVATEKEY:
 		case CRYPT_ENVINFO_KEY:
 			/* Import the session key using the KEK */
+			if( envelopeInfoPtr->usage == ACTION_MAC )
+				{
+				/* AuthData only works with PWRI, in particular 
+				   importSessionKey() can't find a session-key 
+				   contentListItem because CMS AuthData never reaches the 
+				   encrypted-content state that creates one */
+				return( CRYPT_ERROR_NOTAVAIL );
+				}
 			status = importSessionKey( contentListPtr, cryptHandle, 
 									   &iNewContext, ENVELOPE_ERRINFO );
 			break;
@@ -2035,6 +2493,11 @@ static int addDeenvelopeInfo( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			   up the decryption with it */
 			const CONTENT_ENCR_INFO *encrInfo = &contentListPtr->clEncrInfo;
 
+			/* If it's AuthEnc data rather than encrypted data then we can't
+			   do anything with a raw session key */
+			if( contentListPtr->type == CONTENT_AUTHENC )
+				return( CRYPT_ARGERROR_VALUE );
+			
 			REQUIRES( contentListPtr->type == CONTENT_CRYPT );
 
 			status = initEnvelopeEncryption( envelopeInfoPtr, cryptHandle,

@@ -870,8 +870,21 @@ static int readKey( INOUT_PTR STREAM *stream,
 			}
 		retExt( status, 
 				( status, errorInfo, 
-				  "Invalid PGP public-key components for key packet group %d",
-				  keyGroupNo ) );
+				  "Invalid PGP public-key components for key packet "
+				  "group %d", keyGroupNo ) );
+		}
+
+	/* Make sure that we got all of the data before we hash it to produce 
+	   the OpenPGP keyID.  Note that this check only works for public-key
+	   packets since private-key packets have further data following the
+	   public key whose details we don't know about until we read it,
+	   which we perform at that time */
+	if( isPublicKey && stell( stream ) != endPos )
+		{
+		retExt( status, 
+				( status, errorInfo, 
+				  "Invalid PGP public-key component length for key packet "
+				  "group %d", keyGroupNo ) );
 		}
 
 	/* Now that we know where the public key data starts and finishes, we 
@@ -966,6 +979,15 @@ static int readKey( INOUT_PTR STREAM *stream,
 			}
 		if( cryptStatusError( status ) )
 			return( status );
+
+		/* Perform the same length check as for public keys */
+		if( stell( stream ) != endPos )
+			{
+			retExt( status, 
+					( status, errorInfo, 
+					  "Invalid PGP public/private-key component length for "
+					  "key packet group %d", keyGroupNo ) );
+			}
 		}
 
 	/* Read any associated subpacket(s), of which the only ones of real 

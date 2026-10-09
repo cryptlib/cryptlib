@@ -824,7 +824,7 @@ int generateECCkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 						const int keyBits )
 	{
 	CRYPT_ECCCURVE_TYPE fieldID;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const BOOLEAN sideChannelProtection = \
 			TEST_FLAG( contextInfoPtr->flags, \
 					   CONTEXT_FLAG_SIDECHANNELPROTECTION ) ? TRUE : FALSE;
@@ -917,7 +917,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initCheckECCkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					 IN_BOOL const BOOLEAN isECDH )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const ECC_DOMAINPARAMS *domainParams;
 	const EC_GROUP *ecCTX;
 	const BIGNUM *p;

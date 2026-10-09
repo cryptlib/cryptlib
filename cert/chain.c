@@ -396,6 +396,7 @@ static int buildChainInfo( OUT_ARRAY( certChainSize ) CHAIN_INFO *chainInfo,
 	   destroyed until the encapsulating certificate is destroyed */
 	LOOP_EXT( i = 0, i < certChainSize, i++, MAX_CHAINLENGTH )
 		{
+		const CERT_CERT_INFO *certChainInfo;
 		CERT_INFO *certChainPtr;
 		int status;
 
@@ -409,12 +410,15 @@ static int buildChainInfo( OUT_ARRAY( certChainSize ) CHAIN_INFO *chainInfo,
 			return( status );
 		ENSURES_OBJECT( sanityCheckCert( certChainPtr ), 
 						certChainPtr->objectHandle );
+		certChainInfo = DATAPTR_GET_CERT( certChainPtr );
+		REQUIRES_OBJECT( certChainInfo != NULL, 
+						 certChainPtr->objectHandle );
 		chainInfo[ i ].subjectDN = certChainPtr->subjectDNptr;
 		chainInfo[ i ].subjectDNsize = certChainPtr->subjectDNsize;
 		chainInfo[ i ].issuerDN = certChainPtr->issuerDNptr;
 		chainInfo[ i ].issuerDNsize = certChainPtr->issuerDNsize;
-		chainInfo[ i ].serialNumber = certChainPtr->cCertCert->serialNumber;
-		chainInfo[ i ].serialNumberSize = certChainPtr->cCertCert->serialNumberLength;
+		chainInfo[ i ].serialNumber = certChainInfo->serialNumber;
+		chainInfo[ i ].serialNumberSize = certChainInfo->serialNumberLength;
 		chainInfo[ i ].attributes = certChainPtr->attributes;
 		status = getChainingAttribute( certChainPtr, 
 									   CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER,
@@ -789,6 +793,7 @@ static int sortCertChain( INOUT_ARRAY( certChainSize ) CRYPT_CERTIFICATE *iCertC
 		/* We're building a new chain, the caller has supplied the chaining
 		   information */
 		memcpy( &localChainingInfo, chainingInfo, sizeof( CHAINING_INFO ) );
+		REQUIRES( rangeCheck( leafCertEntry, 0, certChainSize - 1 ) );
 		chainInfoValid[ leafCertEntry ] = FALSE;
 		orderedChainIndex = 0;
 		}
@@ -896,6 +901,7 @@ static int buildCertChain( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iLeafCertPtr,
 	CRYPT_CERTIFICATE iLeafCert, savedLeafCert;
 	CHAIN_INFO chainInfo[ MAX_CHAINLENGTH + 8 ];
 	CERT_INFO *certChainPtr;
+	CERT_CERT_INFO *certChainInfo;
 	CHAINING_INFO chainingInfo;
 	const int keyUsageOptions = options & KEYMGMT_MASK_USAGEOPTIONS;
 	int leafNodePos, newCertChainEnd, complianceLevel, status;
@@ -987,7 +993,7 @@ static int buildCertChain( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iLeafCertPtr,
 	/* Walk up the chain re-setting the pseudo-selfsigned flag on any
 	   chain-internal path-kludge certificates if necessary.  This means 
 	   that if the chain contains n certificates we reset the flag on 
-	   certificates 0...n-1.  This is required when there's a re-issued 
+	   certificates 0...n-2.  This is required when there's a re-issued 
 	   certificate kludged into the middle of the path to connect a new CA 
 	   signing key with a certificate signed with the old key.  Note that 
 	   this can't detect the case where the first certificate in the chain 
@@ -1070,17 +1076,20 @@ static int buildCertChain( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iLeafCertPtr,
 		{
 		/* Insert the replacement leaf certificate into the chain for the 
 		   caller to clean up */
-		REQUIRES( rangeCheck( newCertChainEnd, 0, certChainEnd - 1 ) );
+		REQUIRES( rangeCheck( newCertChainEnd, 1, certChainEnd - 1 ) );
 		iCertChain[ newCertChainEnd ] = iLeafCert;
 		return( status );
 		}
 	ENSURES_OBJECT( sanityCheckCert( certChainPtr ), 
 					certChainPtr->objectHandle );
+	certChainInfo = DATAPTR_GET_CERT( certChainPtr );
+	REQUIRES_OBJECT( certChainInfo != NULL,
+					 certChainPtr->objectHandle );
 	REQUIRES_OBJECT( rangeCheck( newCertChainEnd, 1, MAX_CHAINLENGTH ),
 					 certChainPtr->objectHandle );
-	memcpy( certChainPtr->cCertCert->chain, iCertChain,
+	memcpy( certChainInfo->chain, iCertChain,
 			sizeof( CRYPT_CERTIFICATE ) * newCertChainEnd );
-	certChainPtr->cCertCert->chainEnd = newCertChainEnd;
+	certChainInfo->chainEnd = newCertChainEnd;
 	certChainPtr->type = CRYPT_CERTTYPE_CERTCHAIN;
 	krnlReleaseObject( certChainPtr->objectHandle );
 	*iLeafCertPtr = iLeafCert;
@@ -1099,7 +1108,7 @@ static int buildCertChain( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iLeafCertPtr,
    based on its fingerprint */
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
-static BOOLEAN isCertPresent( INOUT_ARRAY( certChainLen ) \
+static BOOLEAN isCertPresent( INOUT_ARRAY( certChainLen + 1 ) \
 									BYTE certChainHashes[][ CRYPT_MAX_HASHSIZE + 8 ],
 							  IN_RANGE( 0, MAX_CHAINLENGTH ) const int certChainLen, 
 							  IN_HANDLE const CRYPT_CERTIFICATE iCryptCert )
@@ -1109,7 +1118,10 @@ static BOOLEAN isCertPresent( INOUT_ARRAY( certChainLen ) \
 	int status;
 
 	assert( isWritePtr( certChainHashes, \
-						MAX_CHAINLENGTH * CRYPT_MAX_HASHSIZE ) );
+						( MAX_CHAINLENGTH + 1 ) * CRYPT_MAX_HASHSIZE ) );
+						/* We add the fingerprint of the additional 
+						   certificate to the end of the existing set of
+						   hashes */
 
 	REQUIRES_B( certChainLen >= 0 && certChainLen <= MAX_CHAINLENGTH );
 				/* Apparent length may be zero for a chain of size 1 since
@@ -1157,19 +1169,24 @@ int copyCertChain( INOUT_PTR CERT_INFO *certInfoPtr,
 	{
 	CRYPT_CERTIFICATE iChainCert;
 	CERT_INFO *chainCertInfoPtr;
-	CERT_CERT_INFO *destCertChainInfo = certInfoPtr->cCertCert;
+	CERT_CERT_INFO *destCertChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 	CERT_CERT_INFO *srcCertChainInfo;
 	CHAIN_INFO chainInfo[ MAX_CHAINLENGTH + 8 ];
 	BYTE certChainHashes[ MAX_CHAINLENGTH + 1 + 8 ][ CRYPT_MAX_HASHSIZE + 8 ];
-	const int oldChainEnd = destCertChainInfo->chainEnd;
 	LOOP_INDEX i;
-	int srcChainEnd, newChainEnd DUMMY_INIT, status;
+	int oldChainEnd, srcChainEnd, newChainEnd DUMMY_INIT, status;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
 	REQUIRES( isHandleRangeValid( iContextOrChain ) );
 	REQUIRES( isBooleanValue( isCertCollection ) );
+	REQUIRES( destCertChainInfo != NULL );
+	REQUIRES( isCertCollection || destCertChainInfo->chainEnd == 0 );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	oldChainEnd = destCertChainInfo->chainEnd;
 
 	/* Get the certificate chain associated with the object that we've 
 	   been passed, which may be a signing context with attached certificate 
@@ -1224,7 +1241,9 @@ int copyCertChain( INOUT_PTR CERT_INFO *certInfoPtr,
 		return( status );
 	ENSURES_OBJECT( sanityCheckCert( chainCertInfoPtr ),
 					chainCertInfoPtr->objectHandle );
-	srcCertChainInfo = chainCertInfoPtr->cCertCert;
+	srcCertChainInfo = DATAPTR_GET_CERT( chainCertInfoPtr );
+	REQUIRES_OBJECT( srcCertChainInfo != NULL,
+					 chainCertInfoPtr->objectHandle );
 	srcChainEnd = srcCertChainInfo->chainEnd;
 	if( !isCertCollection || \
 		!isCertPresent( certChainHashes, destCertChainInfo->chainEnd, \
@@ -1287,6 +1306,7 @@ int copyCertChain( INOUT_PTR CERT_INFO *certInfoPtr,
 		/* Clean up the newly-copied certificates if necessary */
 		if( destCertChainInfo->chainEnd > oldChainEnd )
 			{
+			REQUIRES( rangeCheck( oldChainEnd, 0, MAX_CHAINLENGTH - 1 ) );
 			REQUIRES( !checkOverflowSub( destCertChainInfo->chainEnd, 
 										 oldChainEnd ) );
 			freeCertChain( &destCertChainInfo->chain[ oldChainEnd ],
@@ -1336,6 +1356,7 @@ int copyCertChain( INOUT_PTR CERT_INFO *certInfoPtr,
 		/* Clean up the newly-copied certificates if necessary */
 		if( destCertChainInfo->chainEnd > oldChainEnd )
 			{
+			REQUIRES( rangeCheck( oldChainEnd, 0, MAX_CHAINLENGTH - 1 ) );
 			REQUIRES( !checkOverflowSub( destCertChainInfo->chainEnd, 
 										 oldChainEnd ) );
 			freeCertChain( &destCertChainInfo->chain[ oldChainEnd ],
@@ -1477,6 +1498,8 @@ static int readSingleCert( INOUT_PTR STREAM *stream,
 	if( type == CRYPT_ICERTTYPE_TLS13_CERTCHAIN )
 		{
 		status = length = readUint16( stream );
+		if( !cryptStatusError( status ) && !isShortIntegerRange( length ) )
+			status = CRYPT_ERROR_BADDATA;
 		if( !cryptStatusError( status ) && length > 0 )
 			status = sSkip( stream, length, MAX_INTLENGTH_SHORT );
 		if( cryptStatusError( status ) )
@@ -1822,6 +1845,7 @@ int assembleCertChain( OUT_HANDLE_OPT CRYPT_CERTIFICATE *iCertificate,
 					   "certificates", MAX_CHAINLENGTH ));
 			}
 
+		REQUIRES( rangeCheck( certSetSize, 0, MAX_CHAINLENGTH - 1 ) );
 		iCertSet[ certSetSize++ ] = lastCert = getnextcertInfo.cryptHandle;
 		}
 	ENSURES( LOOP_BOUND_OK );
@@ -1870,7 +1894,7 @@ static int sizeofCertPath( const CERT_INFO *certInfoPtr,
 						   IN_ENUM( CRYPT_CERTFORMAT ) \
 								const CRYPT_CERTFORMAT_TYPE certFormatType )
 	{
-	const CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+	const CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 	const int extraLength = \
 		( certFormatType == CRYPT_ICERTFORMAT_TLS_CERTCHAIN ) ? 3 : \
 		( certFormatType == CRYPT_ICERTFORMAT_TLS13_CERTCHAIN ) ? 5 : 0;
@@ -1889,6 +1913,7 @@ static int sizeofCertPath( const CERT_INFO *certInfoPtr,
 			  ( ( certFormatType == CRYPT_ICERTFORMAT_TLS_CERTCHAIN || \
 				  certFormatType == CRYPT_ICERTFORMAT_TLS13_CERTCHAIN ) && \
 				  certSizeInfo != NULL ) );
+	REQUIRES( certChainInfo != NULL );
 
 	/* Clear return values */
 	*certPathLength = 0;
@@ -1900,7 +1925,11 @@ static int sizeofCertPath( const CERT_INFO *certInfoPtr,
 	   just a container for random certificates but not a certificate in its 
 	   own right so we skip the leaf certificate */
 	if( !TEST_FLAG( certInfoPtr->flags, CERT_FLAG_CERTCOLLECTION ) )
+		{
+		REQUIRES( !checkOverflowAdd( certInfoPtr->certificateSize, 
+									 extraLength ) );
 		length = certInfoPtr->certificateSize + extraLength;
+		}
 	LOOP_EXT( i = 0, i < certChainInfo->chainEnd, i++, MAX_CHAINLENGTH )
 		{
 		MESSAGE_DATA msgData;
@@ -1922,8 +1951,15 @@ static int sizeofCertPath( const CERT_INFO *certInfoPtr,
 			certSizeInfo[ i ] = msgData.length;
 		}
 	ENSURES( LOOP_BOUND_OK );
-	if( !isShortIntegerRangeNZ( length ) )
+	if( !isShortIntegerRangeNZ( length ) || \
+		length >= MAX_INTLENGTH_SHORT - 64 )
+		{
+		/* When we write a certificate path there's always some sort of 
+		   wrapper present around it so we make sure that there's a bit 
+		   of additional space present alongside the certificates 
+		   themselves */
 		return( CRYPT_ERROR_OVERFLOW );
+		}
 	*certPathLength = length;
 
 	return( CRYPT_OK );
@@ -1937,7 +1973,7 @@ static int writeCertPath( INOUT_PTR STREAM *stream,
 						  IN_ENUM( CRYPT_CERTFORMAT ) \
 								const CRYPT_CERTFORMAT_TYPE certFormatType )
 	{
-	const CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+	const CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 	LOOP_INDEX i;
 	int status = CRYPT_OK;
 
@@ -1953,6 +1989,7 @@ static int writeCertPath( INOUT_PTR STREAM *stream,
 			  ( ( certFormatType == CRYPT_ICERTFORMAT_TLS_CERTCHAIN || \
 				  certFormatType == CRYPT_ICERTFORMAT_TLS13_CERTCHAIN ) && \
 				  certSizeInfo != NULL ) );
+	REQUIRES( certChainInfo != NULL );
 
 	/* Write the current certificate and the associated certificate chain up 
 	   to the root.  If it's a certificate collection it's just a container 
@@ -1963,6 +2000,8 @@ static int writeCertPath( INOUT_PTR STREAM *stream,
 		if( certFormatType == CRYPT_ICERTFORMAT_TLS_CERTCHAIN || \
 			certFormatType == CRYPT_ICERTFORMAT_TLS13_CERTCHAIN ) 
 			{
+			REQUIRES( rangeCheck( certInfoPtr->certificateSize, 
+								  1, 65535 ) );
 			sputc( stream, 0 );		/* 24-bit length */
 			writeUint16( stream, certInfoPtr->certificateSize );
 			}
@@ -1982,6 +2021,8 @@ static int writeCertPath( INOUT_PTR STREAM *stream,
 		if( certFormatType == CRYPT_ICERTFORMAT_TLS_CERTCHAIN || \
 			certFormatType == CRYPT_ICERTFORMAT_TLS13_CERTCHAIN ) 
 			{
+			REQUIRES( rangeCheck( certInfoPtr->certificateSize, 
+								  1, 65535 ) );
 			sputc( stream, 0 );		/* 24-bit length */
 			status = writeUint16( stream, certSizeInfo[ i ] );
 			if( cryptStatusError( status ) )
@@ -2129,6 +2170,7 @@ int writeCertChain( INOUT_PTR STREAM *stream,
 					  sizeofShortObject( sizeofOID( OID_CMS_DATA ) ) + \
 					  sizeofShortObject( certSetLength ) + \
 					  sizeofShortObject( 0 );
+	REQUIRES( isShortIntegerRangeMin( innerLength, certSetLength ) );
 
 	/* Write the outer SEQUENCE wrapper, contentType, and content wrapper */
 	writeSequence( stream, 

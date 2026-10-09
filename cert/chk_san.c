@@ -18,7 +18,7 @@
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -149,11 +149,13 @@ static BOOLEAN checkDataPointers( IN_PTR_OPT const void *certificatePtr,
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN sanityCheckCertificate( const CERT_INFO *certInfoPtr )
 	{
-	const CERT_CERT_INFO *certInfo = certInfoPtr->cCertCert;
+	const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 	LOOP_INDEX i;
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isReadPtr( certInfo, sizeof( CERT_CERT_INFO ) ) );
+
+	REQUIRES_B( certInfo != NULL );
 
 	/* Check certificate data */
 	if( !checkSerialNumber( certInfo->serialNumber, 
@@ -174,7 +176,8 @@ static BOOLEAN sanityCheckCertificate( const CERT_INFO *certInfoPtr )
 		/* It's a certificate chain, check that the chain information is in 
 		   order.  A chainPos of -1 is valid for the leaf certificate, which 
 		   is past the end of the chain */
-		if( certInfo->chainEnd < 0 || \
+		if( certInfoPtr->type != CRYPT_CERTTYPE_CERTCHAIN || \
+			certInfo->chainEnd < 0 || \
 			certInfo->chainEnd > MAX_CHAINLENGTH || \
 			certInfo->chainPos < -1 || \
 			certInfo->chainPos >= certInfo->chainEnd )
@@ -185,6 +188,9 @@ static BOOLEAN sanityCheckCertificate( const CERT_INFO *certInfoPtr )
 		}
 	else
 		{
+		/* We can't reject a type of CRYPT_CERTTYPE_CERTCHAIN here 
+		   because it can legitimately be zero between when the object is
+		   created and when it has entries added to the chain */
 		if( certInfo->chainPos != -1 )
 			{
 			DEBUG_PUTS(( "sanityCheckCert: Spurious chain info" ));
@@ -233,10 +239,12 @@ static BOOLEAN sanityCheckCertificate( const CERT_INFO *certInfoPtr )
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN sanityCheckCertReq( const CERT_INFO *certInfoPtr )
 	{
-	const CERT_REQ_INFO *reqInfo = certInfoPtr->cCertReq;
+	const CERT_REQ_INFO *reqInfo = DATAPTR_GET_REQ( certInfoPtr );
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isReadPtr( reqInfo, sizeof( CERT_REQ_INFO ) ) );
+
+	REQUIRES_B( reqInfo != NULL );
 
 	/* Check request data */
 	if( !checkSerialNumber( reqInfo->serialNumber, 
@@ -262,10 +270,12 @@ static BOOLEAN sanityCheckCertReq( const CERT_INFO *certInfoPtr )
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN sanityCheckCertRev( const CERT_INFO *certInfoPtr )
 	{
-	const CERT_REV_INFO *revInfo = certInfoPtr->cCertRev;
+	const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isReadPtr( revInfo, sizeof( CERT_REV_INFO ) ) );
+
+	REQUIRES_B( revInfo != NULL );
 
 	/* Check revocation data */
 	if( !( ( revInfo->responderUrl == NULL && \
@@ -332,10 +342,12 @@ static BOOLEAN sanityCheckCertRev( const CERT_INFO *certInfoPtr )
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN sanityCheckCertVal( const CERT_INFO *certInfoPtr )
 	{
-	const CERT_VAL_INFO *valInfo = certInfoPtr->cCertVal;
+	const CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isReadPtr( valInfo, sizeof( CERT_VAL_INFO ) ) );
+
+	REQUIRES_B( valInfo != NULL );
 
 	/* Check RTCS data */
 	if( !( ( valInfo->responderUrl == NULL && \
@@ -392,10 +404,12 @@ static BOOLEAN sanityCheckCertVal( const CERT_INFO *certInfoPtr )
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN sanityCheckCertPKIUser( const CERT_INFO *certInfoPtr )
 	{
-	const CERT_PKIUSER_INFO *pkiUserInfo = certInfoPtr->cCertUser;
+	const CERT_PKIUSER_INFO *pkiUserInfo = DATAPTR_GET_PKIUSER( certInfoPtr );
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isReadPtr( pkiUserInfo, sizeof( CERT_PKIUSER_INFO ) ) );
+
+	REQUIRES_B( pkiUserInfo != NULL );
 
 	/* Check PKI user data.  The only thing that we can really check is a 
 	   single boolean */
@@ -516,7 +530,8 @@ BOOLEAN sanityCheckCert( IN_PTR const CERT_INFO *certInfoPtr )
 		return( FALSE );
 		}
 	if( certInfoPtr->publicKeyAlgo != CRYPT_ALGO_NONE && \
-		!isPkcAlgo( certInfoPtr->publicKeyAlgo ) )
+		( !isPkcAlgo( certInfoPtr->publicKeyAlgo ) || \
+		  isKeyexAlgo( certInfoPtr->publicKeyAlgo ) ) )
 		{
 		DEBUG_PUTS(( "sanityCheckCert: Public key algorithm" ));
 		return( FALSE );
@@ -772,7 +787,7 @@ BOOLEAN sanityCheckCert( IN_PTR const CERT_INFO *certInfoPtr )
 #if defined( USE_CERTREQ ) || defined( USE_CMSATTR )
 		case CRYPT_CERTTYPE_CERTREQUEST:
 		case CRYPT_CERTTYPE_CMS_ATTRIBUTES:
-			if( certInfoPtr->cCertCert != NULL )
+			if( !DATAPTR_ISNULL( certInfoPtr->certInfo ) )
 				{
 				DEBUG_PUTS(( "sanityCheckCert: Spurious certificate info" ));
 				return( FALSE );

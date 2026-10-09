@@ -19,7 +19,7 @@
 *																			*
 ****************************************************************************/
 
-#if defined( USE_CERTREV ) || defined( USE_CERTVAL )
+#if defined( USE_CERTREV ) 
 
 /* Generate an issuerID, a SHA-1 hash of the issuerAndSerialNumber needed 
    when storing/retrieving a certificate to/from a database keyset, which 
@@ -91,7 +91,7 @@ static int generateCertID( IN_BUFFER( dnLength ) const void *dn,
 
 	return( status );
 	}
-#endif /* USE_CERTREV || USE_CERTVAL */
+#endif /* USE_CERTREV */
 
 /****************************************************************************
 *																			*
@@ -170,20 +170,29 @@ static int checkResponder( INOUT_PTR CERT_INFO *certInfoPtr,
 		status = krnlSendMessage( cryptResponse, IMESSAGE_GETATTRIBUTE,
 								  &responderStatus, 
 								  CRYPT_CERTINFO_CERTSTATUS );
-		if( cryptStatusOK( status ) && \
-			( responderStatus != CRYPT_CERTSTATUS_VALID ) )
-			status = CRYPT_ERROR_INVALID;
+		if( cryptStatusError( status ) )
+			responderStatus = CRYPT_CERTSTATUS_UNKNOWN;
+		else
+			{
+			if( responderStatus != CRYPT_CERTSTATUS_VALID )
+				status = CRYPT_ERROR_INVALID;
+			}
 		}
 	else
 		{
 		status = krnlSendMessage( cryptResponse, IMESSAGE_GETATTRIBUTE,
 								  &responderStatus,
 								  CRYPT_CERTINFO_REVOCATIONSTATUS );
-		if( cryptStatusOK( status ) && \
-			( responderStatus != CRYPT_OCSPSTATUS_NOTREVOKED ) )
-			status = CRYPT_ERROR_INVALID;
+		if( cryptStatusError( status ) )
+			responderStatus = CRYPT_OCSPSTATUS_UNKNOWN;
+		else
+			{
+			if( responderStatus != CRYPT_OCSPSTATUS_NOTREVOKED )
+				status = CRYPT_ERROR_INVALID;
+			}
 		}
 	krnlSendNotifier( cryptResponse, IMESSAGE_DECREFCOUNT );
+	cryptResponse = CRYPT_ERROR;
 	ENSURES( sanityCheckCert( certInfoPtr ) );
 	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE" );
 
@@ -202,6 +211,9 @@ static int checkResponder( INOUT_PTR CERT_INFO *certInfoPtr,
 
 	return( CRYPT_OK );
 	}
+#endif /* USE_CERTREV || USE_CERTVAL */
+
+#ifdef USE_CERTREV 
 
 /* Check a certificate against a CRL stored in a keyset */
 
@@ -209,6 +221,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int checkKeyset( INOUT_PTR CERT_INFO *certInfoPtr,
 						IN_HANDLE const CRYPT_KEYSET iCryptKeyset )
 	{
+	const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 	MESSAGE_KEYMGMT_INFO getkeyInfo;
 	BYTE issuerID[ KEYID_SIZE + 8 ];
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
@@ -220,13 +233,14 @@ static int checkKeyset( INOUT_PTR CERT_INFO *certInfoPtr,
 			  certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN );
 	REQUIRES( isHandleRangeValid( iCryptKeyset ) );
+	REQUIRES( certInfo != NULL );
 
 	/* Generate the issuerID for the certificate */
 	status = generateCertID( certInfoPtr->issuerDNptr,
 							 certInfoPtr->issuerDNsize,
-							 certInfoPtr->cCertCert->serialNumber,
-							 certInfoPtr->cCertCert->serialNumberLength,
-							 issuerID, KEYID_SIZE );
+							 certInfo->serialNumber,
+							 certInfo->serialNumberLength, issuerID, 
+							 KEYID_SIZE );
 	if( cryptStatusError( status ) )
 		return( status );
 	CFI_CHECK_UPDATE( "generateCertID" );
@@ -263,7 +277,7 @@ static int checkKeyset( INOUT_PTR CERT_INFO *certInfoPtr,
 	   (although not necessarily valid either) */
 	return( CRYPT_OK );
 	}
-#endif /* USE_CERTREV || USE_CERTVAL */
+#endif /* USE_CERTREV */
 
 /****************************************************************************
 *																			*
@@ -334,17 +348,18 @@ int checkCertDetails( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	if( !basicCheckDone && \
 		( subjectCertInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 		  subjectCertInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
-		  subjectCertInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN ) )
+		  subjectCertInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN || \
+		  subjectCertInfoPtr->type == CRYPT_CERTTYPE_CRL ) )
 		{
-		status = checkCertBasic( subjectCertInfoPtr );
+		status = checkCertBasic( subjectCertInfoPtr, FALSE );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
 	CFI_CHECK_UPDATE( "checkCertBasic" );
 
 	/* If there's an issuer certificate present check the validity of the
-	   subject certificate based on it.  If it's not present all that we can 
-	   do is perform a pure signature check with the context */
+	   subject certificate based on it.  If it's not present then all that 
+	   we can do is perform a pure signature check with the context */
 	if( issuerCertInfoPtr != NULL )
 		{
 		status = checkCert( subjectCertInfoPtr, issuerCertInfoPtr, 
@@ -413,7 +428,7 @@ int checkCertDetails( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	   chooses not to reject certificates based on it */
 #if defined( USE_CERTLEVEL_PKIX_FULL ) && 0
 	if( !trustAnchorCheck && \
-		subjectCertInfoPtr->type == CRYPT_CERTINFO_CERTIFICATE && \
+		subjectCertInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE && \
 		subjectCertInfoPtr->version < 3 )
 		{
 		setErrorValues( CRYPT_CERTINFO_VERSION, CRYPT_ERRTYPE_ATTR_VALUE );
@@ -439,7 +454,7 @@ int checkCertDetails( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 		MESSAGE_DATA msgData;
 		BYTE subjectIssuerID[ CRYPT_MAX_HASHSIZE + 8 ];
 		BYTE issuerSubjectID[ CRYPT_MAX_HASHSIZE + 8 ];
-		int subjectIDlength, issuerIDlength DUMMY_INIT;
+		int subjectIssuerIDlength DUMMY_INIT, issuerSubjectIDlength;
 #endif /* USE_CERTLEVEL_PKIX_PARTIAL */
 
 		/* There's one special-case situation in which we can get a 
@@ -484,7 +499,7 @@ int checkCertDetails( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 								  CRYPT_CERTINFO_AUTHORITY_KEYIDENTIFIER );
 		if( cryptStatusOK( status ) )
 			{
-			issuerIDlength = msgData.length;
+			subjectIssuerIDlength = msgData.length;
 			setMessageData( &msgData, issuerSubjectID, CRYPT_MAX_HASHSIZE );
 			status = krnlSendMessage( issuerCertInfoPtr->objectHandle, 
 									  IMESSAGE_GETATTRIBUTE_S, &msgData, 
@@ -498,12 +513,13 @@ int checkCertDetails( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 						 "%s signature check failed", 
 						 getCertTypeName( subjectCertInfoPtr->type ) ) );
 			}
-		subjectIDlength = msgData.length;
+		issuerSubjectIDlength = msgData.length;
 
 		/* If the keyIDs don't match then it's a signature error due to 
 		   false-positive chaining rather than a data corruption error */
-		if( ( issuerIDlength != subjectIDlength ) || \
-			memcmp( subjectIssuerID, issuerSubjectID, issuerIDlength ) )
+		if( ( subjectIssuerIDlength != issuerSubjectIDlength ) || \
+			memcmp( subjectIssuerID, issuerSubjectID, \
+					issuerSubjectIDlength ) )
 			{
 			DEBUG_DIAG(( "%s signature check failed due to mismatched key "
 						 "in CA certificate",
@@ -517,6 +533,9 @@ int checkCertDetails( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 						 getCertTypeName( subjectCertInfoPtr->type ) ) );
 			}
 
+		/* Nonspecific error, just use the error information from 
+		   checkX509signature */
+		copyErrorInfo( SUBJECTCERT_ERRINFO, &localErrorInfo );
 		return( CRYPT_ERROR_BADDATA );
 #else
 		return( status );
@@ -574,7 +593,7 @@ static int checkSelfSignedCert( INOUT_PTR CERT_INFO *certInfoPtr,
 		certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
 		certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 		{
-		status = checkCertBasic( certInfoPtr );
+		status = checkCertBasic( certInfoPtr, FALSE );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
@@ -802,6 +821,9 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 	   certificate request or self-signed certificate */
 	if( iSigCheckObject == CRYPT_UNUSED )
 		{
+		/* Clear any residual error information from a previous check */
+		clearErrorInfo( CERTIFICATE_ERRINFO );
+		
 		/* If it's a certificate chain it's a (complex) self-signed object 
 		   containing more than one certificate so we need a special 
 		   function to check the entire chain */
@@ -881,8 +903,10 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 	   as the checking object for a chain that's missing the root */
 	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 		{
-		const CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+		const CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 		int certSubType;
+
+		REQUIRES( certChainInfo != NULL );
 
 		/* Get the certificate check-object type for error reporting 
 		   purposes */
@@ -952,6 +976,9 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 					  getCertTypeNameLC( certSubType ) ) );
 			}
 
+		/* Clear any residual error information from a previous check */
+		clearErrorInfo( CERTIFICATE_ERRINFO );
+
 		/* The checking object is a trusted CA certificate that connects to
 		   the top of the chain, check the rest of the chain with the 
 		   implicitly-present trusted certificate as the root */
@@ -966,13 +993,18 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 
 		return( CRYPT_OK );
 		}
+	ENSURES( certInfoPtr->type != CRYPT_CERTTYPE_CERTCHAIN );
+			 /* We're done with certificate chains */
 
 	/* Perform a basic check for obvious invalidity issues */
 	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 		certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
-		certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
+		certInfoPtr->type == CRYPT_CERTTYPE_CRL )
 		{
-		status = checkCertBasic( certInfoPtr );
+		/* Clear any residual error information from a previous check */
+		clearErrorInfo( CERTIFICATE_ERRINFO );
+
+		status = checkCertBasic( certInfoPtr, FALSE );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
@@ -1015,6 +1047,9 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 #endif /* USE_CERTREV || USE_CERTVAL */
 	if( checkObjectType == OBJECT_TYPE_KEYSET )
 		{
+		/* Clear any residual error information from a previous check */
+		clearErrorInfo( CERTIFICATE_ERRINFO );
+
 		/* If it's an RTCS or OCSP response, use the certificate store to 
 		   fill in the status information fields */
 #if defined( USE_CERTVAL )
@@ -1068,6 +1103,9 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 #if defined( USE_CERTREV ) || defined( USE_CERTVAL )
 	if( checkObjectType == OBJECT_TYPE_SESSION )
 		{
+		/* Clear any residual error information from a previous check */
+		clearErrorInfo( CERTIFICATE_ERRINFO );
+
 		status = checkResponder( certInfoPtr, iSigCheckObject );
 		if( cryptStatusError( status ) )
 			return( status );
@@ -1081,12 +1119,12 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 		}
 #endif /* USE_CERTREV || USE_CERTVAL */
 
-	/* Beyond this point we're checking a certificate/certificate chain, 
-	   CRL, or signed RTCS or OCSP response with either another certificate 
-	   or a raw public key.  Certificate chains have been checked above and 
-	   PKCS #10/CRMF requests are self-signed so typically they're checked 
-	   via the iSigCheckObject == CRYPT_UNUSED option above, however they 
-	   can also be checked by explicitly supplying a check object */
+	/* Beyond this point we're checking a certificate, CRL, or signed RTCS 
+	   or OCSP response with either another certificate or a raw public key.  
+	   Certificate chains have been checked above and PKCS #10/CRMF requests 
+	   are self-signed so typically they're checked via the 
+	   iSigCheckObject == CRYPT_UNUSED option above, however they can also be 
+	   checked by explicitly supplying a check object */
 	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_CERTREQUEST || \
@@ -1099,6 +1137,9 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 				  checkObjectSubtype == SUBTYPE_CERT_CERTCHAIN ) ) || \
 			  ( checkObjectType == OBJECT_TYPE_CONTEXT ) );
 
+	/* Clear any residual error information from a previous check */
+	clearErrorInfo( CERTIFICATE_ERRINFO );
+
 	/* If we've been given a self-signed certificate, make sure that the 
 	   signature check key is the same as the certificate's key.  To test 
 	   this we have to compare both the signing key and, if the signature 
@@ -1107,6 +1148,12 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 		{
 		MESSAGE_DATA msgData;
 		BYTE keyID[ KEYID_SIZE + 8 ];
+
+		/* The only objects that can be self-signed are at this point are
+		   certificates and PKCS #10 and CRMF certificate requests */ 
+		ENSURES( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
+				 certInfoPtr->type == CRYPT_CERTTYPE_CERTREQUEST || \
+				 certInfoPtr->type == CRYPT_CERTTYPE_REQUEST_CERT );
 
 		/* Check that the key in the certificate and the key in the 
 		   signature check object are identical */
@@ -1134,11 +1181,17 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 		/* If the signature check object is a certificate (even though 
 		   what's being checked is already a self-signed certificate) check 
 		   that it's identical to the certificate being checked (which it 
-		   must be if the certificate is self-signed).  This may be somewhat 
-		   stricter than required but it'll weed out technically valid but 
+		   must be if the certificate is self-signed).  This will weed out 
 		   questionable combinations like a certificate request being used 
 		   to validate a certificate and misleading ones such as one 
-		   certificate chain being used to check a second chain */
+		   certificate chain being used to check a second chain.
+		   
+		   Note that a sufficiently determined caller can still work around 
+		   even this check if they have the private key in the certificate
+		   available by attaching the certificate to the private-key context
+		   so that the check object type is an OBJECT_TYPE_CONTEXT, but at
+		   that point they're carrying out an attack (of unclear utility) on 
+		   themselves so we stop going down the rabbit hole here */
 		if( checkObjectType == OBJECT_TYPE_CERTIFICATE )
 			{
 			status = krnlSendMessage( certInfoPtr->objectHandle,
@@ -1154,25 +1207,6 @@ int checkCertValidity( INOUT_PTR CERT_INFO *certInfoPtr,
 						  getCertTypeNameLC( certInfoPtr->type ), 
 						  getCertTypeNameLC( certInfoPtr->type ) ) );
 				}
-			}
-
-		/* If what we're checking is a certificate chain then it's a 
-		   (complex) self-signed object containing more than one certificate 
-		   so we need a special function to check the entire chain */
-		if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
-			{
-			status = checkCertChain( certInfoPtr );
-			if( cryptStatusError( status ) )
-				return( status );
-			CFI_CHECK_UPDATE( "checkCertChain" );
-
-			ENSURES( CFI_CHECK_SEQUENCE_5( "IMESSAGE_GETATTRIBUTE", 
-										   "checkObjectSubtype", 
-										   "checkCertBasic", 
-										   "IMESSAGE_COMPARE",
-										   "checkCertChain" ) );
-
-			return( CRYPT_OK );
 			}
 
 		status = checkSelfSignedCert( certInfoPtr, formatInfoPtr );

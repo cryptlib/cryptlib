@@ -852,6 +852,7 @@ int pkiServerInit( CRYPT_CONTEXT *cryptPrivateKey,
 				   const CERT_DATA *pkiUserAltData, 
 				   const CERT_DATA *pkiUserCAData, 
 				   const CERT_DATA *pkiUserRAData, 
+				   const BOOLEAN noInitPkiUsers,
 				   const char *protocolName );
 
 /* Prototypes for functions in testfunc.c */
@@ -1262,7 +1263,8 @@ int testSessionTLSBadSSL( void );
   int testSessionTLS12ClientServerEcc384Key( void );
   int testSessionTLS12ClientCertClientServer( void );
   int testSessionTLS12NoClientCertClientServer( void );
-  int testSessionTLS12ClientCertManualClientServer( void );
+  int testSessionTLS12ClientCertManualAllowClientServer( void );
+  int testSessionTLS12ClientCertManualDenyClientServer( void );
   int testSessionTLS12BulkTransferClientServer( void );
   int testSessionTLS12LocalServerSocketClientServer( void );
   int testSessionTLS12SNIClientServer( void );

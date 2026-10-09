@@ -45,10 +45,10 @@ CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN sanityCheckSessionTLSWS( IN_PTR \
 											const SESSION_INFO *sessionInfoPtr )
 	{
-	const TLS_WS_INFO *wsInfo = &sessionInfoPtr->sessionTLS->wsInfo;
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
+	const TLS_WS_INFO *wsInfo;
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
-	assert( isReadPtr( wsInfo, sizeof( TLS_WS_INFO ) ) );
 
 	/* Check the TLS session state */
 	if( !sanityCheckSessionTLS( sessionInfoPtr ) )
@@ -56,6 +56,7 @@ static BOOLEAN sanityCheckSessionTLSWS( IN_PTR \
 		DEBUG_PUTS(( "sanityCheckSessionTLSWS: TLS state check" ));
 		return( FALSE );
 		}
+	wsInfo = &tlsInfo->wsInfo;
 
 	/* Check header information */
 	if( wsInfo->headerBytesRequired < 0 || \
@@ -781,7 +782,11 @@ static int processLength( INOUT_PTR STREAM *stream,
 			case WS_LENGTH_64BIT:
 				/* Although this is nominally a 64-bit value, it's bounded
 				   to a standard integer by the read code */
-				status = length = readUint64( stream );
+				status = length = readUint32( stream );
+				if( !cryptStatusError( status ) && length != 0 )
+					status = CRYPT_ERROR_BADDATA;
+				if( !cryptStatusError( status ) )
+					status = length = readUint32( stream );
 				break;
 
 			default:
@@ -904,11 +909,12 @@ int processInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								IN_DATALENGTH const int bufSize,
 								OUT_DATALENGTH_Z int *bufEnd )
 	{
-	TLS_WS_INFO *wsInfo = &sessionInfoPtr->sessionTLS->wsInfo;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
+	TLS_WS_INFO *wsInfo;
 	STREAM stream;
 	const BOOLEAN isServer = isServer( sessionInfoPtr ) ? TRUE : FALSE;
-	const int oldHeaderBufPos = wsInfo->headerBufPos;
-	int bytesCopied, bytesFromBuffer, remainingData, status;
+	int bytesCopied, bytesFromBuffer, oldHeaderBufPos, remainingData;
+	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( buffer, bufSize ) );
@@ -919,9 +925,15 @@ int processInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionTLSWS( sessionInfoPtr ) );
 	REQUIRES( isBufsizeRangeNZ( bufSize ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return values */
 	*bufEnd = 0;
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	wsInfo = &tlsInfo->wsInfo;
+	oldHeaderBufPos = wsInfo->headerBufPos;
 
 	/* If we're still in the middle of processing a packet, process it and 
 	   exit.  The test for this condition is based on there being no header
@@ -1170,7 +1182,8 @@ int prepareInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								IN_DATALENGTH const int bufSize,
 								IN_DATALENGTH const int dataSize )
 	{
-	TLS_WS_INFO *wsInfo = &sessionInfoPtr->sessionTLS->wsInfo;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
+	TLS_WS_INFO *wsInfo;
 	STREAM stream;
 	const BYTE *maskPtr = buffer + WS_MASK_OFFSET;
 	const BOOLEAN isServer = isServer( sessionInfoPtr ) ? TRUE : FALSE;
@@ -1188,6 +1201,10 @@ int prepareInnerPacketFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( dataSize >= headerSize && dataSize <= bufSize );
 	REQUIRES( !checkOverflowSub( dataSize, headerSize ) );
 	ENSURES( isIntegerRange( payloadSize ) );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	wsInfo = &tlsInfo->wsInfo;
 
 	/* Add the length field as required */
 	if( payloadSize > WS_LENGTH_THRESHOLD )

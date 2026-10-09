@@ -70,6 +70,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int copyRevocationInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 							   const CERT_INFO *revInfoPtr )
 	{
+	CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 	REVOCATION_INFO *revocationInfoPtr;
 	const void *serialNumberPtr;
 	int serialNumberLength, status = CRYPT_OK;
@@ -84,6 +85,7 @@ static int copyRevocationInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 			  revInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN || \
 			  revInfoPtr->type == CRYPT_CERTTYPE_REQUEST_REVOCATION );
 	REQUIRES( revInfoPtr->issuerDNptr != NULL );
+	REQUIRES( revInfo != NULL );
 
 	/* If there's an issuer name recorded, make sure that it matches the one 
 	   in the certificate that's being added */
@@ -125,16 +127,23 @@ static int copyRevocationInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 	   into this form using the supplied issuer certificate DN */
 	if( revInfoPtr->type == CRYPT_CERTTYPE_REQUEST_REVOCATION )
 		{
-		serialNumberPtr = revInfoPtr->cCertReq->serialNumber;
-		serialNumberLength = revInfoPtr->cCertReq->serialNumberLength;
+		const CERT_REQ_INFO *reqInfo = DATAPTR_GET_REQ( revInfoPtr );
+
+		REQUIRES( reqInfo != NULL );
+
+		serialNumberPtr = reqInfo->serialNumber;
+		serialNumberLength = reqInfo->serialNumberLength;
 		}
 	else
 		{
-		serialNumberPtr = revInfoPtr->cCertCert->serialNumber;
-		serialNumberLength = revInfoPtr->cCertCert->serialNumberLength;
+		const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( revInfoPtr );
+
+		REQUIRES( certInfo != NULL );
+
+		serialNumberPtr = certInfo->serialNumber;
+		serialNumberLength = certInfo->serialNumberLength;
 		}
-	status = addRevocationEntry( &certInfoPtr->cCertRev->revocations,
-								 &revocationInfoPtr, 
+	status = addRevocationEntry( &revInfo->revocations, &revocationInfoPtr, 
 								 CRYPT_IKEYID_ISSUERANDSERIALNUMBER,
 								 serialNumberPtr, serialNumberLength, FALSE );
 	if( cryptStatusError( status ) )
@@ -152,8 +161,7 @@ static int copyRevocationInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 			}
 		return( status );
 		}
-	DATAPTR_SET( certInfoPtr->cCertRev->currentRevocation, 
-				 revocationInfoPtr );
+	DATAPTR_SET( revInfo->currentRevocation, revocationInfoPtr );
 
 	return( CRYPT_OK );
 	}
@@ -183,7 +191,7 @@ static int copyResponderURL( INOUT_PTR CERT_INFO *requestInfoPtr,
 	/* There's no responder URL set, check whether the user certificate 
 	   contains a responder URL in the RTCS/OCSP authorityInfoAccess 
 	   GeneralName */
-	saveSelectionState( savedState, userCertInfoPtr );
+	saveSelectionState( &savedState, userCertInfoPtr );
 	status = selectGeneralName( userCertInfoPtr, aiaAttribute,
 								MAY_BE_ABSENT );
 	if( cryptStatusOK( status ) )
@@ -202,7 +210,7 @@ static int copyResponderURL( INOUT_PTR CERT_INFO *requestInfoPtr,
 		{
 		/* If there's no responder URL present then it's not a (fatal) 
 		   error */
-		restoreSelectionState( savedState, userCertInfoPtr );
+		restoreSelectionState( &savedState, userCertInfoPtr );
 		return( CRYPT_OK );
 		}
 
@@ -210,7 +218,7 @@ static int copyResponderURL( INOUT_PTR CERT_INFO *requestInfoPtr,
 	REQUIRES( isShortIntegerRangeNZ( urlSize ) );
 	if( ( responderUrl = clAlloc( "copyResponderURL", urlSize ) ) == NULL )
 		{
-		restoreSelectionState( savedState, userCertInfoPtr );
+		restoreSelectionState( &savedState, userCertInfoPtr );
 		return( CRYPT_ERROR_MEMORY );
 		}
 	status = getCertComponentString( userCertInfoPtr,
@@ -220,24 +228,32 @@ static int copyResponderURL( INOUT_PTR CERT_INFO *requestInfoPtr,
 		{
 		if( requestInfoPtr->type == CRYPT_CERTTYPE_RTCS_REQUEST )
 			{
-			REQUIRES( requestInfoPtr->cCertVal->responderUrl == NULL );
+			CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( requestInfoPtr );
 
-			requestInfoPtr->cCertVal->responderUrl = responderUrl;
-			requestInfoPtr->cCertVal->responderUrlSize = urlSize;
+			REQUIRES( valInfo != NULL && \
+					  valInfo->responderUrl == NULL );
+
+			valInfo->responderUrl = responderUrl;
+			valInfo->responderUrlSize = urlSize;
 			}
 		else
 			{
-			REQUIRES( requestInfoPtr->cCertRev->responderUrl == NULL );
+			CERT_REV_INFO *revInfo = DATAPTR_GET_REV( requestInfoPtr );
 
-			requestInfoPtr->cCertRev->responderUrl = responderUrl;
-			requestInfoPtr->cCertRev->responderUrlSize = urlSize;
+			ENSURES( requestInfoPtr->type == CRYPT_CERTTYPE_OCSP_REQUEST );
+			
+			REQUIRES( revInfo != NULL && \
+					  revInfo->responderUrl == NULL );
+
+			revInfo->responderUrl = responderUrl;
+			revInfo->responderUrlSize = urlSize;
 			}
 		}
 	else
 		{
 		clFree( "copyResponderURL", responderUrl );
 		}
-	restoreSelectionState( savedState, userCertInfoPtr );
+	restoreSelectionState( &savedState, userCertInfoPtr );
 
 	return( status );
 	}
@@ -302,16 +318,51 @@ static int setXyzzyKeyUsage( INOUT_PTR CERT_INFO *certInfoPtr,
 /* Copy public key data into a certificate object */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int checkKeyAlgo( INOUT_PTR CERT_INFO *certInfoPtr,
+						 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
+	{
+	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
+
+	REQUIRES( isEnumRange( cryptAlgo, CRYPT_ALGO ) );
+
+	/* Key agreement certificates are never used in practice so, although 
+	   the code theoretically handles them, it's never been tested due to 
+	   lack of any real-world certificates to test it on.  Because of this
+	   we reject any attempt to create key agreement certificates (a similar 
+	   check in cert/read.c:readPublicKeyInfo() blocks any attempt to import
+	   a key agreement certificate) */
+	if( isKeyexAlgo( cryptAlgo ) )
+		{
+		assert_nofuzz( DEBUG_WARN );
+		setObjectErrorInfo( certInfoPtr, 
+							CRYPT_CERTINFO_SUBJECTPUBLICKEYINFO,
+							CRYPT_ERRTYPE_ATTR_VALUE );
+		retExt( CRYPT_ERROR_NOTAVAIL,
+				( CRYPT_ERROR_NOTAVAIL, CERTIFICATE_ERRINFO,
+				  "%s isn't valid in a %s", getAlgoName( cryptAlgo ),
+				  getCertTypeName( certInfoPtr->type ) ) );
+		}
+
+	return( CRYPT_OK );
+	}
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int copyKeyFromCertificate( INOUT_PTR CERT_INFO *destCertInfoPtr,
 								   const CERT_INFO *srcCertInfoPtr )
 	{
 	void *publicKeyInfoPtr;
+	int status;
 
 	assert( isWritePtr( destCertInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isReadPtr( srcCertInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( destCertInfoPtr->publicKeyInfo == NULL );
 	REQUIRES( srcCertInfoPtr->publicKeyInfo != NULL );
+
+	/* Make sure that the algorithm is usable in a certificate */
+	status = checkKeyAlgo( destCertInfoPtr, srcCertInfoPtr->publicKeyAlgo );
+	if( cryptStatusError( status ) )
+		return( status );
 
 	REQUIRES( isShortIntegerRangeNZ( srcCertInfoPtr->publicKeyInfoSize ) );
 	if( ( publicKeyInfoPtr = \
@@ -338,23 +389,26 @@ static int copyKeyFromContext( INOUT_PTR CERT_INFO *destCertInfoPtr,
 	{
 	MESSAGE_DATA msgData;
 	void *publicKeyInfoPtr;
-	int length, status;
+	int cryptAlgo, length, status;
 
 	assert( isWritePtr( destCertInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( destCertInfoPtr->publicKeyInfo == NULL );
 	REQUIRES( isHandleRangeValid( iCryptContext ) );
 
-	/* Get the key metadata from the context */
+	/* Make sure that the algorithm is usable in a certificate */
 	status = krnlSendMessage( iCryptContext, IMESSAGE_GETATTRIBUTE,
-							  &destCertInfoPtr->publicKeyAlgo,
-							  CRYPT_CTXINFO_ALGO );
+							  &cryptAlgo, CRYPT_CTXINFO_ALGO );
 	if( cryptStatusOK( status ) )
-		{
-		status = krnlSendMessage( iCryptContext, IMESSAGE_GETATTRIBUTE,
-								  &destCertInfoPtr->publicKeyFeatures,
-								  CRYPT_IATTRIBUTE_KEYFEATURES );
-		}
+		status = checkKeyAlgo( destCertInfoPtr, cryptAlgo );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* Get the key metadata from the context */
+	destCertInfoPtr->publicKeyAlgo = cryptAlgo;
+	status = krnlSendMessage( iCryptContext, IMESSAGE_GETATTRIBUTE,
+							  &destCertInfoPtr->publicKeyFeatures,
+							  CRYPT_IATTRIBUTE_KEYFEATURES );
 	if( cryptStatusOK( status ) )
 		{
 		setMessageData( &msgData, destCertInfoPtr->publicKeyID, KEYID_SIZE );
@@ -895,6 +949,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int copyCertToRevRequest( INOUT_PTR CERT_INFO *crmfRevRequestInfoPtr,
 								 INOUT_PTR CERT_INFO *certInfoPtr )
 	{
+	const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 	int status;
 
 	assert( isWritePtr( crmfRevRequestInfoPtr, sizeof( CERT_INFO ) ) );
@@ -905,6 +960,7 @@ static int copyCertToRevRequest( INOUT_PTR CERT_INFO *crmfRevRequestInfoPtr,
 	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN );
+	REQUIRES( certInfo != NULL );
 
 	/* If the information is already present then we can't add it again */
 	if( DATAPTR_ISSET( crmfRevRequestInfoPtr->issuerName ) )
@@ -926,9 +982,8 @@ static int copyCertToRevRequest( INOUT_PTR CERT_INFO *crmfRevRequestInfoPtr,
 	status = copyIssuerDnData( crmfRevRequestInfoPtr, certInfoPtr );
 	if( cryptStatusError( status ) )
 		return( status );
-	status = setSerialNumber( crmfRevRequestInfoPtr,
-							  certInfoPtr->cCertCert->serialNumber,
-							  certInfoPtr->cCertCert->serialNumberLength );
+	status = setSerialNumber( crmfRevRequestInfoPtr, certInfo->serialNumber,
+							  certInfo->serialNumberLength );
 	if( cryptStatusOK( status ) )
 		{
 		REQUIRES( isShortIntegerRangeNZ( certInfoPtr->subjectDNsize ) );
@@ -940,20 +995,23 @@ static int copyCertToRevRequest( INOUT_PTR CERT_INFO *crmfRevRequestInfoPtr,
 		}
 	if( cryptStatusError( status ) )
 		{
+		CERT_REQ_INFO *revInfo = DATAPTR_GET_REQ( crmfRevRequestInfoPtr );
+
+		REQUIRES( revInfo != NULL );
+
 		clFree( "copyCertToRevRequest", 
 				crmfRevRequestInfoPtr->issuerDNdata );
 		crmfRevRequestInfoPtr->issuerDNdata = \
 			crmfRevRequestInfoPtr->issuerDNptr = NULL;
 		crmfRevRequestInfoPtr->issuerDNsize = 0;
-		if( crmfRevRequestInfoPtr->cCertCert->serialNumber != NULL && \
-			crmfRevRequestInfoPtr->cCertCert->serialNumber != \
-				crmfRevRequestInfoPtr->cCertCert->serialNumberBuffer )
+		if( revInfo->serialNumber != NULL && \
+			revInfo->serialNumber != revInfo->serialNumberBuffer )
 			{
 			clFree( "copyCertToRevRequest",
-					crmfRevRequestInfoPtr->cCertCert->serialNumber );
+					revInfo->serialNumber );
 			}
-		crmfRevRequestInfoPtr->cCertCert->serialNumber = NULL;
-		crmfRevRequestInfoPtr->cCertCert->serialNumberLength = 0;
+		revInfo->serialNumber = NULL;
+		revInfo->serialNumberLength = 0;
 
 		return( status );
 		}
@@ -996,6 +1054,7 @@ static int writeOCSPID( INOUT_PTR STREAM *stream,
 						IN_LENGTH_FIXED( KEYID_SIZE ) \
 							const int issuerKeyHashLength )
 	{
+	const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 	HASH_FUNCTION_ATOMIC hashFunctionAtomic;
 	BYTE hashBuffer[ CRYPT_MAX_HASHSIZE + 8 ];
 	int hashSize;
@@ -1009,7 +1068,8 @@ static int writeOCSPID( INOUT_PTR STREAM *stream,
 			  certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN );
 	REQUIRES( certInfoPtr->issuerDNptr != NULL );
-	REQUIRES( certInfoPtr->cCertCert->serialNumber != NULL );
+	REQUIRES( certInfo != NULL );
+	REQUIRES( certInfo->serialNumber != NULL );
 
 	/* Get the issuerName hash */
 	getHashAtomicParameters( CRYPT_ALGO_SHA1, 0, &hashFunctionAtomic, 
@@ -1022,15 +1082,14 @@ static int writeOCSPID( INOUT_PTR STREAM *stream,
 	writeSequence( stream,
 			sizeofAlgoID( CRYPT_ALGO_SHA1 ) + \
 			sizeofShortObject( hashSize ) + sizeofShortObject( hashSize ) + \
-			sizeofInteger( certInfoPtr->cCertCert->serialNumber,
-						   certInfoPtr->cCertCert->serialNumberLength ) );
+			sizeofInteger( certInfo->serialNumber,
+						   certInfo->serialNumberLength ) );
 	writeAlgoID( stream, CRYPT_ALGO_SHA1, DEFAULT_TAG );
 	writeOctetString( stream, hashBuffer, hashSize, DEFAULT_TAG );
 	writeOctetString( stream, issuerKeyHash, issuerKeyHashLength, 
 					  DEFAULT_TAG );
-	return( writeInteger( stream, certInfoPtr->cCertCert->serialNumber,
-						  certInfoPtr->cCertCert->serialNumberLength,
-						  DEFAULT_TAG ) );
+	return( writeInteger( stream, certInfo->serialNumber,
+						  certInfo->serialNumberLength, DEFAULT_TAG ) );
 	}
 
 /* Copy revocation information from an OCSP request to a response */
@@ -1039,19 +1098,21 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int copyOcspReqToResp( INOUT_PTR CERT_INFO *certInfoPtr,
 							  INOUT_PTR CERT_INFO *ocspRequestInfoPtr )
 	{
-	CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
-	const CERT_REV_INFO *requestRevInfo = ocspRequestInfoPtr->cCertRev;
+	CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
+	const CERT_REV_INFO *requestRevInfo = \
+				DATAPTR_GET_REV( ocspRequestInfoPtr );
 	int status;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isWritePtr( ocspRequestInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_OCSP_RESPONSE );
-	REQUIRES( DATAPTR_ISNULL( certRevInfo->revocations ) );
 	REQUIRES( ocspRequestInfoPtr->type == CRYPT_CERTTYPE_OCSP_REQUEST );
+	REQUIRES( revInfo != NULL && requestRevInfo != NULL );
+	REQUIRES( DATAPTR_ISNULL( revInfo->revocations ) );
 
 	/* Copy the revocation information and extensions */
-	status = copyRevocationEntries( &certRevInfo->revocations,
+	status = copyRevocationEntries( &revInfo->revocations,
 									requestRevInfo->revocations );
 	if( cryptStatusOK( status ) )
 		{
@@ -1064,16 +1125,39 @@ static int copyOcspReqToResp( INOUT_PTR CERT_INFO *certInfoPtr,
 	return( CRYPT_OK );
 	}
 
+/* Check revocation information from an OCSP request against a response */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static int checkOcspRespFromReq( INOUT_PTR CERT_INFO *certInfoPtr,
+								 INOUT_PTR CERT_INFO *ocspRespInfoPtr )
+	{
+	const CERT_REV_INFO *reqRevInfo = DATAPTR_GET_REV( certInfoPtr );
+	const CERT_REV_INFO *respRevInfo = DATAPTR_GET_REV( ocspRespInfoPtr );
+
+	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
+	assert( isWritePtr( ocspRespInfoPtr, sizeof( CERT_INFO ) ) );
+
+	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_OCSP_REQUEST );
+	REQUIRES( ocspRespInfoPtr->type == CRYPT_CERTTYPE_OCSP_RESPONSE );
+	REQUIRES( reqRevInfo != NULL && respRevInfo != NULL );
+
+	/* Check the OCSP response against the request */
+	return( checkRevocationEntries( reqRevInfo->revocations,
+									respRevInfo->revocations ) );
+	}
+
 /* Copy the certificate information to the revocation list.  First we make 
-   sure that the CA certificate hash (needed for OCSP's weird certificate 
-   ID) is present.  We add the necessary information as a pre-encoded blob 
-   since we can't do much with the ID fields */
+   sure that the CA partial-SPKI hash (needed for OCSP's braindamaged 
+   certificate ID, see the long comment in 
+   cert/cert_rev.c:readOcspRequestEntry()) is present.  We add the resulting 
+   information as a pre-encoded blob since we can't do much with the ID 
+   fields */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int copyCertToOCSPRequest( INOUT_PTR CERT_INFO *ocspRequestInfoPtr,
 								  INOUT_PTR CERT_INFO *certInfoPtr )
 	{
-	CERT_REV_INFO *certRevInfo = ocspRequestInfoPtr->cCertRev;
+	CERT_REV_INFO *revInfo = DATAPTR_GET_REV( ocspRequestInfoPtr );
 	REVOCATION_INFO *revInfoPtr DUMMY_INIT_PTR;
 	STREAM stream;
 	DYNBUF essCertDB;
@@ -1087,8 +1171,12 @@ static int copyCertToOCSPRequest( INOUT_PTR CERT_INFO *ocspRequestInfoPtr,
 	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN );
+	REQUIRES( revInfo != NULL );
 
-	/* Make sure that there's a CA certificate hash present */
+	/* Make sure that the hash of part of the CA's public key is present.
+	   This is stored in the certHash field, which isn't used for an OCSP 
+	   request so it can't be accessed externally (see the comment in 
+	   cert/comp_cert.c:copyCaCertToOCSPReq()) */
 	if( !ocspRequestInfoPtr->certHashSet )
 		{
 		setObjectErrorInfo( ocspRequestInfoPtr, CRYPT_CERTINFO_CACERTIFICATE,
@@ -1099,7 +1187,9 @@ static int copyCertToOCSPRequest( INOUT_PTR CERT_INFO *ocspRequestInfoPtr,
 				  getCertTypeName( ocspRequestInfoPtr->type ) ) );
 		}
 
-	/* Generate the OCSP certificate ID */
+	/* Generate the OCSP certificate ID.  See the comment above for the
+	   certHash field containing the CA partial SPKI hash required by
+	   OCSP */
 	sMemNullOpen( &stream );
 	status = writeOCSPID( &stream, certInfoPtr, 
 						  ocspRequestInfoPtr->certHash, KEYID_SIZE );
@@ -1122,7 +1212,7 @@ static int copyCertToOCSPRequest( INOUT_PTR CERT_INFO *ocspRequestInfoPtr,
 	sMemDisconnect( &stream );
 	if( cryptStatusOK( status ) )
 		{
-		status = addRevocationEntry( &certRevInfo->revocations,
+		status = addRevocationEntry( &revInfo->revocations,
 									 &revInfoPtr, CRYPT_KEYID_NONE, 
 									 idBufPtr, idLength, FALSE );
 		}
@@ -1145,7 +1235,7 @@ static int copyCertToOCSPRequest( INOUT_PTR CERT_INFO *ocspRequestInfoPtr,
 			}
 		return( status );
 		}
-	DATAPTR_SET( certRevInfo->currentRevocation, revInfoPtr );
+	DATAPTR_SET( revInfo->currentRevocation, revInfoPtr );
 
 	/* Add the certificate information again as an ESSCertID extension to 
 	   work around the problems inherent in OCSP IDs */
@@ -1162,7 +1252,7 @@ static int copyCertToOCSPRequest( INOUT_PTR CERT_INFO *ocspRequestInfoPtr,
 		   there's a problem adding it, and ignore any additional error 
 		   information */
 		clearErrorInfo( &localErrorInfo );
-		revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+		revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 		ENSURES( revInfoPtr != NULL );
 		( void ) addAttributeFieldString( &revInfoPtr->attributes,
 								CRYPT_CERTINFO_CMS_SIGNINGCERT_ESSCERTID, 
@@ -1241,19 +1331,21 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int copyRtcsReqToResp( INOUT_PTR CERT_INFO *certInfoPtr,
 							  IN_PTR const CERT_INFO *rtcsRequestInfoPtr )
 	{
-	CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
-	const CERT_VAL_INFO *requestValInfo = rtcsRequestInfoPtr->cCertVal;
+	const CERT_VAL_INFO *requestValInfo = \
+				DATAPTR_GET_VAL( rtcsRequestInfoPtr );
+	CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 	int status;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isReadPtr( rtcsRequestInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_RTCS_RESPONSE );
-	REQUIRES( DATAPTR_ISNULL( certValInfo->validityInfo ) );
 	REQUIRES( rtcsRequestInfoPtr->type == CRYPT_CERTTYPE_RTCS_REQUEST );
+	REQUIRES( requestValInfo != NULL && valInfo != NULL );
+	REQUIRES( DATAPTR_ISNULL( valInfo->validityInfo ) );
 
 	/* Copy the certificate validity information and extensions */
-	status = copyValidityEntries( &certValInfo->validityInfo,
+	status = copyValidityEntries( &valInfo->validityInfo,
 								  requestValInfo->validityInfo );
 	if( cryptStatusOK( status ) )
 		{
@@ -1270,7 +1362,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int copyCertToRTCSRequest( INOUT_PTR CERT_INFO *rtcsRequestInfoPtr,
 								  INOUT_PTR CERT_INFO *certInfoPtr )
 	{
-	CERT_VAL_INFO *valInfo = rtcsRequestInfoPtr->cCertVal;
+	CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 	VALIDITY_INFO *validityInfoPtr DUMMY_INIT_PTR;
 	BYTE certHash[ CRYPT_MAX_HASHSIZE + 8 ];
 	int certHashLength, status;
@@ -1282,6 +1374,7 @@ static int copyCertToRTCSRequest( INOUT_PTR CERT_INFO *rtcsRequestInfoPtr,
 	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN );
+	REQUIRES( valInfo != NULL );
 
 	status = getCertComponentString( certInfoPtr,
 									 CRYPT_CERTINFO_FINGERPRINT_SHA1, 
@@ -1343,25 +1436,37 @@ static int copyUserCertInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 	   because authorityInfoAccess isn't a valid attribute for RTCS/OCSP 
 	   requests */
 #ifdef USE_CERTREV
-	if( certInfoPtr->type == CRYPT_CERTTYPE_OCSP_REQUEST && \
-		certInfoPtr->cCertRev->responderUrl == NULL )
+	if( certInfoPtr->type == CRYPT_CERTTYPE_OCSP_REQUEST )
 		{
-		int status;
+		const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 
-		status = copyResponderURL( certInfoPtr, userCertInfoPtr );
-		if( cryptStatusError( status ) )
-			return( status );
+		REQUIRES( revInfo != NULL );
+		
+		if( revInfo->responderUrl == NULL )
+			{
+			int status;
+
+			status = copyResponderURL( certInfoPtr, userCertInfoPtr );
+			if( cryptStatusError( status ) )
+				return( status );
+			}
 		}
 #endif /* USE_CERTREV */
 #ifdef USE_CERTVAL
-	if( certInfoPtr->type == CRYPT_CERTTYPE_RTCS_REQUEST && \
-		certInfoPtr->cCertVal->responderUrl == NULL )
+	if( certInfoPtr->type == CRYPT_CERTTYPE_RTCS_REQUEST )
 		{
-		int status;
+		const CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 
-		status = copyResponderURL( certInfoPtr, userCertInfoPtr );
-		if( cryptStatusError( status ) )
-			return( status );
+		REQUIRES( valInfo != NULL );
+		
+		if( valInfo->responderUrl == NULL )
+			{
+			int status;
+
+			status = copyResponderURL( certInfoPtr, userCertInfoPtr );
+			if( cryptStatusError( status ) )
+				return( status );
+			}
 		}
 #endif /* USE_CERTVAL */
 
@@ -1451,6 +1556,10 @@ int copyCertObject( INOUT_PTR CERT_INFO *certInfoPtr,
 #ifdef USE_CERTREV
 		case CRYPT_IATTRIBUTE_OCSPREQUEST:
 			status = copyOcspReqToResp( certInfoPtr, addedCertInfoPtr );
+			break;
+
+		case CRYPT_IATTRIBUTE_OCSPRESPONSE:
+			status = checkOcspRespFromReq( certInfoPtr, addedCertInfoPtr );
 			break;
 
 		case CRYPT_IATTRIBUTE_REVREQUEST:

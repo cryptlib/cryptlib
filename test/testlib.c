@@ -1547,9 +1547,9 @@ TInt E32Dll( TDllReason )
    the file because we want to avoid any definitions in crypt.h messing with
    the rest of the test.c code.
 
-   The following include is needed only so we can check whether the defines
-   are set right.  crypt.h should never be included in a program that uses
-   cryptlib */
+   The following include is needed only so that we can check whether the 
+   defines are set right.  crypt.h should never be included in a program 
+   that uses cryptlib */
 
 #undef __WINDOWS__
 #undef __WIN16__
@@ -1558,7 +1558,8 @@ TInt E32Dll( TDllReason )
 #undef BYTE
 #undef FALSE
 #undef TRUE
-#if defined( __GNUC__ )
+#if defined( __GNUC__XXX )
+  /* As of 2026 gcc still provides no way to disable this warning */
   #pragma GCC diagnostic ignored "-Wmacro-redefined"
 #elif defined( __clang__ )
   #pragma clang diagnostic ignored "-Wmacro-redefined"

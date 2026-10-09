@@ -83,7 +83,8 @@ int hashMessageContents( IN_HANDLE const CRYPT_CONTEXT iHashContext,
 *																			*
 ****************************************************************************/
 
-/* Initialise the MAC information used to protect the messages */
+/* Initialise and clean up the MAC information used to protect the 
+   messages */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2, 4 ) ) \
 int initMacInfo( IN_HANDLE const CRYPT_CONTEXT iMacContext, 
@@ -124,6 +125,22 @@ int initMacInfo( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 	return( status );
 	}
 
+STDC_NONNULL_ARG( ( 1 ) ) \
+void cleanupMacInfo( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo )
+	{
+	assert( isWritePtr( protocolInfo, sizeof( CMP_PROTOCOL_INFO ) ) );
+
+	/* If we're not using MAC authentication then there's nothing to 
+	   do */
+	if( protocolInfo->iMacContext == CRYPT_ERROR )
+		return;
+		
+	/* Clear the MAC context information */
+	krnlSendNotifier( protocolInfo->iMacContext, IMESSAGE_DECREFCOUNT );
+	protocolInfo->iMacContext = CRYPT_ERROR;
+	protocolInfo->useMACsend = protocolInfo->useMACreceive = FALSE;
+	}
+
 /* Read/write the CMP/Entrust MAC information:
 
 	macInfo ::= SEQUENCE {
@@ -137,10 +154,16 @@ int initMacInfo( IN_HANDLE const CRYPT_CONTEXT iMacContext,
 		} 
 
    The standard only specifies the use of SHA1/HMAC-SHA1 alongside the 
-   usual confused text about what should actually be used, including 
-   mention of options like single-DES MAC, so we only allow these 
-   algorithms.  Since only we're using it as PRF rather than a hash 
-   function, it doesn't require strong security properties */
+   usual confused text about what should actually be used, including mention 
+   of options like single-DES MAC, so we only allow these algorithms.  Since 
+   we're only using it as PRF rather than a hash function, it doesn't 
+   require strong security properties.
+   
+   RFC 9481, from an entirely different set of editors unfamiliar with the 
+   process that led to the creation of the original CMP mess, extends the
+   mess with every algorithm and OID the contributors have ever heard of, 
+   including some new MACs.  It's unclear whether anything has ever 
+   implemented any of these, so for now we stick with the Entrust MAC */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
 int readMacInfo( INOUT_PTR STREAM *stream, 
@@ -179,18 +202,25 @@ int readMacInfo( INOUT_PTR STREAM *stream,
 	if( checkStatusPeekTag( stream, status, tag ) && \
 		tag == BER_NULL )
 		{
-		/* At this point we must have a MAC context set up.  This is a 
-		   REQUIRES() rather than a standard error check because if we're
-		   the client and using MAC authentication then we've set it up 
-		   before we sent our first message and if we're the server and seen 
-		   MAC authentication protection information at the start of the 
-		   message then the MAC will have been set up by the time we get to 
-		   this MAC information read at the end */
-		REQUIRES( isHandleRangeValid( protocolInfo->iMacContext ) );
+		/* If the peer has signalled the reuse of existing MAC credentials
+		   then we have to have some present to reuse */
+		if( !isHandleRangeValid( protocolInfo->iMacContext ) )
+			{
+			retExt( status, 
+					( status, errorInfo, 
+					  "Peer signalled the reuse of existing MAC "
+					  "credentials but none are available" ) );
+			}
 
 		/* No parameters, use the same values as for the previous
 		   transaction */
-		return( readNull( stream ) );
+		status = readNull( stream );
+		if( cryptStatusOK( status ) )
+			{
+			status = setCMPprotocolInfo( protocolInfo, NULL, 0, 
+										 CMP_INIT_FLAG_NONE, TRUE );
+			}
+		return( status );
 		}
 	if( cryptStatusError( status ) )
 		return( status );	/* Residual error from peekTag() */
@@ -230,13 +260,21 @@ int readMacInfo( INOUT_PTR STREAM *stream,
 		}
 	ENSURES( isIntegerRange( value ) );
 	iterations = ( int ) value;
+	protocolInfo->macAlgo = algorithm;
+/*	protocolInfo->macParams = algoParams; */
 
-	/* If the MAC parameters aren't set yet (meaning that we're the server), 
+	/* If the MAC parameters aren't set yet, meaning that we're the server, 
 	   set them based on the client's values */
 	if( protocolInfo->saltSize <= 0 )
 		{
-		status = initMacInfo( protocolInfo->iMacContext, password,
-							  passwordLength, salt, saltLength, iterations );
+		status = setCMPprotocolInfo( protocolInfo, NULL, 0, 
+									 CMP_INIT_FLAG_MACCTX, TRUE );
+		if( cryptStatusOK( status ) )
+			{
+			status = initMacInfo( protocolInfo->iMacContext, password,
+								  passwordLength, salt, saltLength, 
+								  iterations );
+			}
 		if( cryptStatusError( status ) )
 			{
 			retExt( status,
@@ -261,7 +299,7 @@ int readMacInfo( INOUT_PTR STREAM *stream,
 	   the MAC information, leaving it possible for implementations to re-
 	   key the MAC on a per-message basis.  We try and cache MAC information 
 	   as much as possible to reduce the performance hit from re-keying for 
-	   each message */
+	   every single message */
 	if( protocolInfo->iterations && \
 		saltLength == protocolInfo->saltSize && \
 		!memcmp( salt, protocolInfo->salt, saltLength ) && \
@@ -274,6 +312,14 @@ int readMacInfo( INOUT_PTR STREAM *stream,
 		DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", 
 						protocolInfo->salt, protocolInfo->saltSize );
 		return( CRYPT_OK );
+		}
+
+	/* If there are cached MAC credentials present from a PKIBoot, clear 
+	   them */
+	if( isHandleRangeValid( protocolInfo->iMacContext ) )
+		{
+		krnlSendNotifier( protocolInfo->iMacContext, IMESSAGE_DECREFCOUNT );
+		protocolInfo->iMacContext = CRYPT_ERROR;
 		}
 
 	/* This is a new set of parameters, recreate the MAC context with them.  
@@ -300,6 +346,7 @@ int readMacInfo( INOUT_PTR STREAM *stream,
 		{
 		krnlSendNotifier( protocolInfo->iMacContext,
 						  IMESSAGE_DECREFCOUNT );
+		protocolInfo->iMacContext = CRYPT_ERROR;
 		}
 	protocolInfo->iMacContext = createInfo.cryptHandle;
 

@@ -61,10 +61,10 @@ static int updateUserID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   although in theory we could reject any message containing a 
 	   non-cryptlib user ID on the basis that it couldn't have been assigned 
 	   to the user by a cryptlib server, the fact that an arbitrary client 
-	   could be sending us who knows what sort of data in the user ID field, 
-	   expecting the key to be identified through other means, means that we 
-	   can't perform this simple check.  We can at least reject a 
-	   non-cryptlib ID for the ir, which must be MAC'd */
+	   could be sending us who knows what sort of data in the user ID field 
+	   expecting the key to be identified through other means means that we 
+	   can't perform this simple check.  We can at least reject a  non-
+	   cryptlib ID for the ir, which must be MAC'd */
 	if( isServer( sessionInfoPtr ) && protocolInfo->userIDsize == 9 )
 		{
 		char encodedUserID[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -76,9 +76,12 @@ static int updateUserID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									 protocolInfo->userIDsize, 3 );
 		if( cryptStatusError( status ) )
 			return( status );
+		DEBUG_OP( encodedUserID[ encodedUserIDLength ] = '\0' );
+		DEBUG_PRINT(( "SVR: Set userID = %s.\n", encodedUserID ));
 		status = updateSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME, 
 									encodedUserID, encodedUserIDLength, 
-									CRYPT_MAX_TEXTSIZE, ATTR_FLAG_ENCODEDVALUE );
+									ATTR_FLAG_ENCODEDVALUE | \
+										ATTR_FLAG_FIXEDWIDTHTEXT );
 		}
 	else
 		{
@@ -97,7 +100,7 @@ static int updateUserID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = updateSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME,
 									protocolInfo->userID,
 									protocolInfo->userIDsize,
-									CRYPT_MAX_TEXTSIZE, ATTR_FLAG_NONE );
+									ATTR_FLAG_FIXEDWIDTHTEXT );
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -106,13 +109,20 @@ static int updateUserID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   authentication, set up the server's MAC context based on the 
 	   information supplied by the client */
 #ifndef CONFIG_FUZZ
+#if 0	/* 7/9/26 Tentatively changed to make the check unconditional in the
+				  hope that the implementations that change the ID mid-
+				  stream have been extinct for some years */
 	if( cmpMsgInfo == CMP_MSGINFO_FIRSTMESSAGE_TO_SERVER && useMAC )
+#else
+	if( useMAC )
+#endif /* 0 */
 		{
 		/* There's one special-case condition that we have to check for here
 		   and that's when the userID changes in the middle of an exchange,
 		   in this case an ir, denoted by a MAC context already being set up
 		   from the previous part of the exchange.  See the long comment in 
-		   readUserID() about this and CMP's lack of handling of it.  
+		   session/cmp_rd.c:readUserID() about this and CMP's lack of 
+		   handling of it.  
 		   
 		   For signed data the strategy proposed there is probably OK 
 		   because we're trusting the signing key more than some value in a 
@@ -154,7 +164,8 @@ static int updateCertID( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = addSessionInfoS( sessionInfoPtr,
 								  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
 								  protocolInfo->certIDv2,
-								  protocolInfo->certIDv2size );
+								  protocolInfo->certIDv2size, 
+								  ATTR_FLAG_NONE );
 		if( cryptStatusError( status ) )
 			return( status );
 		}
@@ -183,7 +194,8 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int updateMacInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,
 						  INOUT_PTR STREAM *stream,
-						  IN_BOOL const BOOLEAN isRevocation )
+						  IN_ENUM_OPT( CMP_MESSAGE ) \
+								CMP_MESSAGE_TYPE messageType )
 	{
 	const SESSION_ATTRIBUTE_LIST *passwordPtr = \
 				findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD );
@@ -193,12 +205,34 @@ static int updateMacInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	const int streamPos = stell( stream );
 	int macKeyLength, status;
 
-	REQUIRES( isBooleanValue( isRevocation ) );
+	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+	assert( isWritePtr( protocolInfo, sizeof( CMP_PROTOCOL_INFO ) ) );
+
 	REQUIRES( passwordPtr != NULL );
+	REQUIRES( messageType >= CTAG_PB_IR && messageType < CTAG_PB_LAST );
+			  /* CTAG_PB_IR == 0 so this is the same as _NONE */
 	REQUIRES( isIntegerRangeNZ( streamPos ) );
 
+	/* If we've got cached MAC credentials from a PKIBoot present and this
+	   isn't a genp response to a genm or an ir/ip or their confirmation 
+	   followup to a PKIBoot, clear them.  In theory this would allow reuse 
+	   across genm/genp (PKIBoot) -> conf/confack but this isn't possible 
+	   because an xr/xp always has to precede those and if it's not an 
+	   ir/ip the credentials will be cleared.  In particular rr, which can 
+	   also be MAC'd, can't reuse PKIBoot MAC credentials */
+	if( isHandleRangeValid( protocolInfo->iMacContext ) && \
+		messageType != CTAG_PB_GENP && messageType != CTAG_PB_IR && \
+		messageType != CTAG_PB_IP && messageType != CTAG_PB_CERTCONF && \
+		messageType != CTAG_PB_PKICONF )
+		{
+		/* If there are cached MAC credentials present from a PKIBoot,
+		   clear them */
+		krnlSendNotifier( protocolInfo->iMacContext, IMESSAGE_DECREFCOUNT );
+		protocolInfo->iMacContext = CRYPT_ERROR;
+		}
+
 	sseek( stream, protocolInfo->macInfoPos );
-	if( isRevocation && protocolInfo->altMacKeySize > 0 )
+	if( messageType == CTAG_PB_RR && protocolInfo->altMacKeySize > 0 )
 		{
 		/* If it's a revocation and we're using a distinct revocation
 		   password (which we've already decoded into a MAC key), use
@@ -245,7 +279,17 @@ static int updateMacInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	extraCerts	[1]	EXPLICIT SEQUENCE SIZE (1..MAX) OF Certificate 
 
    This is required by ETSI 33.310 to kludge around various shortcomings in
-   CMP, see the inline comments for details */
+   CMP, see the inline comments for details.  The effect of this is to
+   introduce additional certificates into the CMP signing process (section 
+   9.5.4.3, extended in 9.5.4.4 for kur):
+
+	The extraCerts field of the PKIMessage carrying the initialization 
+	response shall be mandatory and shall contain the operator root 
+	certificate and the RA/CA certificate (or certificates if separate 
+	private keys are used for signing of certificates and CMP messages). 
+	If the RA/CA certificate(s) are not signed by the operator root CA, also 
+	the intermediate certificates for the chain(s) up to the operator root 
+	certificate shall be included in the extraCerts field */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int processExtraCerts( INOUT_PTR STREAM *stream,
@@ -254,7 +298,7 @@ static int processExtraCerts( INOUT_PTR STREAM *stream,
 							  IN_ENUM( CMP_MESSAGE ) \
 									const CMP_MESSAGE_TYPE messageType )
 	{
-	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	ERROR_INFO localErrorInfo;
 #ifdef USE_ERRMSGS
 	char certName[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -268,13 +312,14 @@ static int processExtraCerts( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( protocolInfo, sizeof( CMP_PROTOCOL_INFO ) ) );
 
 	REQUIRES( isEnumRange( messageType, CMP_MESSAGE ) );
+	REQUIRES( cmpInfo != NULL );
 
 	/* Some servers erroneously send extraCerts in messages like pkiConf
-	   even though it's explicitly prohibited in 33.310 section 9.5.4.5, so 
-	   we make sure that we've got an ip/cp/kup before continuing */
+	   even though it's explicitly prohibited in 33.310 (section 9.5.4.5) so 
+	   we make sure that we've got an ip/kup before continuing.  The spec
+	   never mentions cp, only ip and kup, so we don't allow that either */
 	if( !isServer( sessionInfoPtr ) && \
-		messageType != CTAG_PB_IP && messageType != CTAG_PB_CP && \
-		messageType != CTAG_PB_KUP )
+		messageType != CTAG_PB_IP && messageType != CTAG_PB_KUP )
 		{
 		DEBUG_PRINT(( "CLI: Server sent spurious extraCerts in %s message, "
 					  "this may result in signature checks failing due to "
@@ -515,6 +560,8 @@ static int readGeneralInfoAttribute( INOUT_PTR STREAM *stream,
 						  protocolInfo->isServer ? "SVR" : "CLI" ));
 			DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", 
 							protocolInfo->certID, protocolInfo->certIDsize );
+			DEBUG_DUMP_DATA_BASE64( protocolInfo->userID, 
+									protocolInfo->userIDsize );
 			}
 		if( ( status = stell( stream ) ) < endPos )
 			{
@@ -565,6 +612,8 @@ static int readGeneralInfoAttribute( INOUT_PTR STREAM *stream,
 			DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", 
 							protocolInfo->certIDv2, 
 							protocolInfo->certIDv2size );
+			DEBUG_DUMP_DATA_BASE64( protocolInfo->userID, 
+									protocolInfo->userIDsize );
 			}
 		if( ( status = stell( stream ) ) < endPos )
 			{
@@ -634,6 +683,11 @@ static int readUserID( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( protocolInfo, sizeof( CMP_PROTOCOL_INFO ) ) );
 
+	static_assert( CRYPT_MAX_HASHSIZE == CRYPT_MAX_TEXTSIZE,
+				   "CRYPT_MAX_HASHSIZE != CRYPT_MAX_TEXTSIZE" );
+				   /* The userID is stored as ATTR_FLAG_FIXEDWIDTHTEXT so it
+				      can't be more than CRYPT_MAX_TEXTSIZE long */
+
 	/* Read the PKI user ID that we'll need to handle the integrity 
 	   protection on the message */
 	readConstructed( stream, NULL, CTAG_PH_SENDERKID );
@@ -654,6 +708,8 @@ static int readUserID( INOUT_PTR STREAM *stream,
 					  protocolInfo->isServer ? "SVR" : "CLI" ));
 		DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", 
 						protocolInfo->userID, protocolInfo->userIDsize );
+		DEBUG_DUMP_DATA_BASE64( protocolInfo->userID, 
+								protocolInfo->userIDsize );
 		return( CRYPT_OK );
 		}
 
@@ -679,18 +735,14 @@ static int readUserID( INOUT_PTR STREAM *stream,
 	/* Delete the MAC context associated with the previous user if necessary.  
 	   See the note above, this won't work because we've now deleted the MAC
 	   context that we need to authenticate further outgoing messages */
-	if( protocolInfo->iMacContext != CRYPT_ERROR )
-		{
-		krnlSendNotifier( protocolInfo->iMacContext,
-						  IMESSAGE_DECREFCOUNT );
-		protocolInfo->iMacContext = CRYPT_ERROR;
-		protocolInfo->useMACsend = protocolInfo->useMACreceive = FALSE;
-		}
+	cleanupMacInfo( protocolInfo );
 #endif /* 0 */
 	DEBUG_PRINT(( "%s: Read new userID.\n",
 				  protocolInfo->isServer ? "SVR" : "CLI" ));
 	DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", 
 					protocolInfo->userID, protocolInfo->userIDsize );
+	DEBUG_DUMP_DATA_BASE64( protocolInfo->userID, 
+							protocolInfo->userIDsize );
 
 	return( CRYPT_OK );
 	}
@@ -1111,7 +1163,9 @@ static int readPkiHeader( INOUT_PTR STREAM *stream,
 	   because they're not available, for example because it's sending a
 	   response to an error that occurred before it could read the nonce from
 	   a request.  In any case we don't bother checking the nonce values
-	   since the transaction ID serves the same purpose */
+	   since the transaction ID serves the same purpose.  As one CMP interop
+	   report stated, "no realistic replay attack was identified, it is not 
+	   clear if nonces are required in [message types]" */
 	if( checkStatusLimitsPeekTag( stream, status, tag, endPos ) && \
 		tag == MAKE_CTAG( CTAG_PH_SENDERNONCE ) )
 		{
@@ -1203,7 +1257,7 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_ERRMSGS
 	ERROR_INFO *errorInfo = &sessionInfoPtr->errorInfo;
 #endif /* USE_ERRMSGS */
-	const CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	const CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	READMESSAGE_FUNCTION readMessageFunction;
 	STREAM stream;
 	const CMP_MSGINFO_TYPE cmpMsgInfo = \
@@ -1228,6 +1282,7 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				messageType < CTAG_PB_LAST ) || \
 			  ( messageType == CTAG_PB_READ_ANY ) );
 			  /* CTAG_PB_IR == 0 so this is the same as _NONE */
+	REQUIRES( cmpInfo != NULL );
 
 	DEBUG_PRINT(( "%s: Reading message type %d.\n",
 				  isServer( sessionInfoPtr ) ? "SVR" : "CLI", 
@@ -1287,8 +1342,25 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   actually tell us whether it's the correct key or not (see the
 	   comment in checkMessageSignature()) but there's not much else that
 	   we can do */
+#ifndef CONFIG_FUZZ
 	if( protocolInfo->useMACreceive )
 		{
+		/* If we're the client and the server sent a MAC'd response but we 
+		   don't have a password present, which would mean that we sent a 
+		   signed request, then we can't continue.  This is a client-only
+		   check for now because initServerAuthentMAC()/
+		   initServerAuthentSign() haven't been called yet, the server-side 
+		   check is performed elsewhere */
+		if( !isServer( sessionInfoPtr ) && \
+			findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD ) == NULL )
+			{
+			sMemDisconnect( &stream );
+			protocolInfo->headerRead = FALSE;
+			retExt( CRYPT_ERROR_SIGNATURE,
+					( CRYPT_ERROR_SIGNATURE, errorInfo, 
+					  "Server sent MAC'd response to our signed request" ) );
+			}
+
 		/* There is one special-case situation in which we can have no user 
 		   ID present and that's when we're doing a PnP PKI transaction with 
 		   an initial PKIBoot that creates the required MAC context followed 
@@ -1308,6 +1380,23 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	else
 		{
+		/* If we're the client and the server sent a signed response but we 
+		   don't have a certificate present to authenticate it, which would 
+		   mean that we sent a MAC'd request, then we can't continue.  This 
+		   is a client-only check for now because initServerAuthentMAC()/
+		   initServerAuthentSign() haven't been called yet, the server-side 
+		   check is performed elsewhere */
+		if( !isServer( sessionInfoPtr ) && \
+			sessionInfoPtr->iAuthInContext == CRYPT_ERROR )
+			{
+			sMemDisconnect( &stream );
+			protocolInfo->headerRead = FALSE;
+			retExt( CRYPT_ERROR_SIGNATURE,
+					( CRYPT_ERROR_SIGNATURE, errorInfo, 
+					  "Server sent signed response but we have no "
+					  "certificate available to verify it" ) );
+			}
+
 		/* As with the case for MAC contexts, there's a special-case 
 		   situation in which there's no certID/certIDv2 present and that's 
 		   during a PnP PKI transaction preceded by a PKIBoot that 
@@ -1330,6 +1419,18 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  "of PKI messages" ) );
 			}
 		}
+#endif /* CONFIG_FUZZ */
+
+	/* Determine the message body type.  We have to do this before we deal 
+	   with any identifier updates in order to return operation-specific 
+	   error messages if those fail */
+	status = tag = peekTag( &stream );
+	if( cryptStatusError( status ) )
+		{
+		sMemDisconnect( &stream );
+		return( status );
+		}
+	tag = EXTRACT_CTAG( tag );
 
 	/* If this is the first message from the client and we've been sent a 
 	   new user ID or certificate ID (via the ESSCertID/ESSCertIDv2 in the 
@@ -1348,7 +1449,14 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( protocolInfo->certIDchanged || protocolInfo->certIDv2changed )
 		{
+		const CMP_MESSAGE_TYPE savedOperation = protocolInfo->operation; 
+		
+		/* Temporarily change the operation type to match the message type,
+		   needed for error message management when we update the 
+		   certificate ID information */
+		protocolInfo->operation = tag;
 		status = updateCertID( sessionInfoPtr, protocolInfo, cmpMsgInfo );
+		protocolInfo->operation = savedOperation;
 		if( cryptStatusError( status ) )
 			{
 			sMemDisconnect( &stream );
@@ -1357,20 +1465,12 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	CFI_CHECK_UPDATE( "updateUserID" );
 
-	/* Determine the message body type.  An error response can occur at any
-	   point in an exchange so we process this immediately.  We don't do an
-	   integrity verification for this one since it's not certain what we
-	   should report if the check fails (what if the error response is to
-	   report that no key is available to authenticate the user, for 
-	   example?), and an unauthenticated error message is better than an 
-	   authenticated paketewhainau */
-	status = tag = peekTag( &stream );
-	if( cryptStatusError( status ) )
-		{
-		sMemDisconnect( &stream );
-		return( status );
-		}
-	tag = EXTRACT_CTAG( tag );
+	/* An error response can occur at any point in an exchange so we process 
+	   this immediately.  We don't do an integrity verification for this one 
+	   since it's not certain what we should report if the check fails (what 
+	   if the error response is to report that no key is available to 
+	   authenticate the user, for example?), and an unauthenticated error 
+	   message is better than an authenticated paketewhainau */
 	if( tag == CTAG_PB_ERROR )
 		{
 		readMessageFunction = getMessageReadFunction( CTAG_PB_ERROR );
@@ -1394,13 +1494,14 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		return( status );
 		}
+	CFI_CHECK_UPDATE( "readError" );
+
+	/* We may have received a response without integrity protection which 
+	   can occur in some cases for error responses, see the comment in 
+	   readPkiHeader() for details, however since what we've got if we reach 
+	   this point isn't an error response we can't continue */
 	if( protocolInfo->noIntegrity )
 		{
-		/* We may have received a response without integrity protection 
-		   which can occur in some cases for error responses, see the 
-		   comment in readPkiHeader() for details, however since what we've 
-		   got if we reach this point isn't an error response we can't 
-		   continue */
 		sMemDisconnect( &stream );
 		if( tag >= CMP_MESSAGE_NONE && tag <= CMP_MESSAGE_LAST_STANDARD )
 			{
@@ -1414,7 +1515,6 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  "Message type %d was sent without integrity protection",
 				  tag ) );
 		}
-	CFI_CHECK_UPDATE( "readError" );
 
 	/* If this is an initial message to the server then we don't know what 
 	   to expect yet so we set the type to whatever we find, as long as it's 
@@ -1483,8 +1583,8 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifndef CONFIG_FUZZ
 	if( protocolInfo->useMACreceive )
 		{
-		status = updateMacInfo( sessionInfoPtr, protocolInfo, &stream,
-								( messageType == CTAG_PB_RR ) ? TRUE : FALSE );
+		status = updateMacInfo( sessionInfoPtr, protocolInfo, &stream, 
+								messageType );
 		if( cryptStatusError( status ) )
 			{
 			sMemDisconnect( &stream );
@@ -1556,17 +1656,52 @@ int readPkiMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  protocolInfo->useMACreceive ? "MAC" : "Signature",
 				  getCMPMessageName( tag ) ) );
 		}
-	if( tag == CTAG_PB_IR && !protocolInfo->useMACreceive )
+	switch( tag )
 		{
-		/* An ir has to be MAC'd, in theory this doesn't really matter but
-		   the spec requires that we only allow a MAC.  If it's not MAC'd it
-		   has to be a cr, which is exactly the same only different */
-		sMemDisconnect( &stream );
-		protocolInfo->pkiFailInfo = CMPFAILINFO_WRONGINTEGRITY;
-		retExt( CRYPT_ERROR_SIGNATURE,
-				( CRYPT_ERROR_SIGNATURE, errorInfo, 
-				  "Received signed ir message, should be MAC'd" ) );
+		case CTAG_PB_IR:
+			/* An ir has to be MAC'd, in theory this doesn't really matter 
+			   but the spec requires that we only allow a MAC (RFC 2510 
+			   section 2.2.1.2) */
+			if( !protocolInfo->useMACreceive )
+				{
+				sMemDisconnect( &stream );
+				protocolInfo->pkiFailInfo = CMPFAILINFO_WRONGINTEGRITY;
+				retExt( CRYPT_ERROR_SIGNATURE,
+						( CRYPT_ERROR_SIGNATURE, errorInfo, 
+						  "Received signed %s message, should be MAC'd", 
+						  getCMPMessageName( tag ) ) );
+				}
+			break;
+		
+		case CTAG_PB_CR:
+		case CTAG_PB_KUR:
+			/* crs and kurs on the other hand have to be signed.  This isn't
+			   actually required by the spec which allows anything, but if
+			   we allowed MAC'd requests then it would run into a conflict 
+			   where the single-use ir password can be reused an arbitrary 
+			   number of times with a cr (which is the same a an ir only 
+			   different) or a kur */
+			if( protocolInfo->useMACreceive )
+				{
+				sMemDisconnect( &stream );
+				protocolInfo->pkiFailInfo = CMPFAILINFO_WRONGINTEGRITY;
+				retExt( CRYPT_ERROR_SIGNATURE,
+						( CRYPT_ERROR_SIGNATURE, errorInfo, 
+						  "Received MAC'd %s message, should be signed",
+						  getCMPMessageName( tag ) ) );
+				}
+			break;
+		
+		case CTAG_PB_RR:
+			/* rrs can be signed or MAC'd */
+			break;
+				   
+		default:
+			/* Other message types are either responses or things that we 
+			   don't care about */
+			break;
 		}
+			
 	ANALYSER_HINT( integrityInfoPtr != NULL );
 	CFI_CHECK_UPDATE( "readIntegrityInfo" );
 

@@ -59,7 +59,7 @@ static int processKeyFingerprint( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* Remember the value for the caller */
 		return( addSessionInfoS( sessionInfoPtr,
 								 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
-								 fingerPrint, hashSize ) );
+								 fingerPrint, hashSize, ATTR_FLAG_NONE ) );
 		}
 
 	/* There's an existing fingerprint value, make sure that it matches what
@@ -1041,6 +1041,7 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo )
 	{
 	STREAM stream;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	BYTE stringBuffer[ CRYPT_MAX_TEXTSIZE + 8 ];
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 	int stringLength, packetOffset, status;
@@ -1050,6 +1051,7 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( sanityCheckSSHHandshakeInfo( handshakeInfo ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Set up the security information required for the session */
 	status = initSecurityInfo( sessionInfoPtr, handshakeInfo );
@@ -1079,7 +1081,7 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* We're using strict KEX, we need to reset the write sequence 
 		   number as well */
-		sessionInfoPtr->sessionSSH->writeSeqNo = 0;
+		sshInfo->writeSeqNo = 0;
 		}
 	CFI_CHECK_UPDATE( "SSH_MSG_NEWKEYS" );
 
@@ -1196,8 +1198,6 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_READ );
 	if( TEST_FLAG( sessionInfoPtr->protocolFlags, SSH_PFLAG_STRICT_KEX ) )
 		{
-		SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
-
 		/* Make sure that we're compliant with the strict KEX 
 		   requirements */			
 		if( !checkStrictKEX( sshInfo->packetTrace,
@@ -1210,7 +1210,7 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 		/* We're using strict KEX, we need to reset the read sequence 
 		   number as well */
-		sessionInfoPtr->sessionSSH->readSeqNo = 0;
+		sshInfo->readSeqNo = 0;
 		}
 	CFI_CHECK_UPDATE( "readHSPacketSSH2" );
 
@@ -1275,7 +1275,7 @@ static int completeClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						 "negotiated during the handshake" ) );
 			}
 #ifdef USE_SSH_EXTENDED
-		if( sessionInfoPtr->sessionSSH->packetType == SSH_MSG_EXT_INFO )
+		if( sshInfo->packetType == SSH_MSG_EXT_INFO )
 			{
 			/* The server sent extension information, process it */
 			sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );

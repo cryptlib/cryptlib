@@ -260,7 +260,12 @@ int getActionFlags( INOUT_PTR PKCS11_INFO *pkcs11Info,
 	   check action flags, PKCS #11 treats the MAC operation as a member
 	   of the signature family while cryptlib treats it as a member of the
 	   hash family so if we get a sign/sigcheck permitted action for a MAC 
-	   object we map it to a hash permitted action */
+	   object we map it to a hash permitted action.
+	   
+	   PKCS #11 v3 added CKA_ENCAPSULATE / CKA_DECAPSULATE for ML-KEM to use
+	   instead of CKA_WRAP / CKA_UNWRAP even though they're the same thing, 
+	   but since we don't have anything that does this available for testing 
+	   we leave handling it for now */
 	if( ( checkCrypt && readFlag( pkcs11Info, hObject, CKA_ENCRYPT ) ) || \
 		( checkWrap && readFlag( pkcs11Info, hObject, CKA_WRAP ) ) )
 		{
@@ -1304,7 +1309,10 @@ static int searchDeviceObjects( INOUT_PTR PKCS11_INFO *pkcs11Info,
 			iMatchedCert = iMatchCert;
 			}
 		else
+			{
 			krnlSendNotifier( iMatchCert, IMESSAGE_DECREFCOUNT );
+			iMatchCert = CRYPT_ERROR;
+			}
 		if( cryptStatusError( cryptStatus ) )
 			continue;
 
@@ -2007,7 +2015,7 @@ static int getItemFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	CK_RV status;
 	CRYPT_CERTIFICATE iCryptCert DUMMY_INIT;
 	CRYPT_ALGO_TYPE cryptAlgo;
-	PKCS11_INFO *pkcs11Info = deviceInfoPtr->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 	ERROR_INFO localErrorInfo;
 	BOOLEAN certViaPrivateKey = FALSE, privateKeyViaCert = FALSE;
 	BOOLEAN certPresent = FALSE;
@@ -2034,6 +2042,7 @@ static int getItemFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 				isShortIntegerRangeNZ( *auxInfoLength ) ) );
 	REQUIRES( isFlagRangeZ( flags, KEYMGMT ) );
 	REQUIRES( capabilityInfoListPtr != NULL );
+	REQUIRES( pkcs11Info != NULL );
 
 	/* Clear return value */
 	*iCryptHandle = CRYPT_ERROR;
@@ -2408,7 +2417,10 @@ static int getItemFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 										  KEYMGMT_ITEM_PRIVATEKEY, cryptAlgo, 
 										  keySize );
 		if( cryptStatusError( cryptStatus ) && certPresent )
+			{
 			krnlSendNotifier( iCryptCert, IMESSAGE_DECREFCOUNT );
+			iCryptCert = CRYPT_ERROR;
+			}
 		}
 	if( cryptStatusError( cryptStatus ) )
 		{
@@ -2440,7 +2452,7 @@ static int getFirstItemFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 		{ CKA_ID, ( CK_VOID_PTR ) keyID, keyIDlength }
 		};
 	CK_OBJECT_HANDLE hCertificate;
-	PKCS11_INFO *pkcs11Info = deviceInfoPtr->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 	ERROR_INFO localErrorInfo;
 	int cryptStatus;
 
@@ -2456,6 +2468,7 @@ static int getFirstItemFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 			     from a non-cryptlib source */
 	REQUIRES( itemType == KEYMGMT_ITEM_PUBLICKEY );
 	REQUIRES( isFlagRangeZ( options, KEYMGMT ) );
+	REQUIRES( pkcs11Info != NULL );
 
 	/* Clear return values */
 	*iCertificate = CRYPT_ERROR;
@@ -2501,7 +2514,7 @@ static int getNextItemFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 		{ CKA_SUBJECT, NULL, 0 }
 		};
 	CK_OBJECT_HANDLE hCertificate;
-	PKCS11_INFO *pkcs11Info = deviceInfoPtr->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 	ERROR_INFO localErrorInfo;
 	DYNBUF subjectDB;
 	int cryptStatus;
@@ -2513,6 +2526,7 @@ static int getNextItemFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	REQUIRES( sanityCheckDevice( deviceInfoPtr ) );
 	REQUIRES( isHandleRangeValid( *stateInfo ) || *stateInfo == CRYPT_ERROR );
 	REQUIRES( isFlagRangeZ( options, KEYMGMT ) );
+	REQUIRES( pkcs11Info != NULL );
 
 	/* Clear return value */
 	*iCertificate = CRYPT_ERROR;

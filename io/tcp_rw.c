@@ -751,7 +751,15 @@ static int readSocketFunction( INOUT_PTR NET_STREAM_INFO *netStream,
 			   problem (at worst an attacker can limit us to reading data 
 			   at 1K/s, which means 16s for TLS packets and 32s for SSH 
 			   packets), but to make things a bit less predictable we dither 
-			   the timeout a bit */
+			   the timeout a bit.
+			   
+			   A second-order timeout-defeat can occur at a higher level, for
+			   example in HTTP reads where we're reading a line at a time 
+			   and the timeout gets reset for each line, however the timeout
+			   value isn't really a hard-fail but more a guideline as to how
+			   long we should wait around on a slow/high-loss network, so we
+			   don't implement hierarchies of timers to ensure that we 
+			   absolutely definitely hard-fail after x seconds */
 			REQUIRES( !checkOverflowDiv( byteCount, timeout ) );
 			if( ( byteCount / timeout ) >= 1000 && \
 				checkMonoTimerExpiryImminent( &timerInfo, 5 ) )

@@ -444,7 +444,7 @@ static int sign( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	DLP_PARAMS *eccParams = ( DLP_PARAMS * ) buffer;
 	const ECC_DOMAINPARAMS *domainParams;
 	const BIGNUM *n;
@@ -649,7 +649,7 @@ static int sigCheck( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	DLP_PARAMS *eccParams = ( DLP_PARAMS * ) buffer;
 	const ECC_DOMAINPARAMS *domainParams;
 	const BIGNUM *qx, *qy, *n;
@@ -776,7 +776,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	   internal bignums unless we're doing an internal load */
 	if( key != NULL )
 		{
-		PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+		PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 		const CRYPT_PKCINFO_ECC *eccKey = ( CRYPT_PKCINFO_ECC * ) key;
 		int status;
 

@@ -733,6 +733,7 @@ int readSupportedVersions( INOUT_PTR STREAM *stream,
 	{
 	const PROTOCOL_INFO *protocolInfo = \
 							DATAPTR_GET( sessionInfoPtr->protocolInfo );
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int noVersionEntries = 1;	/* Server sends a single entry */
 	int value, status;
 	LOOP_INDEX i;
@@ -744,6 +745,7 @@ int readSupportedVersions( INOUT_PTR STREAM *stream,
 
 	REQUIRES( isShortIntegerRange( extLength ) );
 	REQUIRES( protocolInfo != NULL );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return values */
 	*extErrorInfoSet = FALSE;
@@ -822,7 +824,7 @@ int readSupportedVersions( INOUT_PTR STREAM *stream,
 #ifdef USE_TLS13
 		if( version != TLS_MINOR_VERSION_TLS13 || \
 			protocolInfo->maxVersion < TLS_MINOR_VERSION_TLS13 || \
-			sessionInfoPtr->sessionTLS->maxVersion < TLS_MINOR_VERSION_TLS13 || \
+			tlsInfo->maxVersion < TLS_MINOR_VERSION_TLS13 || \
 			( isServer( sessionInfoPtr ) && !handshakeInfo->tls13OK ) )
 			{
 			/* It's not TLS 1.3 or we don't support TLS 1.3, continue.  We
@@ -845,14 +847,14 @@ int readSupportedVersions( INOUT_PTR STREAM *stream,
 	   we know what version we're really dealing with rather than the faked
 	   TLS 1.2 in the outer wrapper */
 #ifdef USE_TLS13
-	if( sessionInfoPtr->version < sessionInfoPtr->sessionTLS->minVersion )
+	if( sessionInfoPtr->version < tlsInfo->minVersion )
 		{
 		*extErrorInfoSet = TRUE;
 		retExt( CRYPT_ERROR_BADDATA,
 				( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 				  "Invalid version number 3.%d, should be at least "
 				  "3.%d", sessionInfoPtr->version, 
-				  sessionInfoPtr->sessionTLS->minVersion ) );
+				  tlsInfo->minVersion ) );
 		}
 
 #endif /* USE_TLS13 */

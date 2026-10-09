@@ -709,13 +709,20 @@ DataObjects ::= [7][0] SEQUENCE OF PKCS15Data
    it in the cert handling code /-
 
 userData ::= SEQUENCE {
-	name				Name,					-- Name for CMP
-	encAlgo				AlgorithmIdentifier,	-- Algo to encrypt passwords
-	encPW				OCTET STRING,			-- Encrypted passwords
-	attributes			Attributes
+	name				Name,				-- Name for CMP
+	encAlgo				AlgorithmIdentifier,-- Algo to encrypt passwords
+	encAuthData			OCTET STRING ( ENC( authData ) ),
+											-- Encrypted authenticators
+	certAttributes		Attributes			-- Certificate attributes, at
+											-- least an sKID to identify the
+											-- user but truncated to 9 bytes
+											-- to create XXXXX-XXXXX-XXXXX
+	userAttributes		SEQUENCE {			-- PKI user attributes
+		isRA			BOOLEAN OPTIONAL 	-- Whether user is an RA
+		} OPTIONAL
 	}
 
-userPW ::= SEQUENCE {
+authData ::= SEQUENCE {
 	issuePW				OCTET STRING SIZE(11),	-- Password for ir
 	revPW				OCTET STRING SIZE(11)	-- Password for rr
 	}

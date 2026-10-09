@@ -81,6 +81,7 @@ static void sendErrorResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   CRYPT_CONTENT_NONE, sessionInfoPtr->privateKey, 
 							   iCmsAttributes, &localErrorInfo );
 		krnlSendNotifier( iCmsAttributes, IMESSAGE_DECREFCOUNT );
+		iCmsAttributes = CRYPT_ERROR;
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -181,8 +182,8 @@ static int getPkiUserInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		status = updateSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD, 
 									protocolInfo->userPassword, 
 									protocolInfo->userPasswordSize, 
-									CRYPT_MAX_TEXTSIZE, 
-									ATTR_FLAG_ENCODEDVALUE );
+									ATTR_FLAG_ENCODEDVALUE | \
+										ATTR_FLAG_FIXEDWIDTHTEXT );
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -355,7 +356,7 @@ static int checkScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 INOUT_PTR SCEP_PROTOCOL_INFO *protocolInfo, 
 							 OUT_ALWAYS BOOLEAN *requestDataAvailable )
 	{
-	SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	SCEP_INFO *scepInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	CRYPT_CERTIFICATE iCmsAttributes;
 	MESSAGE_CREATEOBJECT_INFO createInfo;
 	MESSAGE_DATA msgData;
@@ -373,6 +374,7 @@ static int checkScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( requestDataAvailable, sizeof( BOOLEAN ) ) );
 
 	REQUIRES( sanityCheckSessionSCEP( sessionInfoPtr ) );
+	REQUIRES( scepInfo != NULL );
 
 	/* Clear return value */
 	*requestDataAvailable = FALSE;
@@ -489,7 +491,8 @@ static int checkScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	status = updateSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_USERNAME, 
 								protocolInfo->transID, 
 								protocolInfo->transIDsize, 
-								CRYPT_MAX_TEXTSIZE, ATTR_FLAG_ENCODEDVALUE );
+								ATTR_FLAG_ENCODEDVALUE | \
+									ATTR_FLAG_FIXEDWIDTHTEXT );
 	if( cryptStatusError( status ) )
 		{
 		krnlSendNotifier( iCmsAttributes, IMESSAGE_DECREFCOUNT );
@@ -516,6 +519,7 @@ static int checkScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			status = CRYPT_ERROR_BADDATA;
 		}
 	krnlSendNotifier( iCmsAttributes, IMESSAGE_DECREFCOUNT );
+	iCmsAttributes = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		/* We can get here through two error paths, either we've got a valid
@@ -677,8 +681,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int issueCertFromRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 INOUT_PTR SCEP_PROTOCOL_INFO *protocolInfo )
 	{
-	const SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
-	MESSAGE_KEYMGMT_INFO setkeyInfo;
+	const SCEP_INFO *scepInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_CERTMGMT_INFO certMgmtInfo;
 	MESSAGE_DATA msgData;
 	BYTE requestPassword[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -691,6 +694,7 @@ static int issueCertFromRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( protocolInfo, sizeof( SCEP_PROTOCOL_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionSCEP( sessionInfoPtr ) );
+	REQUIRES( scepInfo != NULL );
 
 	/* Get the password from the PKCS #10 request and make sure that it 
 	   matches the user password.  In the case of a signature-only CA key
@@ -757,12 +761,14 @@ static int issueCertFromRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 
 	/* Add the request to the certificate store */
-	setMessageKeymgmtInfo( &setkeyInfo, CRYPT_KEYID_NONE, NULL, 0, 
-						   NULL, 0, KEYMGMT_FLAG_NONE );
-	setkeyInfo.cryptHandle = sessionInfoPtr->iCertRequest;
+	setMessageCertMgmtInfo( &certMgmtInfo, sessionInfoPtr->iCertRequest,
+				sessionInfoPtr->iCertRequest, 
+				( scepInfo->requestType == CRYPT_REQUESTTYPE_CERTIFICATE ) ? \
+				  protocolInfo->iClientTempCert : CRYPT_UNUSED,
+				protocolInfo->iPkiUser, CERTMGMT_OPTION_NONE );
 	status = krnlSendMessage( sessionInfoPtr->cryptKeyset,
-							  IMESSAGE_KEY_SETKEY, &setkeyInfo, 
-							  KEYMGMT_ITEM_REQUEST );
+							  IMESSAGE_KEY_CERTMGMT, &certMgmtInfo, 
+							  CRYPT_CERTACTION_ADDREQUEST );
 	if( cryptStatusError( status ) )
 		{
 		retExtObj( status,
@@ -775,7 +781,10 @@ static int issueCertFromRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Convert the request into a certificate */
 	setMessageCertMgmtInfo( &certMgmtInfo, sessionInfoPtr->privateKey,
-							sessionInfoPtr->iCertRequest );
+				sessionInfoPtr->iCertRequest,
+				( scepInfo->requestType == CRYPT_REQUESTTYPE_CERTIFICATE ) ? \
+				  protocolInfo->iClientTempCert : CRYPT_UNUSED,
+				protocolInfo->iPkiUser, CERTMGMT_OPTION_NONE );
 	status = krnlSendMessage( sessionInfoPtr->cryptKeyset,
 							  IMESSAGE_KEY_CERTMGMT, &certMgmtInfo,
 							  CRYPT_CERTACTION_ISSUE_CERT );

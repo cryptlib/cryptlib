@@ -25,14 +25,6 @@
   #define DEFAULT_BUFFER_SIZE		32768
 #endif /* OS-specific envelope size defines */
 
-/* When pushing and popping data, overflow and underflow errors can be
-   recovered from by adding or removing data so we don't retain the error
-   state for these error types */
-
-#define isRecoverableError( status ) \
-		( ( status ) == CRYPT_ERROR_OVERFLOW || \
-		  ( status ) == CRYPT_ERROR_UNDERFLOW )
-
 #ifdef USE_ENVELOPES
 
 /****************************************************************************
@@ -88,6 +80,36 @@ BOOLEAN sanityCheckEnvelope( const ENVELOPE_INFO *envelopeInfoPtr )
 		{
 		DEBUG_PUTS(( "sanityCheckEnvelope: Action lists" ));
 		return( FALSE );
+		}
+	if( DATAPTR_ISSET( envelopeInfoPtr->preActionList ) )
+		{
+		const ACTION_LIST *actionListPtr = \
+							DATAPTR_GET( envelopeInfoPtr->preActionList );
+		
+		REQUIRES_B( actionListPtr != NULL );
+
+		if( !sanityCheckActionList( actionListPtr ) )
+			return( FALSE );		
+		}
+	if( DATAPTR_ISSET( envelopeInfoPtr->actionList ) )
+		{
+		const ACTION_LIST *actionListPtr = \
+							DATAPTR_GET( envelopeInfoPtr->actionList );
+		
+		REQUIRES_B( actionListPtr != NULL );
+
+		if( !sanityCheckActionList( actionListPtr ) )
+			return( FALSE );		
+		}
+	if( DATAPTR_ISSET( envelopeInfoPtr->postActionList ) )
+		{
+		const ACTION_LIST *actionListPtr = \
+							DATAPTR_GET( envelopeInfoPtr->postActionList );
+		
+		REQUIRES_B( actionListPtr != NULL );
+
+		if( !sanityCheckActionList( actionListPtr ) )
+			return( FALSE );		
 		}
 	if( !DATAPTR_ISVALID( envelopeInfoPtr->contentList ) || \
 		!DATAPTR_ISVALID( envelopeInfoPtr->contentListCurrent ) )
@@ -623,10 +645,9 @@ static int deenvelopePush( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		   the data's ability to tell us when it's ended, if we're processing
 		   PGP compressed data and there's no length information present and
 		   it's a data flush we assume that that's all there is */
-		if( envelopeInfoPtr->type == CRYPT_FORMAT_PGP && \
-			envelopeInfoPtr->usage == ACTION_COMPRESS && \
-			envelopeInfoPtr->payloadSize == CRYPT_UNUSED && \
-			length <= 0 )
+		if( length <= 0 && envelopeInfoPtr->usage == ACTION_COMPRESS && \
+			envelopeInfoPtr->type == CRYPT_FORMAT_PGP && \
+			envelopeInfoPtr->payloadSize == CRYPT_UNUSED )
 			{
 			envelopeInfoPtr->state = ENVELOPE_STATE_POSTDATA;
 			envelopeInfoPtr->deenvState = DEENVSTATE_NONE;
@@ -1191,6 +1212,18 @@ static int envelopeMessageFunction( INOUT_PTR TYPECAST( ENVELOPE_INFO * ) \
 			{
 			status = deenvelopePush( envelopeInfoPtr, msgData->data,
 									 length, &bytesCopied );
+
+			/* If this was a flush and we either ran out of data while
+			   processing the header or we're still in the middle of
+			   processing payload data after the flush completed then 
+			   the data is truncated */
+			if( length == 0 && \
+				( status == CRYPT_ERROR_UNDERFLOW || \
+				  ( cryptStatusOK( status ) && \
+					envelopeInfoPtr->state == ENVELOPE_STATE_DATA ) ) )
+				{
+				status = CRYPT_ERROR_INCOMPLETE;
+				}
 			}
 		else
 			{
@@ -1328,8 +1361,12 @@ static int initEnvelope( OUT_HANDLE_OPT CRYPT_ENVELOPE *iCryptEnvelope,
 	/* Initialise the envelope storage.  We have to do this after setting up
 	   the object handles above otherwise a failure here would result in a
 	   destroy message being sent to the envelope without the handles set to
-	   obviously-invalid values */
-	envelopeInfoPtr->storageSize = storageSize;
+	   obviously-invalid values.
+	   
+	   We can't use setVarStruct() in this case because we don't have an 
+	   xxxInfo DATAPTR pointing to it like the other object types but are 
+	   using it as a block of raw storage for the memory pool */
+	SAFEINT_SET( envelopeInfoPtr->storageSize, storageSize );
 	status = initMemPool( envelopeInfoPtr->memPoolState, 
 						  envelopeInfoPtr->storage, storageSize );
 	if( cryptStatusError( status ) )

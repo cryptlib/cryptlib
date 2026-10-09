@@ -193,9 +193,9 @@ static int encryptECB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-	IDEA_KEY *ideaKey = ( IDEA_KEY * ) convInfo->key;
-	int blockCount = noBytes / IDEA_BLOCKSIZE;
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+	IDEA_KEY *ideaKey;
+	int blockCount;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -203,6 +203,11 @@ static int encryptECB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( isIntegerRangeNZ( noBytes ) );
 	REQUIRES( convInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	ideaKey = ( IDEA_KEY * ) convInfo->key;
+	blockCount = noBytes / IDEA_BLOCKSIZE;
 
 	while( blockCount-- > 0 )
 		{
@@ -221,9 +226,9 @@ static int decryptECB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-	IDEA_KEY *ideaKey = ( IDEA_KEY * ) convInfo->key;
-	int blockCount = noBytes / IDEA_BLOCKSIZE;
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+	IDEA_KEY *ideaKey;
+	int blockCount;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -231,6 +236,11 @@ static int decryptECB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( isIntegerRangeNZ( noBytes ) );
 	REQUIRES( convInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	ideaKey = ( IDEA_KEY * ) convInfo->key;
+	blockCount = noBytes / IDEA_BLOCKSIZE;
 
 	while( blockCount-- > 0 )
 		{
@@ -251,7 +261,7 @@ static int encryptCBC( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -272,7 +282,7 @@ static int decryptCBC( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -297,10 +307,10 @@ static int encryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-	IDEA_KEY *ideaKey = ( IDEA_KEY * ) convInfo->key;
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+	IDEA_KEY *ideaKey;
 	LOOP_INDEX i;
-	int ivCount = convInfo->ivCount;
+	int ivCount;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -308,6 +318,11 @@ static int encryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( isIntegerRangeNZ( noBytes ) );
 	REQUIRES( convInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	ideaKey = ( IDEA_KEY * ) convInfo->key;
+	ivCount = convInfo->ivCount;
 
 	/* If there's any encrypted material left in the IV, use it now */
 	if( ivCount > 0 )
@@ -381,11 +396,11 @@ static int decryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-	IDEA_KEY *ideaKey = ( IDEA_KEY * ) convInfo->key;
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+	IDEA_KEY *ideaKey;
 	BYTE temp[ IDEA_BLOCKSIZE + 8 ];
 	LOOP_INDEX i;
-	int ivCount = convInfo->ivCount;
+	int ivCount;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -393,6 +408,11 @@ static int decryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( isIntegerRangeNZ( noBytes ) );
 	REQUIRES( convInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	ideaKey = ( IDEA_KEY * ) convInfo->key;
+	ivCount = convInfo->ivCount;
 
 	/* If there's any encrypted material left in the IV, use it now */
 	if( ivCount > 0 )
@@ -480,8 +500,8 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					IN_BUFFER( keyLength ) const void *key, 
 					IN_LENGTH_SHORT const int keyLength )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-	IDEA_KEY *ideaKey = ( IDEA_KEY * ) convInfo->key;
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+	IDEA_KEY *ideaKey;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isReadPtrDynamic( key, keyLength ) );
@@ -489,6 +509,10 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	REQUIRES( sanityCheckContext( contextInfoPtr ) );
 	REQUIRES( keyLength >= MIN_KEYSIZE && keyLength <= IDEA_KEY_LENGTH );
 	REQUIRES( convInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	ideaKey = ( IDEA_KEY * ) convInfo->key;
 
 	/* Copy the key to internal storage */
 	if( convInfo->userKey != key )

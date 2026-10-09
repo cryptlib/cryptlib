@@ -53,10 +53,12 @@
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN sanityCheckSessionSSH( IN_PTR const SESSION_INFO *sessionInfoPtr )
 	{
-	const SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	const SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( sshInfo, sizeof( SSH_INFO ) ) );
+
+	REQUIRES_B( sshInfo != NULL );
 
 	/* Check the general envelope state */
 	if( !sanityCheckSession( sessionInfoPtr ) )
@@ -662,7 +664,8 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		const MESSAGE_DATA *msgData = ( MESSAGE_DATA * ) data;
 
 		return( addSessionInfoS( sessionInfoPtr, CRYPT_SESSINFO_SSH_PREAUTH, 
-								 msgData->data, msgData->length ) );
+								 msgData->data, msgData->length,
+								 ATTR_FLAG_NONE ) );
 		}
 
 #ifdef USE_SSH_EXTENDED
@@ -825,7 +828,7 @@ static int checkAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	/* Add the fingerprint */
 	return( addSessionInfoS( sessionInfoPtr,
 							 CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
-							 fingerPrint, hashSize ) );
+							 fingerPrint, hashSize, ATTR_FLAG_NONE ) );
 	}
 
 /****************************************************************************
@@ -840,7 +843,7 @@ int setAccessMethodSSH( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	static const PROTOCOL_INFO protocolInfo = {
 		/* General session information */
 		FALSE,						/* Request-response protocol */
-		SESSION_PROTOCOL_FIXEDSIZECREDENTIALS,	/* Flags */
+		SESSION_PROTOCOL_FIXEDSIZECREDENTIALS_SVR,	/* Flags */
 		SSH_PORT,					/* SSH port */
 		SESSION_NEEDS_USERID |		/* Client attributes */
 			SESSION_NEEDS_PASSWORD | \

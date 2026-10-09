@@ -182,7 +182,7 @@ typedef struct {
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -564,7 +564,7 @@ static int checkAttributeEntry( INOUT_PTR ATTRIBUTE_CHECK_INFO *attributeCheckIn
 			{
 			if( attributeInfoPtr->fieldType == FIELDTYPE_IDENTIFIER )
 				{
-				fieldID = attributeListPtr->intValue;
+				fieldID = attributeListPtr->attrIntValue;
 				}
 			else
 				fieldID = attributeListPtr->subFieldID;
@@ -652,7 +652,7 @@ static int checkAttributeEntry( INOUT_PTR ATTRIBUTE_CHECK_INFO *attributeCheckIn
 		/* If this is an optional field and the value is the same as the
 		   default value remember that it doesn't get encoded */
 		if( ( attributeInfoPtr->encodingFlags & FL_DEFAULT ) && \
-			( attributeInfoPtr->parameter == attributeListPtr->intValue ) )
+			( attributeInfoPtr->parameter == attributeListPtr->attrIntValue ) )
 			{
 			SET_FLAG( attributeListPtr->flags, ATTR_FLAG_DEFAULTVALUE );
 			REQUIRES( DATAPTR_ISVALID( attributeListPtr->next ) );

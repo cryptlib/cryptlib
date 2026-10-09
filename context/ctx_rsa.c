@@ -48,7 +48,7 @@ static BOOLEAN pairwiseConsistencyTest( CONTEXT_INFO *contextInfoPtr )
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BYTE buffer[ CRYPT_MAX_PKCSIZE + 8 ];
 	BYTE origBuffer[ CRYPT_MAX_PKCSIZE + 8 ];
 	int length, status;
@@ -428,7 +428,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					  INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					  IN_LENGTH_SHORT int noBytes )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const BIGNUM *n, *e;
 	BIGNUM *data;
 	int length, offset, dummy, bnStatus = BN_STATUS, status;
@@ -560,7 +560,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					  INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					  IN_LENGTH_SHORT int noBytes )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const BIGNUM *p, *q, *u, *e1, *e2;
 	BIGNUM *data, *p2, *q2;
 	BOOLEAN dummyAdd = TRUE;
@@ -775,7 +775,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( key != NULL )
 		{
 		const CRYPT_PKCINFO_RSA *rsaKey = ( CRYPT_PKCINFO_RSA * ) key;
-		PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+		PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 		int status;
 
 		REQUIRES( pkcInfo != NULL );

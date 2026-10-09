@@ -65,7 +65,7 @@ static int initDevice( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 					   IN_BOOL const BOOLEAN isZeroise )
 	{
 	CRYPT_KEYSET iHWKeyset;
-	HARDWARE_INFO *hardwareInfo = deviceInfoPtr->deviceHardware;
+	HARDWARE_INFO *hardwareInfo = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 	const DEV_STORAGE_FUNCTIONS *storageFunctions = \
 						DATAPTR_GET( deviceInfoPtr->storageFunctions );
 	int status;
@@ -74,6 +74,7 @@ static int initDevice( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 
 	REQUIRES( isBooleanValue( isCryptoDeviceAlias ) );
 	REQUIRES( isBooleanValue( isZeroise ) );
+	REQUIRES( hardwareInfo != NULL );
 	REQUIRES( storageFunctions != NULL );
 
 	/* If this is an alias to the crypto hardware device then we need to 
@@ -163,12 +164,13 @@ static int initDevice( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 STDC_NONNULL_ARG( ( 1 ) ) \
 static void shutdownFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr )
 	{
-	HARDWARE_INFO *hardwareInfo = deviceInfoPtr->deviceHardware;
+	HARDWARE_INFO *hardwareInfo = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 	const DEV_STORAGE_FUNCTIONS *storageFunctions = \
 					DATAPTR_GET( deviceInfoPtr->storageFunctions );
 
 	assert( isWritePtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
 
+	REQUIRES_V( hardwareInfo != NULL );
 	REQUIRES_V( storageFunctions != NULL );
 
 	/* Shut down the storage object if required.  This flushes any data from 
@@ -179,6 +181,7 @@ static void shutdownFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr )
 		{
 		krnlSendNotifier( deviceInfoPtr->iCryptKeyset, 
 						  IMESSAGE_DECREFCOUNT );
+		deviceInfoPtr->iCryptKeyset = CRYPT_ERROR;
 		if( TEST_FLAG( deviceInfoPtr->flags, DEVICE_FLAG_NEEDSCLEANUP ) )
 			{
 			/* There's cleanup required, delete the storage object.  We don't 
@@ -190,7 +193,6 @@ static void shutdownFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr )
 												storageFunctions,
 												deviceInfoPtr->contextHandle );
 			}
-		deviceInfoPtr->iCryptKeyset = CRYPT_ERROR;
 		}
 	CLEAR_FLAG( deviceInfoPtr->flags, DEVICE_FLAG_ACTIVE | \
 									  DEVICE_FLAG_LOGGEDIN | \
@@ -203,7 +205,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int completeInit( INOUT_PTR DEVICE_INFO *deviceInfoPtr )
 	{
 	CRYPT_KEYSET iCryptKeyset;
-	HARDWARE_INFO *hardwareInfo = deviceInfoPtr->deviceHardware;
+	HARDWARE_INFO *hardwareInfo = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 	const DEV_STORAGE_FUNCTIONS *storageFunctions = \
 					DATAPTR_GET( deviceInfoPtr->storageFunctions );
 	const DEV_GETRANDOMFUNCTION getRandomFunction = \
@@ -216,6 +218,7 @@ static int completeInit( INOUT_PTR DEVICE_INFO *deviceInfoPtr )
 
 	assert( isWritePtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
 
+	REQUIRES( hardwareInfo != NULL );
 	REQUIRES( storageFunctions != NULL );
 	REQUIRES( getRandomFunction != NULL );
 
@@ -327,7 +330,7 @@ static int controlFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 							INOUT_PTR_OPT \
 								MESSAGE_FUNCTION_EXTINFO *messageExtInfo )
 	{
-	HARDWARE_INFO *hardwareInfo = deviceInfoPtr->deviceHardware;
+	HARDWARE_INFO *hardwareInfo = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 
 	assert( isWritePtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
 	assert( data == NULL || isReadPtrDynamic( data, dataLength ) );

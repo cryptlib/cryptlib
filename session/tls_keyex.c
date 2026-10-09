@@ -445,6 +445,7 @@ int readSupportedGroups( INOUT_PTR STREAM *stream,
 						 IN_LENGTH_SHORT_Z const int extLength,
 						 OUT_BOOL BOOLEAN *extErrorInfoSet )
 	{
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	const TLS_GROUP_INFO *preferredGroupInfoPtr = NULL;
 #ifdef USE_TLS13
 	const TLS_GROUP_INFO *preferredTls13GroupInfoPtr = NULL;
@@ -462,6 +463,7 @@ int readSupportedGroups( INOUT_PTR STREAM *stream,
 
 	REQUIRES( isServer( sessionInfoPtr ) );
 	REQUIRES( isShortIntegerRange( extLength ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return values */
 	*extErrorInfoSet = FALSE;
@@ -620,7 +622,7 @@ int readSupportedGroups( INOUT_PTR STREAM *stream,
 		   what'll get selected rather than the MTI P256 */
 		if( preferredGroupInfoPtr == NULL && \
 			groupInfoPtr->minTlsVersion <= \
-							min( sessionInfoPtr->sessionTLS->maxVersion, \
+							min( tlsInfo->maxVersion, \
 								 TLS_MINOR_VERSION_TLS12 ) )
 			{
 			DEBUG_PRINT(( "  Set preferred keyex group to %s.\n", 
@@ -630,7 +632,7 @@ int readSupportedGroups( INOUT_PTR STREAM *stream,
 #ifdef USE_TLS13
 		if( preferredTls13GroupInfoPtr == NULL && \
 			groupInfoPtr->minTlsVersion >= TLS_MINOR_VERSION_TLS13 && \
-			sessionInfoPtr->sessionTLS->maxVersion >= TLS_MINOR_VERSION_TLS13 )
+			tlsInfo->maxVersion >= TLS_MINOR_VERSION_TLS13 )
 			{
 			DEBUG_PRINT(( "  Set preferred TLS 1.3 keyex group to %s.\n", 
 						  groupInfoPtr->description ));
@@ -716,8 +718,9 @@ int readSupportedGroups( INOUT_PTR STREAM *stream,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int writeSupportedGroups( INOUT_PTR STREAM *stream,
-						  const SESSION_INFO *sessionInfoPtr )
+						  IN_PTR const SESSION_INFO *sessionInfoPtr )
 	{
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM localStream;
 	BYTE buffer[ 32 + 8 ];
 	LOOP_INDEX i;
@@ -725,6 +728,8 @@ int writeSupportedGroups( INOUT_PTR STREAM *stream,
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+
+	REQUIRES( tlsInfo != NULL );
 
 #ifdef CONFIG_SUITEB
 	if( sessionInfoPtr->protocolFlags & TLS_PFLAG_SUITEB )
@@ -778,8 +783,7 @@ int writeSupportedGroups( INOUT_PTR STREAM *stream,
 			  i++ )
 		{
 		if( !groupInfoTbl[ i ].clientAdvertise || \
-			groupInfoTbl[ i ].minTlsVersion > \
-					sessionInfoPtr->sessionTLS->maxVersion )
+			groupInfoTbl[ i ].minTlsVersion > tlsInfo->maxVersion )
 			continue;
 
 		status = writeUint16( &localStream, groupInfoTbl[ i ].tlsGroupID );

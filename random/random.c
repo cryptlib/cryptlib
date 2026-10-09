@@ -231,7 +231,7 @@ static int mixRandomPool( INOUT_PTR RANDOM_INFO *randomInfo )
 	assert( isWritePtr( randomInfo, sizeof( RANDOM_INFO ) ) );
 
 	static_assert( RANDOMPOOL_SIZE % 32 == 0,
-				   "Random pool size isn't a multuple of SHA-2 hash size" );
+				   "Random pool size isn't a multiple of SHA-2 hash size" );
 
 	REQUIRES( sanityCheckRandom( randomInfo ) );
 

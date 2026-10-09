@@ -188,6 +188,7 @@ static int readEncryptedCert( INOUT_PTR STREAM *stream,
 	status = krnlSendMessage( iSessionKey, IMESSAGE_CTX_DECRYPT,
 							  encCertPtr, encCertLength );
 	krnlSendNotifier( iSessionKey, IMESSAGE_DECREFCOUNT );
+	iSessionKey = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		registerCryptoFailure();
@@ -295,10 +296,8 @@ static int readRequestBody( INOUT_PTR STREAM *stream,
 								const CMP_MESSAGE_TYPE messageType,
 							IN_LENGTH_SHORT const int messageLength )
 	{
-	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
-	MESSAGE_DATA msgData;
+	CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	ERROR_INFO localErrorInfo;
-	BYTE authCertID[ CRYPT_MAX_HASHSIZE + 8 ];
 #ifdef USE_ERRMSGS
 	char certName[ CRYPT_MAX_TEXTSIZE + 8 ];
 #endif /* USE_ERRMSGS */
@@ -313,6 +312,7 @@ static int readRequestBody( INOUT_PTR STREAM *stream,
 	REQUIRES( messageType >= CTAG_PB_IR && messageType < CTAG_PB_LAST );
 			  /* CTAG_PB_IR == 0 so this is the same as _NONE */
 	REQUIRES( isShortIntegerRangeNZ( messageLength ) );
+	REQUIRES( cmpInfo != NULL );
 
 	/* If we're fuzzing the input then we're reading static data for which 
 	   we can't go beyond this point */
@@ -381,23 +381,6 @@ static int readRequestBody( INOUT_PTR STREAM *stream,
 			}
 		}
 
-	/* Record the identity of the PKI user (for a MAC'd request) or 
-	   certificate (for a signed request) that authorised this request */
-	setMessageData( &msgData, authCertID, CRYPT_MAX_HASHSIZE );
-	status = krnlSendMessage( protocolInfo->useMACreceive ? \
-								cmpInfo->userInfo : \
-								sessionInfoPtr->iAuthInContext,
-							  IMESSAGE_GETATTRIBUTE_S, &msgData,
-							  CRYPT_CERTINFO_FINGERPRINT_SHA1 );
-	if( cryptStatusOK( status ) )
-		{
-		status = krnlSendMessage( sessionInfoPtr->iCertRequest,
-								  IMESSAGE_SETATTRIBUTE_S, &msgData,
-								  CRYPT_IATTRIBUTE_AUTHCERTID );
-		}
-	if( cryptStatusError( status ) )
-		return( status );
-
 	/* Revocation requests don't contain any information so there's nothing
 	   further to check */
 	if( messageType == CTAG_PB_RR )
@@ -422,9 +405,15 @@ static int readRequestBody( INOUT_PTR STREAM *stream,
 	   know their DN or may only know their CN, in which case they'll send 
 	   an empty/CN-only subject DN in the hope that we can fill it in for 
 	   them.  If it's not an ir then the user information acts as a filter 
-	   to ensure that the request doesn't contain values that it shouldn't */
+	   to ensure that the request doesn't contain values that it shouldn't.
+	   
+	   Note that this changes the information associated with the request,
+	   but not the encoded request data itself, so that exporting the 
+	   request data will export the original encoded contents of the request 
+	   while working with it will work with the request contents augmented 
+	   with any necessary pkiUser information */
 	status = krnlSendMessage( sessionInfoPtr->iCertRequest,
-							  IMESSAGE_SETATTRIBUTE, &cmpInfo->userInfo,
+							  IMESSAGE_SETATTRIBUTE, &cmpInfo->iPkiUser,
 							  CRYPT_IATTRIBUTE_PKIUSERINFO );
 	if( cryptStatusError( status ) )
 		{
@@ -438,6 +427,7 @@ static int readRequestBody( INOUT_PTR STREAM *stream,
 					  getCertHolderName( sessionInfoPtr->iCertRequest, 
 										 certName, CRYPT_MAX_TEXTSIZE ) ) );
 		}
+
 	return( CRYPT_OK );
 	}
 
@@ -526,7 +516,7 @@ static int readResponseBody( INOUT_PTR STREAM *stream,
 
 	/* If it's a revocation response then the only returned data is the 
 	   status value */
-	if( protocolInfo->operation == CTAG_PB_RR )
+	if( messageType == CTAG_PB_RP )
 		{
 		status = readSequence( stream, NULL );/* Inner wrapper */
 		if( cryptStatusError( status ) )

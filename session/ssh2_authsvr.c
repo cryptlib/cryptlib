@@ -653,7 +653,7 @@ static int readPublicKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						  IN_BOOL const BOOLEAN isInitialPKMessage )
 	{
 	CRYPT_ALGO_TYPE pubkeyAlgo;
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_CREATEOBJECT_INFO createInfo;
 	MESSAGE_DATA msgData;
 	BYTE keyID[ KEYID_SIZE + 8 ];
@@ -665,6 +665,7 @@ static int readPublicKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( isBooleanValue( isInitialPKMessage ) );
 	REQUIRES( sessionInfoPtr->iKeyexAuthContext == CRYPT_ERROR );
+	REQUIRES( sshInfo != NULL );
 
 	/* Skip the first of the three copies of the algorithm name (see the 
 	   comment in ssh2_cli.c for more on this).  We don't do anything with 
@@ -1296,6 +1297,7 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	const BOOLEAN allowPubkeyAuth = \
 			isHandleRangeValid( sessionInfoPtr->cryptKeyset ) ? TRUE : FALSE;
 	const SESSION_ATTRIBUTE_LIST *attributeListPtr DUMMY_INIT_PTR;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	AUTH_INFO authInfo;
 	SSH_AUTHTYPE_TYPE authType;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
@@ -1308,6 +1310,7 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( isEnumRange( credentialType, CREDENTIAL ) );
 	REQUIRES( isEnumRange( authState, AUTHSTATE ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Clear the return value, or at least set it to the default failed-
 	   authentication state */
@@ -1379,16 +1382,14 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( authState == AUTHSTATE_FIRST_MESSAGE )
 		{
 		/* Remember the query parameters for later */
-		status = storeQueryParams( sessionInfoPtr->sessionSSH, 
-								   authInfo.userName, 
+		status = storeQueryParams( sshInfo, authInfo.userName, 
 								   authInfo.userNameLength, authType );
 		}
 	else
 		{
 		/* Make sure that the new parameters are consistent with the 
 		   previously-seen ones */
-		status = checkQueryValidity( sessionInfoPtr->sessionSSH, 
-									 authInfo.userName, 
+		status = checkQueryValidity( sshInfo, authInfo.userName, 
 									 authInfo.userNameLength, authType );
 		}
 	if( cryptStatusError( status ) )
@@ -1478,10 +1479,9 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					  "Client supplied different credentials than the ones "
 					  "supplied during a previous authentication attempt" ) );
 			}
-		status = addSessionInfoS( sessionInfoPtr,
-								  CRYPT_SESSINFO_USERNAME,
-								  authInfo.userName, 
-								  authInfo.userNameLength );
+		status = addSessionInfoS( sessionInfoPtr, CRYPT_SESSINFO_USERNAME,
+								  authInfo.userName, authInfo.userNameLength,
+								  ATTR_FLAG_NONE );
 		if( cryptStatusError( status ) )
 			{
 			sMemDisconnect( &stream );
@@ -1681,7 +1681,8 @@ static int processUserAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   the attribute list (B1, B3, B5) */
 	status = updateSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_PASSWORD,
 								authInfo.password, authInfo.passwordLength,
-								CRYPT_MAX_TEXTSIZE, ATTR_FLAG_EPHEMERAL );
+								ATTR_FLAG_EPHEMERAL | \
+									ATTR_FLAG_FIXEDWIDTHTEXT );
 	if( cryptStatusError( status ) )
 		{
 		zeroise( authInfo.password, CRYPT_MAX_TEXTSIZE );
@@ -1755,7 +1756,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int processFixedAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 IN_PTR const SSH_HANDSHAKE_INFO *handshakeInfo )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	FAILSAFE_AUTH_INFO authInfo DUMMY_INIT_STRUCT;
 	LOOP_INDEX authAttempts;
 
@@ -1763,6 +1764,7 @@ static int processFixedAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isReadPtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* The caller has specified user credentials to match against so we can
 	   perform a basic pass/fail check against the client-supplied 
@@ -1853,12 +1855,14 @@ static int processAuthConfirmation( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										const SSH_HANDSHAKE_INFO *handshakeInfo,
 									INOUT_PTR FAILSAFE_AUTH_INFO *authInfo )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
 	assert( isWritePtr( authInfo, sizeof( FAILSAFE_AUTH_INFO ) ) );
+
+	REQUIRES( sshInfo != NULL );
 
 	/* We should only get here if confirmation of user authentication is 
 	   required */
@@ -1885,14 +1889,12 @@ static int processAuthConfirmation( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 											CRYPT_SESSINFO_USERNAME );
 		if( attributeListPtr != NULL )
 			{
-			////////////////////////////////////////////////////////////////
-			// Check that attributeListPtr->flags has ATTR_FLAG_FIXEDWIDTHTEXT
-			// once this is implemented to replace ATTR_FLAG_EPHEMERAL
-			////////////////////////////////////////////////////////////////
 			attributeListPtr = DATAPTR_GET( attributeListPtr->next );
 			if( attributeListPtr != NULL && \
 				( attributeListPtr->attributeID != CRYPT_SESSINFO_PASSWORD || \
-				  !TEST_FLAG( attributeListPtr->flags, ATTR_FLAG_EPHEMERAL ) ) )
+				  !TEST_FLAGS( attributeListPtr->flags, \
+							   ATTR_FLAG_EPHEMERAL | ATTR_FLAG_FIXEDWIDTHTEXT,
+							   ATTR_FLAG_EPHEMERAL | ATTR_FLAG_FIXEDWIDTHTEXT ) ) )
 				attributeListPtr = NULL;
 			}
 		if( attributeListPtr == NULL || sessionInfoPtr->authComplete )
@@ -1955,7 +1957,7 @@ int processServerAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   IN_PTR const SSH_HANDSHAKE_INFO *handshakeInfo, 
 					   IN_BOOL const BOOLEAN userInfoPresent )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	FAILSAFE_AUTH_INFO authInfo DUMMY_INIT_STRUCT;
 	int status;
 
@@ -1965,6 +1967,7 @@ int processServerAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( sanityCheckSSHHandshakeInfo( handshakeInfo ) );
 	REQUIRES( isBooleanValue( userInfoPresent ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* If the caller has specified user credentials to match against then 
 	   we perform a basic pass/fail check against the client-supplied 

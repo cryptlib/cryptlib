@@ -458,7 +458,7 @@ BIGNUM *BN_copy( INOUT_PTR BIGNUM *destBignum,
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
 void BN_swap( INOUT_PTR BIGNUM *bignum1, INOUT_PTR BIGNUM *bignum2 );
 #if defined( USE_ECDSA ) || defined( USE_ECDH )
-STDC_NONNULL_ARG( ( 1, 2 ) ) \
+STDC_NONNULL_ARG( ( 2, 3 ) ) \
 void BN_consttime_swap( const BN_ULONG condition, 
 						INOUT_PTR BIGNUM *bignum1, 
 						INOUT_PTR BIGNUM *bignum2, 

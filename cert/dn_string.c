@@ -937,7 +937,7 @@ static int getNativeUTF8TargetStringLen( IN_BUFFER( stringLen ) \
 											const NATIVE_CHAR_TYPE nativeCharType )
 	{
 	STREAM stream;
-	int position, status;
+	int position DUMMY_INIT, status;
 
 	assert( isReadPtrDynamic( string, stringLen ) );
 	assert( isWritePtr( targetStringLength, sizeof( int ) ) );
@@ -1059,7 +1059,7 @@ static int copyNativeToUTF8String( OUT_BUFFER( destMaxLen, *destLen ) \
 										const NATIVE_CHAR_TYPE nativeCharType )
 	{
 	STREAM stream;
-	int position, status;
+	int position DUMMY_INIT, status;
 
 	assert( isWritePtrDynamic( dest, destMaxLen ) );
 	assert( isWritePtr( destLen, sizeof( int ) ) );
@@ -1099,7 +1099,7 @@ static int copyASN1ToUTF8String( OUT_BUFFER( destMaxLen, *destLen ) \
 	{
 	STREAM stream;
 	LOOP_INDEX i;
-	int position, status DUMMY_INIT;
+	int position DUMMY_INIT, status DUMMY_INIT;
 
 	assert( isWritePtrDynamic( dest, destMaxLen ) );
 	assert( isWritePtr( destLen, sizeof( int ) ) );
@@ -1271,9 +1271,6 @@ int getASN1StringInfo( IN_BUFFER( stringLen ) const void *string,
 	status = getNativeStringType( string, stringLen, &localStringType );
 	if( cryptStatusError( status ) )
 		{
-		size_t mbStringLen;
-		int result;
-
 		/* If it's not a native string or we're not being told to try re-
 		   encoding as UTF-8, report an error */
 		if( !isNativeString || status != OK_SPECIAL )
@@ -1285,8 +1282,11 @@ int getASN1StringInfo( IN_BUFFER( stringLen ) const void *string,
 				   called.  Since this never resulted in any problems, this 
 				   code path has probably never been exercised (Windows, 
 				   which has a proper mbstowcs_s(), goes via the !USE_UTF8 
-				   version belo), so for attack surface reduction we make it 
-				   an unconditional error return */
+				   version below), so for attack surface reduction we make 
+				   it an unconditional error return */
+		size_t mbStringLen;
+		int result;
+
 		/* It's some oddball 8-bit local character type that's not 8859-1 or
 		   UTF-8 but that might be convertible into UTF-8, check whether 
 		   this is the case */

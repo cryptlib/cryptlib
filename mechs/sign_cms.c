@@ -47,7 +47,7 @@
    in addSigningCertificate() for why we hardcode SHA-2).
    
    Note that the two headers have the same size, and in fact only differ in
-   the hash sizes, so we can use one to cover both values */
+   the hash sizes, so we can use one size define to cover both values */
 
 #define ESSCERTIDv1_HEADER		"\x30\x16\x04\x14"
 #define ESSCERTIDv2_HEADER		"\x30\x22\x04\x20"
@@ -188,7 +188,7 @@ static int writeCmsSignerInfo( INOUT_PTR STREAM *stream,
 	writeShortInteger( stream, CMS_VERSION, DEFAULT_TAG );
 
 	/* Write the issuerAndSerialNumber, digest algorithm identifier,
-	   attributes (if there are any) and signature */
+	   signed attributes (if there are any) and signature */
 	swrite( stream, dynData( iAndSDB ), dynLength( iAndSDB ) );
 	initAlgoIDparamsHash( &algoIDparams, hashAlgo, hashParam );
 	writeAlgoIDex( stream, hashAlgo, &algoIDparams, DEFAULT_TAG );
@@ -273,11 +273,16 @@ static int createCmsCountersignature( IN_BUFFER( dataSignatureSize ) \
 			}
 		}
 	iHashContext = createInfo.cryptHandle;
-#if 1	/* Standard CMS countersignature */
 	sMemConnect( &stream, dataSignature, dataSignatureSize );
-	readUniversal( &stream );
+	readUniversal( &stream );		/* algorithmIdentifier */
+#if 1	/* Standard CMS countersignature */
 	status = readOctetStringHole( &stream, &length, MIN_HASHSIZE, 
 								  DEFAULT_TAG );
+#else	/* Broken TSP not-quite-countersignature */
+	status = length = sMemDataLeft( &stream );
+	if( !cryptStatusError( status ) )
+		status = CRYPT_OK;
+#endif /* 1 */
 	if( cryptStatusOK( status ) )
 		{
 		void *dataPtr;
@@ -290,10 +295,6 @@ static int createCmsCountersignature( IN_BUFFER( dataSignatureSize ) \
 			}
 		}
 	sMemDisconnect( &stream );
-#else	/* Broken TSP not-quite-countersignature */
-	status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH,
-					( MESSAGE_CAST ) dataSignature, dataSignatureSize );
-#endif /* 1 */
 	if( cryptStatusOK( status ) )
 		status = krnlSendMessage( iHashContext, IMESSAGE_CTX_HASH, "", 0 );
 	if( cryptStatusOK( status ) )
@@ -1149,6 +1150,7 @@ int createSignatureCMS( OUT_BUFFER_OPT( sigMaxLength, *signatureLength ) \
 		   context wasn't the one that was signed */
 		krnlSendNotifier( localSigDataInfo.hashContext, 
 						  IMESSAGE_DECREFCOUNT );
+		localSigDataInfo.hashContext = CRYPT_ERROR;
 		}
 	if( cryptStatusError( status ) )
 		return( status );
@@ -1413,6 +1415,7 @@ int checkSignatureCMS( IN_BUFFER( signatureLength ) const void *signature,
 						( queryInfo.cryptAlgoEncoding == ALGOID_ENCODING_PSS ) ? \
 						  SIGNATURE_CMS_PSS : SIGNATURE_CMS, errorInfo );
 	krnlSendNotifier( localSigDataInfo.hashContext, IMESSAGE_DECREFCOUNT );
+	localSigDataInfo.hashContext = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		zeroise( &queryInfo, sizeof( QUERY_INFO ) );

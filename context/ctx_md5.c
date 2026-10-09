@@ -145,7 +145,7 @@ static int hash( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				 IN_BUFFER( noBytes ) BYTE *buffer, 
 				 IN_LENGTH_Z int noBytes )
 	{
-	HASH_INFO *hashInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	HASH_INFO *hashInfo = DATAPTR_GET_HASH( contextInfoPtr );
 	MD5_CTX *md5Info;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );

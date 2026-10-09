@@ -425,11 +425,13 @@ C_RET cryptCheckSignatureEx( C_IN void C_PTR signature,
 	if( extraData != NULL )
 		*extraData = CRYPT_ERROR;
 
-	/* Perform extended error checking.  We have to make the 
-	   MESSAGE_CHECK_PKC_SIGCHECK check an internal message even though it's
-	   an external object because the actions that we're checking are 
-	   internal-only.  The preceding MESSAGE_GETDEPENDENT has verified that
-	   it's a valid externally-visible object */
+	/* Perform extended error checking.  The sigCheckKey can be a 
+	   certificate or a context, if it's a context then sigCheckContext is
+	   just another reference to it but if it's a certificate then
+	   sigCheckContext may be an internal-only context so messages sent to
+	   it have to be internal.  The MESSAGE_GETDEPENDENT has already 
+	   verified that the parent object is a valid externally-visible 
+	   object */
 	status = krnlSendMessage( sigCheckKey, MESSAGE_GETDEPENDENT,
 							  &sigCheckContext, OBJECT_TYPE_CONTEXT );
 	if( cryptStatusOK( status ) )
@@ -439,7 +441,7 @@ C_RET cryptCheckSignatureEx( C_IN void C_PTR signature,
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = krnlSendMessage( sigCheckContext, MESSAGE_GETATTRIBUTE,
+		status = krnlSendMessage( sigCheckContext, IMESSAGE_GETATTRIBUTE,
 								  &signAlgo, CRYPT_CTXINFO_ALGO );
 		}
 	if( cryptStatusOK( status ) )

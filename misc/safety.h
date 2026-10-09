@@ -2336,6 +2336,38 @@ typedef struct {
 *																			*
 ****************************************************************************/
 
+/* The integer equivalent to safe pointers.  These are used in places where
+   the values are both critical and where they essentially never change once 
+   set, typically the buffer size values associated with safe pointers */
+
+typedef struct {
+	int intValue, intCheck;
+	} SAFE_INT;
+
+/* Initialisers for a safe integer.  Note the cast to ( int ), this is 
+   needed to avoid type-conversion issues when the value being set is a
+   size_t from a sizeof() expression */
+
+#define SAFEINT_INIT		{ 0, ~0 }
+
+#define SAFEINT_SET( name, value ) \
+	{ \
+	( name ).intValue = ( int ) ( value ); \
+	( name ).intCheck = ( int ) ( value ) ^ ~0; \
+	}
+
+/* Check and read safe integers.  We set the invalid-value to 0 rather than 
+   CRYPT_ERROR because of its typical use for holding the sizes of data 
+   items, a memcpy() of zero bytes is safe while one of ( size_t ) -1 
+   isn't.  It's assumed that anything that depends on this is preceded by an 
+   explicit SAFEINT_ISVALID() check since we don't have the obviously-
+   invalid value of NULL that we have for safe pointers */
+
+#define SAFEINT_ISVALID( name ) \
+		( ( ( ( name ).intValue ) ^ ( ( name ).intCheck ) ) == ~0 )
+#define SAFEINT_GET( name ) \
+		( SAFEINT_ISVALID( name ) ? ( ( name ).intValue ) : 0 )
+
 /* Check for overflow on various arithmetic operations.  "Understanding 
    Integer Overflow in C/C++" by Dietz, Li, Regehr and Adve, 2012 indicated 
    that LLVM at least can aggressively optimise the precondition tests below 

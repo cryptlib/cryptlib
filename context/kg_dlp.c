@@ -1091,7 +1091,7 @@ int generateDLPkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	const BIGNUM *p;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const BOOLEAN sideChannelProtection = \
 			TEST_FLAG( contextInfoPtr->flags, \
 					   CONTEXT_FLAG_SIDECHANNELPROTECTION ) ? TRUE : FALSE;
@@ -1180,7 +1180,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initCheckDLPkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr, 
 					 IN_BOOL const BOOLEAN isPKCS3 )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const DH_DOMAINPARAMS *domainParams;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );

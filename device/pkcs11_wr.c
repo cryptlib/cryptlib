@@ -394,7 +394,7 @@ static int setItemFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 								const KEYMGMT_ITEM_TYPE itemType )
 	{
 	CRYPT_CERTIFICATE iCryptCert;
-	PKCS11_INFO *pkcs11Info = deviceInfo->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfo->deviceInfo );
 	BOOLEAN_INT immutable;
 	int cryptStatus;
 
@@ -403,6 +403,7 @@ static int setItemFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 	REQUIRES( sanityCheckDevice( deviceInfo ) );
 	REQUIRES( isHandleRangeValid( iCryptHandle ) );
 	REQUIRES( itemType == KEYMGMT_ITEM_PUBLICKEY );
+	REQUIRES( pkcs11Info != NULL );
 
 	/* If the certificate isn't signed then we can't store it in this 
 	   state */
@@ -469,7 +470,7 @@ static int deleteItemFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 	CK_OBJECT_HANDLE hPrivkey = CK_OBJECT_NONE, hCertificate = CK_OBJECT_NONE;
 	CK_OBJECT_HANDLE hPubkey = CK_OBJECT_NONE, hSecretKey = CK_OBJECT_NONE;
 	CK_RV status;
-	PKCS11_INFO *pkcs11Info = deviceInfo->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfo->deviceInfo );
 	int cryptStatus;
 
 	assert( isWritePtr( deviceInfo, sizeof( DEVICE_INFO ) ) );
@@ -482,6 +483,7 @@ static int deleteItemFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 	REQUIRES( keyIDtype == CRYPT_KEYID_NAME );
 	REQUIRES( keyIDlength >= MIN_NAME_LENGTH && \
 			  keyIDlength < MAX_ATTRIBUTE_SIZE );
+	REQUIRES( pkcs11Info != NULL );
 
 	/* Find the object to delete based on the label.  Since we can have 
 	   multiple related objects (e.g. a key and a certificate) with the same 

@@ -121,7 +121,7 @@ static int prfInit( IN_PTR const HASH_FUNCTION hashFunction,
 	return( CRYPT_OK );
 	}
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4, 6 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 5, 7 ) ) \
 static int prfEnd( IN_PTR const HASH_FUNCTION hashFunction, 
 				   INOUT_PTR HASHINFO hashState,
 				   IN_LENGTH_HASH const int hashSize, 

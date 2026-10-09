@@ -85,7 +85,7 @@ static int getPointerReadString(PyObject* objPtr, char** charPtrPtr)
     length = view.len;
     *charPtrPtr = view.buf;
     PyBuffer_Release(&view);
-    
+
     newPtr = malloc(length+1);
     if (newPtr == NULL)
     {
@@ -524,10 +524,13 @@ static PyObject* python_cryptQueryObject(PyObject* self, PyObject* args)
 	
 	finish:
 	releasePointer(objectData, objectDataPtr);
-	return(processStatusReturnCryptObjectInfo(status, cryptObjectInfo));
+	if (status == 0)
+		 return(processStatus(status));
+	else
+		 return(processStatusReturnCryptObjectInfo(status, cryptObjectInfo));
 }
 
-static PyObject* python_cryptExportKey(PyObject* self, PyObject* args)
+static PyObject* python_cryptWrapKey(PyObject* self, PyObject* args)
 {
 	int status = 0;
 	int encryptedKeyLength = 0;
@@ -541,20 +544,20 @@ static PyObject* python_cryptExportKey(PyObject* self, PyObject* args)
 	    return(NULL);
 	
 	if (encryptedKeyMaxLength == 0) 
-	    if (!processStatusBool(cryptExportKey(NULL, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext)))
+	    if (!processStatusBool(cryptWrapKey(NULL, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext)))
 		goto finish;
 	
 	if (!getPointerWriteCheckIndices(encryptedKey, &encryptedKeyPtr, &encryptedKeyLength))
 		goto finish;
 	
-	status = cryptExportKey(encryptedKeyPtr, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext);
+	status = cryptWrapKey(encryptedKeyPtr, encryptedKeyMaxLength, &encryptedKeyLength, exportKey, sessionKeyContext);
 	
 	finish:
 	releasePointer(encryptedKey, encryptedKeyPtr);
 	return(processStatusReturnInt(status, encryptedKeyLength));
 }
 
-static PyObject* python_cryptExportKeyEx(PyObject* self, PyObject* args)
+static PyObject* python_cryptWrapKeyEx(PyObject* self, PyObject* args)
 {
 	int status = 0;
 	int encryptedKeyLength = 0;
@@ -569,20 +572,20 @@ static PyObject* python_cryptExportKeyEx(PyObject* self, PyObject* args)
 	    return(NULL);
 	
 	if (encryptedKeyMaxLength == 0) 
-	    if (!processStatusBool(cryptExportKeyEx(NULL, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext)))
+	    if (!processStatusBool(cryptWrapKeyEx(NULL, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext)))
 		goto finish;
 	
 	if (!getPointerWriteCheckIndices(encryptedKey, &encryptedKeyPtr, &encryptedKeyLength))
 		goto finish;
 	
-	status = cryptExportKeyEx(encryptedKeyPtr, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext);
+	status = cryptWrapKeyEx(encryptedKeyPtr, encryptedKeyMaxLength, &encryptedKeyLength, formatType, exportKey, sessionKeyContext);
 	
 	finish:
 	releasePointer(encryptedKey, encryptedKeyPtr);
 	return(processStatusReturnInt(status, encryptedKeyLength));
 }
 
-static PyObject* python_cryptImportKey(PyObject* self, PyObject* args)
+static PyObject* python_cryptUnwrapKey(PyObject* self, PyObject* args)
 {
 	int status = 0;
 	PyObject* encryptedKey = NULL;
@@ -597,14 +600,14 @@ static PyObject* python_cryptImportKey(PyObject* self, PyObject* args)
 	if (!getPointerRead(encryptedKey, &encryptedKeyPtr, &encryptedKeyLength))
 		goto finish;
 	
-	status = cryptImportKey(encryptedKeyPtr, encryptedKeyLength, importKey, sessionKeyContext);
+	status = cryptUnwrapKey(encryptedKeyPtr, encryptedKeyLength, importKey, sessionKeyContext);
 	
 	finish:
 	releasePointer(encryptedKey, encryptedKeyPtr);
 	return(processStatus(status));
 }
 
-static PyObject* python_cryptImportKeyEx(PyObject* self, PyObject* args)
+static PyObject* python_cryptUnwrapKeyEx(PyObject* self, PyObject* args)
 {
 	int status = 0;
 	int returnedContext = 0;
@@ -620,7 +623,7 @@ static PyObject* python_cryptImportKeyEx(PyObject* self, PyObject* args)
 	if (!getPointerRead(encryptedKey, &encryptedKeyPtr, &encryptedKeyLength))
 		goto finish;
 	
-	status = cryptImportKeyEx(encryptedKeyPtr, encryptedKeyLength, importKey, sessionKeyContext, &returnedContext);
+	status = cryptUnwrapKeyEx(encryptedKeyPtr, encryptedKeyLength, importKey, sessionKeyContext, &returnedContext);
 	
 	finish:
 	releasePointer(encryptedKey, encryptedKeyPtr);
@@ -1394,10 +1397,10 @@ static PyMethodDef module_functions[] =
 	{ "cryptDeleteAttribute", python_cryptDeleteAttribute, METH_VARARGS }, 
 	{ "cryptAddRandom", python_cryptAddRandom, METH_VARARGS }, 
 	{ "cryptQueryObject", python_cryptQueryObject, METH_VARARGS }, 
-	{ "cryptExportKey", python_cryptExportKey, METH_VARARGS }, 
-	{ "cryptExportKeyEx", python_cryptExportKeyEx, METH_VARARGS }, 
-	{ "cryptImportKey", python_cryptImportKey, METH_VARARGS }, 
-	{ "cryptImportKeyEx", python_cryptImportKeyEx, METH_VARARGS }, 
+	{ "cryptWrapKey", python_cryptWrapKey, METH_VARARGS }, 
+	{ "cryptWrapKeyEx", python_cryptWrapKeyEx, METH_VARARGS }, 
+	{ "cryptUnwrapKey", python_cryptUnwrapKey, METH_VARARGS }, 
+	{ "cryptUnwrapKeyEx", python_cryptUnwrapKeyEx, METH_VARARGS }, 
 	{ "cryptCreateSignature", python_cryptCreateSignature, METH_VARARGS }, 
 	{ "cryptCreateSignatureEx", python_cryptCreateSignatureEx, METH_VARARGS }, 
 	{ "cryptCheckSignature", python_cryptCheckSignature, METH_VARARGS }, 
@@ -1626,6 +1629,10 @@ class CryptHandle:\n\
     v = Py_BuildValue("i", CRYPT_ALGO_ED25519);
     PyDict_SetItemString(moduleDict, "CRYPT_ALGO_ED25519", v);
     Py_DECREF(v); /* Ed25519 */
+
+    v = Py_BuildValue("i", CRYPT_ALGO_MLKEM);
+    PyDict_SetItemString(moduleDict, "CRYPT_ALGO_MLKEM", v);
+    Py_DECREF(v); /* ML-KEM */
 
     v = Py_BuildValue("i", CRYPT_ALGO_RESERVED4);
     PyDict_SetItemString(moduleDict, "CRYPT_ALGO_RESERVED4", v);
@@ -2649,7 +2656,7 @@ class CryptHandle:\n\
 
     v = Py_BuildValue("i", CRYPT_CERTINFO_IPADDRESSBLOCKS_ADDRESSFAMILY);
     PyDict_SetItemString(moduleDict, "CRYPT_CERTINFO_IPADDRESSBLOCKS_ADDRESSFAMILY", v);
-    Py_DECREF(v); /* addressFamily */	CRYPT_CERTINFO_IPADDRESSBLOCKS_PREFIX,	/* ipAddress.addressPrefix */
+    Py_DECREF(v); /* addressFamily  */
 
     v = Py_BuildValue("i", CRYPT_CERTINFO_IPADDRESSBLOCKS_PREFIX);
     PyDict_SetItemString(moduleDict, "CRYPT_CERTINFO_IPADDRESSBLOCKS_PREFIX", v);
@@ -4031,6 +4038,10 @@ class CryptHandle:\n\
     PyDict_SetItemString(moduleDict, "CRYPT_ATTRIBUTE_LAST", v);
     Py_DECREF(v);
 
+    v = Py_BuildValue("i", CRYPT_COMPLIANCELEVEL_NONE);
+    PyDict_SetItemString(moduleDict, "CRYPT_COMPLIANCELEVEL_NONE", v);
+    Py_DECREF(v);
+
     v = Py_BuildValue("i", CRYPT_COMPLIANCELEVEL_OBLIVIOUS);
     PyDict_SetItemString(moduleDict, "CRYPT_COMPLIANCELEVEL_OBLIVIOUS", v);
     Py_DECREF(v);
@@ -4395,6 +4406,10 @@ class CryptHandle:\n\
     PyDict_SetItemString(moduleDict, "CRYPT_CERTACTION_RESTART_REVOKE_CERT", v);
     Py_DECREF(v); /* Complete revocation after restart */
 
+    v = Py_BuildValue("i", CRYPT_CERTACTION_ADDREQUEST);
+    PyDict_SetItemString(moduleDict, "CRYPT_CERTACTION_ADDREQUEST", v);
+    Py_DECREF(v); /* Add certificate request */
+
     v = Py_BuildValue("i", CRYPT_CERTACTION_ISSUE_CERT);
     PyDict_SetItemString(moduleDict, "CRYPT_CERTACTION_ISSUE_CERT", v);
     Py_DECREF(v); /* Cert issue */
@@ -4593,18 +4608,6 @@ class CryptHandle:\n\
 
     v = Py_BuildValue("i", CRYPT_CLASSIFICATION_LAST);
     PyDict_SetItemString(moduleDict, "CRYPT_CLASSIFICATION_LAST", v);
-    Py_DECREF(v);
-
-    v = Py_BuildValue("i", CRYPT_OCSPSTATUS_NOTREVOKED);
-    PyDict_SetItemString(moduleDict, "CRYPT_OCSPSTATUS_NOTREVOKED", v);
-    Py_DECREF(v);
-
-    v = Py_BuildValue("i", CRYPT_OCSPSTATUS_REVOKED);
-    PyDict_SetItemString(moduleDict, "CRYPT_OCSPSTATUS_REVOKED", v);
-    Py_DECREF(v);
-
-    v = Py_BuildValue("i", CRYPT_OCSPSTATUS_UNKNOWN);
-    PyDict_SetItemString(moduleDict, "CRYPT_OCSPSTATUS_UNKNOWN", v);
     Py_DECREF(v);
 
     v = Py_BuildValue("i", CRYPT_KEYUSAGE_NONE);
@@ -4815,14 +4818,6 @@ class CryptHandle:\n\
     PyDict_SetItemString(moduleDict, "CRYPT_TLSOPTION_RESUMED", v);
     Py_DECREF(v); /* TLS session is resumed */
 
-    v = Py_BuildValue("i", CRYPT_TLSOPTION_SUITEB_128);
-    PyDict_SetItemString(moduleDict, "CRYPT_TLSOPTION_SUITEB_128", v);
-    Py_DECREF(v); /* SuiteB security levels (will */
-
-    v = Py_BuildValue("i", CRYPT_TLSOPTION_SUITEB_256);
-    PyDict_SetItemString(moduleDict, "CRYPT_TLSOPTION_SUITEB_256", v);
-    Py_DECREF(v); /* vanish in future releases) */
-
     v = Py_BuildValue("i", CRYPT_MAX_KEYSIZE);
     PyDict_SetItemString(moduleDict, "CRYPT_MAX_KEYSIZE", v);
     Py_DECREF(v);
@@ -4833,6 +4828,10 @@ class CryptHandle:\n\
 
     v = Py_BuildValue("i", CRYPT_MAX_PKCSIZE_ECC);
     PyDict_SetItemString(moduleDict, "CRYPT_MAX_PKCSIZE_ECC", v);
+    Py_DECREF(v);
+
+    v = Py_BuildValue("i", CRYPT_MAX_PKCSIZE_PQC);
+    PyDict_SetItemString(moduleDict, "CRYPT_MAX_PKCSIZE_PQC", v);
     Py_DECREF(v);
 
     v = Py_BuildValue("i", CRYPT_MAX_HASHSIZE);

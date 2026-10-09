@@ -151,6 +151,7 @@ int createX509signature( OUT_BUFFER( signedObjectMaxLength, \
 								  &sigDataInfo, SIGNATURE_X509, 
 								  errorInfo );
 		krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
+		iHashContext = CRYPT_ERROR;
 		}
 	if( cryptStatusError( status ) )
 		return( status );

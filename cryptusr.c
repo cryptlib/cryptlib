@@ -80,29 +80,33 @@ static int processUserManagement( INOUT_PTR USER_INFO *userInfoPtr,
 
 #ifdef USE_CERTIFICATES
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int processTrustManagement( INOUT_PTR USER_INFO *userInfoPtr, 
-								   INOUT_HANDLE CRYPT_HANDLE *iCertificate, 
+								   IN_HANDLE const CRYPT_HANDLE iCertificate,
+								   OUT_OPT_HANDLE_OPT \
+										CRYPT_HANDLE *iIssuerCertificate, 
 								   IN_ENUM( MESSAGE_TRUSTMGMT ) \
 										const MESSAGE_TRUSTMGMT_TYPE trustMgtType )
 	{
 	int status;
 
 	assert( isWritePtr( userInfoPtr, sizeof( USER_INFO ) ) );
-	assert( isWritePtr( iCertificate, sizeof( CRYPT_HANDLE ) ) );
+	assert( iIssuerCertificate == NULL || \
+			isWritePtr( iIssuerCertificate, sizeof( CRYPT_HANDLE ) ) );
 
+	REQUIRES( isHandleRangeValid( iCertificate ) );
 	REQUIRES( isEnumRange( trustMgtType, MESSAGE_TRUSTMGMT ) );
 
-	/* iCertificate is an IN parameter for all except 
-	   MESSAGE_TRUSTMGMT_GETISSUER, where it's an INOUT_PTR.  For this reason we
-	   don't clear it as a return value */
+	/* Clear return value */
+	if( iIssuerCertificate != NULL )
+		*iIssuerCertificate = CRYPT_ERROR;
 
 	switch( trustMgtType )
 		{
 		case MESSAGE_TRUSTMGMT_ADD:
 			/* Add the cert to the trust info */
 			status = addTrustEntry( userInfoPtr->trustInfo, 
-									*iCertificate, NULL, 0, TRUE );
+									iCertificate, NULL, 0, TRUE );
 			if( cryptStatusError( status ) )
 				return( status );
 			userInfoPtr->trustInfoChanged = TRUE;
@@ -117,7 +121,7 @@ static int processTrustManagement( INOUT_PTR USER_INFO *userInfoPtr,
 			/* Find the entry to delete and remove it (fides, ut anima, unde 
 			   abiit eo nunquam redit - Publius Syrus) */
 			if( ( entryToDelete = findTrustEntry( userInfoPtr->trustInfo,
-												  *iCertificate, FALSE ) ) == NULL )
+												  iCertificate, FALSE ) ) == NULL )
 				return( CRYPT_ERROR_NOTFOUND );
 			deleteTrustEntry( userInfoPtr->trustInfo, entryToDelete );
 			userInfoPtr->trustInfoChanged = TRUE;
@@ -130,7 +134,7 @@ static int processTrustManagement( INOUT_PTR USER_INFO *userInfoPtr,
 			/* Check whether the cert is present in the trusted certs
 			   collection */
 			return( ( findTrustEntry( userInfoPtr->trustInfo, 
-									  *iCertificate, FALSE ) != NULL ) ? \
+									  iCertificate, FALSE ) != NULL ) ? \
 					CRYPT_OK : CRYPT_ERROR_INVALID );
 
 		case MESSAGE_TRUSTMGMT_GETISSUER:
@@ -139,12 +143,13 @@ static int processTrustManagement( INOUT_PTR USER_INFO *userInfoPtr,
 
 			/* Get the trusted issuer of this certificate */
 			trustedIssuerInfo = findTrustEntry( userInfoPtr->trustInfo,
-												*iCertificate, TRUE );
+												iCertificate, TRUE );
 			if( trustedIssuerInfo == NULL )
 				return( CRYPT_ERROR_NOTFOUND );
 
 			/* Get the issuer cert and return it to the caller */
-			return( getTrustedCert( trustedIssuerInfo, iCertificate ) );
+			return( getTrustedCert( trustedIssuerInfo, 
+									iIssuerCertificate ) );
 			}
 		}
 
@@ -182,9 +187,13 @@ static int userMessageFunction( INOUT_PTR TYPECAST( USER_INFO * ) \
 			{
 			krnlSendNotifier( userInfoPtr->iCryptContext,
 							  IMESSAGE_DECREFCOUNT );
+			userInfoPtr->iCryptContext = CRYPT_ERROR;
 			}
 		if( userInfoPtr->iKeyset != CRYPT_ERROR )
+			{
 			krnlSendNotifier( userInfoPtr->iKeyset, IMESSAGE_DECREFCOUNT );
+			userInfoPtr->iKeyset = CRYPT_ERROR;
+			}
 
 #ifdef USE_KEYSETS
 		/* If we're doing a zeroise, clear any persistent user data.  It's a
@@ -281,8 +290,12 @@ static int userMessageFunction( INOUT_PTR TYPECAST( USER_INFO * ) \
 #ifdef USE_CERTIFICATES
 	if( message == MESSAGE_USER_TRUSTMGMT )
 		{
-		return( processTrustManagement( userInfoPtr, messageDataPtr,
-									    messageValue ) );
+		const CRYPT_CERTIFICATE iCryptCertificate = \
+							*( ( CRYPT_CERTIFICATE * ) messageDataPtr );
+		
+		return( processTrustManagement( userInfoPtr, iCryptCertificate,
+						( messageValue == MESSAGE_TRUSTMGMT_GETISSUER ) ? \
+						  messageDataPtr : NULL, messageValue ) );
 		}
 #endif /* USE_CERTIFICATES */
 

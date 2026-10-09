@@ -32,10 +32,12 @@
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN sanityCheckSessionSCEP( IN_PTR const SESSION_INFO *sessionInfoPtr )
 	{
-	const SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	const SCEP_INFO *scepInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( scepInfo, sizeof( SCEP_INFO ) ) );
+
+	REQUIRES_B( scepInfo != NULL );
 
 	/* Check the general session state */
 	if( !sanityCheckSession( sessionInfoPtr ) )
@@ -131,8 +133,8 @@ void destroySCEPprotocolInfo( INOUT_PTR SCEP_PROTOCOL_INFO *protocolInfo )
    of the appropriate form */
 
 CHECK_RETVAL_BOOL \
-static BOOLEAN checkPrivateKey( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
-								IN_BOOL const BOOLEAN isCertKey )
+static BOOLEAN checkScepPrivateKey( IN_HANDLE const CRYPT_CONTEXT iCryptContext,
+									IN_BOOL const BOOLEAN isCertKey )
 	{
 	BOOLEAN_INT isInited;
 	int value, status;
@@ -260,9 +262,9 @@ static int processUserName( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			   data, if USE_BASE64 is defined then the encoding produces a 
 			   slightly longer encoded form that gets truncated, if it's not 
 			   defined then we get 16 bytes out from the 16 bytes in */
-			status = addSessionInfoEx( sessionInfoPtr, 
+			status = addSessionInfoS( sessionInfoPtr, 
 									   CRYPT_SESSINFO_USERNAME, transID, 16, 
-									   CRYPT_MAX_TEXTSIZE, ATTR_FLAG_NONE );
+									   ATTR_FLAG_FIXEDWIDTHTEXT );
 			}
 		if( cryptStatusError( status ) )
 			return( status );
@@ -331,7 +333,8 @@ int processKeyFingerprint( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 			{
 			( void ) addSessionInfoS( sessionInfoPtr,
 									  CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2,
-									  certFingerprint, msgData.length );
+									  certFingerprint, msgData.length,
+									  ATTR_FLAG_NONE );
 			}
 		
 		return( CRYPT_OK );
@@ -549,7 +552,7 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 INOUT_PTR void *data, 
 								 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
-	const SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	const SCEP_INFO *scepInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	CRYPT_CERTIFICATE *scepResponsePtr = ( CRYPT_CERTIFICATE * ) data;
 	CRYPT_CERTIFICATE iCryptCert;
 
@@ -559,6 +562,7 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( type == CRYPT_SESSINFO_RESPONSE || \
 			  type == CRYPT_SESSINFO_CACERTIFICATE || \
 			  type == CRYPT_SESSINFO_CMP_REQUESTTYPE );
+	REQUIRES( scepInfo != NULL );
 
 	/* If it's a general protocol-specific attribute read, return the
 	   information and exit */
@@ -604,7 +608,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
 	CRYPT_CERTIFICATE cryptCert;
-	SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	SCEP_INFO *scepInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 #ifdef USE_ERRMSGS
 	char certName[ CRYPT_MAX_TEXTSIZE + 8 ];
 #endif /* USE_ERRMSGS */
@@ -617,6 +621,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( type == CRYPT_SESSINFO_REQUEST || \
 			  type == CRYPT_SESSINFO_CACERTIFICATE || \
 			  type == CRYPT_SESSINFO_CMP_REQUESTTYPE );
+	REQUIRES( scepInfo != NULL );
 
 	/* If it's a request type, set it and exit */
 	if( type == CRYPT_SESSINFO_CMP_REQUESTTYPE )
@@ -639,7 +644,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( requestType == CRYPT_REQUESTTYPE_INITIALISATION )
 			{
 			if( sessionInfoPtr->privateKey != CRYPT_ERROR && \
-				!checkPrivateKey( sessionInfoPtr->privateKey, FALSE ) )
+				!checkScepPrivateKey( sessionInfoPtr->privateKey, FALSE ) )
 				{
 				setObjectErrorInfo( sessionInfoPtr, 
 									CRYPT_SESSINFO_PRIVATEKEY,
@@ -658,7 +663,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			/* For a renewal request the private key must have an associated
 			   certificate, and there can't be a password present */
 			if( sessionInfoPtr->privateKey != CRYPT_ERROR && \
-				!checkPrivateKey( sessionInfoPtr->privateKey, TRUE ) )
+				!checkScepPrivateKey( sessionInfoPtr->privateKey, TRUE ) )
 				{
 				setObjectErrorInfo( sessionInfoPtr, 
 									CRYPT_SESSINFO_PRIVATEKEY,
@@ -801,13 +806,14 @@ static int checkAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								   IN_PTR const void *data,
 								   IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
-	const SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	const SCEP_INFO *scepInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( data, sizeof( int ) ) );
 
 	REQUIRES( isEnumRange( type, CRYPT_ATTRIBUTE ) );
+	REQUIRES( scepInfo != NULL );
 
 	if( type != CRYPT_SESSINFO_USERNAME && \
 		type != CRYPT_SESSINFO_PRIVATEKEY && \
@@ -903,7 +909,7 @@ static int checkAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		const CRYPT_CONTEXT cryptContext = *( ( CRYPT_CONTEXT * ) data );
 
-		if( !checkPrivateKey( cryptContext, 
+		if( !checkScepPrivateKey( cryptContext, 
 				( scepInfo->requestType == CRYPT_REQUESTTYPE_CERTIFICATE || \
 				  scepInfo->requestType == CRYPT_REQUESTTYPE_KEYUPDATE ) ? \
 				  TRUE : FALSE ) )
@@ -930,7 +936,7 @@ int setAccessMethodSCEP( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		/* General session information */
 		TRUE,						/* Request-response protocol */
 		SESSION_PROTOCOL_HTTPTRANSPORT | /* Flags */
-			SESSION_PROTOCOL_FIXEDSIZECREDENTIALS,
+			SESSION_PROTOCOL_FIXEDSIZECREDENTIALS_SVR,
 		80,							/* HTTP port */
 		SESSION_NEEDS_USERID |		/* Client attributes */
 			SESSION_NEEDS_KEYORPASSWORD | \

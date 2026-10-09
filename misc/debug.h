@@ -375,6 +375,9 @@ void vsAssert( const char *exprString, const char *fileName,
 		the label before the data dump when the label is a static string
 		that doesn't need DEBUG_PRINT() handling.
 
+	DEBUG_DUMP_DATA_BASE64: As DEBUG_DUMP_DATA but in base64 format, used 
+		for dumping PKI protocol IDs as used in the CA keystore.
+	
 	DEBUG_DUMP_STREAM: As DEBUG_DUMP_DATA() but taking its input from a 
 		stream.
 
@@ -395,6 +398,7 @@ struct ST;
   #define DEBUG_DUMP_HEX( dumpPrefix, dumpBuf, dumpLen )
   #define DEBUG_DUMP_DATA( dumpBuf, dumpLen )
   #define DEBUG_DUMP_DATA_LABEL( label, dumpBuf, dumpLen )
+  #define DEBUG_DUMP_DATA_BASE64( dumpBuf, dumpLen )
   #define DEBUG_DUMP_DATA_COND( c, x )
   #define DEBUG_DUMP_STREAM( stream, position, length )
   #define DEBUG_DUMP_STACKTRACE()
@@ -410,6 +414,8 @@ struct ST;
   #define DEBUG_DUMP_DATA	debugDumpData
   #define DEBUG_DUMP_DATA_LABEL \
 							debugDumpDataLabel
+  #define DEBUG_DUMP_DATA_BASE64 \
+							debugDumpDataBase64
   #define DEBUG_DUMP_DATA_COND( c, x )	if( c ) debugDumpData x
   #define DEBUG_DUMP_STREAM	debugDumpStream
   #if defined( __WIN32__ )
@@ -451,6 +457,9 @@ struct ST;
   void debugDumpDataLabel( IN_STRING const char *label,
 						   IN_BUFFER( dataLength ) const void *data, 
 						   IN_LENGTH const int dataLength );
+  STDC_NONNULL_ARG( ( 1 ) ) \
+  void debugDumpDataBase64( IN_BUFFER( dataLength ) const void *data, 
+							IN_LENGTH const int dataLength );
   STDC_NONNULL_ARG( ( 1 ) ) \
   void debugDumpStream( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr, 
 						IN_LENGTH const int position, 

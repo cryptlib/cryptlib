@@ -450,8 +450,14 @@ int writeCMSheader( INOUT_PTR STREAM *stream,
 		{
 		int status;
 
-		if( checkEncodeOverflow( dataSize, 2, contentOIDlength, 0 ) )
-			return( sSetError( stream, CRYPT_ERROR_OVERFLOW ) );
+		if( dataSize > 0 )
+			{
+			/* A detached signature has dataSize set at 0 so there's nothing
+			   to check, or more specifically it'll fail the nonzero-length
+			   requirement in checkEncodeOverflow() */
+			if( checkEncodeOverflow( dataSize, 2, contentOIDlength, 0 ) )
+				return( sSetError( stream, CRYPT_ERROR_OVERFLOW ) );
+			}
 		writeSequence( stream, contentOIDlength + ( ( dataSize > 0 ) ? \
 					   sizeofObject( sizeofObject( dataSize ) ) : 0 ) );
 		status = swrite( stream, contentOID, contentOIDlength );
@@ -580,7 +586,10 @@ int readCMSencrHeader( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		{
 		if( iCryptContext != NULL )
+			{
 			krnlSendNotifier( *iCryptContext, IMESSAGE_DECREFCOUNT );
+			*iCryptContext = CRYPT_ERROR;
+			}
 		return( status );
 		}
 	ANALYSER_HINT( isValidTag( tag ) );	/* Guaranteed by peekTag() */
@@ -588,7 +597,10 @@ int readCMSencrHeader( INOUT_PTR STREAM *stream,
 		{
 		/* The inner content type has an incorrect tag */
 		if( iCryptContext != NULL )
+			{
 			krnlSendNotifier( *iCryptContext, IMESSAGE_DECREFCOUNT );
+			*iCryptContext = CRYPT_ERROR;
+			}
 		return( sSetError( stream, CRYPT_ERROR_BADDATA ) );
 		}
 	status = readLongGenericHole( stream, &length, tag );
@@ -606,7 +618,10 @@ int readCMSencrHeader( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		{
 		if( iCryptContext != NULL )
+			{
 			krnlSendNotifier( *iCryptContext, IMESSAGE_DECREFCOUNT );
+			*iCryptContext = CRYPT_ERROR;
+			}
 		return( status );
 		}
 	if( selectionID != NULL )

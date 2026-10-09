@@ -1159,29 +1159,17 @@ static int findObjectLength( INOUT_PTR STREAM *stream,
 		{
 		/* We've read the length information directly from the object rather
 		   than calculating it ourselves, make sure that it's within bounds.  
-		   If it's a memory stream then we can check that it fits entirely
-		   within the stream buffer as required for any potential use of 
-		   sMemGetDataBlock()/sMemGetDataBlockAbs(), returning an error here 
-		   rather than much later at the sMemGet().
+		   This means checking that it fits entirely within the stream buffer 
+		   as required for any potential use of sMemGetDataBlock()/
+		   sMemGetDataBlockAbs(), returning an error here rather than much 
+		   later at the sMemGet().
 		     
-		   In terms of file streams, the only way that we can ever get here 
-		   with a file stream is if we're reading a PKCS #12 file in which 
-		   all of the infinite outer layers are indefinite while the 
-		   innermost one is definite-length, see 
-		   keyset/pkcs12_rd.c:pkcs12ReadKeyset(), specifically the "we still 
-		   haven't got any length information" portion which ends in a 
-		   CRYPT_ERROR_BADDATA for the reasons given in the long comment 
-		   there.  No known producer of PKCS #12 files creates ones like 
-		   that so in practice we never actually get here, and even if we 
-		   did we'd bail out immediately afterwards.
-		   
 		   Note that, unlike all of the other functions in this file, this 
 		   accesses stream-internal fields, but this is OK since all of the
 		   enc_dec/asn1_XXX.c functions deal with stream internals */
 		REQUIRES( isBufsizeRange( stream->bufSize ) );
 		REQUIRES( !checkOverflowSub( stream->bufSize, stream->bufPos ) );
-		if( stream->type == STREAM_TYPE_MEMORY && \
-			localLength > stream->bufSize - stream->bufPos )
+		if( localLength > stream->bufSize - stream->bufPos )
 			return( CRYPT_ERROR_UNDERFLOW );		
 
 		/* It's a definite-length object, add the size of the tag+length */
@@ -1216,8 +1204,7 @@ int getStreamObjectLength( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( length, sizeof( int ) ) );
 
-	REQUIRES( stream->type == STREAM_TYPE_MEMORY || \
-			  stream->type == STREAM_TYPE_FILE );
+	REQUIRES( stream->type == STREAM_TYPE_MEMORY );
 	REQUIRES( isShortIntegerRangeNZ( minLength ) );
 
 	/* Clear return value */
@@ -1252,8 +1239,7 @@ int getLongStreamObjectLength( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( length, sizeof( int ) ) );
 
-	REQUIRES( stream->type == STREAM_TYPE_MEMORY || \
-			  stream->type == STREAM_TYPE_FILE );
+	REQUIRES( stream->type == STREAM_TYPE_MEMORY );
 
 	/* Clear return value */
 	*length = 0;

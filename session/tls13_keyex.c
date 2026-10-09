@@ -894,6 +894,7 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		krnlSendNotifier( handshakeInfo->keyexContext, 
 						  IMESSAGE_DECREFCOUNT );
+		handshakeInfo->keyexContext = CRYPT_ERROR;
 		}
 	if( groupInfoPtr->algorithm == CRYPT_ALGO_ECDH )
 		handshakeInfo->keyexContext = handshakeInfo->keyexEcdhContext;
@@ -903,6 +904,7 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			{
 			krnlSendNotifier( handshakeInfo->keyexEcdhContext, 
 							  IMESSAGE_DECREFCOUNT );
+			handshakeInfo->keyexEcdhContext = CRYPT_ERROR;
 			}
 		}
 	handshakeInfo->keyexEcdhContext = CRYPT_ERROR;
@@ -915,6 +917,7 @@ int readKeyexTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			{
 			krnlSendNotifier( handshakeInfo->keyex25519Context, 
 							  IMESSAGE_DECREFCOUNT );
+			handshakeInfo->keyex25519Context = CRYPT_ERROR;
 			}
 		}
 	handshakeInfo->keyex25519Context = CRYPT_ERROR;

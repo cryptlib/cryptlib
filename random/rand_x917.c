@@ -158,6 +158,7 @@ int setKeyX917( INOUT_PTR RANDOM_INFO *randomInfo,
 	   location */
 	REQUIRES( sanityCheckRandomX917( randomInfo ) );
 	REQUIRES( memcmp( key, state, X917_POOLSIZE ) );
+	REQUIRES( des3Key != NULL );
 
 	/* Remember that we're about to reset the generator state */
 	randomInfo->x917Inited = FALSE;
@@ -320,7 +321,7 @@ static int incrementDT( INOUT_BUFFER_FIXED( X917_POOLSIZE ) BYTE *dt )
 	   bits of output at a time it's unlikely we'd ever get to that point, 
 	   256M 128-bit output blocks, and in any case we always run it in 
 	   X9.17 (CSPRNG) rather than X9.31 (PRNG) mode so it's really only 
-	   excercised during the self-test */
+	   exercised during the self-test */
 	ENSURES( ( dt[ X917_POOLSIZE - 1 ] == ORIGINAL_VALUE( lsb1 ) + 1 ) || \
 			 ( dt[ X917_POOLSIZE - 1 ] == 0 && \
 			   dt[ X917_POOLSIZE - 2 ] == ORIGINAL_VALUE( lsb2 ) + 1 ) || \

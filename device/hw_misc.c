@@ -376,7 +376,7 @@ int setPKCinfo( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 	BYTE keyDataBuffer[ ( CRYPT_MAX_PKCSIZE * 4 ) + 8 ];
 	MESSAGE_DATA msgData;
 	int keyDataSize DUMMY_INIT, status;
@@ -515,7 +515,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int rsaGetComponents( const CONTEXT_INFO *contextInfoPtr, 
 							 CRYPT_PKCINFO_RSA *rsaKeyInfo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 	int status;
 
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -585,7 +585,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int dlpGetComponents( const CONTEXT_INFO *contextInfoPtr, 
 							 CRYPT_PKCINFO_DLP *dlpKeyInfo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 	int status;
 
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -637,7 +637,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int eccGetComponents( const CONTEXT_INFO *contextInfoPtr, 
 							 CRYPT_PKCINFO_ECC *eccKeyInfo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 	int status;
 
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );

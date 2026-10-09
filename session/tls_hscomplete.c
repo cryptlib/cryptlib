@@ -69,8 +69,8 @@ static int addSessionToCache( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  IN_LENGTH_SHORT const int masterSecretSize,
 							  IN_BOOL const BOOLEAN isClient )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
-	void *scoreboardInfoPtr = DATAPTR_GET( tlsInfo->scoreboardInfoPtr );
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
+	void *scoreboardInfoPtr;
 	SCOREBOARD_ENTRY_INFO scoreboardEntryInfo;
 	int cachedID, status;
 
@@ -80,6 +80,11 @@ static int addSessionToCache( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( isShortIntegerRangeNZ( masterSecretSize ) );
 	REQUIRES( isBooleanValue( isClient ) );
+	REQUIRES( tlsInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	scoreboardInfoPtr = DATAPTR_GET( tlsInfo->scoreboardInfoPtr );
 	REQUIRES( scoreboardInfoPtr != NULL );
 
 	/* Set up the information that we're going to add to the scoreboard.  We 
@@ -163,6 +168,7 @@ static int readHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										INOUT_PTR READSTATE_INFO *readInfo )
 	{
 	STREAM stream;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	BYTE macBuffer[ MD5MAC_SIZE + SHA1MAC_SIZE + 8 ];
 	BOOLEAN startOffsetChanged = FALSE;
 	const int macValueLength = \
@@ -178,6 +184,7 @@ static int readHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( hashValuesLength == macValueLength );
+	REQUIRES( tlsInfo != NULL );
 
 	/* All errors are fatal */
 	*readInfo = READINFO_FATAL;
@@ -232,7 +239,7 @@ static int readHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS11 && \
 		sessionInfoPtr->cryptBlocksize > 1 )
 		{
-		sessionInfoPtr->sessionTLS->ivSize = sessionInfoPtr->cryptBlocksize;
+		tlsInfo->ivSize = sessionInfoPtr->cryptBlocksize;
 		startOffsetChanged = TRUE;
 		}
 #ifdef USE_GCM
@@ -240,20 +247,18 @@ static int readHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* If we're using GCM then the IV is partially explicit and 
 		   partially implicit, and unrelated to the cipher block size */
-		REQUIRES( !checkOverflowSub( GCM_IV_SIZE,
-							sessionInfoPtr->sessionTLS->aeadSaltSize ) );
-		sessionInfoPtr->sessionTLS->ivSize = \
-					GCM_IV_SIZE - sessionInfoPtr->sessionTLS->aeadSaltSize;
+		REQUIRES( !checkOverflowSub( GCM_IV_SIZE, tlsInfo->aeadSaltSize ) );
+		tlsInfo->ivSize = GCM_IV_SIZE - tlsInfo->aeadSaltSize;
 		startOffsetChanged = TRUE;
 		}
 #endif /* USE_GCM */
 	if( startOffsetChanged )
 		{
 		const int newStartPos = sessionInfoPtr->receiveBufStartOfs + \
-								sessionInfoPtr->sessionTLS->ivSize;
+								tlsInfo->ivSize;
 
 		REQUIRES( !checkOverflowAdd( sessionInfoPtr->receiveBufStartOfs,
-									 sessionInfoPtr->sessionTLS->ivSize ) );
+									 tlsInfo->ivSize ) );
 		ENSURES( isIntegerRange( newStartPos ) );
 
 		/* Since we've changed the amount of metadata that needs to be 
@@ -371,6 +376,7 @@ static int writeHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										 IN_LENGTH_SHORT const int hashValuesLength,
 										 IN_BOOL const BOOLEAN continuedStream )
 	{
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM *stream = &handshakeInfo->stream;
 	BOOLEAN startOffsetChanged = FALSE;
 	int offset = 0, ccsEndPos, status;
@@ -382,6 +388,7 @@ static int writeHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( isShortIntegerRangeNZ( hashValuesLength ) );
 	REQUIRES( isBooleanValue( continuedStream ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Build the change cipher spec packet:
 
@@ -425,7 +432,7 @@ static int writeHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS11 && \
 		sessionInfoPtr->cryptBlocksize > 1 )
 		{
-		sessionInfoPtr->sessionTLS->ivSize = sessionInfoPtr->cryptBlocksize;
+		tlsInfo->ivSize = sessionInfoPtr->cryptBlocksize;
 		startOffsetChanged = TRUE;
 		}
 #ifdef USE_GCM
@@ -433,20 +440,18 @@ static int writeHandshakeCompletionData( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* If we're using GCM then the IV is partially explicit and 
 		   partially implicit, and unrelated to the cipher block size */
-		REQUIRES( !checkOverflowSub( GCM_IV_SIZE,
-							sessionInfoPtr->sessionTLS->aeadSaltSize ) );
-		sessionInfoPtr->sessionTLS->ivSize = \
-					GCM_IV_SIZE - sessionInfoPtr->sessionTLS->aeadSaltSize;
+		REQUIRES( !checkOverflowSub( GCM_IV_SIZE, tlsInfo->aeadSaltSize ) );
+		tlsInfo->ivSize = GCM_IV_SIZE - tlsInfo->aeadSaltSize;
 		startOffsetChanged = TRUE;
 		}
 #endif /* USE_GCM */
 	if( startOffsetChanged )
 		{
 		const int newStartPos = sessionInfoPtr->sendBufStartOfs + \
-								sessionInfoPtr->sessionTLS->ivSize;
+								tlsInfo->ivSize;
 
 		REQUIRES( !checkOverflowAdd( sessionInfoPtr->sendBufStartOfs,
-									 sessionInfoPtr->sessionTLS->ivSize ) );
+									 tlsInfo->ivSize ) );
 		ENSURES( isIntegerRange( newStartPos ) );
 
 		/* Since we've changed the amount of metadata that needs to be 
@@ -632,6 +637,7 @@ int completeHandshakeTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				{
 				krnlSendNotifier( responderMD5context, 
 								  IMESSAGE_DECREFCOUNT );
+				responderMD5context = CRYPT_ERROR;
 				}
 			}
 		}

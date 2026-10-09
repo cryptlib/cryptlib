@@ -218,7 +218,9 @@ static int processDataEnd( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		REQUIRES( !checkOverflowSub( envelopeInfoPtr->dataLeft, 
 									 PGP_MDC_PACKET_SIZE ) );
 		envelopeInfoPtr->dataLeft -= PGP_MDC_PACKET_SIZE;
-		ENSURES( isIntegerRangeNZ( envelopeInfoPtr->dataLeft ) );
+		ENSURES( isIntegerRange( envelopeInfoPtr->dataLeft ) );
+				 /* May be zero if the data amount exactly matches the MDC 
+				    size */
 		}
 #endif /* USE_PGP */
 
@@ -1096,14 +1098,31 @@ static int copyData( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				envelopeInfoPtr->payloadSize != CRYPT_UNUSED && \
 				bytesToCopy >= envelopeInfoPtr->segmentSize )
 				{
+				/* If the MDC has been split across data pushes then we 
+				   can't process it.  This is a design tradeoff, it can
+				   in theory happen but the amount of complexity and 
+				   accompanying attack surface that would need to be added 
+				   to handle this one special case makes it not worthwhile */
+				if( bytesToCopy < PGP_MDC_PACKET_SIZE )
+					{
+					DEBUG_DIAG(( "MDC has been split across data pushes and "
+								 "can't be processed" ));
+					assert( DEBUG_WARN );
+					return( CRYPT_ERROR_SIGNATURE );
+					}
+        
 				REQUIRES( !checkOverflowSub( bytesToHash, 
 											 PGP_MDC_PACKET_SIZE ) );
 				bytesToHash -= PGP_MDC_PACKET_SIZE;
-				ENSURES( isBufsizeRangeNZ( bytesToHash ) );
+				ENSURES( isBufsizeRange( bytesToHash ) );
 				}
-			status = hashEnvelopeData( envelopeInfoPtr, bufPtr, bytesToHash );
-			if( cryptStatusError( status ) )
-				return( status );
+			if( bytesToHash > 0 )
+				{
+				status = hashEnvelopeData( envelopeInfoPtr, bufPtr, 
+										   bytesToHash );
+				if( cryptStatusError( status ) )
+					return( status );
+				}
 			}
 		}
 	REQUIRES( !checkOverflowAdd( envelopeInfoPtr->bufPos, bytesToCopy ) );
@@ -1167,6 +1186,17 @@ static int copyToDeenvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	   necessary) */
 	if( envelopeInfoPtr->bufPos >= envelopeInfoPtr->bufSize )
 		return( 0 );
+
+	/* If we're using compression and we've reached the end of the 
+	   compressed data stream then we can't continue */
+#ifdef USE_COMPRESSION
+	if( envelopeInfoPtr->usage == ACTION_COMPRESS && \
+		TEST_FLAGS( envelopeInfoPtr->flags, ENVELOPE_FLAG_ZSTREAMINITED | \
+											ENVELOPE_FLAG_ZSTREAMCOMPLETE,
+					ENVELOPE_FLAG_ZSTREAMINITED | \
+					ENVELOPE_FLAG_ZSTREAMCOMPLETE ) )
+		return( CRYPT_ERROR_COMPLETE );
+#endif /* USE_COMPRESSION */
 
 	/* If we're verifying a detached signature, just hash the data and exit.
 	   We don't have to check whether hashing is active or not because it'll
@@ -1412,7 +1442,8 @@ static int copyFromDeenvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	REQUIRES( isBufsizeRangeNZ( maxLength ) );
 	REQUIRES( !isLookaheadRead || \
 			  ( bytesToCopy > 0 && bytesToCopy <= OOB_BUFFER_SIZE ) );
-	REQUIRES( flags == ENVCOPY_FLAG_NONE || flags == ENVCOPY_FLAG_OOBDATA );
+	REQUIRES( flags == ENVCOPY_FLAG_NONE || \
+			  flags == ENVCOPY_FLAG_OOBDATA );
 
 	/* Clear return values */
 	REQUIRES( isIntegerRangeNZ( bytesToCopy ) ); 
@@ -1446,10 +1477,30 @@ static int copyFromDeenvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		}
 	ENSURES( isBufsizeRangeNZ( bytesToCopy ) && bytesToCopy <= maxLength );
 
+	/* If we're using compression and we've reached the end of the 
+	   compressed data stream then there's nothing more to do.  Note that
+	   this isn't a CRYPT_ERROR_COMPLETE or CRYPT_ERROR_UNDERFLOW because 
+	   the caller doesn't know where the data ends, so we just return
+	   zero bytes copied and exit normally */
+#ifdef USE_COMPRESSION
+	if( envelopeInfoPtr->usage == ACTION_COMPRESS && \
+		TEST_FLAGS( envelopeInfoPtr->flags, ENVELOPE_FLAG_ZSTREAMINITED | \
+											ENVELOPE_FLAG_ZSTREAMCOMPLETE,
+					ENVELOPE_FLAG_ZSTREAMINITED | \
+					ENVELOPE_FLAG_ZSTREAMCOMPLETE ) )
+		{
+		*length = 0;
+
+		ENSURES( sanityCheckEnvDecode( envelopeInfoPtr ) );
+		return( CRYPT_OK );
+		}
+#endif /* USE_COMPRESSION */
+
 	/* If we're using compression, expand the data from the buffer to the
 	   output via the zStream */
 #ifdef USE_COMPRESSION
-	if( TEST_FLAG( envelopeInfoPtr->flags, ENVELOPE_FLAG_ZSTREAMINITED ) )
+	if( envelopeInfoPtr->usage == ACTION_COMPRESS && \
+		TEST_FLAG( envelopeInfoPtr->flags, ENVELOPE_FLAG_ZSTREAMINITED ) )
 		{
 		z_stream *zStream = &envelopeInfoPtr->zStream;
 		const int bytesIn = \
@@ -1532,6 +1583,13 @@ static int copyFromDeenvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			assert( DEBUG_WARN );
 			return( CRYPT_ERROR_BADDATA );
 			}
+		if( status == Z_STREAM_END )
+			{
+			/* Remember that we've reached EOF on the compressed data and 
+			   can't process any more beyond this point */
+			SET_FLAG( envelopeInfoPtr->flags, 
+					  ENVELOPE_FLAG_ZSTREAMCOMPLETE );
+			}
 
 		/* Adjust the status information based on the data copied from the
 		   buffer into the zStream (bytesCopied) and the data flushed from
@@ -1558,12 +1616,13 @@ static int copyFromDeenvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		   The only time this is ever used is with PGP-format data, which
 		   has to read ahead into the compressed-data payload to figure out
 		   what to do with it.  This is done from 
-		   envelope/pgp_deenv.c:processEncapsDataHeader() which reads 8
-		   bytes, equivalent to OOB_BUFFER_SIZE, the minimum size of a PGP
-		   header, and fails with a CRYPT_ERROR_UNDERFLOW if it doesn't get 
-		   the full 8 bytes back.  In theory we only need to accommodate 
-		   this one specific case but we leave the code as general-purpose
-		   to avoid hardcoding in knowledge of what the caller is doing.
+		   envelope/pgp_deenv.c:processEncapsDataHeader()/stripLiteralHeader() 
+		   which read up to OOB_BUFFER_SIZE, the maximum size of a PGP 
+		   literal header, and fail with a CRYPT_ERROR_UNDERFLOW if they 
+		   don't get the full amount back, used to check that we can make
+		   forward progress.  In theory we only need to accommodate this one 
+		   specific case but we leave the code as general-purpose to avoid 
+		   hardcoding in knowledge of what the caller is doing.
 		   
 		   The size of the read from the OOB buffer has been limited 
 		   previously when existing data was detected in the OOB buffer so 

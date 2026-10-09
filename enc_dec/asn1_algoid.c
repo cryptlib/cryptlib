@@ -879,11 +879,11 @@ static int readAlgoIDInfo( INOUT_PTR STREAM *stream,
 	   a hash algoID is called for, if we find one of these then we modify 
 	   the read AlgorithmIdentifier information to make it look like a hash
 	   algoID */
-#if 0	/* 12/8/26 This added for 3.2.0 in 2005 and changed numerous times
-				   since then with updates to the ASN.1 read code.  Due to
-				   upstream code changes it hasn't been enabled for at least
-				   10 years without causing any problems so is almost 
-				   certainly no longer necessary */
+#if 0	/* 12/8/26 This was added for 3.2.0 in 2005 and has changed numerous 
+				   times since then with updates to the ASN.1 read code.  Due 
+				   to upstream code changes it hasn't been enabled for at 
+				   least 10 years while not causing any problems so is 
+				   almost certainly no longer necessary */
 	if( isPkcAlgo( queryInfo->cryptAlgo ) && \
 		isHashAlgo( algoIDparams.hashAlgo ) )
 		{

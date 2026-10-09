@@ -754,6 +754,24 @@ void debugDumpData( IN_BUFFER( dataLength ) const void *data,
 	dumpData( NULL, data, dataLength );
 	DEBUG_PRINT_END();
 	}
+	
+STDC_NONNULL_ARG( ( 1 ) ) \
+void debugDumpDataBase64( IN_BUFFER( dataLength ) const void *data, 
+						  IN_LENGTH const int dataLength )
+	{
+	char buffer[ 128 ];
+	int length, status;
+	
+	/* This is designed to be displayed after debugDumpHex() so is indented
+	   by the width of "%04d: " */
+	memcpy( buffer, "      base64 = ", 15 );
+	status = base64encode( buffer + 15, 128 - ( 15 + 1 ), &length, data, 
+						   dataLength, CRYPT_CERTTYPE_NONE );
+	if( cryptStatusError( status ) )
+		return;
+	buffer[ 15 + length ] = '\0';
+	DEBUG_PUTS(( buffer ));
+	}
 
 STDC_NONNULL_ARG( ( 1 ) ) \
 void debugDumpStream( INOUT_PTR TYPECAST( STREAM * ) struct ST *streamPtr, 

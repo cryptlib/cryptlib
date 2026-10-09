@@ -66,9 +66,11 @@
 
 /* The maximum number of entries in a CRL.  With real-world CRL sizes going
    to 150MB or more there's no obviously sane value to bound this with, the
-   following should be sufficient for all but insanely-sized CRLs */
+   following should be sufficient for all but insanely-sized CRLs.  In
+   particular a value > 1000 is needed for the large CRL in the self-test
+   code */
 
-#define MAX_CRL_ENTRIES			10000
+#define MAX_CRL_ENTRIES			5000
 
 #if MAX_CRL_ENTRIES >= FAILSAFE_ITERATIONS_MAX
   #error The maximum CRL entry count must be less than FAILSAFE_ITERATIONS_MAX
@@ -135,7 +137,10 @@
 			DN, which would denote a CA root certificate under normal 
 			circumstances.
 
-	FLAG_SELFSIGNED: Indicates that the certificate is self-signed.
+	FLAG_SELFSIGNED: Indicates that the certificate is self-signed.  See the 
+			long comment in cert/read.c:readCertInfo() for the precise 
+			details of how "self-signed" is interpreted.  This comment also
+			affects FLAG_PATHKLUDGE above.
 
 	FLAG_SIGCHECKED: Caches the check of the certificate signature.  This is 
 			done because it's only necessary to perform this once when the 
@@ -381,9 +386,48 @@ enum { CTAG_SI_AUTHENTICATEDATTRIBUTES };
 /* Get/set DN pointers */
 
 #define GET_DN_POINTER( attributeListPtr ) \
-		( attributeListPtr )->dnValue
+		( attributeListPtr )->attrDNValue
 #define SET_DN_POINTER( attributeListPtr, dn ) \
-		( attributeListPtr )->dnValue = dn
+		( attributeListPtr )->attrDNValue = dn
+
+/* The use of DATAPTRs removes type information from object-subtype-specific
+   data in certificate objects (but then the use of a union for storing the 
+   data did as well).  To deal with this, which is particularly important 
+   for certificate objects where different object subtypes are handled by 
+   the same code, we use subtype-specific versions of DATAPTR_GET() that 
+   verify that they're working with the correct object subtype */
+
+#define DATAPTR_GET_CERT( name ) \
+		( ( ( name )->type == CRYPT_CERTTYPE_CERTIFICATE || \
+			( name )->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
+			( name )->type == CRYPT_CERTTYPE_CERTCHAIN ) && \
+		  DATAPTR_ISVALID( ( name )->certInfo ) ? \
+		( ( name )->certInfo.dataPtr ) : NULL )
+
+#define DATAPTR_GET_REQ( name ) \
+		( ( ( name )->type == CRYPT_CERTTYPE_CERTREQUEST || \
+			( name )->type == CRYPT_CERTTYPE_REQUEST_CERT || \
+			( name )->type == CRYPT_CERTTYPE_REQUEST_REVOCATION ) && \
+		  DATAPTR_ISVALID( ( name )->certInfo ) ? \
+		( ( name )->certInfo.dataPtr ) : NULL )
+
+#define DATAPTR_GET_REV( name ) \
+		( ( ( name )->type == CRYPT_CERTTYPE_CRL || \
+			( name )->type == CRYPT_CERTTYPE_OCSP_REQUEST || \
+			( name )->type == CRYPT_CERTTYPE_OCSP_RESPONSE ) && \
+		  DATAPTR_ISVALID( ( name )->certInfo ) ? \
+		( ( name )->certInfo.dataPtr ) : NULL )
+
+#define DATAPTR_GET_VAL( name ) \
+		( ( ( name )->type == CRYPT_CERTTYPE_RTCS_REQUEST || \
+			( name )->type == CRYPT_CERTTYPE_RTCS_RESPONSE ) && \
+		  DATAPTR_ISVALID( ( name )->certInfo ) ? \
+		( ( name )->certInfo.dataPtr ) : NULL )
+
+#define DATAPTR_GET_PKIUSER( name ) \
+		( ( name )->type == CRYPT_CERTTYPE_PKIUSER && \
+		  DATAPTR_ISVALID( ( name )->certInfo ) ? \
+		( ( name )->certInfo.dataPtr ) : NULL )
 
 /* cryptlib object data is usually referred to via $(typename)InfoPtr,
    however with certificates we can have subjectCertInfoPtr and 
@@ -454,32 +498,14 @@ typedef struct {
 /* Sometimes we need to manipulate an internal component which is addressed
    indirectly as a side-effect of some other processing operation.  We can't
    change the selection information for the certificate object since this will 
-   affect any future operations that the user performs so we provide the 
-   following macros to save and restore the selection state around these 
-   operations */
+   affect any future operations that the user performs so we use the following
+   structure to store the state around these operations */
 
 typedef struct {
 	int savedChainPos;					/* Current cert.chain position */
 	SELECTION_INFO savedSelectionInfo;	/* Current DN/GN selection info */
 	DATAPTR_ATTRIBUTE savedAttributeCursor;/* Attribute cursor pos.*/
 	} SELECTION_STATE;
-
-#define saveSelectionState( savedState, certInfoPtr ) \
-	{ \
-	memset( &( savedState ), 0, sizeof( SELECTION_STATE ) ); \
-	if( ( certInfoPtr )->type == CRYPT_CERTTYPE_CERTCHAIN ) \
-		( savedState ).savedChainPos = ( certInfoPtr )->cCertCert->chainPos; \
-	( savedState ).savedSelectionInfo = ( certInfoPtr )->currentSelection; \
-	( savedState ).savedAttributeCursor = ( certInfoPtr )->attributeCursor; \
-	}
-
-#define restoreSelectionState( savedState, certInfoPtr ) \
-	{ \
-	if( ( certInfoPtr )->type == CRYPT_CERTTYPE_CERTCHAIN ) \
-		( certInfoPtr )->cCertCert->chainPos = ( savedState ).savedChainPos; \
-	( certInfoPtr )->currentSelection = ( savedState ).savedSelectionInfo; \
-	( certInfoPtr )->attributeCursor = ( savedState ).savedAttributeCursor; \
-	}
 
 /* The structure used to store the current policy set if we're doing full
    policy checking, enabled for CERTLEVEL_PKIX_FULL.  The MAX_POLICY_SIZE
@@ -566,24 +592,29 @@ typedef struct {
    individual revocation entries */
 
 typedef struct RI {
-	/* Certificate ID information, either a serial number (for CRLs) or a
-	   certificate hash or issuerID (for OCSP requests/responses).  In 
-	   addition this could also be a pre-encoded OCSP certID, which is 
-	   treated as an opaque blob of type CRYPT_ATTRIBUTE_NONE since it can't 
-	   be used in any useful way.  If we're using OCSP and an alternative ID 
-	   is supplied as an ESSCertID we point to this value (inside the 
-	   ESSCertID) in the altIdPtr field */
+	/* Certificate ID information, either a serial number (for CRLs) or an
+	   ocsp ID (for OCSP requests/responses) */
 	CRYPT_KEYID_TYPE idType;		/* ID type */
 	BUFFER_OPT_FIXED( idLength ) \
 	BYTE *id;						/* ID information stored in varstruct */
 	int idLength;
 	int idCheck;					/* Data checksum for quick match */
-	CRYPT_KEYID_TYPE altIdType;		/* Alt.ID type for OCSP */
+	
+	/* Since the OCSP ID is useless for identifying certificates (see the 
+	   long comment in cert/certrev.c), if we're using OCSP and a usable ID 
+	   is supplied as an ESSCertID we store it in the altID field.  We also
+	   store a pointer to the serialNumber inside the OCSP ID, the sole 
+	   field that we can actually do anything with */
+	CRYPT_KEYID_TYPE altIdType;		/* Alternative ID type for OCSP */
 	BUFFER_FIXED( KEYID_SIZE ) \
-	BYTE altID[ KEYID_SIZE + 8 ];	/* Alt.ID for OCSP */
+	BYTE altID[ KEYID_SIZE + 8 ];	/* Alternative ID for OCSP */
+	BUFFER_OPT_FIXED( serialNumberLength ) \
+	int serialNumberStart, serialNumberLength;
+									/* Serial number inside OCSP ID */
+	int serialNumberCheck;			/* Data checksum for quick match */
 
 	/* Revocation information */
-	int status;						/* OCSP revocation status */
+	CRYPT_OCSPSTATUS_TYPE status;	/* OCSP revocation status */
 	time_t revocationTime;			/* Certificate revocation time */
 
 	/* Per-entry attributes.  These are a rather ugly special case for the
@@ -764,14 +795,6 @@ typedef struct {
 #endif /* USE_CERT_OBSOLETE */
 	} CERT_CERT_INFO;
 
-/* Defines to make access to the union fields less messy */
-
-#define cCertCert		certInfo.certInfo
-#define cCertReq		certInfo.reqInfo
-#define cCertRev		certInfo.revInfo
-#define cCertVal		certInfo.valInfo
-#define cCertUser		certInfo.pkiUserInfo
-
 /* The structure that stores information on a certificate object */
 
 typedef struct {
@@ -781,21 +804,7 @@ typedef struct {
 	int version;					/* Certificate format version */
 
 	/* Certificate type-specific information */
-	union {
-		CERT_CERT_INFO *certInfo;
-#ifdef USE_CERTREQ
-		CERT_REQ_INFO *reqInfo;
-#endif /* USE_CERTREQ */
-#ifdef USE_CERTREV
-		CERT_REV_INFO *revInfo;
-#endif /* USE_CERTREV */
-#ifdef USE_CERTVAL
-		CERT_VAL_INFO *valInfo;
-#endif /* USE_CERTVAL */
-#ifdef USE_PKIUSER
-		CERT_PKIUSER_INFO *pkiUserInfo;
-#endif /* USE_PKIUSER */
-		} certInfo;
+	DATAPTR certInfo;
 
 	/* The encoded certificate object.  We save this when we import it
 	   because there are many different interpretations of how a certificate 

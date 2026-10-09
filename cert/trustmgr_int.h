@@ -21,13 +21,9 @@
 
 typedef struct TI {
 	/* Identification information, the checksum and hash of the 
-	   certificate's subjectName and subjectKeyIdentifier */
+	   certificate's subjectName, and the certificate fingerprint */
 	int sCheck;
-	BYTE sHash[ HASH_DATA_SIZE + 8 ];
-#if 0	/* sKID lookup isn't used at present */
-	int kCheck;
-	BYTE kHash[ HASH_DATA_SIZE + 8 ];
-#endif /* 0 */
+	BYTE sHash[ HASH_DATA_SIZE + 8 ], certID[ HASH_DATA_SIZE + 8 ];
 
 	/* The trusted certificate.  When we read trusted certificates from a 
 	   configuration file the certificate is stored in the encoded form to 

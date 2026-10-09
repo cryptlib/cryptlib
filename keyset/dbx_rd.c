@@ -348,7 +348,14 @@ int presenceCheck( INOUT_PTR DBMS_INFO *dbmsInfo,
 	state = NULL:		query( NULL, &data, CONTINUE );
 	state, point query:	query( SQL, &data, NORMAL );
 	state, multi-cert:	query( SQL, &data, START );
-						( followed by 'query( NULL, &data, CONTINUE )') */
+						( followed by 'query( NULL, &data, CONTINUE )')
+
+   The keyValue is usually a fixed-length encoded ID, so a base64-encoding 
+   of a binary ID, but if called from the higher-level code via getItem() 
+   it could also be a variable-length CN or email address.  The associated
+   keyIDtype isn't really important for the read itself since we're just
+   doing a 'SELECT WHERE key = x', but is used to select a cached query
+   for common queries like 'SELECT FROM certificates WHERE certID = x' */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 9 ) ) \
 int getItemData( INOUT_PTR DBMS_INFO *dbmsInfo, 
@@ -420,9 +427,8 @@ int getItemData( INOUT_PTR DBMS_INFO *dbmsInfo,
 	   indicates that it's physically but not logically present, for example
 	   certificates that have been created but not fully issued yet, 
 	   certificate items that are on hold, and similar items */
-	if( keyValue != NULL && keyValueLength >= KEYID_ESC_SIZE && \
-		( !memcmp( keyValue, KEYID_ESC1, KEYID_ESC_SIZE ) || \
-		  !memcmp( keyValue, KEYID_ESC2, KEYID_ESC_SIZE ) ) )
+	if( keyValue != NULL && keyValueLength >= 8 && \
+		isModifiedID( keyValue, keyValueLength ) )
 		{
 		/* Eheu, litteras istas reperire non possum */
 		return( CRYPT_ERROR_NOTFOUND );
@@ -639,7 +645,7 @@ static int getFirstItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 								 IN_LENGTH_KEYID const int keyIDlength,
 								 IN_FLAGS_Z( KEYMGMT ) const int options )
 	{
-	DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+	DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	char encodedKeyID[ ( CRYPT_MAX_TEXTSIZE * 2 ) + 8 ];
 	int encodedKeyIDlength, status;
 
@@ -663,8 +669,12 @@ static int getFirstItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( isFlagRangeZ( options, KEYMGMT ) );
 	REQUIRES( ( options & KEYMGMT_MASK_USAGEOPTIONS ) != \
 			  KEYMGMT_MASK_USAGEOPTIONS );
+	REQUIRES( dbmsInfo != NULL );
 
-	/* Fetch the first data item */
+	/* Fetch the first data item.  Note that we could be querying on values
+	   like the email address or CN so the maximum encodedKeyID size is 
+	   higher than the ENCODED_DBXKEYID_SIZE used by internal functions 
+	   which use only query on encoded ID values */
 	status = makeKeyID( encodedKeyID, CRYPT_MAX_TEXTSIZE * 2, 
 						&encodedKeyIDlength, keyIDtype, keyID, keyIDlength );
 	if( cryptStatusError( status ) )
@@ -688,7 +698,7 @@ static int getNextItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 								INOUT_PTR int *stateInfo, 
 								IN_FLAGS_Z( KEYMGMT ) const int options )
 	{
-	DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+	DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	int status;
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
@@ -701,6 +711,7 @@ static int getNextItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( isFlagRangeZ( options, KEYMGMT ) );
 	REQUIRES( ( options & KEYMGMT_MASK_USAGEOPTIONS ) != \
 			  KEYMGMT_MASK_USAGEOPTIONS );
+	REQUIRES( dbmsInfo != NULL );
 
 	/* If we're fetching the next certificate in a sequence based on 
 	   externally-held state information, set the key ID to the nameID of 
@@ -758,7 +769,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 							STDC_UNUSED int *auxInfoLength,
 							IN_FLAGS_Z( KEYMGMT ) const int flags )
 	{
-	DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+	DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	ERROR_INFO localErrorInfo;
 	int status;
 
@@ -781,6 +792,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( isFlagRangeZ( flags, KEYMGMT ) );
 	REQUIRES( ( flags & KEYMGMT_MASK_USAGEOPTIONS ) != \
 			  KEYMGMT_MASK_USAGEOPTIONS );
+	REQUIRES( dbmsInfo != NULL );
 
 	/* Clear return value */
 	*iCryptHandle = CRYPT_ERROR;
@@ -907,7 +919,7 @@ static int setSpecialItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 								   IN_BUFFER( dataLength ) const void *data, 
 								   IN_LENGTH_SHORT const int dataLength )
 	{
-	DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+	DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	char sqlBuffer[ MAX_SQL_QUERY_SIZE + 8 ];
 	const KEYMGMT_ITEM_TYPE itemType = \
 						( dataType == CRYPT_KEYINFO_QUERY_REQUESTS ) ? \
@@ -921,11 +933,12 @@ static int setSpecialItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	assert( isReadPtrDynamic( data, dataLength ) );
 
 	REQUIRES( sanityCheckKeyset( keysetInfoPtr ) );
-	ENSURES( dataType == CRYPT_KEYINFO_QUERY || \
-			 dataType == CRYPT_KEYINFO_QUERY_REQUESTS );
-	ENSURES( itemType == KEYMGMT_ITEM_PUBLICKEY || \
-			 itemType == KEYMGMT_ITEM_REQUEST );
-	ENSURES( selectString != NULL );
+	REQUIRES( dataType == CRYPT_KEYINFO_QUERY || \
+			  dataType == CRYPT_KEYINFO_QUERY_REQUESTS );
+	REQUIRES( itemType == KEYMGMT_ITEM_PUBLICKEY || \
+			  itemType == KEYMGMT_ITEM_REQUEST );
+	REQUIRES( dbmsInfo != NULL );
+	REQUIRES( selectString != NULL );
 	REQUIRES( isBusyFunction != NULL );
 
 	/* The kernel enforces a size range from 6...CRYPT_MAX_TEXTSIZE but we 

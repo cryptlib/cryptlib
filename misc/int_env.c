@@ -8,12 +8,123 @@
 #if defined( INC_ALL )
   #include "crypt.h"
   #include "asn1.h"
+  #include "asn1_ext.h"
 #else
   #include "crypt.h"
   #include "enc_dec/asn1.h"
+  #include "enc_dec/asn1_ext.h"
 #endif /* Compiler-specific includes */
 
 #ifdef USE_ENVELOPES
+
+/****************************************************************************
+*																			*
+*								Utility Routines							*
+*																			*
+****************************************************************************/
+
+/* Check that the recovered data looks vaguely valid.  This is useful 
+   because the caller is typically a network session and being able to 
+   report that decryption failed in some way means that the cryto-failure
+   countermeasures will be triggered */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+static BOOLEAN checkValidPlaintext( IN_BUFFER( dataLength ) const void *data,
+									IN_LENGTH_SHORT_MIN( 16 ) \
+										const int dataLength )
+	{
+	STREAM stream;
+	int tag, length, innerLength, status;
+			
+	assert( isReadPtrDynamic( data, dataLength ) );
+	
+	REQUIRES_B( isShortIntegerRangeMin( dataLength, 16 ) );
+
+	/* Perform a general check that we've got a valid ASN.1 object.  Note
+	   that we require at least MIN_CRYPT_OBJECTSIZE bytes of data in the 
+	   object even though the passed-in data length has a minimum of 16 
+	   bytes, this is because envelopeUnwrap() enforces a minimum of 16 
+	   bytes and then relies on us to sort out anything further */
+	status = getObjectLength( data, dataLength, &length );
+	if( cryptStatusError( status ) )
+		return( FALSE );
+	if( !isShortIntegerRangeMin( length, MIN_CRYPT_OBJECTSIZE ) )
+		return( FALSE );
+
+	/* The expected plaintext is one of the following:
+
+		CMP:			Certificate	
+		SCEP client:	Certificate chain
+		SCEP server:	PKCS #10 request
+		SCVP client:	SCVP response
+		SCVP server:	SCVP request
+
+	   The PKCS #10 request and certificate are:
+	   
+		SEQUENCE { SEQUENCE { ... 
+		
+	   The certificate chain is:
+	   
+		SEQUENCE { OBJECT IDENTIFIER signedData, ...
+		
+	   The SCVP request/response are:
+	   
+		SEQUENCE { INTEGER (small), ... */
+	sMemConnect( &stream, data, dataLength );
+	status = readSequence( &stream, &length );
+	if( cryptStatusError( status ) || \
+		!isShortIntegerRangeMin( length, MIN_CRYPT_OBJECTSIZE ) )
+		{
+		sMemDisconnect( &stream );
+		return( FALSE );
+		}
+	status = tag = peekTag( &stream );
+	if( !cryptStatusError( status ) )
+		{
+		switch( tag )
+			{
+			case BER_SEQUENCE:
+				/* Certificate / PKCS #10 request */
+				status = readSequence( &stream, &innerLength );
+				if( cryptStatusError( status ) )
+					break;
+				if( !isShortIntegerRangeMin( innerLength, \
+											 MIN_CRYPT_OBJECTSIZE ) || \
+					innerLength >= length )
+					{
+					status = CRYPT_ERROR_BADDATA;
+					break;
+					}
+				break;
+			
+#ifdef USE_SCVP
+			case BER_INTEGER:
+				{
+				long scvpVersion;
+				
+				/* SCVP request/response */
+				status = readShortInteger( &stream, &scvpVersion );
+				if( cryptStatusOK( status ) && \
+					!rangeCheck( scvpVersion, 0, 9 ) )
+					status = CRYPT_ERROR_BADDATA;
+				break;
+				}
+#endif /* USE_SCVP */
+			
+			case BER_OBJECT_IDENTIFIER:
+				/* Certificate chain */
+				status = readFixedOID( &stream, OID_CMS_SIGNEDDATA, 
+									   sizeofOID( OID_CMS_SIGNEDDATA ) );
+				break;
+			
+			default:
+				status = CRYPT_ERROR_BADDATA;
+			}
+		}
+	sMemDisconnect( &stream );
+
+	return( cryptStatusError( status ) ? FALSE : TRUE );
+	}
 
 /****************************************************************************
 *																			*
@@ -317,6 +428,7 @@ int envelopeUnwrap( IN_BUFFER( inDataLength ) const void *inData,
 		readErrorInfo( errorInfo, iCryptEnvelope );
 		}
 	krnlSendNotifier( iCryptEnvelope, IMESSAGE_DECREFCOUNT );
+	iCryptEnvelope = CRYPT_ERROR;
 	if( cryptStatusOK( status ) )
 		{
 		/* We've successfully processed the envelope, make sure that there's
@@ -330,7 +442,21 @@ int envelopeUnwrap( IN_BUFFER( inDataLength ) const void *inData,
 			status = CRYPT_ERROR_BADDATA;
 			}
 		else
-			*outDataLength = msgData.length;
+			{
+			/* Perform an additional check that the recovered data looks 
+			   vaguely valid.  This is useful because the caller is 
+			   typically a network session and being able to report that
+			   decryption failed in some way means that the cryto-failure
+			   countermeasures will be triggered */
+			if( !checkValidPlaintext( outData, msgData.length ) )
+				{
+				setErrorString( errorInfo, 
+								"Decryption yielded invalid data", 31 );
+				status = CRYPT_ERROR_BADDATA;
+				}
+			else
+				*outDataLength = msgData.length;
+			}
 		}
 
 	assert( !cryptArgError( status ) );
@@ -473,6 +599,7 @@ int envelopeSign( IN_BUFFER_OPT( inDataLength ) const void *inData,
 		readErrorInfo( errorInfo, iCryptEnvelope );
 		}
 	krnlSendNotifier( iCryptEnvelope, IMESSAGE_DECREFCOUNT );
+	iCryptEnvelope = CRYPT_ERROR;
 
 	ENSURES( cryptStatusError( status ) || \
 			 cryptStatusOK( \
@@ -633,7 +760,7 @@ int envelopeSigCheck( IN_BUFFER( inDataLength ) const void *inData,
 	if( cryptStatusOK( status ) && iCmsAttributes != NULL )
 		{
 		/* If the caller has requested CMS attributes then not finding any 
-		   is a hard error, so we can't just continue with the attibutes
+		   is a hard error, so we can't just continue with the attributes
 		   set to CRYPT_ERROR */
 		status = krnlSendMessage( iCryptEnvelope, IMESSAGE_GETATTRIBUTE,
 								  iCmsAttributes,
@@ -650,6 +777,7 @@ int envelopeSigCheck( IN_BUFFER( inDataLength ) const void *inData,
 		readErrorInfo( errorInfo, iCryptEnvelope );
 		}
 	krnlSendNotifier( iCryptEnvelope, IMESSAGE_DECREFCOUNT );
+	iCryptEnvelope = CRYPT_ERROR;
 	if( cryptStatusOK( status ) )
 		{
 		/* We've successfully processed the envelope, make sure that there's

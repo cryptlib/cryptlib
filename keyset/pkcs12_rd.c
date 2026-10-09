@@ -309,6 +309,7 @@ static int importCertificate( const PKCS12_OBJECT_INFO *certObjectInfo,
 	status = krnlSendMessage( iWrapContext, IMESSAGE_CTX_DECRYPT, 
 							  certObjectData, certObjectDataLen );
 	krnlSendNotifier( iWrapContext, IMESSAGE_DECREFCOUNT );
+	iWrapContext = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -787,6 +788,14 @@ int pkcs12ReadKeyset( INOUT_PTR STREAM *stream,
 			}
 		if( innerEndPos == CRYPT_ERROR )
 			{
+#if 0	/* 29/7/26 This calls getStreamObjectLength() on a file stream for
+				   which see the comment below, and even then it doesn't
+				   allow us to continue, see again the comment below.  The 
+				   only way that we can ever get here is if all of the 
+				   infinite outer layers of the PKCS #12 are indefinite 
+				   while the innermost one is definite-length, no known 
+				   producer of PKCS #12 files creates ones like this so in 
+				   practice we never actually get here */
 			int innerLength;
 
 			/* We still haven't got any length information, at this point 
@@ -806,6 +815,7 @@ int pkcs12ReadKeyset( INOUT_PTR STREAM *stream,
 			REQUIRES( !checkOverflowAdd( innerEndPos, innerLength ) );
 			innerEndPos += innerLength;
 			REQUIRES( isIntegerRangeMin( innerEndPos, innerLength ) );
+#endif /* 0 */
 
 			/* In practice it's not quite this simple.  Firstly, this
 			   approach is somewhat risky because we're calling 

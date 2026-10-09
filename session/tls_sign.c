@@ -265,6 +265,7 @@ int createSessionHash( IN_PTR const SESSION_INFO *sessionInfoPtr,
 		status = getSessionHash( iHashContext, handshakeInfo->sessionHash,
 								 CRYPT_MAX_HASHSIZE, &hash1Size );
 		krnlSendNotifier( iHashContext, IMESSAGE_DECREFCOUNT );
+		iHashContext = CRYPT_ERROR;
 		if( cryptStatusError( status ) )
 			return( status );
 		status = cloneHashContext( handshakeInfo->sha1context, &iHashContext );
@@ -944,8 +945,12 @@ int checkKeyexSignature( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								&sigDataInfo, NULL, errorInfo );
 		}
 	if( sessionInfoPtr->version < TLS_MINOR_VERSION_TLS12 )
+		{
 		krnlSendNotifier( md5Context, IMESSAGE_DECREFCOUNT );
+		md5Context = CRYPT_ERROR;
+		}
 	krnlSendNotifier( shaContext, IMESSAGE_DECREFCOUNT );
+	shaContext = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		return( status );
 

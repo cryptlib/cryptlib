@@ -68,7 +68,7 @@
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -439,8 +439,10 @@ int preEncodeCertificate( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	   prior to encoding them */
 	if( actions & PRE_SET_VALINFO )
 		{
-		CERT_VAL_INFO *valInfo = subjectCertInfoPtr->cCertVal;
+		CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( subjectCertInfoPtr );
 		VALIDITY_INFO *validityErrorEntry = NULL;
+
+		REQUIRES( valInfo != NULL );
 
 		status = prepareValidityEntries( valInfo->validityInfo,
 										 &validityErrorEntry,
@@ -467,11 +469,13 @@ int preEncodeCertificate( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	   prior to encoding them */
 	if( actions & PRE_SET_REVINFO )
 		{
-		CERT_REV_INFO *revInfo = subjectCertInfoPtr->cCertRev;
+		CERT_REV_INFO *revInfo = DATAPTR_GET_REV( subjectCertInfoPtr );
 		REVOCATION_INFO *revocationErrorEntry = NULL;
 		const BOOLEAN isCrlEntry = \
 						( ( subjectCertInfoPtr->type == CRYPT_CERTTYPE_CRL ) && \
 						  !( actions & PRE_SET_ISSUERDN ) ) ? TRUE : FALSE;
+
+		REQUIRES( revInfo != NULL );
 
 		status = prepareRevocationEntries( revInfo->revocations,
 										   revInfo->revocationTime,
@@ -666,7 +670,12 @@ int preCheckCertificate( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 #ifdef USE_CERTREQ
 		if( subjectCertInfoPtr->type == CRYPT_CERTTYPE_REQUEST_REVOCATION )
 			{
-			if( subjectCertInfoPtr->cCertReq->serialNumberLength <= 0 )
+			const CERT_REQ_INFO *reqInfo = \
+						DATAPTR_GET_REQ( subjectCertInfoPtr );
+
+			REQUIRES( reqInfo != NULL );
+
+			if( reqInfo->serialNumberLength <= 0 )
 				{
 				setObjectErrorInfo( subjectCertInfoPtr, 
 									CRYPT_CERTINFO_SERIALNUMBER,
@@ -680,7 +689,12 @@ int preCheckCertificate( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 		else
 #endif /* USE_CERTREQ */
 			{
-			if( subjectCertInfoPtr->cCertCert->serialNumberLength <= 0 )
+			const CERT_CERT_INFO *certInfo = \
+						DATAPTR_GET_CERT( subjectCertInfoPtr );
+
+			REQUIRES( certInfo != NULL );
+
+			if( certInfo->serialNumberLength <= 0 )
 				{
 				setObjectErrorInfo( subjectCertInfoPtr, 
 									CRYPT_CERTINFO_SERIALNUMBER,
@@ -697,7 +711,9 @@ int preCheckCertificate( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 #ifdef USE_CERTVAL
 	if( actions & PRE_CHECK_VALENTRIES )
 		{
-		const CERT_VAL_INFO *valInfo = subjectCertInfoPtr->cCertVal;
+		const CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( subjectCertInfoPtr );
+
+		REQUIRES( valInfo != NULL );
 
 		if( DATAPTR_ISNULL( valInfo->validityInfo ) )
 			{
@@ -714,7 +730,9 @@ int preCheckCertificate( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 #ifdef USE_CERTREV
 	if( actions & PRE_CHECK_REVENTRIES )
 		{
-		const CERT_REV_INFO *revInfo = subjectCertInfoPtr->cCertRev;
+		const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( subjectCertInfoPtr );
+
+		REQUIRES( revInfo != NULL );
 
 		if( DATAPTR_ISNULL( revInfo->revocations ) )
 			{
@@ -755,8 +773,12 @@ int preCheckCertificate( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	if( subjectCertInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 		subjectCertInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 		{
-		subjectCertInfoPtr->cCertCert->maxCheckLevel = \
-									CRYPT_COMPLIANCELEVEL_PKIX_FULL;
+		CERT_CERT_INFO *certInfo = \
+					DATAPTR_GET_CERT( subjectCertInfoPtr );
+
+		REQUIRES( certInfo != NULL );
+
+		certInfo->maxCheckLevel = CRYPT_COMPLIANCELEVEL_PKIX_FULL;
 		}
 
 	return( status );

@@ -363,7 +363,7 @@ static int pgpExtractKey( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 
 /* Wrap/unwrap data using a public/private-key context */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int pkcWrapData( INOUT_PTR MECHANISM_WRAP_INFO *mechanismInfo,
 						IN_LENGTH_PKC const int inputLength,
 						IN_BOOL const BOOLEAN usePgpWrap, 

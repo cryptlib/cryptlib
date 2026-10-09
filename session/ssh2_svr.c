@@ -159,6 +159,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo )
 	{
+	const SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_DATA msgData;
 	STREAM stream;
 	BYTE keyData[ ( CRYPT_MAX_PKCSIZE * 2 ) + 16 + 8 ];
@@ -170,6 +171,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( handshakeInfo, sizeof( SSH_HANDSHAKE_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Get the keyex key request from the client:
 
@@ -197,7 +199,7 @@ static int processDHE( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( status );
 	sMemConnect( &stream, sessionInfoPtr->receiveBuffer, length );
 	streamBookmarkStreamStart( keyexInfoLength );
-	if( sessionInfoPtr->sessionSSH->packetType == SSH_MSG_KEX_DH_GEX_REQUEST )
+	if( sshInfo->packetType == SSH_MSG_KEX_DH_GEX_REQUEST )
 		{
 		int minKeySize, maxKeySize;
 
@@ -687,6 +689,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo )
 	{
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	KEYAGREE_PARAMS keyAgreeParams;
 	STREAM stream;
 	ERROR_INFO localErrorInfo;
@@ -700,6 +703,7 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( sanityCheckSSHHandshakeInfo( handshakeInfo ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Create the server DH/ECDH value */
 	memset( &keyAgreeParams, 0, sizeof( KEYAGREE_PARAMS ) );
@@ -938,7 +942,7 @@ static int exchangeServerKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		{
 		/* We're using strict KEX, we need to reset the write sequence 
 		   number as well */
-		sessionInfoPtr->sessionSSH->writeSeqNo = 0;
+		sshInfo->writeSeqNo = 0;
 		}
 
 	/* If we're sending extension information, append it to the handshake 
@@ -985,6 +989,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int completeServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									INOUT_PTR SSH_HANDSHAKE_INFO *handshakeInfo )
 	{
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM stream;
 	BOOLEAN userInfoPresent = FALSE;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
@@ -995,6 +1000,7 @@ static int completeServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( sanityCheckSSHHandshakeInfo( handshakeInfo ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* If this is the first time through, set up the security information 
 	   and wait for the client's pre-authentication */
@@ -1020,8 +1026,6 @@ static int completeServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( TEST_FLAG( sessionInfoPtr->protocolFlags, 
 					   SSH_PFLAG_STRICT_KEX ) )
 			{
-			SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
-
 			/* Make sure that we're compliant with the strict KEX 
 			   requirements */			
 			if( !checkStrictKEX( sshInfo->packetTrace,
@@ -1034,7 +1038,7 @@ static int completeServerHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 			/* We're using strict KEX, we need to reset the read sequence 
 			   number as well */
-			sessionInfoPtr->sessionSSH->readSeqNo = 0;
+			sshInfo->readSeqNo = 0;
 			}
 
 		/* Wait for the client's pre-authentication packets, which aren't 

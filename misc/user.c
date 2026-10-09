@@ -1070,6 +1070,7 @@ static int createPrimarySoUser( INOUT_PTR USER_INFO *userInfoPtr,
 	userIndex.fileRef = 0;
 	status = writeUserIndex( iIndexKeyset, &userIndex, 1 );
 	krnlSendNotifier( iIndexKeyset, IMESSAGE_DECREFCOUNT );
+	iIndexKeyset = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		/* We couldn't update the index file, delete the newly-created user
@@ -1220,6 +1221,7 @@ static int createUserKeyset( INOUT_PTR USER_INFO *defaultUserInfoPtr,
 	status = writeUserIndex( iIndexKeyset, defaultUserInfoPtr->userIndexPtr, 
 							 MAX_USER_OBJECTS );
 	krnlSendNotifier( iIndexKeyset, IMESSAGE_DECREFCOUNT );
+	iIndexKeyset = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		/* We couldn't update the index file, delete the newly-created user
@@ -1384,6 +1386,7 @@ int initUserIndex( OUT_PTR_PTR_OPT void **userIndexPtrPtr )
 	status = noEntries = readIndex( iIndexKeyset, userIndexInfo->userIndex,
 									MAX_USER_OBJECTS );
 	krnlSendNotifier( iIndexKeyset, IMESSAGE_DECREFCOUNT );
+	iIndexKeyset = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		clFree( "initUserIndex", userIndexInfo );

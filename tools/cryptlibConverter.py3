@@ -5,6 +5,7 @@
 # Modified to use the new Buffer Protocol (PyObject_GetBuffer), November 2023
 # Transformed comments for Javadoc and added method comments, March 2026
 # Remove deprecated functions from cryptlib.h, April 2026
+# Update C# wrapper (.net) with function getCStringBytes(), October 2026
 
 import sys
 import os
@@ -724,12 +725,12 @@ public class CRYPT_OBJECT_INFO
     public int cryptAlgo;
     public int cryptMode;
     public int hashAlgo;
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst=32)]public byte[] salt;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst=64)]public byte[] salt = new byte[64];
     public int saltSize;
+    public int iterations;
 
     public CRYPT_OBJECT_INFO()
     {
-        salt = new byte[64];
         saltSize = 64;
     }
 
@@ -791,7 +792,7 @@ public class CryptException : ApplicationException
     wrapperLengthTemplate = "%(1)s == null ? 0 : %(1)s.Length, "
     wrapperStringLengthTemplate = "%(1)s == null ? 0 : Encoding.ASCII.GetByteCount(%(1)s), "
     wrapperStringReplace = ("byte[]", "String")
-    wrapperStringTemplate = "%(1)s == null ? null : Encoding.ASCII.GetBytes(%(1)s)"
+    wrapperStringTemplate = "%(1)s == null ? null : getCStringBytes(%(1)s)"
     #ENUM IDIOM
     #paramEnumTypeTemplate = "%(type)s %(name)s,\n"
     #ENUMs as ints
@@ -809,6 +810,15 @@ public class crypt
     """
     classPostfix = """
     /* Helper Functions */
+
+    private static byte[] getCStringBytes(String value)
+    {
+         byte[] stringBytes = Encoding.ASCII.GetBytes(value);
+         byte[] cStringBytes = new byte[stringBytes.Length + 1];
+         Array.Copy(stringBytes, cStringBytes, stringBytes.Length);
+         cStringBytes[stringBytes.Length] = \\0;
+         return cStringBytes;
+    }
 
     private static void processStatus(int status)
     {
@@ -2424,7 +2434,7 @@ elif language == "net":
                 #newFunctionBody += "jbyte* " + n + "Ptr = 0;\n"
                 newFunctionBody += "GCHandle %sHandle = new GCHandle();\nIntPtr %sPtr = IntPtr.Zero;\n" % (n,n)
                 if n in charArrayNames:
-                    newFunctionBody += "byte[] %sArray = Encoding.ASCII.GetBytes(%s);\n" % (n,n)
+                    newFunctionBody += "byte[] %sArray = getCStringBytes(%s);\n" % (n,n)
 
             newFunctionBody += "try\n{\n"
 

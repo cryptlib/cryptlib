@@ -1040,7 +1040,12 @@ static int envelopeDecompress( BYTE *buffer, const int bufSize,
 		return( FALSE );
 	count = pushData( cryptEnvelope, buffer, length, NULL, 0 );
 	if( cryptStatusError( count ) )
+		{
+		/* The quine PGP message exits before we can pop any data so we need
+		   to perform an explicit cleanup in this case */
+		destroyEnvelope( cryptEnvelope );
 		return( FALSE );
+		}
 	count = popData( cryptEnvelope, buffer, bufSize );
 	if( cryptStatusError( count ) )
 		{
@@ -2567,6 +2572,16 @@ static int envelopePKCCryptMulti( const char *dumpFileName,
 	if( !addEnvInfoNumeric( cryptEnvelope, CRYPT_ENVINFO_PUBLICKEY,
 							cryptKey1 ) )
 		return( FALSE );
+	if( formatType == CRYPT_FORMAT_CRYPTLIB && recipientNo == 1 )
+		{
+		if( addEnvInfoNumeric( cryptEnvelope, CRYPT_ENVINFO_PUBLICKEY,
+								cryptKey1 ) )
+			{
+			fprintf( outputStream, "Addition of duplicate PKC key wasn't "
+					 "detected, line %d.\n", __LINE__ );
+			return( FALSE );
+			}
+		}
 	if( !addEnvInfoNumeric( cryptEnvelope, CRYPT_ENVINFO_PUBLICKEY,
 							cryptKey2 ) )
 		return( FALSE );
@@ -3532,7 +3547,12 @@ int testEnvelopeSignIndef( void )
 		if( cryptStatusOK( status ) )
 			status = cryptFlushData( cryptEnvelope );
 		if( cryptStatusError( status ) )
+			{
+			fprintf( outputStream, 
+					 "\nError in de-enveloping with data split at byte "
+					 "position %d.\n\n", bufPos );
 			return( FALSE );
+			}
 		if( byteCount != count - bufPos )
 			return( FALSE );
 
@@ -4825,7 +4845,8 @@ static int cmsImportSignedData( const char *fileName, const int fileNo )
 	   it's checked for alongside file 1 */
 	status = cmsEnvelopeSigCheck( bufPtr, count, NULL, 0, CRYPT_UNUSED, 
 								  CRYPT_UNUSED, 
-								  ( fileNo == 6 ) ? TRUE : FALSE, FALSE, 
+								  ( fileNo == 6 || fileNo == 7 ) ? \
+								    TRUE : FALSE, FALSE, 
 								  ( fileNo == 1 || fileNo == 4 ) ? \
 									FALSE : TRUE, FALSE, FALSE );
 	if( bufPtr != globalBuffer )
@@ -5310,14 +5331,21 @@ int testCMSEnvelopeSignedDataImport( void )
 		
 		File 5: File with v4+v4 signature, created from File 1.
 		
-		File 6: File with timestamp, created by testSessionEnvTSP() */
+		File 6: File with timestamp, created by testSessionEnvTSP(), but 
+				using proper CMS counterSignature processing rather than 
+				TSP's failure to copy across one line of text from RFC 3369.
+				
+		File 7: File with timestamp, created by testSessionEnvTSP(), using
+				TSP's garbled non-countersignature processing.  Note that,
+				depending on which way the processing is flipped, one of 
+				these two will fail and the other will pass */
 	for( i = 1; i <= 6; i++ )
 		{
 		int count;
 
 		filenameFromTemplate( fileName, SMIME_SIG_FILE_TEMPLATE, i );
 		count = cmsImportSignedData( fileName, i );
-		if( i == 5 )
+		if( i == 5 || i == 7 )
 			{
 			if( count )
 				return( FALSE );
@@ -5949,6 +5977,10 @@ int testPGPEnvelopeSignedDataImport( void )
 		
 	   Again, we have to use the partially-completed hash value for the
 	   signatures */
+#if 0	/* Detached signatures can only contain a single signature, see the
+		   comment in envelope/pgp_deenv.c.  To run these tests requires
+		   disabling the check in processPacketHeader() in the 
+		   PGP_PACKET_SIGNATURE handling code */
 	count = readFileFromTemplate( PGP_SIG_FILE_TEMPLATE, 5, 
 								  "OpenPGP detached v4+v4 signature", 
 								  globalBuffer, BUFFER_SIZE );
@@ -5994,6 +6026,24 @@ int testPGPEnvelopeSignedDataImport( void )
 	cryptDestroyContext( hashContext );
 	fputs( "Import of OpenPGP detached test signatures succeeded.\n\n", 
 		   outputStream );
+#else
+	count = readFileFromTemplate( PGP_SIG_FILE_TEMPLATE, 5, 
+								  "OpenPGP detached v4+v4 signature", 
+								  globalBuffer, BUFFER_SIZE );
+	if( count <= 0 )
+		return( FALSE );
+	if( !createIncompleteHash( &hashContext, CRYPT_ALGO_SHA2, 
+							   "Hello World :)", 14, 64 ) )
+		return( FALSE );
+	count = envelopeSigCheck( globalBuffer, count, hashContext,
+							  CRYPT_UNUSED, KEYFILE_OPENPGP_HASH_ALT, TRUE,
+							  CRYPT_FORMAT_PGP );
+	cryptDestroyContext( hashContext );
+	if( count != 0 )
+		return( FALSE );
+	fputs( "  (This test checks error handling, so the failure response is "
+		   "correct).\n\n", outputStream );
+#endif /* 0 */
 
 	/* Process OpenPGP signed data with unprocessable signature packets.  
 	   The files are:
@@ -6012,7 +6062,7 @@ int testPGPEnvelopeSignedDataImport( void )
 		return( FALSE );
 	fputs( "  (This test checks error handling, so the failure response is "
 		   "correct).\n\n", outputStream );
-	count = readFileFromTemplate( PGP_SIG_FILE_TEMPLATE, 6, 
+	count = readFileFromTemplate( PGP_SIG_FILE_TEMPLATE, 9, 
 								  "OpenPGP v5 detached signature", 
 								  globalBuffer, BUFFER_SIZE );
 	if( count <= 0 )
@@ -6147,10 +6197,12 @@ int testPGPEnvelopeCompressedDataImport( void )
 
 	/* Process booby-traped compressed data import.  This is a PGP quine 
 	   which decompresses to itself, which crashes some PGP implementations, 
-	   see https://nvd.nist.gov/vuln/detail/CVE-2013-4402 for a discussion 
-	   and http://mumble.net/%7Ecampbell/misc/pgp-quine/ for the data.
-	   This doesn't affect cryptlib since it only removes one layer at a 
-	   time, but we test it anyway just to show that it's not affected.
+	   see https://nvd.nist.gov/vuln/detail/CVE-2013-4402 for the CVE itself
+	   and https://seclists.org/oss-sec/2013/q4/50 for a discussion (the 
+	   original at http://mumble.net/~campbell/blag.txt is now 404), and 
+	   http://mumble.net/%7Ecampbell/misc/pgp-quine/ for the data.  This 
+	   doesn't affect cryptlib since it only removes one layer at a time, 
+	   but we test it anyway just to show that it's not affected.
 	   
 	   Since this is custom-generated malformed data, there's a spurious
 	   byte at the end so we end up with a CRYPT_ERROR_INCOMPLETE when we 

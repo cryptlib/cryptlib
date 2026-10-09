@@ -245,7 +245,7 @@ int wrapPlaintextPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 INOUT_PTR STREAM *stream,
 							 IN_DATALENGTH_Z const int offset )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM metadataStream;
 	BYTE padding[ 128 + 8 ];
 	void *bufStartPtr;
@@ -257,6 +257,7 @@ int wrapPlaintextPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( isBufsizeRange( offset ) );
+	REQUIRES( sshInfo != NULL );
 	REQUIRES( !TEST_FLAG( sessionInfoPtr->flags,
 						  SESSION_FLAG_ISSECURE_WRITE ) );
 						 
@@ -339,7 +340,7 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					IN_DATALENGTH_Z const int offset, 
 					IN_BOOL const BOOLEAN useQuantisedPadding )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM metadataStream;
 	MESSAGE_DATA msgData;
 	BYTE padding[ MAX_PADDING_LENGTH + 8 ];
@@ -361,6 +362,7 @@ int wrapPacketSSH2( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( isBufsizeRange( offset ) );
 	REQUIRES( isBooleanValue( useQuantisedPadding ) );
+	REQUIRES( sshInfo != NULL );
 	REQUIRES( TEST_FLAG( sessionInfoPtr->flags,
 						 SESSION_FLAG_ISSECURE_WRITE ) );
 

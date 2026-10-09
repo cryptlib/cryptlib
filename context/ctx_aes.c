@@ -489,7 +489,7 @@ static int getInfo( IN_ENUM( CONTEXT_INFO ) const CONTEXT_INFO_TYPE type,
 #ifdef USE_GCM
 		case CONTEXT_INFO_ICV:
 			{
-			CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+			CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 			REQUIRES( convInfo != NULL );
 			REQUIRES( convInfo->mode == CRYPT_MODE_GCM );
@@ -536,7 +536,7 @@ static int encryptECB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -555,7 +555,7 @@ static int decryptECB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -574,7 +574,7 @@ static int encryptCBC( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -599,7 +599,7 @@ static int decryptCBC( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -626,7 +626,7 @@ static int encryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -654,7 +654,7 @@ static int decryptCFB( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -685,7 +685,7 @@ static int encryptGCM( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -719,7 +719,7 @@ static int decryptGCM( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					   IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -763,7 +763,7 @@ static int initParams( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   IN_PTR_OPT const void *data, 
 					   IN_INT const int dataLength )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -860,7 +860,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					IN_BUFFER( keyLength ) const void *key, 
 					IN_LENGTH_SHORT const int keyLength )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 #ifdef HAS_DEVCRYPTO
 	const int hwCryptInfo = getSysVar( SYSVAR_HWCRYPT );
 #endif /* HAS_DEVCRYPTO */

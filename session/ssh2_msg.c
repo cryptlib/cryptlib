@@ -199,7 +199,7 @@ CHECK_RETVAL_SPECIAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								  INOUT_PTR STREAM *stream )
 	{
-	SSH_INFO *sshInfo;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	long prevChannelNo, channelNo;
 	int status;
 
@@ -207,10 +207,10 @@ int processChannelControlMessage( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Now that we've checked everything, set up the various values that
 	   we'll need */
-	sshInfo = sessionInfoPtr->sessionSSH;
 	prevChannelNo = getCurrentChannelNo( sessionInfoPtr, CHANNEL_READ );
 
 	/* See what we've got.  SSH has a whole pile of no-op equivalents that 
@@ -624,6 +624,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				  IN_BOOL const BOOLEAN closeAllChannels )
 	{
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	SES_READHEADER_FUNCTION readHeaderFunction;
 	long currWriteChannelNo;
 	LOOP_INDEX noChannels = 1;
@@ -633,6 +634,7 @@ int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
 	REQUIRES( isBooleanValue( closeAllChannels ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Now that we've checked everything, set up the various values that
 	   we'll need */
@@ -803,7 +805,6 @@ int closeChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   as if we're going to abort the shutdown at this point */
 	LOOP_SMALL_REV_CHECKINC( noChannels > 0, noChannels-- )
 		{
-		SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
 		BYTE buffer[ 256 + 8 ];
 		READSTATE_INFO dummy;
 		int remainingDataLength, length;

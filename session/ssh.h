@@ -284,7 +284,7 @@ typedef enum {
 
 /* Values for working with SSH channels.  Channels have a 32-bit ID
    (although no sane implementation uses very large values), to deal with
-   range checking for these we limit them to a bit below LONG_MAX on 32-bit 
+   range checking for these we limit them to a bit below INT_MAX on 32-bit 
    systems.
 
    SSH channels have a number of SSH-internal attributes that aren't exposed 
@@ -292,9 +292,9 @@ typedef enum {
    access SSH-internal channel attributes */
 
 #ifdef SYSTEM_64BIT
-  #define CHANNEL_MAX				0x0FFFFFFFFUL
+  #define CHANNEL_MAX				0x0FFFFFFF0UL
 #else
-  #define CHANNEL_MAX				( LONG_MAX - 10 )
+  #define CHANNEL_MAX				( INT_MAX - 16 )
 #endif /* 32- vs 64-bit systems */
 
 #ifdef USE_SSH_EXTENDED

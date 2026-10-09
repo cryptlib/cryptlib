@@ -195,16 +195,23 @@ time_t getReliableTime( IN_HANDLE const CRYPT_HANDLE cryptHandle,
 ****************************************************************************/
 
 /* Monotonic timer interface that protects against the system clock being 
-   changed during a timed operation like network I/O, so we have to abstract 
-   the standard time API into a monotonic time API.  Since these functions 
-   are purely peripheral to other operations (for example handling timeouts 
-   for network I/O) they never fail but simply return good-enough results if 
-   there's a problem (although they assert in debug mode).  This is because 
-   we don't want to abort a network session just because we've detected some 
-   trivial clock irregularity.
+   changed or other non-monotonic behaviour, during a timed operation like 
+   network I/O.  This can happen for other reasons as well, for example in
+   devices with RTCs that run in isolation for extended periods of time and 
+   then have them pulled back into sync at some random moment when they 
+   briefly get access to a reliable time source.  This can lead to things 
+   like the clock going forward, jumping backwards, and then going forward 
+   again from the earlier time.  
+   
+   To deal with this we abstract the standard time API into a monotonic time 
+   API.  Since these functions are purely peripheral to other operations 
+   (for example handling timeouts for network I/O) they never fail but 
+   simply return good-enough results if there's a problem (although they 
+   assert in debug mode).  This is because we don't want to abort a network 
+   session just because we've detected some minor clock irregularity.
 
-   The way this works is that we record the following information for each
-   timing interval:
+   The way that this works is that we record the following information for 
+   each timing interval:
 
 			(endTime - \
 				timeRemaining)			 endTime

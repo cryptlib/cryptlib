@@ -697,6 +697,7 @@ static int initStreamStorage( INOUT_PTR STREAM *stream,
 									const STREAM_PROTOCOL_TYPE protocol,
 							  IN_PTR_OPT const URL_INFO *urlInfo )
 	{
+	BYTE *netStreamStorage = netStream->storage;
 	int storageOffset = 0;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -717,19 +718,22 @@ static int initStreamStorage( INOUT_PTR STREAM *stream,
 	   record, there's nothing to do */
 	if( ( protocol == STREAM_PROTOCOL_TCP || \
 		  protocol == STREAM_PROTOCOL_UDP ) && urlInfo == NULL )
+		{
+		SAFEINT_SET( netStream->storageSize, 0 );
 		return( CRYPT_OK );
+		}
 
-	netStream->storageSize = netStreamAllocSize;
+	SAFEINT_SET( netStream->storageSize, netStreamAllocSize );
 	if( protocol != STREAM_PROTOCOL_TCP && protocol != STREAM_PROTOCOL_UDP )
 		{
-		stream->buffer = SAFEBUFFER_PTR( netStream->storage );
+		stream->buffer = SAFEBUFFER_PTR( netStreamStorage );
 						 /* The assignment above will generate a compiler 
 						    warning about running off the end of the 
 							variable-size VARSTRUCT array */
 		stream->bufSize = NETSTREAM_BUFFER_SIZE;
 		safeBufferInit( stream->buffer, stream->bufSize );
 		netStream->writeBuffer = \
-					SAFEBUFFER_PTR( netStream->storage + \
+					SAFEBUFFER_PTR( netStreamStorage + \
 									SAFEBUFFER_SIZE( NETSTREAM_BUFFER_SIZE ) );
 					/* The assignment above will generate a compiler warning 
 					   about running off the end of the variable-size 
@@ -743,19 +747,18 @@ static int initStreamStorage( INOUT_PTR STREAM *stream,
 		}
 	if( urlInfo != NULL )
 		{
-		netStream->host = ( char * ) netStream->storage + storageOffset;
+		netStream->host = netStreamStorage + storageOffset;
 		REQUIRES( boundsCheckZ( storageOffset, urlInfo->hostLen, 
-								netStream->storageSize ) );
+								netStreamAllocSize ) );
 		memcpy( netStream->host, urlInfo->host, urlInfo->hostLen );
 		netStream->hostLen = urlInfo->hostLen;
 		REQUIRES( !checkOverflowAdd( storageOffset, urlInfo->hostLen ) );
 		storageOffset += urlInfo->hostLen;
 		if( urlInfo->location != NULL )
 			{
-			netStream->path = \
-					( char * ) netStream->storage + storageOffset;
+			netStream->path = netStreamStorage + storageOffset;
 			REQUIRES( boundsCheck( storageOffset, urlInfo->locationLen, 
-								   netStream->storageSize ) );
+								   netStreamAllocSize ) );
 			memcpy( netStream->path, urlInfo->location, 
 					urlInfo->locationLen );
 			netStream->pathLen = urlInfo->locationLen;
@@ -771,13 +774,12 @@ static int initStreamStorage( INOUT_PTR STREAM *stream,
 		/* The structures are being placed inside a BYTE * buffer so we need
 		   to align their storage addresses */
 		netStream->subTypeInfo = \
-				ptr_align( ( char * ) netStream->storage + storageOffset, 
-						   sizeof( void * ) );
+				ptr_align( netStreamStorage + storageOffset, sizeof( void * ) );
 		REQUIRES( !checkOverflowAdd( storageOffset, 
 								sizeof( EAP_INFO ) + sizeof( void * ) ) );
 		storageOffset += sizeof( EAP_INFO ) + sizeof( void * );
 		netStream->transportInfo = \
-				ptr_align( ( char * ) netStream->storage + storageOffset, \
+				ptr_align( netStreamStorage + storageOffset, \
 						   SOCKADDR_STORAGE_ALIGNSIZE );
 		netStream->transportInfoPayloadSize = sizeof( SOCKADDR_STORAGE );
 		REQUIRES( !checkOverflowAdd( storageOffset, 
@@ -785,7 +787,7 @@ static int initStreamStorage( INOUT_PTR STREAM *stream,
 									 SOCKADDR_STORAGE_ALIGNSIZE ) );
 		storageOffset += sizeof( SOCKADDR_STORAGE ) + \
 						 SOCKADDR_STORAGE_ALIGNSIZE;
-		ENSURES( storageOffset <= netStream->storageSize );
+		ENSURES( storageOffset <= netStreamAllocSize );
 		}
 #endif /* USE_EAP */
 
@@ -820,10 +822,7 @@ static void cleanupStream( INOUT_PTR STREAM *stream,
 		}
 
 	/* Clean up stream-related buffers if necessary */
-	REQUIRES_V( isShortIntegerRange( netStream->storageSize ) ); 
-	REQUIRES_V( !checkOverflowAdd( sizeof( NET_STREAM_INFO ), 
-								   netStream->storageSize ) );
-	zeroise( netStream, sizeof( NET_STREAM_INFO ) + netStream->storageSize );
+	endVarStruct( netStream, NET_STREAM_INFO );
 	clFree( "cleanupStream", netStream );
 
 	zeroise( stream, sizeof( STREAM ) );
@@ -1530,6 +1529,26 @@ int sNetDisconnect( INOUT_PTR STREAM *stream )
 	return( CRYPT_OK );
 	}
 
+#ifdef USE_CERTLEVEL_PKIX_FULL 
+	   /* sNetParseURL() is needed to parse nameConstraint URLs */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
+int sNetParseURL( OUT_PTR URL_INFO *urlInfo, 
+				  IN_BUFFER( urlLen ) const BYTE *url, 
+				  IN_LENGTH_SHORT const int urlLen, 
+				  IN_ENUM_OPT( URL_TYPE ) const URL_TYPE urlTypeHint )
+	{
+	assert( isWritePtr( urlInfo, sizeof( URL_INFO ) ) );
+	assert( isReadPtrDynamic( url, urlLen ) );
+
+	REQUIRES( isShortIntegerRangeNZ( urlLen ) );
+	REQUIRES( isEnumRangeOpt( urlTypeHint, URL_TYPE ) );
+
+	return( parseURL( urlInfo, url, urlLen, CRYPT_UNUSED, urlTypeHint, 
+					  TRUE ) );
+	}
+#else
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int sNetParseURL( OUT_PTR URL_INFO *urlInfo, 
 				  IN_BUFFER( urlLen ) const BYTE *url, 
@@ -1542,6 +1561,7 @@ int sNetParseURL( OUT_PTR URL_INFO *urlInfo,
 
 	return( CRYPT_ERROR_BADDATA );
 	}
+#endif /* USE_CERTLEVEL_PKIX_FULL */
 
 STDC_NONNULL_ARG( ( 1, 2 ) ) \
 void sNetGetErrorInfo( INOUT_PTR STREAM *stream, 

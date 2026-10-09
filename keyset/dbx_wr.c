@@ -621,19 +621,20 @@ int addCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 	   in the initial stages of the creation process so that although the 
 	   item may be physically present in the store it can't be accessed 
 	   directly, we set the first byte to 0xFF to indicate this.  In 
-	   addition we set the first two bytes of the IDs that have uniqueness 
-	   constraints to an out-of-band value to prevent a clash with the 
-	   finished entry when we complete the issue process and replace the 
-	   partial version with the full version */
+	   addition we modify the IDs to identify an item from part one of a 
+	   two-part operation */
 	if( addType == CERTADD_PARTIAL || addType == CERTADD_PARTIAL_RENEWAL )
 		{
-		const char *escapeStr = ( addType == CERTADD_PARTIAL ) ? \
-								KEYID_ESC1 : KEYID_ESC2;
+		const IDMOD_TYPE modType = ( addType == CERTADD_PARTIAL ) ? \
+							IDMOD_CERTISSUE_STD : IDMOD_CERTISSUE_RENEW;
 
 		certData[ 0 ] = 0xFF;
-		memcpy( certIdData.issuerID, escapeStr, KEYID_ESC_SIZE );
-		memcpy( certIdData.keyID, escapeStr, KEYID_ESC_SIZE );
-		memcpy( certIdData.certID, escapeStr, KEYID_ESC_SIZE );
+		modifyCertIssueID( certIdData.issuerID, ENCODED_DBXKEYID_SIZE,
+						   modType );
+		modifyCertIssueID( certIdData.keyID, ENCODED_DBXKEYID_SIZE,
+						   modType );
+		modifyCertIssueID( certIdData.certID, ENCODED_DBXKEYID_SIZE,
+						   modType );
 		}
 
 	/* Set up the certificate object data to be written and send it to the
@@ -876,7 +877,7 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 							STDC_UNUSED const int passwordLength,
 							IN_FLAGS( KEYMGMT ) const int flags )
 	{
-	DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+	DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	BOOLEAN itemAdded = FALSE;
 	int type, status, loopStatus, LOOP_ITERATOR;
 
@@ -892,6 +893,7 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 			  itemType == KEYMGMT_ITEM_PKIUSER );
 	REQUIRES( password == NULL && passwordLength == 0 );
 	REQUIRES( isFlagRangeZ( flags, KEYMGMT ) );
+	REQUIRES( dbmsInfo != NULL );
 
 	/* Make sure that we've been given a certificate, certificate chain, or 
 	   CRL (or a PKI user if it's a CA certificate store).  We can't do any 
@@ -923,17 +925,17 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 			}
 
 		/* It's a certificate request being added to a CA certificate 
-		   store */
+		   store.  Since the incoming set-key options are specified as 
+		   KEYMGMT_FLAGs and the CA operations take CERTMGMT_OPTIONs, we
+		   have to translate from one to the other */
 		REQUIRES( ( itemType == KEYMGMT_ITEM_REQUEST && \
 					( type == CRYPT_CERTTYPE_CERTREQUEST || \
 					  type == CRYPT_CERTTYPE_REQUEST_CERT ) ) || \
 				  ( itemType == KEYMGMT_ITEM_REVREQUEST && \
 				    type == CRYPT_CERTTYPE_REQUEST_REVOCATION ) );
-		return( caAddCertRequest( dbmsInfo, iCryptHandle, type,
-								  ( flags & KEYMGMT_FLAG_UPDATE ) ? \
-									TRUE : FALSE, 
-								  ( flags & KEYMGMT_FLAG_INITIALOP ) ? \
-									TRUE : FALSE, KEYSET_ERRINFO ) );
+		return( caAddCertRequest( dbmsInfo, iCryptHandle, CRYPT_UNUSED,
+								  CRYPT_UNUSED, CERTMGMT_OPTION_NONE, 
+								  KEYSET_ERRINFO ) );
 		}
 	if( type != CRYPT_CERTTYPE_CERTIFICATE && \
 		type != CRYPT_CERTTYPE_CERTCHAIN && \
@@ -1080,7 +1082,7 @@ static int deleteItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 							   IN_BUFFER( keyIDlength ) const void *keyID, 
 							   IN_LENGTH_KEYID const int keyIDlength )
 	{
-	DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+	DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ], *boundDataPtr = boundData;
 	char sqlBuffer[ MAX_SQL_QUERY_SIZE + 8 ];
 	char encodedKeyID[ ( CRYPT_MAX_TEXTSIZE * 2 ) + 8 ];
@@ -1102,6 +1104,7 @@ static int deleteItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( isEnumRange( keyIDtype, CRYPT_KEYID ) );
 	REQUIRES( keyIDlength >= MIN_NAME_LENGTH && \
 			  keyIDlength < MAX_ATTRIBUTE_SIZE );
+	REQUIRES( dbmsInfo != NULL );
 
 	/* Delete the item from the certificate store */
 	status = makeKeyID( encodedKeyID, CRYPT_MAX_TEXTSIZE * 2, 
@@ -1119,8 +1122,8 @@ static int deleteItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 						 "Invalid operation for CA certificate store" ) );
 			}
 
-		return( caDeletePKIUser( dbmsInfo, keyIDtype, keyID, keyIDlength, 
-								 KEYSET_ERRINFO ) );
+		return( caDeletePKIUser( dbmsInfo, keyIDtype, encodedKeyID, 
+								 encodedKeyIDlength, KEYSET_ERRINFO ) );
 		}
 	ENSURES( keyName != NULL && deleteString != NULL );
 	status = strlcpy_s( sqlBuffer, MAX_SQL_QUERY_SIZE, deleteString );

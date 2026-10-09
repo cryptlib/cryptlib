@@ -648,11 +648,14 @@ int prepareRevocationEntries( IN_DATAPTR_OPT const DATAPTR listHead,
 STDC_NONNULL_ARG( ( 1 ) ) \
 void deleteRevocationEntries( INOUT_PTR_DATAPTR DATAPTR *listHeadPtr );
 
-/* Copy a set of revocation entries */
+/* Copy and check a set of revocation entries */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int copyRevocationEntries( INOUT_PTR_DATAPTR DATAPTR *listHeadPtr,
 						   IN_DATAPTR const DATAPTR srcList );
+CHECK_RETVAL \
+int checkRevocationEntries( IN_DATAPTR const DATAPTR reqList,
+							IN_DATAPTR const DATAPTR respList );
 
 /* Check a certificate's revocation status */
 
@@ -674,7 +677,8 @@ int checkOCSPResponse( INOUT_PTR CERT_INFO *certInfoPtr,
 /* Check a certificate object */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int checkCertBasic( INOUT_PTR CERT_INFO *subjectCertInfoPtr );
+int checkCertBasic( INOUT_PTR CERT_INFO *certInfoPtr,
+					IN_BOOL const BOOLEAN fullComplianceCheck );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 			   IN_PTR_OPT const CERT_INFO *issuerCertInfoPtr,
@@ -720,7 +724,8 @@ BOOLEAN checkNameMatch( void );
 #ifdef USE_CERTLEVEL_PKIX_PARTIAL
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int checkPathConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
-						  IN_LENGTH_SHORT_Z const int pathLength );
+						  IN_LENGTH_SHORT_Z const int pathLength,
+						  IN_BOOL const BOOLEAN issuerIsSubject );
 #endif /* USE_CERTLEVEL_PKIX_PARTIAL */
 
 /* Sign/sig check a certificate */
@@ -811,20 +816,20 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 							IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE certInfoType,
-							IN_BUFFER( certInfoLength ) const void *certInfo, 
-							IN_LENGTH_SHORT const int certInfoLength );
+							IN_BUFFER( dataLength ) const void *data, 
+							IN_LENGTH_SHORT const int dataLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 					  IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE certInfoType,
-					  OUT_INT_Z int *certInfo );
+					  OUT_INT_Z int *valuePtr );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
 int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 							IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE certInfoType,
-							OUT_BUFFER_OPT( certInfoMaxLength, \
-											*certInfoLength ) void *certInfo, 
-							IN_LENGTH_SHORT_Z const int certInfoMaxLength, 
-							OUT_LENGTH_BOUNDED_Z( certInfoMaxLength ) \
-								int *certInfoLength );
+							OUT_BUFFER_OPT( dataMaxLength, \
+											*dataLength ) void *data, 
+							IN_LENGTH_SHORT_Z const int dataMaxLength, 
+							OUT_LENGTH_BOUNDED_Z( dataMaxLength ) \
+								int *dataLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int deleteCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 						 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE certInfoType );
@@ -952,6 +957,15 @@ CHECK_RETVAL_PTR_NONNULL \
 const char *getCertTypeNameLC( IN_ENUM( CRYPT_CERTTYPE ) \
 									const CRYPT_CERTTYPE_TYPE certType );
 #endif /* USE_ERRMSGS */
+
+/* Prototypes for functions in comp_set.c */
+
+STDC_NONNULL_ARG( ( 1, 2 ) ) \
+void saveSelectionState( INOUT_PTR SELECTION_STATE *savedState,
+						 IN_PTR const CERT_INFO *certInfoPtr );
+STDC_NONNULL_ARG( ( 1, 2 ) ) \
+void restoreSelectionState( IN_PTR const SELECTION_STATE *savedState,
+							INOUT_PTR CERT_INFO *certInfoPtr );
 
 /* Prototypes for functions in comp_pkiu.c */
 

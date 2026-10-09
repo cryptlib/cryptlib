@@ -17,7 +17,13 @@
 
 /* The maximum number of data items in a CMS header or trailer, or at 
    least the maximum number of iterations in the state machine loop in
-   processPreamble() and processPostamble() */
+   processPreamble() and processPostamble().  Note that in the code this
+   is enforced per call rather than per CMS header/trailer because a
+   caller who breaks apart the processing across multiple calls to
+   processPreamble()/processPostamble() gets a new MAX_DATA_ITEMS loop
+   each time.  This isn't a problem, it's merely a sanity-check to
+   make sure that we don't iterate endlessly on malformed headers rather 
+   than being a hard limit */
 
 #define MAX_DATA_ITEMS		( MAX_ENV_ITEMS	+ 8 )
 
@@ -184,6 +190,9 @@ static int initExternalContentInfo( CONTENT_LIST *contentListItem,
 							  /* saltOrIV is CRYPT_MAX_HASHSIZE, not 
 							     CRYPT_MAX_IVSIZE since it can also contain 
 							     a salt */
+		REQUIRES( rangeCheck( queryInfo->ivLength, 1, CRYPT_MAX_IVSIZE ) );
+							  /* We check the source as well since it's a 
+							     different-sized buffer */
 		memcpy( encrInfo->saltOrIV, queryInfo->iv, queryInfo->ivLength );
 		encrInfo->saltOrIVsize = queryInfo->ivLength;
 		}
@@ -344,7 +353,12 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 	/* Make sure that there's room to add another list item */
 	if( !moreContentItemsPossible( contentListPtr ) )
+		{
+		/* This is a recoverable error in the data-handling state so we have
+		   to make it fatal for metadata handling */
+		envelopeInfoPtr->errorState = CRYPT_ERROR_OVERFLOW;
 		return( CRYPT_ERROR_OVERFLOW );
+		}
 
 	/* Find the size of the object, allocate a buffer for it, and copy it
 	   across */
@@ -355,9 +369,24 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		   the following reads, but we check them anyway just to be sure */
 		status = queryAsn1Object( stream, &queryInfo, objectTypeHint );
 		if( cryptStatusError( status ) )
+			{
+			if( status == CRYPT_ERROR_OVERFLOW )
+				{
+				/* This is a recoverable error in the data-handling state so 
+				   we have to make it fatal for metadata handling */
+				envelopeInfoPtr->errorState = CRYPT_ERROR_OVERFLOW;
+				}
 			return( status );
-		ENSURES( isIntegerRangeNZ( queryInfo.size ) );
-		objectSize = ( int ) queryInfo.size;
+			}
+		if( !isShortIntegerRangeMin( queryInfo.size, 8 ) )
+			{
+			/* This is a recoverable error in the data-handling state so we 
+			   have to make it fatal for metadata handling */
+			envelopeInfoPtr->errorState = CRYPT_ERROR_OVERFLOW;
+			return( CRYPT_ERROR_OVERFLOW );
+			}
+		ENSURES( isShortIntegerRangeNZ( queryInfo.size ) );
+		objectSize = queryInfo.size;
 
 		/* If it's a valid but unrecognised object type that was added after 
 		   this version of cryptlib was released, skip it and continue.  
@@ -392,7 +421,16 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		}
 	else
 		{
-		/* The query information has been provided externally, use that */
+		/* The query information has been provided externally, use that.  
+		   This is just a container for the information so the object
+		   sizes is typically 0 */
+		if( !isShortIntegerRange( externalQueryInfo->size ) )
+			{
+			/* This is a recoverable error in the data-handling state so 
+			   we have to make it fatal for metadata handling */
+			envelopeInfoPtr->errorState = CRYPT_ERROR_OVERFLOW;
+			return( CRYPT_ERROR_OVERFLOW );
+			}
 		memcpy( &queryInfo, externalQueryInfo, sizeof( QUERY_INFO ) );
 		}
 	ENSURES( infoProvidedExternally || isIntegerRangeNZ( queryInfo.size ) );
@@ -487,6 +525,54 @@ static int addContentListItem( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 /* Process the outer CMS envelope header */
 
+CHECK_RETVAL_BOOL \
+static BOOLEAN checkActionCompatibility( IN_ENUM_OPT( ACTION ) \
+											const ACTION_TYPE existingUsage,
+										 IN_ENUM_OPT( ACTION ) \
+											const ACTION_TYPE newAction )
+	{
+	const ACTION_TYPE newUsage = \
+				( newAction == ACTION_KEYEXCHANGE || \
+				  newAction == ACTION_xxx ) ? ACTION_CRYPT : newAction;
+				/* Action -> usage mapping */
+
+	REQUIRES_B( isEnumRangeOpt( existingUsage, ACTION ) );
+	REQUIRES_B( isEnumRangeOpt( newAction, ACTION ) );
+	
+	/* If there's no existing action set or it's a no-op change, we're 
+	   done */
+	if( existingUsage == ACTION_NONE || existingUsage == newUsage )
+		return( TRUE );
+	
+	/* There's an existing action already set, for example a signing action 
+	   if the caller has provided a hash action for a detached signature,
+	   make sure that the new action is compatible with it */
+	switch( existingUsage )
+		{
+		case ACTION_CRYPT:
+		case ACTION_MAC:
+			/* In the current code this will never be reached because a pre-
+			   set usage can only be ACTION_NONE or ACTION_SIGN, the 
+			   following is here just to handle possible future changes and
+			   will need to be cross-checked against all possible usage
+			   combinations */
+			if( newUsage == ACTION_KEYEXCHANGE || \
+				newUsage == ACTION_xxx )
+				return( TRUE );
+			break;
+		
+		case ACTION_SIGN:
+		case ACTION_COMPRESS:
+			/* We can't change horses in mid-stream */ 
+			break;
+
+		default:
+			retIntError_Boolean();
+		}
+	
+	return( FALSE );
+	}
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3 ) ) \
 static int processEnvelopeHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr, 
 								  INOUT_PTR STREAM *stream, 
@@ -508,6 +594,20 @@ static int processEnvelopeHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							READCMS_FLAG_NONE );
 	if( cryptStatusError( status ) )
 		return( status );
+
+	/* Make sure that the new action is compatible with any possible 
+	   existing action */
+	if( !checkActionCompatibility( envelopeInfoPtr->usage, action ) )
+		{
+		retExt( CRYPT_ERROR_BADDATA,
+				( CRYPT_ERROR_BADDATA, ENVELOPE_ERRINFO,
+				  "CMS envelope header doesn't match the existing "
+				  "%s usage set for the envelope", 
+				  ( envelopeInfoPtr->usage == ACTION_SIGN ) ? \
+				    "signing" : \
+				  ( envelopeInfoPtr->usage == ACTION_COMPRESS ) ? \
+				    "compression" : "encryption/authentication" ) );
+		}
 
 	/* Determine the next state to continue processing */
 	switch( action )
@@ -586,7 +686,7 @@ static int processEncryptionHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	const ACTION_LIST *actionListPtr = \
 				DATAPTR_GET( envelopeInfoPtr->actionList );
 	QUERY_INFO queryInfo;
-	int contentType, status;
+	int contentType, dummy, status;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -607,33 +707,16 @@ static int processEncryptionHeader( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 
 	/* We've reached encrypted data, we can't go any further until we can 
 	   either recover the session key from a key exchange object or are fed 
-	   the session key directly */
-	if( actionListPtr == NULL )
-		{
-		int dummy;
+	   the session key directly.  The key can only be added once the session-
+	   key content-list item below exists, so there can't be any actions 
+	   present at this point */
+	REQUIRES( actionListPtr == NULL );
 
-		/* Since the content can be indefinite-length we clear the size 
-		   field to give it a sensible setting */
-		queryInfo.size = 0;
-		return( addContentListItem( envelopeInfoPtr, NULL, &queryInfo, 
-									&dummy, QUERYOBJECT_KEYEX ) );
-		}
-	REQUIRES( actionListPtr != NULL && \
-			  actionListPtr->action == ACTION_CRYPT );
-
-	/* If the session key was recovered from a key exchange action but we 
-	   ran out of input data before we could read the encryptedContent 
-	   information it'll be present in the action list so we use it to set 
-	   things up for the decryption.  This can only happen if the caller 
-	   pushes in just enough data to get past the key exchange actions but 
-	   not enough to recover the encryptedContent information and then 
-	   pushes in a key exchange action in response to the 
-	   CRYPT_ERROR_UNDERFLOW error */
-	return( initEnvelopeEncryption( envelopeInfoPtr,
-							actionListPtr->iCryptHandle,
-							queryInfo.cryptAlgo, queryInfo.cryptMode,
-							queryInfo.iv, queryInfo.ivLength,
-							FALSE ) );
+	/* Since the content can be indefinite-length we clear the size field to 
+	   give it a sensible setting */
+	queryInfo.size = 0;
+	return( addContentListItem( envelopeInfoPtr, NULL, &queryInfo, 
+								&dummy, QUERYOBJECT_KEYEX ) );
 	}
 
 /* Process the hash or MAC object header */
@@ -818,10 +901,15 @@ static int processPayloadEOCs( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
    because if we're performing a standard data push then the caller expects 
    to get a CRYPT_OK status with a bytes-copied count, but if they've got as 
    far as the trailer data then they'll get a CRYPT_ERROR_UNDERFLOW unless 
-   we special-case the handling of the return status.  This is complicated 
-   by the fact that we have to carefully distinguish a CRYPT_ERROR_UNDERFLOW 
-   due to running out of input from a CRYPT_ERROR_UNDERFLOW incurred for any 
-   other reason such as parsing the input data */
+   we special-case the handling of the return status.
+   
+   This is complicated by the fact that we have to distinguish a 
+   CRYPT_ERROR_UNDERFLOW due to running out of input from a 
+   CRYPT_ERROR_UNDERFLOW incurred for any other reason such as parsing the 
+   input data.  It isn't actually possible to reliably do this without
+   instrumenting every function all the way down, so we make a best-effort
+   attempt by reporting a non-flush underflow as a soft error and a flush
+   underflow as a hard error */
 
 CHECK_RETVAL_BOOL \
 static BOOLEAN checkSoftError( IN_ERROR const int status, 
@@ -909,6 +997,15 @@ static int processSignedTrailer( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		}
 	newState = ( tag == MAKE_CTAG( 0 ) ) ? \
 			   DEENVSTATE_CERTSET : DEENVSTATE_SET_SIG;
+	if( tag == MAKE_CTAG( 1 ) )
+		{
+		/* These have never been encountered so all we do for now is warn in
+		   debug mode and fail with a bad-data error further down.  They can
+		   also be encountered after DEENVSTATE_CERTSET but again we just
+		   report a bad-data error there */
+		DEBUG_DIAG(( "CRLs encountered in CMS SignedData" ));
+		assert_nofuzz( DEBUG_WARN );
+		}
 
 	/* If we've seen all of the signed data, complete the hashing */
 	if( !TEST_FLAG( envelopeInfoPtr->flags, ENVELOPE_FLAG_DETACHED_SIG ) )
@@ -955,6 +1052,8 @@ static int processMacTrailer( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	status = processPayloadEOCs( envelopeInfoPtr, stream );
 	if( cryptStatusError( status ) )
 		{
+		/* processPayloadEOCs() can't return anything that would be 
+		   converted to a fatal error */
 		return( checkSoftError( status, isFlush ) ? \
 				OK_SPECIAL : status );
 		}
@@ -964,6 +1063,13 @@ static int processMacTrailer( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							  CRYPT_MAX_HASHSIZE );
 	if( cryptStatusError( status ) )
 		{
+		if( status == CRYPT_ERROR_OVERFLOW )
+			{
+			/* This is a recoverable error in the data-handling state so we 
+			   convert it to a non-recoverable one to let the caller handle
+			   it as such */
+			status = CRYPT_ERROR_BADDATA;
+			}
 		return( checkSoftError( status, isFlush ) ? \
 				OK_SPECIAL : status );
 		}
@@ -1122,11 +1228,15 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	STREAM stream;
 	int remainder, streamPos = 0;
 	LOOP_INDEX noHeaderItems;
-	int status = CRYPT_OK;
+	int value, status = CRYPT_OK;
 
 	assert( isWritePtr( envelopeInfoPtr, sizeof( ENVELOPE_INFO ) ) );
 	
 	REQUIRES( sanityCheckEnvCMSDenv( envelopeInfoPtr ) );
+
+	/* We could have come back to here from a previous attempt, in which 
+	   case we need to clear any residual error message from then */
+	clearErrorInfo( ENVELOPE_ERRINFO );
 
 	/* We can end up with no data left in the envelope buffer if we've 
 	   previously processed data that didn't get us out of the preamble and 
@@ -1145,9 +1255,15 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 		if( cryptStatusError( status ) )
 			{
 			sMemDisconnect( &stream );
-			retExt( status,
-					( status, ENVELOPE_ERRINFO,
-					  "Invalid CMS envelope header" ) );
+			if( status == CRYPT_ERROR_UNDERFLOW )
+				{
+				/* This is a (probably) recoverable error, don't set the 
+				   extended error information */
+				return( status );
+				}
+			retExtErr( status,
+					   ( status, ENVELOPE_ERRINFO, ENVELOPE_ERRINFO,
+						 "Invalid CMS envelope header" ) );
 			}
 
 		/* Remember how far we got */
@@ -1164,26 +1280,60 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 					noHeaderItems < MAX_DATA_ITEMS, 
 			  noHeaderItems++ )
 		{
-		ENSURES( LOOP_INVARIANT_MED( noHeaderItems, 0, MAX_DATA_ITEMS - 1 ) );
+		ENSURES( LOOP_INVARIANT_MED( noHeaderItems, \
+									 0, MAX_DATA_ITEMS - 1 ) );
 
 		switch( state )
 			{
 			/* Read the start of the SET OF RecipientInfo/SET OF 
 			   DigestAlgorithmIdentifier */
 			case DEENVSTATE_SET_ENCR:
+			case DEENVSTATE_SET_HASH:
 				{
+				const BOOLEAN isEncr = ( state == DEENVSTATE_SET_ENCR ) ? \
+										 TRUE : FALSE;
+#ifdef USE_ERRMSGS
+				const char *errorString = isEncr ? \
+							"Invalid SET OF RecipientInfo header" : \
+							"Invalid SET OF DigestAlgorithmIdentifier header";
+				const int errorStringLength = isEncr ? 35 : 47;
+#endif /* USE_ERRMSGS */
 				int setLength;
 
-				/* Read the SET tag and length.  We have to read the length 
-				   as a long value in order to handle cases where there's a 
-				   large amount of key management data involving a great 
-				   many recipients */
-				status = readLongSet( &stream, &setLength );
+				/* Read the SET tag and length.  readSetI() allows either a 
+				   nonzero definite length or an indefinite length */
+				status = readSetI( &stream, &setLength );
 				if( cryptStatusError( status ) )
 					{
-					setErrorString( ENVELOPE_ERRINFO, 
-									"Invalid SET OF RecipientInfo header", 35 );
+					if( status == CRYPT_ERROR_OVERFLOW )
+						{
+						/* This is a recoverable error in the data-handling 
+						   state so we have to make it fatal for metadata 
+						   handling */
+						envelopeInfoPtr->errorState = CRYPT_ERROR_OVERFLOW;
+						}
+					setErrorString( ENVELOPE_ERRINFO, errorString, 
+									errorStringLength );
 					break;
+					}
+				if( setLength == CRYPT_UNUSED )
+					{
+					/* An indefinite-length set doesn't tell us how many
+					   items are present so we have to explicitly check for
+					   an EOC following the SET OF, which would indicate an
+					   empty set.  checkEOC() leaves the stream untouched if
+					   there's no EOC present so it's safe to use here */
+					status = value = checkEOC( &stream );
+					if( cryptStatusError( status ) )
+						break;
+					if( value == TRUE )
+						{
+						setErrorString( ENVELOPE_ERRINFO, errorString, 
+										errorStringLength );
+						status = CRYPT_ERROR_BADDATA;
+						break;
+						}
+					status = CRYPT_OK;
 					}
 				envelopeInfoPtr->hdrSetLength = setLength;
 
@@ -1194,37 +1344,32 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 				   entry read */
 				streamPos = stell( &stream );
 				ENSURES( isBufsizeRangeNZ( streamPos ) );
-				state = DEENVSTATE_ENCR;
-
+				state = isEncr ? DEENVSTATE_ENCR : DEENVSTATE_HASH;
 				break;
 				}
-
-			case DEENVSTATE_SET_HASH:
-				/* Read the SET tag and length.  readSetI() allows either a 
-				   nonzero definite length or an indefinite length */
-				status = readSetI( &stream, &envelopeInfoPtr->hdrSetLength );
-				if( cryptStatusError( status ) )
-					{
-					setErrorString( ENVELOPE_ERRINFO, 
-									"Invalid SET OF DigestAlgorithmIdentifier "
-									"header", 47 );
-					break;
-					}
-
-				/* Remember where we are and move on to the next state.  
-				   Some implementations use the indefinite-length encoding 
-				   for this so if there's no length given (setLength == 
-				   CRYPT_UNUSED) we have to look for the EOC after each 
-				   entry read */
-				streamPos = stell( &stream );
-				ENSURES( isBufsizeRangeNZ( streamPos ) );
-				state = DEENVSTATE_HASH;
-				break;
 
 			/* Read and remember a key exchange object from a RecipientInfo */
 			case DEENVSTATE_ENCR:
 				{
 				int contentItemLength;
+
+				/* If it's an indefinite-length SET OF then we may have 
+				   reached the end of the set of items */
+				if( envelopeInfoPtr->hdrSetLength == CRYPT_UNUSED )
+					{
+					status = value = checkEOC( &stream );
+					if( cryptStatusError( status ) )
+						break;
+					if( value == TRUE )
+						{
+						streamPos = stell( &stream );
+						ENSURES( isBufsizeRangeNZ( streamPos ) );
+						state = ( envelopeInfoPtr->usage == ACTION_MAC ) ? \
+								  DEENVSTATE_MAC : DEENVSTATE_ENCRCONTENT;
+						status = CRYPT_OK;
+						break;
+						}
+					}
 
 				/* Add the object to the content information list */
 				status = addContentListItem( envelopeInfoPtr, &stream, NULL, 
@@ -1256,21 +1401,7 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 					if( envelopeInfoPtr->hdrSetLength <= 0 )
 						{
 						state = ( envelopeInfoPtr->usage == ACTION_MAC ) ? \
-								DEENVSTATE_MAC : DEENVSTATE_ENCRCONTENT;
-						}
-					}
-				else
-					{
-					const int value = checkEOC( &stream );
-					if( cryptStatusError( value ) )
-						{
-						status = value;
-						break;
-						}
-					if( value == TRUE )
-						{
-						state = ( envelopeInfoPtr->usage == ACTION_MAC ) ? \
-								DEENVSTATE_MAC : DEENVSTATE_ENCRCONTENT;
+								  DEENVSTATE_MAC : DEENVSTATE_ENCRCONTENT;
 						}
 					}
 				break;
@@ -1366,12 +1497,29 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 			/* Read and remember a hash object from a 
 			   DigestAlgorithmIdentifier record */
 			case DEENVSTATE_HASH:
+				/* If it's an indefinite-length SET OF then we may have 
+				   reached the end of the set of items */
+				if( envelopeInfoPtr->hdrSetLength == CRYPT_UNUSED )
+					{
+					status = value = checkEOC( &stream );
+					if( cryptStatusError( status ) )
+						break;
+					if( value == TRUE )
+						{
+						streamPos = stell( &stream );
+						ENSURES( isBufsizeRangeNZ( streamPos ) );
+						state = DEENVSTATE_CONTENT;
+						status = CRYPT_OK;
+						break;
+						}
+					}
+
 				status = processHashHeader( envelopeInfoPtr, &stream, TRUE );
 				if( cryptStatusError( status ) )
 					{
 					setErrorString( ENVELOPE_ERRINFO, 
-									"Invalid DigestedData content header", 
-									35 );
+									"Invalid SignedData content header", 
+									33 );
 					break;
 					}
 
@@ -1394,22 +1542,11 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 					REQUIRES( !checkOverflowSub( envelopeInfoPtr->hdrSetLength, 
 												 hashInfoLength ) );
 					envelopeInfoPtr->hdrSetLength -= hashInfoLength;
-					streamPos = stell( &stream );
-					ENSURES( isBufsizeRangeNZ( streamPos ) );
 					if( envelopeInfoPtr->hdrSetLength <= 0 )
 						state = DEENVSTATE_CONTENT;
 					}
-				else
-					{
-					const int value = checkEOC( &stream );
-					if( cryptStatusError( value ) )
-						{
-						status = value;
-						break;
-						}
-					if( value == TRUE )
-						state = DEENVSTATE_CONTENT;
-					}
+				streamPos = stell( &stream );
+				ENSURES( isBufsizeRangeNZ( streamPos ) );
 				break;
 
 			/* Read the encapsulated content header */
@@ -1440,6 +1577,19 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 					break;
 					}
 				envelopeInfoPtr->contentType = contentType;
+
+				/* If the caller has told us earlier that this is a detached 
+				   signature then  there can't be any content present */
+				if( TEST_FLAG( envelopeInfoPtr->flags, \
+							   ENVELOPE_FLAG_DETACHED_SIG ) && \
+					envelopeInfoPtr->payloadSize != 0 )
+					{
+					setErrorString( ENVELOPE_ERRINFO, 
+									"Detached signature contains spurious "
+									"signed content", 51 );
+					status = CRYPT_ERROR_BADDATA;
+					break;
+					}
 
 				/* If there's no content included and it's not an attributes-
 				   only message then this is a detached signature with the 
@@ -1510,8 +1660,9 @@ static int processPreamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 					if( status == CRYPT_ERROR_SIGNATURE )
 						{
 						setErrorString( ENVELOPE_ERRINFO, 
-									"Decrypted data corruption detected, "
-									"block padding check failed", 62 );
+										"Decrypted data corruption "
+										"detected, block padding check "
+										"failed", 62 );
 						break;
 						}
 
@@ -1585,6 +1736,11 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	{
 	DEENV_STATE state = envelopeInfoPtr->deenvState;
 	STREAM stream;
+	const BOOLEAN hasAuthTrailer = \
+		   envelopeInfoPtr->usage == ACTION_MAC || \
+		   ( envelopeInfoPtr->usage == ACTION_CRYPT && \
+			 TEST_FLAG( envelopeInfoPtr->flags, \
+						ENVELOPE_FLAG_AUTHENC ) ) ? TRUE : FALSE; 
 	BOOLEAN failedMAC = FALSE;
 	LOOP_INDEX noTrailerItems;
 	int remainder, streamPos = 0, status = CRYPT_OK;
@@ -1594,13 +1750,14 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	REQUIRES( sanityCheckEnvCMSDenv( envelopeInfoPtr ) );
 	REQUIRES( isBooleanValue( isFlush ) );
 
+	/* We could have come back to here from a previous attempt, in which 
+	   case we need to clear any residual error message from then */
+	clearErrorInfo( ENVELOPE_ERRINFO );
+
 	/* If that's all that there is, return */
 	if( state == DEENVSTATE_NONE && \
 		!( envelopeInfoPtr->usage == ACTION_SIGN || \
-		   envelopeInfoPtr->usage == ACTION_MAC || \
-		   ( envelopeInfoPtr->usage == ACTION_CRYPT && \
-			 TEST_FLAG( envelopeInfoPtr->flags, \
-						ENVELOPE_FLAG_AUTHENC ) ) ) && \
+		   hasAuthTrailer ) && \
 		envelopeInfoPtr->payloadSize != CRYPT_UNUSED )
 		{
 		/* Definite-length data with no trailer, there's nothing left to 
@@ -1615,6 +1772,25 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 								 envelopeInfoPtr->dataLeft ) );
 	if( envelopeInfoPtr->bufPos - envelopeInfoPtr->dataLeft < 2 )
 		{
+		/* If this is a flush and there's an authentication trailer present
+		   then a truncation is a signature-check failure not just a 
+		   standard underflow.  This is somewhat different to signed data, 
+		   for authenticated data the verification step happens in the 
+		   trailer so a truncated trailer would produce a (relatively 
+		   benign) CRYPT_ERROR_UNDERFLOW while for signed data the trailer
+		   doesn't produce a verification result, it comes from the caller
+		   checking the CRYPT_ENVINFO_SIGNATURE_RESULT.
+		   
+		   In theory we could try and apply the same thing for signatures in 
+		   order to catch broken code that ignores checking the signature on 
+		   signed data, but to do it cleanly requires catching every 
+		   possible truncation location below, and if something isn't 
+		   checking the signatures on signed data then it can just as easily 
+		   ignore a CRYPT_ERROR_INCOMPLETE or similar on truncated 
+		   signatures */
+		if( isFlush && hasAuthTrailer && state == DEENVSTATE_NONE )
+			return( CRYPT_ERROR_SIGNATURE );
+
 		return( checkSoftError( CRYPT_ERROR_UNDERFLOW, isFlush ) ? \
 				OK_SPECIAL : CRYPT_ERROR_UNDERFLOW );
 		}
@@ -1733,34 +1909,31 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 					status = OK_SPECIAL;
 					break;
 					}
+				if( status == CRYPT_ERROR_OVERFLOW )
+					{
+					/* This is a recoverable error in the data-handling 
+					   state so we have to make it fatal for metadata 
+					   handling */
+					envelopeInfoPtr->errorState = CRYPT_ERROR_OVERFLOW;
+					}
 				setErrorString( ENVELOPE_ERRINFO, 
 								"Invalid CertificateSet signing "
 								"certificate chain header", 55 );
 				break;
 				}
-			if( sMemDataLeft( &stream ) < certSetLength && \
-				checkSoftError( CRYPT_ERROR_UNDERFLOW, isFlush ) )
+
+			/* Allocate the buffer for the certificate chain and read it in.
+			   We know that the entire chain is present to read because 
+			   getStreamObjectLength() guarantees this */
+			REQUIRES( envelopeInfoPtr->auxBuffer == NULL );
+			REQUIRES( isShortIntegerRangeNZ( certSetLength ) );
+			if( ( envelopeInfoPtr->auxBuffer = \
+					clAlloc( "processPostamble", certSetLength ) ) == NULL )
 				{
-				status = OK_SPECIAL;
+				status = CRYPT_ERROR_MEMORY;
 				break;
 				}
-			if( envelopeInfoPtr->auxBuffer == NULL )
-				{
-				/* Allocate a buffer for the certificate chain if necessary.  
-				   This may already be allocated if the previous attempt to 
-				   read the chain failed due to there being insufficient 
-				   data in the envelope buffer, so we make it conditional on
-				   the buffer being NULL */
-				REQUIRES( isShortIntegerRangeNZ( certSetLength ) );
-				if( ( envelopeInfoPtr->auxBuffer = \
-						clAlloc( "processPostamble", certSetLength ) ) == NULL )
-					{
-					status = CRYPT_ERROR_MEMORY;
-					break;
-					}
-				envelopeInfoPtr->auxBufSize = certSetLength;
-				}
-			ENSURES( envelopeInfoPtr->auxBufSize == certSetLength );
+			envelopeInfoPtr->auxBufSize = certSetLength;
 			REQUIRES( rangeCheck( envelopeInfoPtr->auxBufSize, \
 								  1, MAX_INTLENGTH_SHORT ) );
 			status = sread( &stream, envelopeInfoPtr->auxBuffer,
@@ -1777,7 +1950,7 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		/* Read the start of the SET OF Signature */
 		if( state == DEENVSTATE_SET_SIG )
 			{
-			int setLength;
+			int setLength, value;
 
 			/* Read the SET tag and length */
 			status = readSetI( &stream, &setLength );
@@ -1788,9 +1961,35 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 					status = OK_SPECIAL;
 					break;
 					}
+				if( status == CRYPT_ERROR_OVERFLOW )
+					{
+					/* This is a recoverable error in the data-handling 
+					   state so we have to make it fatal for metadata 
+					   handling */
+					envelopeInfoPtr->errorState = CRYPT_ERROR_OVERFLOW;
+					}
 				setErrorString( ENVELOPE_ERRINFO, 
 								"Invalid SET OF SignerInfo header", 32 );
 				break;
+				}
+			if( setLength == CRYPT_UNUSED )
+				{
+				/* An indefinite-length set doesn't tell us how many items 
+				   are present so we have to explicitly check for an EOC 
+				   following the SET OF, which would indicate an empty set.  
+				   checkEOC() leaves the stream untouched if there's no EOC 
+				   present so it's safe to use here */
+				status = value = checkEOC( &stream );
+				if( cryptStatusError( status ) )
+					break;
+				if( value == TRUE )
+					{
+					setErrorString( ENVELOPE_ERRINFO, 
+									"Invalid SET OF SignerInfo header", 32 );
+					status = CRYPT_ERROR_BADDATA;
+					break;
+					}
+				status = CRYPT_OK;
 				}
 			envelopeInfoPtr->hdrSetLength = setLength;
 
@@ -1806,7 +2005,7 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 		/* Read and remember a signature object from a Signature record */
 		if( state == DEENVSTATE_SIG )
 			{
-			int contentItemLength;
+			int contentItemLength, value;
 
 			/* If it's a standard data push, make sure that there's enough 
 			   data left to continue.  Checking at this point means that we 
@@ -1820,14 +2019,42 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 				break;
 				}
 
+			/* If it's an indefinite-length SET OF then we may have reached 
+			   the end of the set of items */
+			if( envelopeInfoPtr->hdrSetLength == CRYPT_UNUSED )
+				{
+				status = value = checkEOC( &stream );
+				if( cryptStatusError( status ) )
+					{
+					if( checkSoftError( value, isFlush ) )
+						status = OK_SPECIAL;
+					break;
+					}				
+				if( value == TRUE )
+					{
+					streamPos = stell( &stream );
+					ENSURES( isBufsizeRangeNZ( streamPos ) );
+					state = ( envelopeInfoPtr->payloadSize == CRYPT_UNUSED ) ? \
+							  DEENVSTATE_EOC : DEENVSTATE_DONE;
+					status = CRYPT_OK;
+					break;
+					}
+				}
+
 			/* Add the object to the content information list */
 			status = addContentListItem( envelopeInfoPtr, &stream, NULL,
 										 &contentItemLength, 
 										 QUERYOBJECT_SIGNATURE );
 			if( cryptStatusError( status ) )
 				{
-				setErrorString( ENVELOPE_ERRINFO, 
-								"Invalid SignerInfo signature record", 35 );
+				if( checkSoftError( status, isFlush ) )
+					status = OK_SPECIAL;
+				else
+					{
+					setErrorString( ENVELOPE_ERRINFO, 
+									"Invalid SignerInfo signature record", 
+									35 );
+					}
 				break;
 				}
 
@@ -1852,23 +2079,14 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 							DEENVSTATE_EOC : DEENVSTATE_DONE;
 					}
 				}
-			else
-				{
-				const int value = checkEOC( &stream );
-				if( cryptStatusError( value ) )
-					{
-					status = value;
-					break;
-					}
-				if( value == TRUE )
-					{
-					state = ( envelopeInfoPtr->payloadSize == CRYPT_UNUSED ) ? \
-							DEENVSTATE_EOC : DEENVSTATE_DONE;
-					}
-				}
 			}
 
-		/* Handle end-of-contents octets */
+		/* Handle end-of-contents octets.  Note that this and other EOC 
+		   processing don't consume every possible EOC down to the last 
+		   byte, there are lots of different combinations possible with
+		   mixed definite/indefinite-length encodings, most of which are
+		   never used, and as long as we find some EOCs there's no point
+		   in accounting for each one */
 		if( state == DEENVSTATE_EOC )
 			{
 			status = processEOCTrailer( envelopeInfoPtr, &stream, isFlush );
@@ -1971,7 +2189,10 @@ static int processPostamble( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 			}
 		}
 
-	/* If all went OK but we're still not out of the header information, 
+	ENSURES( checkActions( envelopeInfoPtr ) );
+			 /* sanityCheckEnvCMSDenv() done earlier */
+
+	/* If all went OK but we're still not out of the trailer information, 
 	   return an underflow error */
 	return( ( state != DEENVSTATE_DONE ) ? CRYPT_ERROR_UNDERFLOW : CRYPT_OK );
 	}

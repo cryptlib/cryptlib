@@ -19,12 +19,6 @@
   #pragma convert( 0 )
 #endif /* IBM medium iron */
 
-/* Whether the database interface is working or not.  This is used when 
-   opportunistically calling checkCreateDatabaseKeysets(), if it fails the
-   first time then it's not going to start working on subsequent calls */
-
-static int databaseNotWorking = FALSE;
-
 /****************************************************************************
 *																			*
 *								Utility Routines							*
@@ -44,6 +38,12 @@ static int databaseNotWorking = FALSE;
 #if defined( _MSC_VER ) && defined( _WIN32 ) && !defined( _WIN32_WCE )
 
 #define DATABASE_AUTOCONFIG
+
+/* Whether the database interface is working or not.  This is used when 
+   opportunistically calling checkCreateDatabaseKeysets(), if it fails the
+   first time then it's not going to start working on subsequent calls */
+
+static int databaseNotWorking = FALSE;
 
 #include <odbcinst.h>
 
@@ -1337,7 +1337,9 @@ BOOLEAN testSessionsLoopback( void )
 		return( FALSE );
 	if( !testSessionTLS12NoClientCertClientServer() )
 		return( FALSE );
-	if( !testSessionTLS12ClientCertManualClientServer() )
+	if( !testSessionTLS12ClientCertManualAllowClientServer() )
+		return( FALSE );
+	if( !testSessionTLS12ClientCertManualDenyClientServer() )
 		return( FALSE );
 	if( !testSessionTLS12BulkTransferClientServer() )
 		return( FALSE );

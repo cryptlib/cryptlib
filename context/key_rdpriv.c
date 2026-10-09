@@ -38,7 +38,7 @@ static int checkSPKIHash( IN_PTR const CONTEXT_INFO *contextInfoPtr,
 						  IN_LENGTH_FIXED( 32 ) const int spkiHashLength ) 
 	{
 	PKC_CALCULATEKEYID_FUNCTION calculateKeyIDFunction;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BYTE calculatedSPKIhash[ CRYPT_MAX_HASHSIZE + 8 ];
 	int status;
 
@@ -97,7 +97,7 @@ static int readRsaPrivateKey( INOUT_PTR STREAM *stream,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	READ_BIGNUM_FUNCTION readBignumFunction = checkRead ? \
 									checkBignumRead : readBignumTag;
 	BYTE spkiHash[ CRYPT_MAX_HASHSIZE + 8 ];
@@ -245,7 +245,7 @@ static int readDlpPrivateKey( INOUT_PTR STREAM *stream,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const DH_DOMAINPARAMS *domainParams;
 	const BIGNUM *p;
 	READ_BIGNUM_FUNCTION readBignumFunction = checkRead ? \
@@ -336,7 +336,7 @@ static int readEccPrivateKey( INOUT_PTR STREAM *stream,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	READ_BIGNUM_FUNCTION readBignumFunction = checkRead ? \
 									checkBignumRead : readBignumTag;
 	BYTE spkiHash[ CRYPT_MAX_HASHSIZE + 8 ];
@@ -405,7 +405,7 @@ static int read25519PrivateKey( INOUT_PTR STREAM *stream,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BERNSTEIN_KEY_INFO *bernsteinKey;
 	BYTE buffer[ MAX_PKCSIZE_BERNSTEIN + 8 ], *bufPtr;
 	BYTE spkiHash[ CRYPT_MAX_HASHSIZE + 8 ];
@@ -501,7 +501,7 @@ static int readRsaPrivateKeyOld( INOUT_PTR STREAM *stream,
 	CRYPT_ALGO_TYPE cryptAlgo DUMMY_INIT;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int length, endPos, position, status, LOOP_ITERATOR;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -710,7 +710,7 @@ static int readDsaPrivateKeyOld( INOUT_PTR STREAM *stream,
 	CRYPT_ALGO_TYPE cryptAlgo DUMMY_INIT;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -792,7 +792,7 @@ static int readEccPrivateKeyOld( INOUT_PTR STREAM *stream,
 	CRYPT_ALGO_TYPE cryptAlgo;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	ALGOID_PARAMS algoIDparams;
 	long value;
 	int tag, status;
@@ -893,7 +893,7 @@ static int readPgpRsaPrivateKey( INOUT_PTR STREAM *stream,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -950,7 +950,7 @@ static int readPgpDlpPrivateKey( INOUT_PTR STREAM *stream,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -985,7 +985,7 @@ static int readPgpEccPrivateKey( INOUT_PTR STREAM *stream,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -1258,7 +1258,7 @@ void initPrivKeyRead( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 
@@ -1324,7 +1324,7 @@ static int readPrivKeyNullFunction( INOUT_PTR STREAM *stream,
 STDC_NONNULL_ARG( ( 1 ) ) \
 void initPrivKeyRead( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 

@@ -51,34 +51,49 @@ static const COMPARE_ACL compareACLTbl[] = {
 
 	/* X.509 subject DN */
 	{ MESSAGE_COMPARE_SUBJECT,
-	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | ST_CERT_CERTCHAIN ),
+	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | \
+										ST_CERT_CERTCHAIN ),
 				   MIN_ID_LENGTH, MAX_ATTRIBUTE_SIZE ) },
 
 	/* PKCS #7 issuerAndSerialNumber */
 	{ MESSAGE_COMPARE_ISSUERANDSERIALNUMBER,
-	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | ST_CERT_CERTCHAIN ),
+	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | \
+										ST_CERT_CERTCHAIN ),
 				   MIN_ID_LENGTH, MAX_ATTRIBUTE_SIZE ) },
 
 	/* SubjectKeyIdentifier */
 	{ MESSAGE_COMPARE_SUBJECTKEYIDENTIFIER,
-	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | ST_CERT_CERTCHAIN ),
+	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | \
+										ST_CERT_CERTCHAIN ),
 				   MIN_ID_LENGTH, MAX_ATTRIBUTE_SIZE ) },
 
 	/* Certificate fingerprint for various hash algorithms */
 	{ MESSAGE_COMPARE_FINGERPRINT_SHA1,
-	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | ST_CERT_CERTCHAIN ),
+	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_CERTCHAIN | \
+										ST_CERT_PKIUSER ),
 				   20, 20 ) },
 	{ MESSAGE_COMPARE_FINGERPRINT_SHA2,
-	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | ST_CERT_CERTCHAIN ),
+	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_CERTCHAIN | \
+										ST_CERT_PKIUSER ),
 				   32, 32 ) },
 	{ MESSAGE_COMPARE_FINGERPRINT_SHAng,
-	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | ST_CERT_CERTCHAIN ),
+	  MK_CMPACL_S( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_CERTCHAIN | \
+										ST_CERT_PKIUSER ),
 				   32, 32 ) },
 
-	/* Certificate object */
+	/* Certificate object, which is converted internally to a certificate 
+	   fingerprint compare */
 	{ MESSAGE_COMPARE_CERTOBJ,
-	  MK_CMPACL_O( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | ST_CERT_CERTCHAIN ),
-				   MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_ATTRCERT | ST_CERT_CERTCHAIN ) ) },
+	  MK_CMPACL_O( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_CERTCHAIN | \
+										ST_CERT_PKIUSER ),
+				   MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_CERTCHAIN | \
+										ST_CERT_PKIUSER ) ) },
+
+	/* Certificate extendedKeyUsage */
+	{ MESSAGE_COMPARE_EKU,
+	  MK_CMPACL_N( MKTYPE_CERTIFICATES( ST_CERT_CERT | ST_CERT_CERTCHAIN ),
+				   CRYPT_CERTINFO_EXTKEY_SERVERAUTH, 
+				   CRYPT_CERTINFO_EXTKEY_ANYKEYUSAGE ) },
 
 	/* End-of-ACL marker */
 	{ MESSAGE_COMPARE_NONE,
@@ -1026,24 +1041,35 @@ int initMessageACL( void )
 			}
 		ENSURES( ( compareACL->objectACL.flags == 0 ) || \
 				 ( compareACL->objectACL.flags == ACL_FLAG_HIGH_STATE ) );
-		if( paramInfo( compareACL, 0 ).valueType == PARAM_VALUE_STRING )
+		switch( paramInfo( compareACL, 0 ).valueType )
 			{
-			ENSURES( paramInfo( compareACL, 0 ).lowRange >= MIN_ID_LENGTH && \
-					 paramInfo( compareACL, 0 ).lowRange <= \
-						paramInfo( compareACL, 0 ).highRange && \
-					 paramInfo( compareACL, 0 ).highRange <= MAX_ATTRIBUTE_SIZE );
-			}
-		else
-			{
-			ENSURES( paramInfo( compareACL, 0 ).valueType == PARAM_VALUE_OBJECT );
-			if( ( paramInfo( compareACL, 0 ).subTypeA & ~( SUBTYPE_CLASS_A | \
-														   ST_CERT_ANY ) ) || \
-				paramInfo( compareACL, 0 ).subTypeB != ST_NONE || \
-				paramInfo( compareACL, 0 ).subTypeC != ST_NONE )
-				{
-				DEBUG_DIAG(( "Message ACLs inconsistent" ));
+			case PARAM_VALUE_NUMERIC:
+				ENSURES( paramInfo( compareACL, 0 ).lowRange >= CRYPT_CERTINFO_FIRST + 1 && \
+						 paramInfo( compareACL, 0 ).lowRange <= \
+								paramInfo( compareACL, 0 ).highRange && \
+						 paramInfo( compareACL, 0 ).highRange <= CRYPT_CERTINFO_LAST - 1 );
+				break;
+
+			case PARAM_VALUE_STRING:
+				ENSURES( paramInfo( compareACL, 0 ).lowRange >= MIN_ID_LENGTH && \
+						 paramInfo( compareACL, 0 ).lowRange <= \
+								paramInfo( compareACL, 0 ).highRange && \
+						 paramInfo( compareACL, 0 ).highRange <= MAX_ATTRIBUTE_SIZE );
+				break;
+				
+			case PARAM_VALUE_OBJECT:
+				if( ( paramInfo( compareACL, 0 ).subTypeA & ~( SUBTYPE_CLASS_A | \
+															   ST_CERT_ANY ) ) || \
+					paramInfo( compareACL, 0 ).subTypeB != ST_NONE || \
+					paramInfo( compareACL, 0 ).subTypeC != ST_NONE )
+					{
+					DEBUG_DIAG(( "Message ACLs inconsistent" ));
+					retIntError();
+					}
+				break;
+
+			default:
 				retIntError();
-				}
 			}
 		
 		/* Check the parameter ACLs within the compare ACL */
@@ -1807,41 +1833,73 @@ int preDispatchCheckCompareParam( IN_HANDLE const int objectHandle,
 
 	/* Check the message parameters.  We throw an exception if we find an
 	   invalid parameter for the reason given above */
-	if( paramInfo( compareACL, 0 ).valueType == PARAM_VALUE_OBJECT )
+	switch( paramInfo( compareACL, 0 ).valueType )
 		{
-		const CRYPT_HANDLE iCryptHandle = \
+		case PARAM_VALUE_NUMERIC:
+			{
+			const CRYPT_ATTRIBUTE_TYPE attribute = \
+							*( ( CRYPT_ATTRIBUTE_TYPE * ) messageDataPtr );
+
+			REQUIRES( checkParamNumeric( paramInfo( compareACL, 0 ),
+										 attribute ) );
+			break;
+			}
+
+		case PARAM_VALUE_STRING:
+			{
+			const MESSAGE_DATA *msgData = messageDataPtr;
+
+			REQUIRES( checkParamString( paramInfo( compareACL, 0 ),
+										msgData->data, msgData->length ) );
+			break;
+			}
+
+		case PARAM_VALUE_OBJECT:
+			{
+			const CRYPT_HANDLE iCryptHandle = \
 							*( ( CRYPT_HANDLE * ) messageDataPtr );
 
-		REQUIRES( fullObjectCheck( iCryptHandle, message ) && \
-				  isSameOwningObject( objectHandle, iCryptHandle ) );
-		REQUIRES( checkParamObject( paramInfo( compareACL, 0 ), \
-				  iCryptHandle ) );
-		}
-	else
-		{
-		const MESSAGE_DATA *msgData = messageDataPtr;
-
-		REQUIRES( checkParamString( paramInfo( compareACL, 0 ),
-									msgData->data, msgData->length ) );
+			REQUIRES( fullObjectCheck( iCryptHandle, message ) && \
+					  isSameOwningObject( objectHandle, iCryptHandle ) );
+			REQUIRES( checkParamObject( paramInfo( compareACL, 0 ), \
+					  iCryptHandle ) );
+			break;
+			}
+		
+		default:
+			retIntError();
 		}
 
-	/* Postconditions: The compare parameters are valid, either an object
-	   handle or a string value at least as big as a minimal-length DN */
-	assert( ( messageValue == MESSAGE_COMPARE_CERTOBJ && \
-			  isValidHandle( *( ( CRYPT_HANDLE * ) messageDataPtr ) ) ) || \
+	/* Postconditions: The compare parameters are valid, either an attribute 
+	   ID, a string value at least as big as a minimal-length DN, or an 
+	   object handle */
+	assert( ( messageValue == MESSAGE_COMPARE_EKU && \
+			  *( ( CRYPT_ATTRIBUTE_TYPE * ) messageDataPtr ) >= \
+											CRYPT_CERTINFO_FIRST + 1 && \
+			  *( ( CRYPT_ATTRIBUTE_TYPE * ) messageDataPtr ) <= \
+											CRYPT_CERTINFO_LAST - 1 ) || \
 			( messageValue != MESSAGE_COMPARE_CERTOBJ && \
+			  messageValue != MESSAGE_COMPARE_EKU && \
 			  isReadPtr( messageDataPtr, sizeof( MESSAGE_DATA ) ) && \
 			  ( ( MESSAGE_DATA * ) messageDataPtr )->length >= MIN_ID_LENGTH && \
 			  isReadPtrDynamic( ( ( MESSAGE_DATA * ) messageDataPtr )->data, \
-								( ( MESSAGE_DATA * ) messageDataPtr )->length ) ) );
+								( ( MESSAGE_DATA * ) messageDataPtr )->length ) ) || \
+			( messageValue == MESSAGE_COMPARE_CERTOBJ && \
+			  isValidHandle( *( ( CRYPT_HANDLE * ) messageDataPtr ) ) ) );
 
 	ENSURES( messageDataPtr != NULL );
-	ENSURES( ( messageValue == MESSAGE_COMPARE_CERTOBJ && \
-			   isValidHandle( *( ( CRYPT_HANDLE * ) messageDataPtr ) ) ) || \
+	ENSURES( ( messageValue == MESSAGE_COMPARE_EKU && \
+			  *( ( CRYPT_ATTRIBUTE_TYPE * ) messageDataPtr ) >= \
+											CRYPT_CERTINFO_FIRST + 1 && \
+			  *( ( CRYPT_ATTRIBUTE_TYPE * ) messageDataPtr ) <= \
+											CRYPT_CERTINFO_LAST - 1 ) || \
 			 ( messageValue != MESSAGE_COMPARE_CERTOBJ && \
+			   messageValue != MESSAGE_COMPARE_EKU && \
 			   ( ( ( MESSAGE_DATA * ) messageDataPtr )->data != NULL && \
 				 ( ( MESSAGE_DATA * ) messageDataPtr )->length >= MIN_ID_LENGTH && \
-				 ( ( MESSAGE_DATA * ) messageDataPtr )->length < MAX_INTLENGTH ) ) );
+				 ( ( MESSAGE_DATA * ) messageDataPtr )->length < MAX_INTLENGTH ) ) || \
+			 ( messageValue == MESSAGE_COMPARE_CERTOBJ && \
+			   isValidHandle( *( ( CRYPT_HANDLE * ) messageDataPtr ) ) ) );
 
 	return( CRYPT_OK );
 	}

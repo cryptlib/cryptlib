@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 # script to translate th cryptlib C interface into a Perl header interface module
 # Copyright (C) 2007 Alvaro Livraghi
+# Adapted to version 3.4.9 by Ralf Senderek, Sep 2026
 
 #####
 #       G E N P E R L . P L   Version 0.2 (last changes 2008-08-17)
@@ -148,7 +149,7 @@ my $Warn="";
 
 while ($_ = shift @source) {
 
-	# ignore special C++ handling
+    # ignore special C++ handling
     if (/#ifdef\s+__cplusplus/) {
         $_ = shift @source  while (!(/#endif/));
         $_ = shift @source;
@@ -177,7 +178,7 @@ while ($_ = shift @source) {
         $_ .= shift @source;
         redo if @source;
     }
-	# lines are complete now, do the translation
+    # lines are complete now, do the translation
 
     # hex values
     #s{0x([0-9a-fA-F]+)}{&H$1}g;
@@ -213,9 +214,20 @@ while ($_ = shift @source) {
 		s/\n/\n#/g;
 	}
 
+	if ( s/^(\s*?)(C_DECLSPEC_DEPRECATED|C_ATTRIBUTE_DEPRECATED)(.*?)/# $1$2$3/ ) {
+		s/\n/\n#/g;
+                $_ = "# Ignoring deprecated function.\n"
+	}
+
 	if ( s/^(\s*?)(C_CHECK_RETVAL|C_NONNULL_ARG)(.*?)/# $1$2$3/ ) {
 		s/\n/\n#/g;
 	}
+
+    # SELECTED definitions are ignored
+    if (s/\s.*("Use cryptWrapKey instead".*)\s+(.*)/$1$2/) {
+        s/\n/\n#/g;
+        $_ = "# Selected define ignored:\n#  $_\n";
+    }
 
 	# C-macro definitions are ignored
     if (s/\s*#define\s+(.*)/$1/) {

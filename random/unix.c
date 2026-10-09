@@ -647,7 +647,19 @@ static int getSysctlData( void )
 						 sysctlInfo[ i ].mib[ 0 ], sysctlInfo[ i ].mib[ 1 ],
 						 size ));
 			if( size >= SYSCTL_BUFFER_SIZE / 2 )
+				{
+				if( size > SYSCTL_BUFFER_SIZE )
+					{
+					/* Should-never-happen ("if the amount of data available 
+					   is greater than the size of the buffer supplied, the 
+					   call supplies as much data as fits in the buffer 
+					   provided and returns with the error code ENOMEM") 
+					   safety check */
+					assert( DEBUG_WARN );
+					size = SYSCTL_BUFFER_SIZE;
+					}
 				status = 0;
+				}
 			}
 		if( status )
 			continue;
@@ -1327,9 +1339,10 @@ static int addStaticSystemInfo( void )
 #endif /* Linux >= 4 */
 	}
 
-/* Hardware RNG data via /dev/hwrng */
+/* Hardware RNG data via /dev/hwrng.  kernel.random.entropy_avail is fixed 
+   at 256 bytes but we only read 32 bytes / 256 bits worth */
 
-#define HWRNG_BUFSIZE		256
+#define HWRNG_BUFSIZE		32
 
 #ifndef NDEBUG
 
@@ -1390,14 +1403,17 @@ static int getHWRNGData( void )
 	close( hwrngFD );
 	status = initRandomData( randomState, buffer, RANDOM_BUFSIZE );
 	ENSURES_EXT( cryptStatusOK( status ), 0 );
-	if( count > 0 )
+	if( count >= 4 )
 		{
-		addRandomData( randomState, hwrngBuffer, HWRNG_BUFSIZE );
-		quality = 50;
+		/* We want at least 32 bits of output.  kernel.random.entropy_avail 
+		   fixes the size at 256 bytes but we only read 32 bytes / 256 
+		   bits */
+		addRandomData( randomState, hwrngBuffer, count );
+		quality = ( count >= 16 ) ? 50 : 20;
 		}
 	else
 		{
-		DEBUG_PRINT_COND( debugRandom,
+		DEBUG_PRINT_COND( count <= 0 && debugRandom,
 						  ( "Hardware RNG via /dev/hwrng is available but "
 						    "not readable,\n  this is broken but by-design "
 							"functionality.\n" ));

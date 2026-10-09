@@ -464,6 +464,7 @@ typedef enum {
 	MESSAGE_COMPARE_FINGERPRINT_SHA2,/* Compare fingerprint, SHA2 */
 	MESSAGE_COMPARE_FINGERPRINT_SHAng,/* Compare fingerprint, SHAng */
 	MESSAGE_COMPARE_CERTOBJ,		/* Compare cert objects */
+	MESSAGE_COMPARE_EKU,			/* Compare extendedKeyUsage */
 	MESSAGE_COMPARE_LAST			/* Last possible compare type */
 	} MESSAGE_COMPARE_TYPE;
 
@@ -1280,16 +1281,14 @@ typedef enum {
 #define KEYMGMT_FLAG_NONE			0x0000	/* No flag type */
 #define KEYMGMT_FLAG_CHECK_ONLY		0x0001	/* Perform existence check only */
 #define KEYMGMT_FLAG_LABEL_ONLY		0x0002	/* Get key label only */
-#define KEYMGMT_FLAG_UPDATE			0x0004	/* Update existing (allow dups) */
-#define KEYMGMT_FLAG_DATAONLY_CERT	0x0008	/* Create data-only certificate */
+#define KEYMGMT_FLAG_DATAONLY_CERT	0x0004	/* Create data-only certificate */
 #define KEYMGMT_FLAG_CERT_AS_CERTCHAIN \
-									0x0010	/* Force creation of cert.chain
+									0x0008	/* Force creation of cert.chain
 												even if single cert.present */
-#define KEYMGMT_FLAG_USAGE_CRYPT	0x0020	/* Prefer encryption key */
-#define KEYMGMT_FLAG_USAGE_SIGN		0x0040	/* Prefer signature key */
-#define KEYMGMT_FLAG_GETISSUER		0x0080	/* Get issuing PKI user for cert.*/
-#define KEYMGMT_FLAG_INITIALOP		0x0100	/* Initial cert issue operation */
-#define KEYMGMT_FLAG_MAX			0x01FF	/* Maximum possible flag value */
+#define KEYMGMT_FLAG_USAGE_CRYPT	0x0010	/* Prefer encryption key */
+#define KEYMGMT_FLAG_USAGE_SIGN		0x0020	/* Prefer signature key */
+#define KEYMGMT_FLAG_GETISSUER		0x0040	/* Get issuing PKI user for cert.*/
+#define KEYMGMT_FLAG_MAX			0x007F	/* Maximum possible flag value */
 
 #define KEYMGMT_MASK_USAGEOPTIONS	( KEYMGMT_FLAG_USAGE_CRYPT | \
 									  KEYMGMT_FLAG_USAGE_SIGN )
@@ -1324,21 +1323,38 @@ typedef struct {
 
 /* Certificate management messages used to handle CA operations.  All 
    fields are mandatory, however the cryptCert and request fields may be 
-   set to CRYPT_UNUSED to indicate 'don't care' conditions.  The lack of
-   an explicit ERROR_INFO is as for the keymgmtInfo message */
+   set to CRYPT_UNUSED to indicate 'don't care' conditions.  The authCert
+   and pkiUser fields are for accounting purposes during certificate issue
+   operations and are supplied from information in the protocol being used
+   to issue the certificate, for example CMP or SCEP.
+   
+   The lack of an explicit ERROR_INFO is as for the keymgmtInfo message */
+
+typedef enum {
+	CERTMGMT_OPTION_NONE,			/* No cert management option type */
+	CERTMGMT_OPTION_INITIAL,		/* Initial certificate issue */
+	CERTMGMT_OPTION_RENEWAL,		/* Existing certificate renewal */
+	CERTMGMT_OPTION_LAST			/* Last possible cert mgt.option type */
+	} CERTMGMT_OPTION_TYPE;
 
 typedef struct {
-	CRYPT_CERTIFICATE cryptCert;			/* Returned certificate */
-	CRYPT_CONTEXT caKey;					/* CA key to sign item */
-	CRYPT_CERTIFICATE request;				/* Request for operation */
+	CRYPT_CERTIFICATE cryptCert;	/* Returned certificate */
+	CRYPT_CONTEXT caKey;			/* CA key to sign item */
+	CRYPT_CERTIFICATE request;		/* Request for operation */
+	CRYPT_CERTIFICATE authCert;		/* Cert that auth'd request */
+	CRYPT_CERTIFICATE pkiUser;		/* PKI user the op.is for */
+	CERTMGMT_OPTION_TYPE option;	/* Cert.management option type */
 	} MESSAGE_CERTMGMT_INFO;
 
-#define setMessageCertMgmtInfo( certMgmtInfo, mgmtCaKey, mgmtRequest ) \
+#define setMessageCertMgmtInfo( certMgmtInfo, mgmtCaKey, mgmtRequest, mgmtAuthCert, mgmtPkiUser, mgmtOption ) \
 		{ \
 		memset( certMgmtInfo, 0, sizeof( MESSAGE_CERTMGMT_INFO ) ); \
 		( certMgmtInfo )->cryptCert = CRYPT_ERROR; \
 		( certMgmtInfo )->caKey = ( mgmtCaKey ); \
 		( certMgmtInfo )->request = ( mgmtRequest ); \
+		( certMgmtInfo )->authCert = ( mgmtAuthCert ); \
+		( certMgmtInfo )->pkiUser = ( mgmtPkiUser ); \
+		( certMgmtInfo )->option = ( mgmtOption ); \
 		ANALYSER_HINT( isHandleRangeValid( ( certMgmtInfo )->cryptCert ) ); \
 		}			   /* Hack for unimplemented VALUE() op.in VS 2013 */
 

@@ -846,7 +846,7 @@ static int ecdsaInitKey( CONTEXT_INFO *contextInfoPtr, const void *key,
 	if( TEST_FLAG( contextInfoPtr->flags, CONTEXT_FLAG_STATICCONTEXT | \
 										  CONTEXT_FLAG_ISPUBLICKEY ) )
 		{
-		PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+		PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 		int keySizeBits;
 
 		REQUIRES( pkcInfo != NULL );

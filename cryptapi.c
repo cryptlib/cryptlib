@@ -102,7 +102,9 @@ static int cmdCertMgmt( COMMAND_INFO *cmd )
 		   cmd->arg[ 3 ] == CRYPT_UNUSED ) )
 		return( CRYPT_ARGERROR_NUM2 );
 
-	setMessageCertMgmtInfo( &certMgmtInfo, cmd->arg[ 2 ], cmd->arg[ 3 ] );
+	setMessageCertMgmtInfo( &certMgmtInfo, cmd->arg[ 2 ], cmd->arg[ 3 ],
+							CRYPT_UNUSED, CRYPT_UNUSED, 
+							CERTMGMT_OPTION_NONE );
 	if( cmd->flags == COMMAND_FLAG_RET_NONE )
 		{
 		/* If we aren't interested in the return value, set the crypt handle 
@@ -4608,10 +4610,13 @@ C_RET cryptCreateSession( C_OUT CRYPT_SESSION C_PTR session,
 
 /* Helper function in session/sess_rd.c */
 
+#if defined( CONFIG_FUZZ ) && defined( USE_WEBSOCKETS )
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 int fuzzInnerProtocol( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   INOUT_BUFFER_FIXED( bufSize ) BYTE *buffer,
 					   IN_DATALENGTH const int bufSize );
+#endif /* CONFIG_FUZZ && USE_WEBSOCKETS */
 
 /* One-shot initialisation function for session objects, called before 
    repeatedly feeding fuzz data to the object, and the function to feed fuzz
@@ -4680,9 +4685,13 @@ C_RET cryptFuzzInit( C_IN CRYPT_SESSION cryptSession,
 	switch( sessionInfoPtr->type )
 		{
 		case CRYPT_SESSION_TSP:
+			{
+			TSP_INFO *tspInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
+			
 			/* Set a dummy message imprint size */
-			sessionInfoPtr->sessionTSP->imprintSize = 16;
+			tspInfo->imprintSize = 16;
 			break;
+			}
 
 		case CRYPT_SESSION_CMP:
 			/* Set a dummy request object and auth key */
@@ -4752,6 +4761,7 @@ C_RET cryptSetFuzzData( C_IN CRYPT_SESSION cryptSession,
 	/* Set up an emulated network I/O stream to read input from and process
 	   the input as far as we can */
 	sMemPseudoConnect( &sessionInfoPtr->stream, data, dataLength );
+#if defined( CONFIG_FUZZ ) && defined( USE_WEBSOCKETS )
 	if( subProtocolType != CRYPT_SUBPROTOCOL_NONE )
 		{
 		BYTE buffer[ 4096 ];
@@ -4768,6 +4778,7 @@ C_RET cryptSetFuzzData( C_IN CRYPT_SESSION cryptSession,
 		status = fuzzInnerProtocol( sessionInfoPtr, buffer, length );
 		}
 	else
+#endif /* CONFIG_FUZZ && USE_WEBSOCKETS */
 		{
 		/* If it's an HTTP pseudo-stream, mark it as such */
 		if( isHttpStream )

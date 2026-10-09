@@ -110,7 +110,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int writeRsaSubjectPublicKey( INOUT_PTR STREAM *stream, 
 									 const CONTEXT_INFO *contextInfoPtr )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int length;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -145,7 +145,7 @@ static int writeDlpSubjectPublicKey( INOUT_PTR STREAM *stream,
 									 const CONTEXT_INFO *contextInfoPtr,
 									 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const DH_DOMAINPARAMS *domainParams;
 	const BIGNUM *p, *q, *g;
 	ALGOID_PARAMS algoIDparams;
@@ -233,7 +233,7 @@ static int writeEccSubjectPublicKey( INOUT_PTR STREAM *stream,
 									 const CONTEXT_INFO *contextInfoPtr,
 									 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	ALGOID_PARAMS algoIDparams;
 	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
 	int fieldSize DUMMY_INIT, oidSize DUMMY_INIT, encodedPointSize, totalSize;
@@ -297,7 +297,7 @@ static int write25519SubjectPublicKey( INOUT_PTR STREAM *stream,
 									   const CONTEXT_INFO *contextInfoPtr,
 									   IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const BERNSTEIN_KEY_INFO *bernsteinKey;
 	int totalSize, status;
 
@@ -341,7 +341,7 @@ static int writePQCSubjectPublicKey( INOUT_PTR STREAM *stream,
 									 const CONTEXT_INFO *contextInfoPtr,
 									 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const MLKEM_KEY_INFO *mlkemKey;
 	int totalSize, status;
 
@@ -412,7 +412,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int writeSshRsaPublicKey( INOUT_PTR STREAM *stream, 
 								 const CONTEXT_INFO *contextInfoPtr )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 
@@ -439,7 +439,7 @@ static int writeSshDlpPublicKey( INOUT_PTR STREAM *stream,
 								 const CONTEXT_INFO *contextInfoPtr,
 								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -486,7 +486,7 @@ static int writeSshEccPublicKey( INOUT_PTR STREAM *stream,
 								 const CONTEXT_INFO *contextInfoPtr,
 								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const char *algoName, *paramName;
 	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
 	int fieldSize, encodedPointSize DUMMY_INIT;
@@ -562,7 +562,7 @@ static int writeSsh25519PublicKey( INOUT_PTR STREAM *stream,
 								   const CONTEXT_INFO *contextInfoPtr,
 								   IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const BERNSTEIN_KEY_INFO *bernsteinKey;
 	const char *algoName;
 	int algoNameLen;
@@ -641,7 +641,7 @@ static int writeTlsDlpPublicKey( INOUT_PTR STREAM *stream,
 								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 								 IN_BOOL const BOOLEAN writeExtKey )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -698,7 +698,7 @@ static int writeTlsEccPublicKey( INOUT_PTR STREAM *stream,
 								 const CONTEXT_INFO *contextInfoPtr,
 								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const MAP_TABLE *tlsCurveInfoPtr;
 	int curveID, tlsCurveInfoNoEntries, status;
 
@@ -731,7 +731,7 @@ static int writeTlsPQCPublicKey( INOUT_PTR STREAM *stream,
 								 const CONTEXT_INFO *contextInfoPtr,
 								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const MLKEM_KEY_INFO *mlkemKey;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -805,7 +805,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int writePgpRsaPublicKey( INOUT_PTR STREAM *stream, 
 								 const CONTEXT_INFO *contextInfoPtr )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -827,7 +827,7 @@ static int writePgpDlpPublicKey( INOUT_PTR STREAM *stream,
 								 const CONTEXT_INFO *contextInfoPtr,
 								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -854,7 +854,7 @@ static int writePgpEccPublicKey( INOUT_PTR STREAM *stream,
 								 const CONTEXT_INFO *contextInfoPtr,
 								 IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ], oidBuffer[ MAX_OID_SIZE + 8 ];
 	int fieldSize, encodedPointSize DUMMY_INIT, oidLength DUMMY_INIT;
 	int status;

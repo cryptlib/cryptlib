@@ -15,7 +15,7 @@ Option Explicit
 
 'This file has been created automatically by a perl script from the file:
 '
-'"cryptlib.h" dated Tue Feb 10 16:49:48 2026, filesize = 104843.
+'"cryptlib.h" dated Tue Oct  6 18:45:52 2026, filesize = 109940.
 '
 'Please check twice that the file matches the version of cryptlib.h
 'in your cryptlib source! If this is not the right version, try to download an
@@ -66,6 +66,7 @@ Public Enum CRYPT_ALGO_TYPE
     CRYPT_ALGO_ECDH                 ' ECDH 
     CRYPT_ALGO_25519                ' X25519 
     CRYPT_ALGO_ED25519              ' Ed25519 
+    CRYPT_ALGO_MLKEM                ' ML-KEM 
 
     ' Hash algorithms 
     CRYPT_ALGO_RESERVED4 = 200      ' Formerly MD2 
@@ -1169,7 +1170,8 @@ End Enum
 
 Public Enum CRYPT_COMPLIANCELEVEL_TYPE
  
-    CRYPT_COMPLIANCELEVEL_OBLIVIOUS
+    CRYPT_COMPLIANCELEVEL_NONE
+    CRYPT_COMPLIANCELEVEL_OBLIVIOUS = CRYPT_COMPLIANCELEVEL_NONE
     CRYPT_COMPLIANCELEVEL_REDUCED
     CRYPT_COMPLIANCELEVEL_STANDARD
     CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL
@@ -1260,10 +1262,14 @@ End Enum
 
 ' OCSP revocation status 
 
-  Public Const CRYPT_OCSPSTATUS_NOTREVOKED As Long = 0
-  Public Const CRYPT_OCSPSTATUS_REVOKED As Long = 1
-  Public Const CRYPT_OCSPSTATUS_UNKNOWN  As Long = 2
-
+typedef enum 
+    {
+    CRYPT_OCSPSTATUS_NONE,          ' No OCSP status 
+    CRYPT_OCSPSTATUS_NOTREVOKED,    ' Status not-revoked 
+    CRYPT_OCSPSTATUS_REVOKED,       ' Status revoked 
+    CRYPT_OCSPSTATUS_UNKNOWN,       ' Status unknown 
+    CRYPT_OCSPSTATUS_LAST           ' Last possible OCSP status 
+    } CRYPT_OCSPSTATUS_TYPE;
 
 '  The amount of detail to include in signatures when signing certificate
 '  objects 
@@ -1390,6 +1396,7 @@ Public Enum CRYPT_CERTACTION_TYPE
     CRYPT_CERTACTION_CERT_CREATION_REVERSE  ' Cancel of creation w.revocation 
     CRYPT_CERTACTION_RESTART_CLEANUP  ' Delete reqs after restart 
     CRYPT_CERTACTION_RESTART_REVOKE_CERT  ' Complete revocation after restart 
+    CRYPT_CERTACTION_ADDREQUEST     ' Add certificate request 
     CRYPT_CERTACTION_ISSUE_CERT     ' Cert issue 
     CRYPT_CERTACTION_ISSUE_CRL      ' CRL issue 
     CRYPT_CERTACTION_REVOKE_CERT    ' Cert revocation 
@@ -1433,8 +1440,6 @@ End Enum
   Public Const CRYPT_TLSOPTION_DISABLE_CERTVERIFY As Long = &H020   ' Disable certificate check 
   Public Const CRYPT_TLSOPTION_SERVER_SNI As Long = &H040   ' Enable SNI-based key selection 
   Public Const CRYPT_TLSOPTION_RESUMED As Long = &H080   ' TLS session is resumed 
-  Public Const CRYPT_TLSOPTION_SUITEB_128 As Long = &H100   ' SuiteB security levels (will 
-  Public Const CRYPT_TLSOPTION_SUITEB_256 As Long = &H200   '  vanish in future releases) 
 
 '****************************************************************************
 '*                                                                           *
@@ -1457,6 +1462,7 @@ End Enum
 
   Public Const CRYPT_MAX_PKCSIZE As Long = 512
   Public Const CRYPT_MAX_PKCSIZE_ECC As Long = 72
+  Public Const CRYPT_MAX_PKCSIZE_PQC As Long = 2560
 
 '  The maximum hash size - 512 bits.  Before 3.4 this was 256 bits, in the 
 '  3.4 release it was increased to 512 bits to accommodate SHA-3 
@@ -1690,8 +1696,26 @@ Public Type CRYPT_PKCINFO_DJB
 
 End Type
 
+Public Type CRYPT_PKCINFO_PQC 
+    ' Status information 
+    isPublicKey As Long            ' Whether this is a public or private key 
+
+    ' Public components 
+    pub(CRYPT_MAX_PKCSIZE_PQC-1) As Byte ' Public value 
+    pubLen As Long                 ' Length of public value in bits 
+
+    ' Private components 
+    priv(CRYPT_MAX_PKCSIZE_PQC-1) As Byte' Private value 
+    privLen As Long                ' Length of private value in bits 
+    
+
+End Type
+
 '  Macros to initialise and destroy the structure that stores the components
-'  of a public key 
+'  of a public key.  Note that the latter may be optimised away because it's
+'  an an external API without access to cryptlib-internal safety mechanisms, 
+'  however these operations, which work with raw keys as memory blobs, are 
+'  unlikely to ever be used  
 
 ' C-macro not translated to Visual Basic code: 
 '   #define cryptInitComponents( componentInfo, componentKeyType ) 
@@ -1704,7 +1728,11 @@ End Type
 '    memset( ( componentInfo ), 0, sizeof( *componentInfo ) )
 '
 
-' Macros to set a component of a public key 
+'  Macros to set a component of a public key.  Note that there's no bounds 
+'  check on this since it's an external API without access to cryptlib-
+'  internal safety mechanisms, so it's up to the caller to make sure that
+'  they get the length right.  However these operations, which work with
+'  raw keys as memory blobs, are unlikely to ever be used 
 
 ' C-macro not translated to Visual Basic code: 
 '   #define cryptSetComponent( destination, source, length ) 
@@ -1884,29 +1912,98 @@ Public Declare Function cryptQueryObject Lib "CL32.DLL" ( ByVal objectData As St
 '*                                                                           *
 '****************************************************************************
 
+'  Warnings for deprecated export/import functions which are renamed to 
+'  wrap/unwrap functions after 3.4.9.  The clang one is fairly noisy, with 
+'  the recommended:
+'
+'   __attribute__(( deprecated( "cryptExportKey", "cryptWrapKey" ) ))
+'
+'  it prints a somewhat confusing:
+'
+'   file.c:123:45: warning: 'cryptExportKey' is deprecated: cryptExportKey [-Wdeprecated-declarations]
+'                   status = cryptExportKey( encryptedKeyBlob, 1024, &length, cryptContext,
+'                            ^~~~~~~~~~~~~~
+'                            cryptWrapKey
+'   ./cryptlib.h:2220:47: note: 'cryptExportKey' has been explicitly marked deprecated here
+'                         C_IN CRYPT_CONTEXT sessionKeyContext ) ATTRIBUTE_DEPRECATED;
+'   ./cryptlib.h:2199:23: note: expanded from macro 'ATTRIBUTE_DEPRECATED'
+'                         __attribute__(( deprecated( "cryptExportKey", "cryptWrapKey" ) ))
+'
+'  Using a single string as per the gcc form produces:
+'
+'   file.c:123:45: warning: 'cryptExportKey' is deprecated: Use cryptWrapKey instead [-Wdeprecated-declarations]
+'                  status = cryptExportKey( encryptedKeyBlob, 1024, &length, cryptContext,
+'                           ^
+'   [...]
+'
+'  gcc prints:
+'
+'   file.c: In function 'conventionalExportImport':
+'   file.c:123:45: warning: 'cryptExportKey' is deprecated: Use cryptWrapKey instead [-Wdeprecated-declarations]
+'                  status = cryptExportKey( NULL, 0, &length, cryptContext,
+'                           ^~~~~~
+'
+'  MSVC doesn't print anything no matter how the __declspec is placed and the
+'  decorations are rearranged for any version from VS 2008 to VS 2026, so we
+'  use the clunkier pragma form instead 
+
+  Public Const C_ATTRIBUTE_DEPRECATED As Long = __attribute__(( deprecated( "Use cryptWrapKey instead" ) ))
+' C-macro not translated to Visual Basic code: 
+'   #define C_DECLSPEC_DEPRECATED
+'
+' C-macro not translated to Visual Basic code: 
+'   #define C_ATTRIBUTE_DEPRECATED
+'
+
 ' Export and import an encrypted session key 
 
-' ***Warning: function 'cryptExportKey' will modify the String 'encryptedKey'
-Public Declare Function cryptExportKey Lib "CL32.DLL" ( ByVal encryptedKey As String, _
+C_DECLSPEC_DEPRECATED   
+C_RET cryptExportKey( C_OUT_OPT void C_PTR encryptedKey,
+                      C_IN int encryptedKeyMaxLength,
+                      C_OUT int C_PTR encryptedKeyLength,
+                      C_IN CRYPT_HANDLE exportKey,
+                      C_IN CRYPT_CONTEXT sessionKeyContext ) C_ATTRIBUTE_DEPRECATED;
+C_DECLSPEC_DEPRECATED   
+C_RET cryptExportKeyEx( C_OUT_OPT void C_PTR encryptedKey,
+                        C_IN int encryptedKeyMaxLength,
+                        C_OUT int C_PTR encryptedKeyLength,
+                        C_IN CRYPT_FORMAT_TYPE formatType,
+                        C_IN CRYPT_HANDLE exportKey,
+                        C_IN CRYPT_CONTEXT sessionKeyContext ) C_ATTRIBUTE_DEPRECATED;
+C_DECLSPEC_DEPRECATED   
+C_RET cryptImportKey( C_IN void C_PTR encryptedKey,
+                      C_IN int encryptedKeyLength,
+                      C_IN CRYPT_CONTEXT importKey,
+                      C_IN CRYPT_CONTEXT sessionKeyContext ) C_ATTRIBUTE_DEPRECATED;
+C_DECLSPEC_DEPRECATED   
+C_RET cryptImportKeyEx( C_IN void C_PTR encryptedKey,
+                        C_IN int encryptedKeyLength,
+                        C_IN CRYPT_CONTEXT importKey,
+                        C_IN CRYPT_CONTEXT sessionKeyContext,
+                        C_OUT_OPT CRYPT_CONTEXT C_PTR returnedContext ) C_ATTRIBUTE_DEPRECATED;
+
+
+' ***Warning: function 'cryptWrapKey' will modify the String 'encryptedKey'
+Public Declare Function cryptWrapKey Lib "CL32.DLL" ( ByVal encryptedKey As String, _
  ByVal encryptedKeyMaxLength As Long, _
  ByRef encryptedKeyLength As Long, _
  ByVal exportKey As Long, _
  ByVal sessionKeyContext As Long) As Long
 
-' ***Warning: function 'cryptExportKeyEx' will modify the String 'encryptedKey'
-Public Declare Function cryptExportKeyEx Lib "CL32.DLL" ( ByVal encryptedKey As String, _
+' ***Warning: function 'cryptWrapKeyEx' will modify the String 'encryptedKey'
+Public Declare Function cryptWrapKeyEx Lib "CL32.DLL" ( ByVal encryptedKey As String, _
  ByVal encryptedKeyMaxLength As Long, _
  ByRef encryptedKeyLength As Long, _
  ByVal formatType As CRYPT_FORMAT_TYPE, _
  ByVal exportKey As Long, _
  ByVal sessionKeyContext As Long) As Long
 
-Public Declare Function cryptImportKey Lib "CL32.DLL" ( ByVal encryptedKey As String, _
+Public Declare Function cryptUnwrapKey Lib "CL32.DLL" ( ByVal encryptedKey As String, _
  ByVal encryptedKeyLength As Long, _
  ByVal importKey As Long, _
  ByVal sessionKeyContext As Long) As Long
 
-Public Declare Function cryptImportKeyEx Lib "CL32.DLL" ( ByVal encryptedKey As String, _
+Public Declare Function cryptUnwrapKeyEx Lib "CL32.DLL" ( ByVal encryptedKey As String, _
  ByVal encryptedKeyLength As Long, _
  ByVal importKey As Long, _
  ByVal sessionKeyContext As Long, _

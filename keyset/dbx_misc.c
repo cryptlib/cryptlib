@@ -29,27 +29,31 @@
 	certRequests+:
 		type, C, SP, L, O, OU, CN, email, req.certID, req.certData
 	certLog+:
-		action, date, certID#*, req.certID, subjCertID, log.certData
+		action, date, certID#*, reqCertID, authCertID, pkiUserID, log.certData
 
    Note that in the CRL table the certID is the ID of the certificate being 
    revoked and not of the per-entry CRL data, and in the  PKIUsers table the 
-   keyID isn't for a public key but a nonce used to identify the PKI user 
-   and the nameID is used purely to ensure uniqueness of users.
+   keyID isn't for a public key but hash of a nonce used to identify the PKI 
+   user (specifically it's the variable-length pkiUserID hashed to produce a
+   fixed-length ID value) and the nameID is used purely to ensure uniqueness 
+   of users.
 
    The certificate store contains a table for logging certificate management 
    operations (e.g. when issued, when revoked, etc etc).  The operations are 
    tied together by the certID of the object that the log entry pertains to, 
    associated with this in the log are optional certIDs of the request that 
    caused the action to be taken and of the subject that was affected by the 
-   request.  For example in the most complex case of a revocation operation
-   the certID would be of the CRL entry that was created, the req.certID
-   would be for the revocation request, and the subjCertID would be for the
-   certificate being revoked.  This allows a complete history of each item 
-   to be built via the log.  The certLog has a UNIQUE INDEX on the certID 
-   that detects attempts to add duplicates, although this unfortunately 
-   requires the addition of dummy nonce certIDs to handle certain types of 
-   actions that don't produce objects with certIDs (see the comment further 
-   down on the use of constraints).
+   request.  For example in the most complex case of a certificate creation
+   the certID would be of the certificate that was created, the reqCertID
+   would be for the request, the authCertID would be for the authorising
+   certificate, and the pkiUserID would be for the PKI owning the 
+   certificate.  This allows a complete history of each item to be built via 
+   the log.  The certLog has a UNIQUE INDEX on the certID that detects 
+   attempts to add duplicates, although this unfortunately requires the 
+   addition of dummy nonce certIDs to handle certain types of actions that 
+   don't produce objects with certIDs or where the same certID already 
+   exists from a previous operation (see the comment further down on the use 
+   of constraints).
 
    The handling for each type of CA management operation is:
 
@@ -131,6 +135,30 @@
 	either an expired certificate being visible or a leftover request 
 	blocking a new request for a split second longer than they should.
 	
+	The certificate log action values are:
+	
+		1	CERTACTION_CREATE			Create cert store.
+		2	CERTACTION_CONNECT			Connect to cert store.
+		3	CERTACTION_DISCONNECT		Disconnect from cert store.
+		4	CERTACTION_ERROR			Error information.
+		5	CERTACTION_ADDUSER			Add PKI user.
+		6	CERTACTION_DELETEUSER		Delete PKI user.
+		7	CERTACTION_REQUEST_CERT		Cert request
+		8	CERTACTION_REQUEST_RENEWAL	Cert renewal request.
+		9	CERTACTION_REQUEST_REVOCATION	Cert revocation request.
+	   10	CERTACTION_CERT_CREATION		Cert creation.
+	   11	CERTACTION_CERT_CREATION_COMPLETE	Confirmation of cert creation.
+	   12	CERTACTION_CERT_CREATION_DROP		Cancellation of cert creation.
+	   13	CERTACTION_CERT_CREATION_REVERSE	Cancel of creation w.revocation.
+	   14	CERTACTION_RESTART_CLEANUP		Delete reqs after restart.
+	   15	CERTACTION_RESTART_REVOKE_CERT	Complete revocation after restart.
+	   16	CRYPT_CERTACTION_ADDREQUEST	Add cert/revocation request.
+	   17	CERTACTION_ISSUE_CERT		Cert issue.
+	   18	CERTACTION_ISSUE_CRL		CRL issue.
+	   19	CERTACTION_REVOKE_CERT		Cert revocation.
+	   20	CERTACTION_EXPIRE_CERT		Cert expiry.
+	   21	CERTACTION_CLEANUP			Clean up on restart.
+	
 	An additional feature that we could make use of for CA operations is the 
 	use of foreign keys to ensure referential integrity, usually via entries 
 	in the certificate log.  
@@ -205,297 +233,6 @@
 *																			*
 ****************************************************************************/
 
-/* Set up key ID information for a query.  There are two variations of
-   this, makeKeyID() encodes an existing keyID value and getKeyID() reads an
-   attribute from an object and encodes it using makeKeyID() */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 5 ) ) \
-int makeKeyID( OUT_BUFFER( keyIdMaxLen, *keyIdLen ) char *keyID, 
-			   IN_LENGTH_SHORT_MIN( ENCODED_DBXKEYID_SIZE ) \
-					const int keyIdMaxLen,
-			   OUT_LENGTH_BOUNDED_Z( keyIdMaxLen ) int *keyIdLen,
-			   IN_KEYID const CRYPT_KEYID_TYPE iDtype, 
-			   IN_BUFFER( idValueLength ) const void *idValue, 
-			   IN_LENGTH_SHORT const int idValueLength )
-	{
-	BYTE hashBuffer[ CRYPT_MAX_HASHSIZE + 8 ];
-	int idLength = idValueLength, status;
-
-	assert( isWritePtrDynamic( keyID, keyIdMaxLen ) );
-	assert( isWritePtr( keyIdLen, sizeof( int ) ) );
-	assert( isReadPtrDynamic( idValue, idValueLength ) );
-
-	REQUIRES( isShortIntegerRangeMin( keyIdMaxLen, 
-									  ENCODED_DBXKEYID_SIZE ) );
-	REQUIRES( iDtype == CRYPT_KEYID_NAME || \
-			  iDtype == CRYPT_KEYID_URI || \
-			  iDtype == CRYPT_IKEYID_KEYID || \
-			  iDtype == CRYPT_IKEYID_ISSUERID || \
-			  iDtype == CRYPT_IKEYID_CERTID );
-	REQUIRES( isShortIntegerRangeNZ( idValueLength ) );
-
-	/* Clear return values */
-	REQUIRES( isShortIntegerRangeNZ( keyIdMaxLen ) ); 
-	memset( keyID, 0, min( 16, keyIdMaxLen ) );
-	*keyIdLen = 0;
-
-	/* Name and email address are used as is */
-	if( iDtype == CRYPT_KEYID_NAME || iDtype == CRYPT_KEYID_URI )
-		{
-		if( idLength > CRYPT_MAX_TEXTSIZE * 2 )
-			{
-			/* Truncate to the database column size */
-			idLength = CRYPT_MAX_TEXTSIZE * 2;
-			}
-		if( idLength > keyIdMaxLen )
-			{
-			/* Truncate to the output buffer size */
-			idLength = keyIdMaxLen;
-			}
-		REQUIRES( rangeCheck( idLength, 1, keyIdMaxLen ) );
-		memcpy( keyID, idValue, idLength );
-		if( iDtype == CRYPT_KEYID_URI )
-			{
-			LOOP_INDEX i;
-
-			/* Force the search URI to lowercase to make case-insensitive 
-			   matching easier.  In most cases we could ask the back-end to 
-			   do this but this complicates indexing and there's no reason 
-			   why we can't do it here */
-			LOOP_LARGE( i = 0, i < idLength, i++ )
-				{
-				ENSURES( LOOP_INVARIANT_LARGE( i, 0, idLength - 1 ) );
-
-				keyID[ i ] = intToByte( toLower( byteToInt( keyID[ i ] ) ) );
-				}
-			ENSURES( LOOP_BOUND_OK );
-			}
-		*keyIdLen = idLength;
-
-		return( CRYPT_OK );
-		}
-
-	/* A keyID is just a subjectKeyIdentifier, which is already supposed to 
-	   be an SHA-1 hash but which in practice can be almost anything so we
-	   always hash it to a fixed-length value */
-	if( iDtype == CRYPT_IKEYID_KEYID )
-		{
-		HASH_FUNCTION_ATOMIC hashFunctionAtomic;
-
-		/* Get the hash algorithm information and hash the keyID to get
-		   the fixed-length keyID */
-		getHashAtomicParameters( CRYPT_ALGO_SHA1, 0, &hashFunctionAtomic, 
-								 NULL );
-		hashFunctionAtomic( hashBuffer, CRYPT_MAX_HASHSIZE,
-							idValue, idValueLength );
-		idValue = hashBuffer;
-		idLength = DBXKEYID_SIZE;
-		}
-
-	ENSURES( idLength >= DBXKEYID_SIZE && idLength <= keyIdMaxLen );
-
-	/* base64-encode the key ID so that we can use it with database queries.
-	   Since we only store 128 bits of a (usually 160 bit) ID to save space
-	   (particularly where it's used in indices) and to speed lookups, this
-	   encoding step has the side-effect of truncating the ID down to the
-	   correct size */
-	status = base64encode( keyID, keyIdMaxLen, keyIdLen, idValue, 
-						   DBXKEYID_SIZE, CRYPT_CERTTYPE_NONE );
-	ENSURES( cryptStatusOK( status ) );
-	ENSURES( *keyIdLen == ENCODED_DBXKEYID_SIZE );
-
-	return( CRYPT_OK );
-	}
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
-int getKeyID( OUT_BUFFER( keyIdMaxLen, *keyIdLen ) char *keyID, 
-			  IN_LENGTH_SHORT_MIN( 16 ) const int keyIdMaxLen, 
-			  OUT_LENGTH_BOUNDED_Z( keyIdMaxLen ) int *keyIdLen,
-			  IN_HANDLE const CRYPT_HANDLE iCryptHandle,
-			  IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE keyIDtype )
-	{
-	BYTE hashBuffer[ CRYPT_MAX_HASHSIZE + 8 ];
-	int status;
-
-	assert( isWritePtrDynamic( keyID, keyIdMaxLen ) );
-	assert( isWritePtr( keyIdLen, sizeof( int ) ) );
-
-	REQUIRES( isShortIntegerRangeMin( keyIdMaxLen, 16 ) );
-	REQUIRES( isHandleRangeValid( iCryptHandle ) );
-	REQUIRES( ( keyIDtype == CRYPT_CERTINFO_FINGERPRINT_SHA1 || \
-				keyIDtype == CRYPT_IATTRIBUTE_AUTHCERTID ) || \
-			  ( keyIDtype == CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER || \
-				keyIDtype == CRYPT_IATTRIBUTE_ISSUER || \
-				keyIDtype == CRYPT_IATTRIBUTE_SUBJECT || \
-				keyIDtype == CRYPT_IATTRIBUTE_ISSUERANDSERIALNUMBER || \
-				keyIDtype == CRYPT_IATTRIBUTE_SPKI ) );
-
-	/* Clear return values */
-	REQUIRES( isShortIntegerRangeNZ( keyIdMaxLen ) ); 
-	memset( keyID, 0, min( 16, keyIdMaxLen ) );
-	*keyIdLen = 0;
-
-	/* Get the attribute from the certificate and hash it, unless it's 
-	   already a hash */
-	if( keyIDtype == CRYPT_CERTINFO_FINGERPRINT_SHA1 || \
-		keyIDtype == CRYPT_IATTRIBUTE_AUTHCERTID )
-		{
-		MESSAGE_DATA msgData;
-
-		setMessageData( &msgData, hashBuffer, CRYPT_MAX_HASHSIZE );
-		status = krnlSendMessage( iCryptHandle, IMESSAGE_GETATTRIBUTE_S,
-								  &msgData, keyIDtype );
-		if( cryptStatusError( status ) )
-			return( status );
-		ENSURES( msgData.length == KEYID_SIZE );
-		}
-	else
-		{
-		DYNBUF idDB;
-		HASH_FUNCTION_ATOMIC hashFunctionAtomic;
-		int hashSize;
-
-		/* Get the attribute data and hash it to get the ID */
-		status = dynCreate( &idDB, iCryptHandle, keyIDtype );
-		if( cryptStatusError( status ) )
-			return( status );
-		getHashAtomicParameters( CRYPT_ALGO_SHA1, 0, &hashFunctionAtomic, 
-								 &hashSize );
-		hashFunctionAtomic( hashBuffer, CRYPT_MAX_HASHSIZE,
-							dynData( idDB ), dynLength( idDB ) );
-		ENSURES( hashSize == KEYID_SIZE );
-		dynDestroy( &idDB );
-		
-		/* If we're generating an identifier by reading (and hashing) the 
-		   SubjectPublicKeyInfo then we have to hash it a second time in
-		   order to match a cryptlib-generated keyID.  This is required 
-		   because cryptlib's CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER is a hash 
-		   of the SubjectPublicKeyInfo, but this is then hashed again to 
-		   turn the potentially arbitrary-form value from a non-cryptlib 
-		   certificate into a fixed-length ID (see the comment in 
-		   getCertKeyID() for more details).  
-		   
-		   Because of this second hash that's applied to the 
-		   CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER we have to hash the value 
-		   that we've generated ourselves from the raw SubjectPublicKeyInfo 
-		   a second time to get the same value.
-		   
-		   This normally only happens with the rare non-cryptlib 
-		   certificates that don't have a 
-		   CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER present, but can also occur 
-		   if the user is running cryptlib at a reduced compliance level at
-		   which the CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER isn't processed.  
-		   The second level of hashing means that the explicitly-generated
-		   keyID value is the same as the implicitly-generated one that's
-		   been skipped at the reduced compliance level */
-		if( keyIDtype == CRYPT_IATTRIBUTE_SPKI )
-			{
-			hashFunctionAtomic( hashBuffer, CRYPT_MAX_HASHSIZE,
-								hashBuffer, KEYID_SIZE );
-			}
-		}
-
-	/* Turn the binary ID data into text form that can be added to/used to 
-	   search a database, see makeKeyID() for details */
-	status = base64encode( keyID, keyIdMaxLen, keyIdLen, hashBuffer, 
-						   DBXKEYID_SIZE, CRYPT_CERTTYPE_NONE );
-	ENSURES( cryptStatusOK( status ) );
-	ENSURES( *keyIdLen == ENCODED_DBXKEYID_SIZE );
-
-	return( CRYPT_OK );
-	}
-
-/* Get a keyID for a certificate or a pkiUser */
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
-int getCertKeyID( OUT_BUFFER( keyIdMaxLen, *keyIdLen ) char *keyID, 
-				  IN_LENGTH_SHORT_MIN( 16 ) const int keyIdMaxLen, 
-				  OUT_LENGTH_BOUNDED_Z( keyIdMaxLen ) int *keyIdLen,
-				  IN_HANDLE const CRYPT_CERTIFICATE iCryptCert )
-	{
-	int status;
-
-	assert( isWritePtrDynamic( keyID, keyIdMaxLen ) );
-	assert( isWritePtr( keyIdLen, sizeof( int ) ) );
-
-	REQUIRES( isShortIntegerRangeMin( keyIdMaxLen, 16 ) );
-	REQUIRES( isHandleRangeValid( iCryptCert ) );
-
-	/* Clear return values */
-	REQUIRES( isShortIntegerRangeNZ( keyIdMaxLen ) ); 
-	memset( keyID, 0, min( 16, keyIdMaxLen ) );
-	*keyIdLen = 0;
-
-	/* Certificate keyID handling isn't quite as simple as just reading an
-	   attribute from the certificate since the subjectKeyIdentifier (if
-	   present) may not be the same as the keyID if the certificate has come 
-	   from a CA that does strange things with the sKID.  To resolve this we 
-	   first try and build the key ID from the sKID.  Since it's possible 
-	   to stuff anything in there the sKID may have a nonstandard length, 
-	   so getKeyID() hashes it to the standard size after reading it */
-	status = getKeyID( keyID, keyIdMaxLen, keyIdLen, iCryptCert,
-					   CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER );
-	if( cryptStatusOK( status ) )
-		return( status );
-
-	/* There's no subjectKeyIdentifier, use the keyID.  We can't just read 
-	   the CRYPT_IATTRIBUTE_KEYID attribute directly since this may be a 
-	   data-only certificate (either a standalone certificate or one from 
-	   the middle of a chain) so we have to generate it indirectly by 
-	   hashing the SubjectPublicKeyInfo, which is equivalent to the keyID 
-	   and is always present in a certificate */
-	return( getKeyID( keyID, keyIdMaxLen, keyIdLen, iCryptCert, 
-					  CRYPT_IATTRIBUTE_SPKI ) );
-	}
-
-#ifdef USE_PKIUSER
-
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
-int getPkiUserKeyID( OUT_BUFFER( keyIdMaxLen, *keyIdLen ) char *keyID, 
-					 IN_LENGTH_SHORT_MIN( ENCODED_DBXKEYID_SIZE ) \
-						const int keyIdMaxLen, 
-					 OUT_LENGTH_BOUNDED_Z( keyIdMaxLen ) int *keyIdLen,
-					 IN_HANDLE const CRYPT_CERTIFICATE iCryptCert )
-	{
-	MESSAGE_DATA msgData;
-	BYTE binaryKeyID[ 64 + 8 ];
-	char encKeyID[ CRYPT_MAX_TEXTSIZE + 8 ];
-	int binaryKeyIDlength DUMMY_INIT, status;
-
-	assert( isWritePtrDynamic( keyID, keyIdMaxLen ) );
-	assert( isWritePtr( keyIdLen, sizeof( int ) ) );
-
-	REQUIRES( isShortIntegerRangeMin( keyIdMaxLen, 
-									  ENCODED_DBXKEYID_SIZE ) );
-	REQUIRES( isHandleRangeValid( iCryptCert ) );
-
-	/* Clear return values */
-	REQUIRES( isShortIntegerRangeNZ( keyIdMaxLen ) ); 
-	memset( keyID, 0, min( 16, keyIdMaxLen ) );
-	*keyIdLen = 0;
-
-	/* Get the keyID as the PKI user ID.  We can't read this directly since 
-	   it's returned in text form for use by end users so we have to read 
-	   the encoded form, decode it, and then turn the decoded binary value 
-	   into a key ID.  We identify the result as a keyID, 
-	   (== subjectKeyIdentifier, which it isn't really) but we need to use 
-	   this to ensure that it's hashed/expanded out to the correct size */
-	setMessageData( &msgData, encKeyID, CRYPT_MAX_TEXTSIZE );
-	status = krnlSendMessage( iCryptCert, IMESSAGE_GETATTRIBUTE_S,
-							  &msgData, CRYPT_CERTINFO_PKIUSER_ID );
-	if( cryptStatusOK( status ) )
-		{
-		status =  decodePKIUserValue( binaryKeyID, 64, &binaryKeyIDlength, 
-									  encKeyID, msgData.length );
-		}
-	if( cryptStatusError( status ) )
-		return( status );
-	ANALYSER_HINT( isShortIntegerRangeNZ( binaryKeyIDlength ) );
-	return( makeKeyID( keyID, keyIdMaxLen, keyIdLen, CRYPT_IKEYID_KEYID, 
-					   binaryKeyID, binaryKeyIDlength ) );
-	}
-#endif /* USE_PKIUSER */
-
 /* Extract certificate data from a certificate object.  Note that the 
    formatType is given as an int rather than an enumerated type because
    it can be either a CRYPT_CERTFORMAT_TYPE or a CRYPT_ATTRIBUTE_TYPE */
@@ -529,7 +266,7 @@ int extractCertData( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
 	   to the other to avoid warnings from compilers that don't like this */
 	static_assert( CRYPT_CERTFORMAT_CERTIFICATE != CRYPT_ICERTFORMAT_DATA && \
 				   CRYPT_CERTFORMAT_CERTIFICATE != \
-						(CRYPT_CERTFORMAT_TYPE ) CRYPT_IATTRIBUTE_CRLENTRY, \
+						( CRYPT_CERTFORMAT_TYPE ) CRYPT_IATTRIBUTE_CRLENTRY, \
 				   "Format type collision" );
 
 	/* Clear return values */
@@ -615,6 +352,413 @@ char *getKeyName( IN_KEYID const CRYPT_KEYID_TYPE keyIDtype )
 	retIntError_Null();
 	}
 
+/****************************************************************************
+*																			*
+*							Certificate ID Routines							*
+*																			*
+****************************************************************************/
+
+/* Set up key ID information for a query.  There are two variations of
+   this, makeKeyID() encodes an existing keyID value and getKeyID() reads an
+   attribute from an object and encodes it using makeKeyID() */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 5 ) ) \
+int makeKeyID( OUT_BUFFER( keyIdMaxLength, *keyIdLength ) char *keyID, 
+			   IN_LENGTH_SHORT_MIN( ENCODED_DBXKEYID_SIZE ) \
+					const int keyIdMaxLength,
+			   OUT_LENGTH_BOUNDED_Z( keyIdMaxLength ) int *keyIdLength,
+			   IN_KEYID const CRYPT_KEYID_TYPE iDtype, 
+			   IN_BUFFER( idValueLength ) const void *idValue, 
+			   IN_LENGTH_SHORT const int idValueLength )
+	{
+	BYTE hashBuffer[ CRYPT_MAX_HASHSIZE + 8 ];
+	int idLength = idValueLength, status;
+
+	assert( isWritePtrDynamic( keyIdLength, keyIdMaxLength ) );
+	assert( isWritePtr( keyIdLength, sizeof( int ) ) );
+	assert( isReadPtrDynamic( idValue, idValueLength ) );
+
+	REQUIRES( isShortIntegerRangeMin( keyIdMaxLength, 
+									  ENCODED_DBXKEYID_SIZE ) );
+	REQUIRES( iDtype == CRYPT_KEYID_NAME || \
+			  iDtype == CRYPT_KEYID_URI || \
+			  iDtype == CRYPT_IKEYID_KEYID || \
+			  iDtype == CRYPT_IKEYID_ISSUERID || \
+			  iDtype == CRYPT_IKEYID_CERTID );
+	REQUIRES( isShortIntegerRangeNZ( idValueLength ) );
+
+	/* Clear return values */
+	REQUIRES( isShortIntegerRangeNZ( keyIdMaxLength ) ); 
+	memset( keyID, 0, min( 16, keyIdMaxLength ) );
+	*keyIdLength = 0;
+
+	/* Name and email address are used as is */
+	if( iDtype == CRYPT_KEYID_NAME || iDtype == CRYPT_KEYID_URI )
+		{
+		if( idLength > CRYPT_MAX_TEXTSIZE * 2 )
+			{
+			/* Truncate to the database column size */
+			idLength = CRYPT_MAX_TEXTSIZE * 2;
+			}
+		if( idLength > keyIdMaxLength )
+			{
+			/* Truncate to the output buffer size */
+			idLength = keyIdMaxLength;
+			}
+		REQUIRES( rangeCheck( idLength, 1, keyIdMaxLength ) );
+		memcpy( keyID, idValue, idLength );
+		if( iDtype == CRYPT_KEYID_URI )
+			{
+			LOOP_INDEX i;
+
+			/* Force the search URI to lowercase to make case-insensitive 
+			   matching easier.  In most cases we could ask the back-end to 
+			   do this but this complicates indexing and there's no reason 
+			   why we can't do it here */
+			LOOP_LARGE( i = 0, i < idLength, i++ )
+				{
+				ENSURES( LOOP_INVARIANT_LARGE( i, 0, idLength - 1 ) );
+
+				keyID[ i ] = intToByte( toLower( byteToInt( keyID[ i ] ) ) );
+				}
+			ENSURES( LOOP_BOUND_OK );
+			}
+		*keyIdLength = idLength;
+
+		return( CRYPT_OK );
+		}
+
+	/* A keyID is just a subjectKeyIdentifier, which is already supposed to 
+	   be an SHA-1 hash but which in practice can be almost anything so we
+	   always hash it to a fixed-length value */
+	if( iDtype == CRYPT_IKEYID_KEYID )
+		{
+		HASH_FUNCTION_ATOMIC hashFunctionAtomic;
+
+		/* Get the hash algorithm information and hash the keyID to get
+		   the fixed-length keyID */
+		getHashAtomicParameters( CRYPT_ALGO_SHA1, 0, &hashFunctionAtomic, 
+								 NULL );
+		hashFunctionAtomic( hashBuffer, CRYPT_MAX_HASHSIZE,
+							idValue, idValueLength );
+		idValue = hashBuffer;
+		idLength = DBXKEYID_SIZE;
+		}
+
+	ENSURES( idLength >= DBXKEYID_SIZE && idLength <= keyIdMaxLength );
+
+	/* base64-encode the key ID so that we can use it with database queries.
+	   Since we only store 128 bits of a (usually 160 bit) ID to save space
+	   (particularly where it's used in indices) and to speed lookups, this
+	   encoding step has the side-effect of truncating the ID down to the
+	   correct size */
+	status = base64encode( keyID, keyIdMaxLength, keyIdLength, idValue, 
+						   DBXKEYID_SIZE, CRYPT_CERTTYPE_NONE );
+	ENSURES( cryptStatusOK( status ) );
+	ENSURES( *keyIdLength == ENCODED_DBXKEYID_SIZE );
+
+	return( CRYPT_OK );
+	}
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+int getKeyID( OUT_BUFFER( keyIdMaxLength, *keyIdLength ) char *keyID, 
+			  IN_LENGTH_SHORT_MIN( 16 ) const int keyIdMaxLength, 
+			  OUT_LENGTH_BOUNDED_Z( keyIdMaxLength ) int *keyIdLength,
+			  IN_HANDLE const CRYPT_HANDLE iCryptHandle,
+			  IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE keyIDtype )
+	{
+	BYTE hashBuffer[ CRYPT_MAX_HASHSIZE + 8 ];
+	int status;
+
+	assert( isWritePtrDynamic( keyID, keyIdMaxLength ) );
+	assert( isWritePtr( keyIdLength, sizeof( int ) ) );
+
+	REQUIRES( isShortIntegerRangeMin( keyIdMaxLength, 16 ) );
+	REQUIRES( isHandleRangeValid( iCryptHandle ) );
+	REQUIRES( keyIDtype == CRYPT_CERTINFO_FINGERPRINT_SHA1 || \
+			  keyIDtype == CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER || \
+			  keyIDtype == CRYPT_IATTRIBUTE_ISSUER || \
+			  keyIDtype == CRYPT_IATTRIBUTE_SUBJECT || \
+			  keyIDtype == CRYPT_IATTRIBUTE_ISSUERANDSERIALNUMBER || \
+			  keyIDtype == CRYPT_IATTRIBUTE_SPKI );
+
+	/* Clear return values */
+	REQUIRES( isShortIntegerRangeNZ( keyIdMaxLength ) ); 
+	memset( keyID, 0, min( 16, keyIdMaxLength ) );
+	*keyIdLength = 0;
+
+	/* Get the attribute from the certificate and hash it, unless it's 
+	   already a hash */
+	if( keyIDtype == CRYPT_CERTINFO_FINGERPRINT_SHA1 )
+		{
+		MESSAGE_DATA msgData;
+
+		setMessageData( &msgData, hashBuffer, CRYPT_MAX_HASHSIZE );
+		status = krnlSendMessage( iCryptHandle, IMESSAGE_GETATTRIBUTE_S,
+								  &msgData, keyIDtype );
+		if( cryptStatusError( status ) )
+			return( status );
+		ENSURES( msgData.length == KEYID_SIZE );
+		}
+	else
+		{
+		DYNBUF idDB;
+		HASH_FUNCTION_ATOMIC hashFunctionAtomic;
+		int hashSize;
+
+		/* Get the attribute data and hash it to get the ID */
+		status = dynCreate( &idDB, iCryptHandle, keyIDtype );
+		if( cryptStatusError( status ) )
+			return( status );
+		getHashAtomicParameters( CRYPT_ALGO_SHA1, 0, &hashFunctionAtomic, 
+								 &hashSize );
+		hashFunctionAtomic( hashBuffer, CRYPT_MAX_HASHSIZE,
+							dynData( idDB ), dynLength( idDB ) );
+		ENSURES( hashSize == KEYID_SIZE );
+		dynDestroy( &idDB );
+		
+		/* If we're generating an identifier by reading (and hashing) the 
+		   SubjectPublicKeyInfo then we have to hash it a second time in
+		   order to match a cryptlib-generated keyID.  This is required 
+		   because cryptlib's CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER is a hash 
+		   of the SubjectPublicKeyInfo, but this is then hashed again to 
+		   turn the potentially arbitrary-form value from a non-cryptlib 
+		   certificate into a fixed-length ID (see the comment in 
+		   getCertKeyID() for more details).  
+		   
+		   Because of this second hash that's applied to the 
+		   CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER we have to hash the value 
+		   that we've generated ourselves from the raw SubjectPublicKeyInfo 
+		   a second time to get the same value.
+		   
+		   This normally only happens with the rare non-cryptlib 
+		   certificates that don't have a 
+		   CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER present, but can also occur 
+		   if the user is running cryptlib at a reduced compliance level at
+		   which the CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER isn't processed.  
+		   The second level of hashing means that the explicitly-generated
+		   keyID value is the same as the implicitly-generated one that's
+		   been skipped at the reduced compliance level */
+		if( keyIDtype == CRYPT_IATTRIBUTE_SPKI )
+			{
+			hashFunctionAtomic( hashBuffer, CRYPT_MAX_HASHSIZE,
+								hashBuffer, KEYID_SIZE );
+			}
+		}
+
+	/* Turn the binary ID data into text form that can be added to/used to 
+	   search a database, see makeKeyID() for details */
+	status = base64encode( keyID, keyIdMaxLength, keyIdLength, hashBuffer, 
+						   DBXKEYID_SIZE, CRYPT_CERTTYPE_NONE );
+	ENSURES( cryptStatusOK( status ) );
+	ENSURES( *keyIdLength == ENCODED_DBXKEYID_SIZE );
+
+	return( CRYPT_OK );
+	}
+
+/* Get a keyID for a certificate or a pkiUser */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+int getCertKeyID( OUT_BUFFER( keyIdMaxLength, *keyIdLength ) char *keyID, 
+				  IN_LENGTH_SHORT_MIN( 16 ) const int keyIdMaxLength, 
+				  OUT_LENGTH_BOUNDED_Z( keyIdMaxLength ) int *keyIdLength,
+				  IN_HANDLE const CRYPT_CERTIFICATE iCryptCert )
+	{
+	int status;
+
+	assert( isWritePtrDynamic( keyID, keyIdMaxLength ) );
+	assert( isWritePtr( keyIdLength, sizeof( int ) ) );
+
+	REQUIRES( isShortIntegerRangeMin( keyIdMaxLength, 16 ) );
+	REQUIRES( isHandleRangeValid( iCryptCert ) );
+
+	/* Clear return values */
+	REQUIRES( isShortIntegerRangeNZ( keyIdMaxLength ) ); 
+	memset( keyID, 0, min( 16, keyIdMaxLength ) );
+	*keyIdLength = 0;
+
+	/* Certificate keyID handling isn't quite as simple as just reading an
+	   attribute from the certificate since the subjectKeyIdentifier (if
+	   present) may not be the same as the keyID if the certificate has come 
+	   from a CA that does strange things with the sKID.  To resolve this we 
+	   first try and build the key ID from the sKID.  Since it's possible 
+	   to stuff anything in there the sKID may have a nonstandard length, 
+	   so getKeyID() hashes it to the standard size after reading it */
+	status = getKeyID( keyID, keyIdMaxLength, keyIdLength, iCryptCert,
+					   CRYPT_CERTINFO_SUBJECTKEYIDENTIFIER );
+	if( cryptStatusOK( status ) )
+		return( status );
+
+	/* There's no subjectKeyIdentifier, use the keyID.  We can't just read 
+	   the CRYPT_IATTRIBUTE_KEYID attribute directly since this may be a 
+	   data-only certificate (either a standalone certificate or one from 
+	   the middle of a chain) so we have to generate it indirectly by 
+	   hashing the SubjectPublicKeyInfo, which is equivalent to the keyID 
+	   and is always present in a certificate */
+	return( getKeyID( keyID, keyIdMaxLength, keyIdLength, iCryptCert, 
+					  CRYPT_IATTRIBUTE_SPKI ) );
+	}
+
+#ifdef USE_PKIUSER
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+int getPkiUserKeyID( OUT_BUFFER( keyIdMaxLength, *keyIdLength ) char *keyID, 
+					 IN_LENGTH_SHORT_MIN( ENCODED_DBXKEYID_SIZE ) \
+						const int keyIdMaxLength, 
+					 OUT_LENGTH_BOUNDED_Z( keyIdMaxLength ) int *keyIdLength,
+					 IN_HANDLE const CRYPT_CERTIFICATE iCryptCert )
+	{
+	MESSAGE_DATA msgData;
+	BYTE binaryKeyID[ 64 + 8 ];
+	char encKeyID[ CRYPT_MAX_TEXTSIZE + 8 ];
+	int binaryKeyIDlength DUMMY_INIT, status;
+
+	assert( isWritePtrDynamic( keyID, keyIdMaxLength ) );
+	assert( isWritePtr( keyIdLength, sizeof( int ) ) );
+
+	REQUIRES( isShortIntegerRangeMin( keyIdMaxLength, 
+									  ENCODED_DBXKEYID_SIZE ) );
+	REQUIRES( isHandleRangeValid( iCryptCert ) );
+
+	/* Clear return values */
+	REQUIRES( isShortIntegerRangeNZ( keyIdMaxLength ) ); 
+	memset( keyID, 0, min( 16, keyIdMaxLength ) );
+	*keyIdLength = 0;
+
+	/* Get the keyID as the PKI user ID.  We can't read this directly since 
+	   it's returned in text form for use by end users so we have to read 
+	   the encoded form, decode it, and then turn the decoded binary value 
+	   into a key ID.  We identify the result as a keyID, 
+	   (== subjectKeyIdentifier, which it isn't really) but we need to use 
+	   this to ensure that it's hashed/expanded out to the correct size */
+	setMessageData( &msgData, encKeyID, CRYPT_MAX_TEXTSIZE );
+	status = krnlSendMessage( iCryptCert, IMESSAGE_GETATTRIBUTE_S,
+							  &msgData, CRYPT_CERTINFO_PKIUSER_ID );
+	if( cryptStatusOK( status ) )
+		{
+		status =  decodePKIUserValue( binaryKeyID, 64, &binaryKeyIDlength, 
+									  encKeyID, msgData.length );
+		}
+	if( cryptStatusError( status ) )
+		return( status );
+	ANALYSER_HINT( isShortIntegerRangeNZ( binaryKeyIDlength ) );
+	return( makeKeyID( keyID, keyIdMaxLength, keyIdLength, 
+					   CRYPT_IKEYID_KEYID, binaryKeyID, 
+					   binaryKeyIDlength ) );
+	}
+#endif /* USE_PKIUSER */
+
+/* Get a batch if certificate-object IDs for logging purposes */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int getCertIDinfo( INOUT_PTR CERTID_INFO *certIDinfo,
+				   IN_HANDLE const CRYPT_CERTIFICATE iCertificate,
+				   IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+				   IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser )
+	{
+	int status;
+	
+	assert( isWritePtr( certIDinfo, sizeof( CERTID_INFO ) ) );
+
+	REQUIRES( isHandleRangeValid( iCertificate ) );
+	REQUIRES( iAuthCert == CRYPT_UNUSED || isHandleRangeValid( iAuthCert ) );
+	REQUIRES( iPkiUser == CRYPT_UNUSED || isHandleRangeValid( iPkiUser ) );
+
+	memset( certIDinfo, 0, sizeof( CERTID_INFO ) );
+	status = getKeyID( certIDinfo->certID, ENCODED_DBXKEYID_SIZE, 
+					   &certIDinfo->certIDlength, iCertificate, 
+					   CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+	if( cryptStatusError( status ) )
+		return( status );
+	certIDinfo->certIDptr = certIDinfo->certID;
+	if( iAuthCert != CRYPT_UNUSED )
+		{
+		status = getKeyID( certIDinfo->authCertID, ENCODED_DBXKEYID_SIZE, 
+						   &certIDinfo->authCertIDlength, iAuthCert, 
+						   CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+		if( cryptStatusError( status ) )
+			return( status );
+		certIDinfo->authCertIDptr = certIDinfo->authCertID;
+		}
+	if( iPkiUser != CRYPT_UNUSED )
+		{
+		status = getKeyID( certIDinfo->pkiUserID, ENCODED_DBXKEYID_SIZE, 
+						   &certIDinfo->pkiUserIDlength, iPkiUser, 
+						   CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+		if( cryptStatusError( status ) )
+			return( status );
+		certIDinfo->pkiUserIDptr = certIDinfo->pkiUserID;
+		}
+	
+	return( CRYPT_OK );
+	}
+
+/* Convert an ID into a modified form that can be entered into a UNIQUE 
+   column where the ID already exists.  The first function is used for 
+   certificate logging where an operation on a certificate is performed 
+   in two parts, for example a CRYPT_CERTACTION_CERT_CREATION followed by 
+   a CRYPT_CERTACTION_CERT_CREATION_COMPLETE or 
+   CRYPT_CERTACTION_CERT_CREATION_REVERSE.  The second function is used
+   during two-phase certificate issue operations
+   
+   Although these are just single lines of code, they're broken out into 
+   functions to make it clear in the code what's going on */
+
+STDC_NONNULL_ARG( ( 1 ) ) \
+void modifyUniqueID( INOUT_BUFFER_FIXED( idLength ) BYTE *id,
+					 IN_LENGTH_FIXED( ENCODED_DBXKEYID_SIZE ) \
+						const int idLength,
+					 IN_ENUM( IDMOD ) const IDMOD_TYPE modType )
+	{
+	assert( isWritePtr( id, idLength ) );
+	
+	REQUIRES_V( idLength == ENCODED_DBXKEYID_SIZE );
+	REQUIRES_V( modType == IDMOD_CERTISSUE_COMPLETE || \
+				modType == IDMOD_REVOCATION );
+	
+	memset( id + idLength - 2, \
+			( modType == IDMOD_CERTISSUE_COMPLETE ) ? \
+			  CERTID_ESC_CERTISSUE_COMPLETE : \
+			  CERTID_ESC_REVOCATION, 2 );
+	}
+
+STDC_NONNULL_ARG( ( 1 ) ) \
+void modifyCertIssueID( INOUT_BUFFER_FIXED( idLength ) BYTE *id,
+						IN_LENGTH_FIXED( ENCODED_DBXKEYID_SIZE ) \
+							const int idLength,
+						IN_ENUM( IDMOD ) const IDMOD_TYPE modType )
+	{
+	assert( isWritePtr( id, idLength ) );
+	
+	REQUIRES_V( idLength == ENCODED_DBXKEYID_SIZE );
+	REQUIRES_V( modType == IDMOD_CERTISSUE_STD || \
+				modType == IDMOD_CERTISSUE_RENEW );
+	
+	memset( id, ( modType == IDMOD_CERTISSUE_STD ) ? \
+				  CERTID_ESC_CERTISSUE_STD : \
+				  CERTID_ESC_CERTISSUE_RENEW, 2 );
+	}
+
+/* Detect a modified certificate issue ID */
+
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN isModifiedID( IN_BUFFER( idLength ) const void *id,
+					  IN_LENGTH_SHORT_MIN( 8 ) const int idLength )
+	{
+	REQUIRES_B( isShortIntegerRangeMin( idLength, 8 ) );
+	
+	assert( isReadPtr( id, idLength ) );
+	assert( CERTID_LIKE_CERTISSUE_STD[ 1 ] == CERTID_ESC_CERTISSUE_STD && \
+			CERTID_LIKE_CERTISSUE_STD[ 2 ] == CERTID_ESC_CERTISSUE_STD );
+			/* Make sure that we've got the offset right */
+				   
+	if( !memcmp( id, CERTID_LIKE_CERTISSUE_STD + 1, 2 ) || \
+		!memcmp( id, CERTID_LIKE_CERTISSUE_RENEW + 1, 2 ) )
+		return( TRUE );
+	
+	return( FALSE );
+	}
+	
 /****************************************************************************
 *																			*
 *							Database Access Functions						*
@@ -720,7 +864,8 @@ static int createDatabase( INOUT_PTR DBMS_INFO *dbmsInfo,
 				"actionTime DATETIME NOT NULL, "
 				"certID CHAR(" TEXT_DBXKEYID_SIZE ") NOT NULL, "
 				"reqCertID CHAR(" TEXT_DBXKEYID_SIZE "), "
-				"subjCertID CHAR(" TEXT_DBXKEYID_SIZE "), "
+				"authCertID CHAR(" TEXT_DBXKEYID_SIZE "), "
+				"pkiUserID CHAR(" TEXT_DBXKEYID_SIZE "), "
 				"certData BLOB)" );
 			}
 		}
@@ -828,8 +973,7 @@ static int createDatabase( INOUT_PTR DBMS_INFO *dbmsInfo,
 			   log */
 			status = updateCertLog( dbmsInfo, CRYPT_CERTACTION_CREATE,
 									dummyCertID, dummyCertIDlength, 
-									NULL, 0, NULL, 0, NULL, 0,
-									DBMS_UPDATE_NORMAL );
+									NULL, 0, NULL, 0, DBMS_UPDATE_NORMAL );
 			}
 		}
 	if( cryptStatusError( status ) )
@@ -901,11 +1045,12 @@ static int createDatabase( INOUT_PTR DBMS_INFO *dbmsInfo,
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN isBusyFunction( KEYSET_INFO *keysetInfoPtr )
 	{
-	DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+	const DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
 
 	REQUIRES_B( sanityCheckKeyset( keysetInfoPtr ) );
+	REQUIRES_B( dbmsInfo != NULL );
 
 	return( TEST_FLAG( dbmsInfo->flags, DBMS_FLAG_UPDATEACTIVE | \
 										DBMS_FLAG_QUERYACTIVE ) ? \
@@ -920,7 +1065,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 						 IN_LENGTH_NAME const int nameLen,
 						 IN_ENUM( CRYPT_KEYOPT ) const CRYPT_KEYOPT_TYPE options )
 	{
-	DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+	DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	DBMS_NAME_INFO nameInfo;
 	const BOOLEAN readOnly = \
 					TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_READONLY ) ? \
@@ -934,6 +1079,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( nameLen >= MIN_NAME_LENGTH && nameLen < MAX_ATTRIBUTE_SIZE );
 	REQUIRES( options == CRYPT_KEYOPT_NONE || \
 			  options == CRYPT_KEYOPT_CREATE );
+	REQUIRES( dbmsInfo != NULL );
 
 	/* Parse the data source name.  The parsed form isn't needed at this 
 	   point but it allows us to return a more meaningful error response */
@@ -973,7 +1119,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		if( cryptStatusOK( status ) && isCertStore( dbmsInfo ) )
 			{
 			status = updateCertLog( dbmsInfo, CRYPT_CERTACTION_CONNECT,
-									NULL, 0, NULL, 0, NULL, 0, NULL, 0,
+									NULL, 0, NULL, 0, NULL, 0, 
 									DBMS_UPDATE_NORMAL );
 			}
 		if( cryptStatusError( status ) )
@@ -1037,7 +1183,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		if( !readOnly )
 			{
 			status = updateCertLog( dbmsInfo, CRYPT_CERTACTION_CONNECT,
-									NULL, 0, NULL, 0, NULL, 0, NULL, 0,
+									NULL, 0, NULL, 0, NULL, 0, 
 									DBMS_UPDATE_NORMAL );
 			if( cryptStatusError( status ) )
 				{
@@ -1091,11 +1237,12 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	{
-	DBMS_INFO *dbmsInfo = keysetInfoPtr->keysetDBMS;
+	DBMS_INFO *dbmsInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
 
 	REQUIRES( sanityCheckKeyset( keysetInfoPtr ) );
+	REQUIRES( dbmsInfo != NULL );
 
 	/* If it's a certificate store opened in read/write mode, record a 
 	   closed connection to the store */
@@ -1103,8 +1250,7 @@ static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 		!TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_READONLY ) )
 		{
 		updateCertLog( dbmsInfo, CRYPT_CERTACTION_DISCONNECT, 
-					   NULL, 0, NULL, 0, NULL, 0, NULL, 0, 
-					   DBMS_UPDATE_NORMAL );
+					   NULL, 0, NULL, 0, NULL, 0, DBMS_UPDATE_NORMAL );
 		}
 
 	/* If we're in the middle of a query, cancel it.  We always use 

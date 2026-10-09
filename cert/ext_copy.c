@@ -36,7 +36,7 @@ typedef enum {
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -56,14 +56,15 @@ static int copyAttributeField( OUT_PTR_PTR_COND \
 
 	/* Allocate memory for the new element and copy the information across */
 	*newDestAttributeField = NULL;
-	REQUIRES( isShortIntegerRangeNZ( sizeofVarStruct( srcAttributeField, \
+	REQUIRES( checkVarStruct( srcAttributeField ) && \
+			  isShortIntegerRangeNZ( sizeofVarStruct( srcAttributeField, \
 													  ATTRIBUTE_LIST ) ) );
 	if( ( newElement = ( ATTRIBUTE_LIST * ) \
 					   clAlloc( "copyAttributeField", \
 								sizeofVarStruct( srcAttributeField, \
 												 ATTRIBUTE_LIST ) ) ) == NULL )
 		return( CRYPT_ERROR_MEMORY );
-	copyVarStruct( newElement, srcAttributeField, ATTRIBUTE_LIST, dataValue );
+	copyVarStruct( newElement, srcAttributeField, ATTRIBUTE_LIST, attrDataValue );
 	if( srcAttributeField->fieldType == FIELDTYPE_DN )
 		{
 		int status;
@@ -93,7 +94,7 @@ static int copyAttributeField( OUT_PTR_PTR_COND \
 		   attribute data, so we have to update the pointer to this after
 		   the copy */
 		newElement->oid = newElement->storage + \
-						  newElement->dataValueLength;
+						  newElement->attrDataValueLength;
 		}
 	DATAPTR_SET( newElement->next, NULL );
 	DATAPTR_SET( newElement->prev, NULL );
@@ -153,7 +154,7 @@ static int fixAttributeInfo( INOUT_PTR ATTRIBUTE_LIST *attributeListPtr,
 			{
 			/* If we're already at a path length of zero then we can't 
 			   reduce it any further */
-			if( attributeListPtr->intValue <= 0 )
+			if( attributeListPtr->attrIntValue <= 0 )
 				{
 				/* If the copy target is a CA then this is an error */
 				if( targetIsCA )
@@ -164,8 +165,8 @@ static int fixAttributeInfo( INOUT_PTR ATTRIBUTE_LIST *attributeListPtr,
 				return( OK_SPECIAL );
 				}
 
-			REQUIRES( !checkOverflowDec( attributeListPtr->intValue ) );
-			attributeListPtr->intValue--;
+			REQUIRES( !checkOverflowDec( attributeListPtr->attrIntValue ) );
+			attributeListPtr->attrIntValue--;
 			}
 		}
 
@@ -344,7 +345,7 @@ static int copyLengthConstraint( INOUT_PTR DATAPTR_ATTRIBUTE *destHeadPtr,
 	/* There's a length constraint present, if the value is already at zero 
 	   then the next certificate must be an EE certificate rather than a
 	   CA certificate */
-	if( srcListPtr->intValue <= 0 )
+	if( srcListPtr->attrIntValue <= 0 )
 		{
 		*errorLocus = fieldID;
 		return( CRYPT_ERROR_INVALID );
@@ -365,7 +366,7 @@ static int copyLengthConstraint( INOUT_PTR DATAPTR_ATTRIBUTE *destHeadPtr,
 		clearErrorInfo( &localErrorInfo );
 		return( addAttributeField( destHeadPtr, fieldID, 
 								   CRYPT_ATTRIBUTE_NONE,
-								   srcListPtr->intValue - 1,
+								   srcListPtr->attrIntValue - 1,
 								   GET_FLAGS( srcListPtr->flags, 
 											  ATTR_FLAG_MAX ), FALSE,
 								   &localErrorInfo, errorLocus, &dummy ) );
@@ -376,9 +377,9 @@ static int copyLengthConstraint( INOUT_PTR DATAPTR_ATTRIBUTE *destHeadPtr,
 	destListPtr = DATAPTR_GET( destHead );
 	ENSURES( destListPtr != NULL );
 	REQUIRES( sanityCheckAttributePtr( destListPtr  ) );
-	if( srcListPtr->intValue <= destListPtr->intValue )
-		destListPtr->intValue = srcListPtr->intValue - 1;
-	ENSURES( destListPtr->intValue >= 0 );
+	if( srcListPtr->attrIntValue <= destListPtr->attrIntValue )
+		destListPtr->attrIntValue = srcListPtr->attrIntValue - 1;
+	ENSURES( destListPtr->attrIntValue >= 0 );
 
 	return( CRYPT_OK );
 	}					
@@ -741,7 +742,7 @@ int copyIssuerAttributes( INOUT_PTR DATAPTR_ATTRIBUTE *destHeadPtr,
 		attributeListPtr = DATAPTR_GET( attributePtr );
 		ENSURES( attributeListPtr != NULL );
 		REQUIRES( sanityCheckAttributePtr( attributeListPtr ) );
-		if( attributeListPtr->intValue > 0 )
+		if( attributeListPtr->attrIntValue > 0 )
 			{
 			/* Copy any extended CA constraints across */
 #ifdef USE_CERTLEVEL_PKIX_FULL

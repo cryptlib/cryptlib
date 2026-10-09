@@ -760,7 +760,7 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						 IN_ENUM( SSH_PROTOSTATE ) \
 							const SSH_PROTOSTATE_TYPE protocolState )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	const BOOLEAN isSecureRead = \
 			TEST_FLAG( sessionInfoPtr->flags, \
 					   SESSION_FLAG_ISSECURE_READ ) ? TRUE : FALSE;
@@ -780,6 +780,7 @@ static int readHSPacket( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( protocolState == SSH_PROTOSTATE_HANDSHAKE || \
 			  protocolState == SSH_PROTOSTATE_POSTHANDSHAKE || \
 			  protocolState == SSH_PROTOSTATE_AUTH );
+	REQUIRES( sshInfo != NULL );
 
 	/* Errors in reading handshake packets are fatal */
 	*readInfo = READINFO_FATAL;

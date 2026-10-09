@@ -602,7 +602,7 @@ int hwCryptoInit( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	memset( &session, 0, sizeof( struct session_op ) );
 	if( isConvAlgo( capabilityInfoPtr->cryptAlgo ) )
 		{
-		CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+		CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 		REQUIRES( convInfo != NULL );
 
@@ -693,7 +693,7 @@ int hwCryptoCloneState( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	   crypto, this probably isn't such a bad thing... */
 	if( isConvAlgo( capabilityInfoPtr->cryptAlgo ) )
 		{
-		CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+		CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 		REQUIRES( convInfo != NULL );
 
@@ -723,7 +723,7 @@ int hwCryptoCloneState( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	memset( &session, 0, sizeof( struct session_op ) );
 	if( isConvAlgo( capabilityInfoPtr->cryptAlgo ) )
 		{
-		CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+		CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 		REQUIRES( convInfo != NULL );
 
@@ -784,7 +784,7 @@ int hwCryptoHash( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				  IN_BUFFER( noBytes ) BYTE *buffer, 
 				  IN_LENGTH_Z int noBytes )
 	{
-	HASH_INFO *hashInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	HASH_INFO *hashInfo = DATAPTR_GET_HASH( contextInfoPtr );
 	struct crypt_op cryptOpInfo;
 	int cryptoFlags = COP_FLAG_NONE;
 
@@ -828,7 +828,7 @@ int hwCryptoCrypt( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				   IN_LENGTH_Z int noBytes,
 				   IN_BOOL const BOOLEAN doEncrypt )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 	struct crypt_op cryptOpInfo;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -942,7 +942,7 @@ int staticInitContext( OUT_PTR CONTEXT_INFO *contextInfoPtr,
 			   
 			   Since static contexts are only used for self-test operations 
 			   we set the side-channel protection level to zero */
-			DATAPTR_SET( contextInfoPtr->ctxPKC, contextData );
+			DATAPTR_SET( contextInfoPtr->keyingInfo, contextData );
 			REQUIRES( rangeCheck( sizeof( PKC_INFO ), 32, 
 								  contextDataSize ) );
 			memset( pkcInfo, 0, sizeof( PKC_INFO ) );
@@ -979,7 +979,7 @@ void staticDestroyContext( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 
 	if( contextInfoPtr->type == CONTEXT_PKC )
 		{
-		PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+		PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 		assert( pkcInfo != NULL );	/* Warn on error */
 		if( pkcInfo != NULL )

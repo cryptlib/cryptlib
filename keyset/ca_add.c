@@ -38,6 +38,7 @@ BOOLEAN checkRequest( IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
 	REQUIRES_B( action == CRYPT_CERTACTION_CERT_CREATION || \
 				action == CRYPT_CERTACTION_ISSUE_CERT || \
 				action == CRYPT_CERTACTION_REVOKE_CERT || \
+				action == CRYPT_CERTACTION_ADDREQUEST || \
 				action == CRYPT_CERTACTION_NONE );
 
 	/* Make sure that the request type is consistent with the operation
@@ -60,6 +61,7 @@ BOOLEAN checkRequest( IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
 				return( FALSE );
 			break;
 
+		case CRYPT_CERTACTION_ADDREQUEST:
 		case CRYPT_CERTACTION_NONE:
 			/* We're performing a straight add of a request to the store,
 			   any request type is permitted */
@@ -90,7 +92,8 @@ BOOLEAN checkRequest( IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
 				   attribute present with no signing usages */
 				status = krnlSendMessage( iCertRequest, IMESSAGE_GETATTRIBUTE,
 										  &value, CRYPT_CERTINFO_KEYUSAGE );
-				if( cryptStatusError( status ) || ( value & KEYUSAGE_SIGN ) )
+				if( cryptStatusError( status ) || \
+					( value & ~KEYUSAGE_CRYPT ) )
 					return( FALSE );
 				break;
 				}
@@ -119,8 +122,8 @@ BOOLEAN checkRequest( IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
 	   DN and serial number */
 	switch( certType )
 		{
-		case CRYPT_CERTTYPE_CERTREQUEST:
 		case CRYPT_CERTTYPE_REQUEST_CERT:
+		case CRYPT_CERTTYPE_CERTREQUEST:
 			setMessageData( &msgData, NULL, 0 );
 			status = krnlSendMessage( iCertRequest, IMESSAGE_GETATTRIBUTE_S,
 									  &msgData, CRYPT_IATTRIBUTE_SUBJECT );
@@ -235,8 +238,10 @@ int caAddPKIUser( INOUT_PTR DBMS_INFO *dbmsInfo,
 	status = extractCertData( iPkiUser, CRYPT_ICERTFORMAT_DATA,
 							  certData, MAX_CERT_SIZE, &certDataLength );
 	if( cryptStatusOK( status ) )
+		{
 		status = getKeyID( certID, ENCODED_DBXKEYID_SIZE, &certIDlength, 
 						   iPkiUser, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+		}
 	if( cryptStatusError( status ) )
 		{
 		retExt( status, 
@@ -250,21 +255,24 @@ int caAddPKIUser( INOUT_PTR DBMS_INFO *dbmsInfo,
 					  CERTADD_NORMAL, DBMS_UPDATE_BEGIN, errorInfo );
 	if( cryptStatusOK( status ) )
 		{
-		status = updateCertLog( dbmsInfo, CRYPT_CERTACTION_ADDUSER, 
-								certID, certIDlength, NULL, 0, NULL, 0, 
-								certData, certDataLength, 
-								DBMS_UPDATE_COMMIT );
+		status = updateCertLogEx( dbmsInfo, CRYPT_CERTACTION_ADDUSER, 
+								  certID, certIDlength, NULL, 0, NULL, 0, 
+								  certID, certIDlength, certData, 
+								  certDataLength, DBMS_UPDATE_COMMIT );
 		}
 	else
 		{
 		/* Something went wrong, abort the transaction */
 		dbmsUpdate( NULL, NULL, DBMS_UPDATE_ABORT );
+		}
+	if( cryptStatusError( status ) )
+		{
 		retExtErr( status, 
 				   ( status, errorInfo, getDbmsErrorInfo( dbmsInfo ),
 					 "PKI user add operation failed" ) );
 		}
-
-	return( status );
+		
+	return( CRYPT_OK );
 	}
 
 /* Delete a PKI user from the certificate store */
@@ -278,8 +286,8 @@ int caDeletePKIUser( INOUT_PTR DBMS_INFO *dbmsInfo,
 	{
 	CRYPT_CERTIFICATE iPkiUser;
 	BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ], *boundDataPtr = boundData;
-	char certID[ ENCODED_DBXKEYID_SIZE + 8 ];
-	int certIDlength DUMMY_INIT, dummy, status;
+	char pkiUserID[ ENCODED_DBXKEYID_SIZE + 8 ];
+	int pkiUserIDlength DUMMY_INIT, dummy, status;
 
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
 	assert( isReadPtrDynamic( keyID, keyIDlength ) );
@@ -297,9 +305,11 @@ int caDeletePKIUser( INOUT_PTR DBMS_INFO *dbmsInfo,
 						  errorInfo );
 	if( cryptStatusOK( status ) )
 		{
-		status = getKeyID( certID, ENCODED_DBXKEYID_SIZE, &certIDlength, 
-						   iPkiUser, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+		status = getKeyID( pkiUserID, ENCODED_DBXKEYID_SIZE, 
+						   &pkiUserIDlength, iPkiUser, 
+						   CRYPT_CERTINFO_FINGERPRINT_SHA1 );
 		krnlSendNotifier( iPkiUser, IMESSAGE_DECREFCOUNT );
+		iPkiUser = CRYPT_ERROR;
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -311,24 +321,38 @@ int caDeletePKIUser( INOUT_PTR DBMS_INFO *dbmsInfo,
 
 	/* Delete the PKI user information and record the deletion */
 	initBoundData( boundDataPtr );
-	setBoundData( boundDataPtr, 0, certID, certIDlength );
+	setBoundData( boundDataPtr, 0, pkiUserID, pkiUserIDlength );
 	status = dbmsUpdate( 
 			"DELETE FROM pkiUsers WHERE certID = ?", 
 						 boundDataPtr, DBMS_UPDATE_BEGIN );
 	if( cryptStatusOK( status ) )
-		status = updateCertLog( dbmsInfo, CRYPT_CERTACTION_DELETEUSER, 
-								NULL, 0, NULL, 0, certID, certIDlength, 
-								NULL, 0, DBMS_UPDATE_COMMIT );
+		{
+		char pkiUserIDmod[ ENCODED_DBXKEYID_SIZE + 8 ];
+
+		/* This pkiUserID is already recorded in the log from when the
+		   user was created so we modify it for the delete log entry */
+		REQUIRES( pkiUserIDlength == ENCODED_DBXKEYID_SIZE );
+		memcpy( pkiUserIDmod, pkiUserID, pkiUserIDlength );
+		modifyUniqueID( pkiUserIDmod, pkiUserIDlength, 
+						IDMOD_CERTISSUE_COMPLETE );
+		status = updateCertLogEx( dbmsInfo, CRYPT_CERTACTION_DELETEUSER, 
+								  pkiUserIDmod, pkiUserIDlength, NULL, 0, 
+								  NULL, 0, pkiUserID, pkiUserIDlength, 
+								  NULL, 0, DBMS_UPDATE_COMMIT );
+		}
 	else
 		{
 		/* Something went wrong, abort the transaction */
 		dbmsUpdate( NULL, NULL, DBMS_UPDATE_ABORT );
+		}
+	if( cryptStatusError( status ) )
+		{
 		retExtErr( status, 
 				   ( status, errorInfo, getDbmsErrorInfo( dbmsInfo ),
 					 "PKI user delete operation failed" ) );
 		}
-
-	return( status );
+		
+	return( CRYPT_OK );
 	}
 
 /* Add a certificate issue or revocation request to the certificate store */
@@ -336,27 +360,41 @@ int caDeletePKIUser( INOUT_PTR DBMS_INFO *dbmsInfo,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 6 ) ) \
 int caAddCertRequest( INOUT_PTR DBMS_INFO *dbmsInfo, 
 					  IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
-					  IN_ENUM( CRYPT_CERTTYPE ) \
-						const CRYPT_CERTTYPE_TYPE requestType, 
-					  IN_BOOL const BOOLEAN isRenewal, 
-					  IN_BOOL const BOOLEAN isInitialOp,
+					  IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+					  IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
+					  IN_ENUM_OPT( CERTMGMT_OPTION ) \
+						const CERTMGMT_OPTION_TYPE option,
 					  INOUT_PTR ERROR_INFO *errorInfo )
 	{
+	CRYPT_CERTTYPE_TYPE requestType;
+	CERTID_INFO certIDinfo;
 	BYTE certData[ MAX_CERT_SIZE + 8 ];
-	char certID[ ENCODED_DBXKEYID_SIZE + 8 ];
-	char reqCertID[ ENCODED_DBXKEYID_SIZE + 8 ], *reqCertIDptr = reqCertID;
-	int certIDlength, reqCertIDlength DUMMY_INIT;
-	int certDataLength DUMMY_INIT, status;
+	int certDataLength DUMMY_INIT, value, status;
 
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
 	
 	REQUIRES( isHandleRangeValid( iCertRequest ) );
-	REQUIRES( requestType == CRYPT_CERTTYPE_CERTREQUEST || \
-			  requestType == CRYPT_CERTTYPE_REQUEST_CERT || \
-			  requestType == CRYPT_CERTTYPE_REQUEST_REVOCATION );
-	REQUIRES( isBooleanValue( isRenewal ) );
-	REQUIRES( isBooleanValue( isInitialOp ) );
+	REQUIRES( iAuthCert == CRYPT_UNUSED || isHandleRangeValid( iAuthCert ) );
+	REQUIRES( iPkiUser == CRYPT_UNUSED || isHandleRangeValid( iPkiUser ) );
+	REQUIRES( isEnumRangeOpt( option, CERTMGMT_OPTION ) );
 	REQUIRES( errorInfo != NULL );
+
+	/* Find out what sort of request type we're dealing with.  The type check
+	   should have been enforced by the kernel but we make the check explicit
+	   here */
+	status = krnlSendMessage( iCertRequest, IMESSAGE_GETATTRIBUTE,
+							  &value, CRYPT_CERTINFO_CERTTYPE );
+	if( cryptStatusError( status ) )
+		return( CRYPT_ARGERROR_NUM1 );
+	requestType = value;	/* int vs. enum */
+	if( requestType != CRYPT_CERTTYPE_CERTREQUEST && \
+		requestType != CRYPT_CERTTYPE_REQUEST_CERT && \
+		requestType != CRYPT_CERTTYPE_REQUEST_REVOCATION )
+		{
+		retExtArg( CRYPT_ARGERROR_NUM1, 
+				   ( CRYPT_ARGERROR_NUM1, errorInfo, 
+					 "Invalid item type for CA certificate store" ) );
+		}
 
 	/* Make sure that the request is OK and if it's a revocation request 
 	   make sure that it refers to a certificate which is both present in 
@@ -379,8 +417,7 @@ int caAddCertRequest( INOUT_PTR DBMS_INFO *dbmsInfo,
 		}
 
 	/* Extract the information that we need from the certificate request */
-	status = getKeyID( certID, ENCODED_DBXKEYID_SIZE, &certIDlength, 
-					   iCertRequest, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+	status = getCertIDinfo( &certIDinfo, iCertRequest, iAuthCert, iPkiUser );
 	if( cryptStatusOK( status ) )
 		{
 		status = extractCertData( iCertRequest, 
@@ -389,100 +426,113 @@ int caAddCertRequest( INOUT_PTR DBMS_INFO *dbmsInfo,
 									CRYPT_CERTFORMAT_CERTIFICATE,
 								  certData, MAX_CERT_SIZE, &certDataLength );
 		}
-	if( cryptStatusOK( status ) )
-		{
-		status = getKeyID( reqCertID, ENCODED_DBXKEYID_SIZE, &reqCertIDlength, 
-						   iCertRequest, CRYPT_IATTRIBUTE_AUTHCERTID );
-		if( cryptStatusError( status ) )
-			{
-			/* If the request is being added directly by the user, there's no
-			   authorising certificate/PKI user information present */
-			reqCertIDptr = NULL;
-			reqCertIDlength = 0;
-			status = CRYPT_OK;
-			}
-		}
 	if( cryptStatusError( status ) )
 		{
 		retExt( status, 
 				( status, errorInfo, 
-				  "Couldn't extract certificate request data to add to "
+				  "Couldn't extract certificate ID information to add to "
 				  "certificate store" ) );
 		}
 
-	/* Check that the PKI user who authorised this certificate issue still 
-	   exists.  If the CA has deleted them all further requests for 
-	   certificates fail */
-	if( reqCertIDptr != NULL )
+	/* If the request was authorised with a signing certificate, make sure 
+	   that it's valid */
+	if( iAuthCert != CRYPT_UNUSED )
 		{
-		CRYPT_CERTIFICATE iPkiUser;
+		CRYPT_CERTIFICATE iAuthPkiUser;
 
-		status = caGetIssuingUser( dbmsInfo, &iPkiUser, reqCertID, 
-								   reqCertIDlength, errorInfo );
-		if( cryptStatusOK( status ) )
-			krnlSendNotifier( iPkiUser, IMESSAGE_DECREFCOUNT );
-		else
+		REQUIRES( isHandleRangeValid( iPkiUser ) );
+
+		/* Check that the PKI user who authorised this certificate issue 
+		   still exists.  If the CA has deleted them then all further 
+		   requests for certificates fail */
+		status = caGetIssuingUser( dbmsInfo, &iAuthPkiUser, 
+								   certIDinfo.authCertID, 
+								   certIDinfo.authCertIDlength, errorInfo );
+		if( cryptStatusError( status ) )
 			{
-			updateCertErrorLog( dbmsInfo, CRYPT_ERROR_DUPLICATE,
+			updateCertErrorLog( dbmsInfo, status,
 								"Certificate request submitted for "
-								"nonexistent PKI user", NULL, 0, 
-								reqCertID, reqCertIDlength, NULL, 0, 
-								NULL, 0 );
+								"nonexistent PKI user", 
+								certIDinfo.authCertID, 
+								certIDinfo.authCertIDlength );
 			retExt( CRYPT_ERROR_PERMISSION, 
 					( CRYPT_ERROR_PERMISSION, errorInfo, 
 					  "Certificate request submitted for nonexistent PKI "
 					  "user" ) );
 			}
+
+		/* Make sure that the PKI user for the authorising certificate is 
+		   the same as the PKI user for the request */
+		status = krnlSendMessage( iAuthPkiUser, IMESSAGE_COMPARE, 
+								  ( MESSAGE_CAST ) &iPkiUser, 
+								  MESSAGE_COMPARE_CERTOBJ );
+		krnlSendNotifier( iAuthPkiUser, IMESSAGE_DECREFCOUNT );
+		if( cryptStatusError( status ) )
+			{
+			/* The order of the parameters for the error log is a bit
+			   unusual, they don't correspond to the usual log columns
+			   because we're not following the { cert, request, authCert, 
+			   pkiUser } form but just { A, B }, with the parameters 
+			   matching the order of the text in the error message */
+			updateCertErrorLogEx( dbmsInfo, CRYPT_ERROR_PERMISSION,
+								  "PKI user for authorising certificate "
+								  "doesn't match PKI user for certificate "
+								  "request", certIDinfo.authCertID, 
+								  certIDinfo.authCertIDlength,
+								  certIDinfo.pkiUserIDptr, 
+								  certIDinfo.pkiUserIDlength );
+			retExt( CRYPT_ERROR_PERMISSION, 
+					( CRYPT_ERROR_PERMISSION, errorInfo, 
+					  "PKI user for authorising certificate doesn't match "
+					  "PKI user for certificate request" ) );
+			}
 		}
 
-	/* If there's an authorising PKI user present make sure that it hasn't
-	   already been used to authorise the issuance of a certificate.  This 
-	   is potentially vulnerable to the following race condition:
+	/* If there's a PKI user present make sure that it hasn't already been 
+	   used to authorise the issuance of an initial certificate.  This is 
+	   potentially vulnerable to the following race condition:
 
-		1: check authCertID -> OK
-		2: check authCertID -> OK
+		1: check pkiUserID + initial issue -> none issued yet
+		2: check pkiUserID + initial issue -> none issued yet
 		1: add
 		2: add
 
-	   In theory we could detect this by requiring the reqCertID to be 
-	   unique, however a PKI user can be used to request both a certificate 
-	   and a revocation for the certificate and a signing certificate can 
-	   be used to request an update or revocation of both itself and one or 
-	   more associated encryption certificates.  We could probably handle 
-	   this via the ID-mangling used for certIDs but this makes tracing 
-	   events through the audit log complex since there'll now be different 
-	   effective IDs for the authorising certificate depending on what it 
-	   was authorising.  
+	   In theory we could detect this by recording the pkiUserID + initial 
+	   issue in a column with a UNIQUE constraint, but this just adds extra
+	   kludges for a condition that will most likely never occur.
 	   
-	   In addition it's not certain how many further operations a 
-	   certificate (rather than a PKI user) can authorise, in theory a 
-	   single signing certificate can authorise at least four further 
-	   operations, these being the update of itself, the update of an 
-	   associated encryption certificate, and the revocation of itself and 
-	   the encryption certificate.  In addition its possible that a signing 
-	   certificate could be used to authorise a series of short-duration 
-	   encryption certificates or a variety of other combinations of 
-	   operations.
+	   In terms of certificate issuance after the first one, it's not 
+	   certain how many further operations a certificate (rather than a PKI 
+	   user) can authorise, in theory a single signing certificate can 
+	   authorise at least four further operations, these being the update of 
+	   itself, the update of an associated encryption certificate, and the 
+	   revocation of itself and the encryption certificate.  In addition its 
+	   possible that a signing certificate could be used to authorise a 
+	   series of short-duration encryption certificates or a variety of 
+	   other combinations of operations.
 
-	   Because of these issues we can't use a uniqueness constraint on the
-	   reqCertID to enforce a single use of issuing authorisation by the
-	   database itself but have to do a manual check here, checking 
-	   specifically for the case where a PKI user authorises a certificate 
-	   issue.  In addition we can't even perform a general-purpose check 
-	   because as soon as a single issue has been authorised for a user 
-	   there'll be a request for that user logged so that all further 
-	   attempts to submit a request (for example for a renewal, or an 
-	   encryption certificate to go with a signing one) will fail.  Because 
-	   of this we only perform a check on the first attempt to issue a 
-	   certificate, indicated by the caller setting the isInitialOp flag */
-	if( isInitialOp && reqCertIDptr != NULL )
+	   Because of these issues only check for the case where a PKI user 
+	   authorises an initial certificate issue.  We can't perform a general-
+	   purpose check because as soon as a single issue has been authorised 
+	   for a user there'll be a request for that user logged so that all 
+	   further attempts to submit a request (for example for a renewal, or 
+	   an encryption certificate to go with a signing one) will fail.  
+	   Because of this we only perform a check on the first attempt to issue 
+	   a certificate.  
+	   
+	   What this means in CMP terms is that the user gets a single MAC 
+	   (password) authenticated ir and after that subsequent requests have 
+	   to be signed cr/kurs */
+	if( option == CERTMGMT_OPTION_INITIAL && iPkiUser != CRYPT_UNUSED )
 		{
-		BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ], *boundDataPtr = boundData;
+		BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ];
+		BOUND_DATA *boundDataPtr = boundData;
 
 		initBoundData( boundDataPtr );
-		setBoundData( boundDataPtr, 0, reqCertID, reqCertIDlength );
+		setBoundData( boundDataPtr, 0, certIDinfo.pkiUserID, 
+					  certIDinfo.pkiUserIDlength );
 		status = dbmsQuery(
-			"SELECT certID FROM certLog WHERE reqCertID = ? "
+			"SELECT certID FROM certLog WHERE pkiUserID = ? "
 			"AND action = " TEXT_CERTACTION_REQUEST_CERT,
 							NULL, 0, NULL, boundDataPtr, 
 							DBMS_CACHEDQUERY_NONE, DBMS_QUERY_CHECK );
@@ -491,14 +541,15 @@ int caAddCertRequest( INOUT_PTR DBMS_INFO *dbmsInfo,
 			/* This user has already authorised the issue of a certificate, 
 			   it can't be used to issue a second certificate */
 			updateCertErrorLog( dbmsInfo, CRYPT_ERROR_DUPLICATE,
-								"Attempt to authorise additional certificate "
-								"issue when a certificate for this user has "
-								"already been issued", NULL, 0, 
-								reqCertID, reqCertIDlength, NULL, 0, NULL, 0 );
+								"Attempt to request additional certificate "
+								"when an initial certificate for this user "
+								"has already been issued", 
+								certIDinfo.pkiUserID, 
+								certIDinfo.pkiUserIDlength );
 			retExt( CRYPT_ERROR_DUPLICATE, 
 					( CRYPT_ERROR_DUPLICATE, errorInfo, 
-					  "Attempt to authorise additional certificate issue "
-					  "when a certificate for this user has already been "
+					  "Attempt to request additional certificate when an "
+					  "initial certificate for this user has already been "
 					  "issued" ) );
 			}
 		}
@@ -509,11 +560,13 @@ int caAddCertRequest( INOUT_PTR DBMS_INFO *dbmsInfo,
 	   fields except the certificate ID */
 	if( requestType == CRYPT_CERTTYPE_REQUEST_REVOCATION )
 		{
-		BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ], *boundDataPtr = boundData;
+		BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ];
+		BOUND_DATA *boundDataPtr = boundData;
 		char encodedCertData[ MAX_ENCODED_CERT_SIZE + 8 ];
 
 		initBoundData( boundDataPtr );
-		setBoundData( boundDataPtr, 0, certID, certIDlength );
+		setBoundData( boundDataPtr, 0, certIDinfo.certID, 
+					  certIDinfo.certIDlength );
 		if( hasBinaryBlobs( dbmsInfo ) )
 			{
 			setBoundDataBlob( boundDataPtr, 1, certData, certDataLength );
@@ -527,6 +580,8 @@ int caAddCertRequest( INOUT_PTR DBMS_INFO *dbmsInfo,
 								   certDataLength, CRYPT_CERTTYPE_NONE );
 			if( cryptStatusError( status ) )
 				{
+				/* This is a should-never-occur so we don't bother with
+				   extended error information */
 				DEBUG_DIAG(( "Couldn't base64-encode data" ));
 				assert( DEBUG_WARN );
 				return( status );
@@ -535,9 +590,9 @@ int caAddCertRequest( INOUT_PTR DBMS_INFO *dbmsInfo,
 						  encodedCertDataLength );
 			}
 		status = dbmsUpdate( 
-				"INSERT INTO certRequests VALUES ("
-				TEXT_CERTTYPE_REQUEST_REVOCATION ", '', '', '', '', '', '', "
-				"'', ?, ?)", boundDataPtr, DBMS_UPDATE_BEGIN );
+			"INSERT INTO certRequests (type, certID, certData) VALUES ('"
+			TEXT_CERTTYPE_REQUEST_REVOCATION "', ?, ?)", 
+			boundDataPtr, DBMS_UPDATE_BEGIN );
 		}
 	else
 		{
@@ -546,25 +601,29 @@ int caAddCertRequest( INOUT_PTR DBMS_INFO *dbmsInfo,
 		}
 	if( cryptStatusOK( status ) )
 		{
-		status = updateCertLog( dbmsInfo,
+		status = updateCertLogEx( dbmsInfo,
 						( requestType == CRYPT_CERTTYPE_REQUEST_REVOCATION ) ? \
 							CRYPT_CERTACTION_REQUEST_REVOCATION : \
-						( isRenewal ) ? \
+						( option == CERTMGMT_OPTION_RENEWAL ) ? \
 							CRYPT_CERTACTION_REQUEST_RENEWAL : \
 							CRYPT_CERTACTION_REQUEST_CERT,
-						certID, certIDlength, reqCertIDptr, reqCertIDlength, 
-						NULL, 0, certData, certDataLength, 
-						DBMS_UPDATE_COMMIT );
+						certIDinfo.certID, certIDinfo.certIDlength, NULL, 0, 
+						certIDinfo.authCertIDptr, certIDinfo.authCertIDlength, 
+						certIDinfo.pkiUserIDptr, certIDinfo.pkiUserIDlength, 
+						certData, certDataLength, DBMS_UPDATE_COMMIT );
 		}
 	else
 		{
 		/* Something went wrong, abort the transaction */
 		dbmsUpdate( NULL, NULL, DBMS_UPDATE_ABORT );
+		}
+	if( cryptStatusError( status ) )
+		{
 		retExtErr( status, 
 				   ( status, errorInfo, getDbmsErrorInfo( dbmsInfo ),
 					 "Certificate request add operation failed" ) );
 		}
 
-	return( status );
+	return( CRYPT_OK );
 	}
 #endif /* USE_DBMS */

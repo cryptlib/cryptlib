@@ -137,8 +137,7 @@ int getContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_CTXINFO_MODE:
 			{
-			const CONV_INFO *convInfo = \
-						DATAPTR_GET( contextInfoPtr->keyingInfo );
+			const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_CONV );
 			REQUIRES( convInfo != NULL );
@@ -208,8 +207,7 @@ int getContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #ifdef USE_CFB
 			if( contextType == CONTEXT_CONV )
 				{
-				const CONV_INFO *convInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
+				const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 				REQUIRES( convInfo != NULL );
 
@@ -230,8 +228,7 @@ int getContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_CTXINFO_IVSIZE:
 			{
-			const CONV_INFO *convInfo = \
-						DATAPTR_GET( contextInfoPtr->keyingInfo );
+			const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_CONV );
 			REQUIRES( convInfo != NULL );
@@ -245,34 +242,22 @@ int getContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_CTXINFO_KEYING_ALGO:
 		case CRYPT_OPTION_KEYING_ALGO:
-			{
-			const void *keyingInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
-
-			REQUIRES( keyingInfo != NULL );
-			
-			switch( contextType )
+			if( contextType == CONTEXT_CONV )
 				{
-				case CONTEXT_CONV:
-					{
-					const CONV_INFO *convInfo = \
-								( const CONV_INFO * ) keyingInfo;
+				const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL );
 
-					value = convInfo->keySetupAlgorithm;
-					break;
-					}
+				value = convInfo->keySetupAlgorithm;
+				}
+			else
+				{
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 
-				case CONTEXT_MAC:
-					{
-					const MAC_INFO *macInfo = \
-								( const MAC_INFO * ) keyingInfo;
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
-					value = macInfo->keySetupAlgorithm;
-					break;
-					}
-
-				default:
-					retIntError();
+				value = macInfo->keySetupAlgorithm;
 				}
 			if( value <= 0 )
 				{
@@ -281,38 +266,25 @@ int getContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 			*valuePtr = value;
 			return( CRYPT_OK );
-			}
 
 		case CRYPT_CTXINFO_KEYING_ITERATIONS:
 		case CRYPT_OPTION_KEYING_ITERATIONS:
-			{
-			const void *keyingInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
-
-			REQUIRES( keyingInfo != NULL );
-			
-			switch( contextType )
+			if( contextType == CONTEXT_CONV )
 				{
-				case CONTEXT_CONV:
-					{
-					const CONV_INFO *convInfo = \
-								( const CONV_INFO * ) keyingInfo;
-					
-					value = convInfo->keySetupIterations;
-					break;
-					}
+				const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL );
 
-				case CONTEXT_MAC:
-					{
-					const MAC_INFO *macInfo = \
-								( const MAC_INFO * ) keyingInfo;
+				value = convInfo->keySetupIterations;
+				}
+			else
+				{
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 
-					value = macInfo->keySetupIterations;
-					break;
-					}
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
-				default:
-					retIntError();
+				value = macInfo->keySetupIterations;
 				}
 			if( value <= 0 )
 				{
@@ -321,7 +293,6 @@ int getContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 			*valuePtr = value;
 			return( CRYPT_OK );
-			}
 
 		case CRYPT_CTXINFO_PERSISTENT:
 			*valuePtr = TEST_FLAG( contextInfoPtr->flags, 
@@ -341,7 +312,7 @@ int getContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #if defined( USE_ECDH ) || defined( USE_ECDSA ) 
 		case CRYPT_IATTRIBUTE_KEY_ECCPARAM:
 			{
-			const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 			
 			REQUIRES( contextType == CONTEXT_PKC );
 			REQUIRES( pkcInfo != NULL );
@@ -394,8 +365,7 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_CTXINFO_NAME_MODE:
 			{
-			const CONV_INFO *convInfo = \
-						DATAPTR_GET( contextInfoPtr->keyingInfo );
+			const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_CONV );
 			REQUIRES( convInfo != NULL );
@@ -417,18 +387,11 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			}
 
 		case CRYPT_CTXINFO_KEYING_SALT:
-			{
-			const void *keyingInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
-			
-			REQUIRES( contextType == CONTEXT_CONV || \
-					  contextType == CONTEXT_MAC );
-			REQUIRES( keyingInfo != NULL );
-
 			if( contextType == CONTEXT_CONV )
 				{
-				const CONV_INFO *convInfo = \
-							( const CONV_INFO * ) keyingInfo;
+				const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL );
 
 				if( convInfo->saltLength <= 0 )
 					{
@@ -440,8 +403,10 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 			else
 				{
-				const MAC_INFO *macInfo = \
-							( const MAC_INFO * ) keyingInfo;
+				const MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
+
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
 				if( macInfo->saltLength <= 0 )
 					{
@@ -451,12 +416,10 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				return( attributeCopy( msgData, macInfo->salt,
 									   macInfo->saltLength ) );
 				}
-			}
 				
 		case CRYPT_CTXINFO_IV:
 			{
-			const CONV_INFO *convInfo = \
-						DATAPTR_GET( contextInfoPtr->keyingInfo );
+			const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_CONV );
 			REQUIRES( convInfo != NULL );
@@ -475,8 +438,6 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_CTXINFO_HASHVALUE:
 			{
-			const void *keyingInfo;
-			
 			REQUIRES( contextType == CONTEXT_HASH || \
 					  contextType == CONTEXT_MAC );
 
@@ -490,18 +451,20 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			/* For the variable-length algorithms the capabilityInfoPtr 
 			   points to the capability with the relevant hash value size,
 			   so the appropriate-length value is copied out */
-			keyingInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-			REQUIRES( keyingInfo != NULL );
 			if( contextType == CONTEXT_HASH )
 				{
-				const HASH_INFO *hashInfo = ( const HASH_INFO * ) keyingInfo;
+				const HASH_INFO *hashInfo = DATAPTR_GET_HASH( contextInfoPtr );
+
+				REQUIRES( hashInfo != NULL );
 
 				return( attributeCopy( msgData, hashInfo->hash,
 									   capabilityInfoPtr->blockSize ) );
 				}
 			else
 				{
-				const MAC_INFO *macInfo = ( const MAC_INFO * ) keyingInfo;
+				const MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
+
+				REQUIRES( macInfo != NULL );
 
 				return( attributeCopy( msgData, macInfo->mac,
 									   capabilityInfoPtr->blockSize ) );
@@ -519,7 +482,7 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_IATTRIBUTE_KEYID:
 			{
-			const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_PKC );
 			REQUIRES( pkcInfo != NULL );
@@ -531,7 +494,7 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #ifdef USE_PGPKEYS 
 		case CRYPT_IATTRIBUTE_KEYID_PGP2:
 			{
-			const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_PKC );
 			REQUIRES( pkcInfo != NULL );
@@ -544,7 +507,7 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_IATTRIBUTE_KEYID_OPENPGP:
 			{
-			const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_PKC );
 			REQUIRES( pkcInfo != NULL );
@@ -559,7 +522,7 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		case CRYPT_IATTRIBUTE_KEY_SPKI:
 		case CRYPT_IATTRIBUTE_KEY_SPKI_PARTIAL:
 			{
-			const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 			/* CRYPT_IATTRIBUTE_KEY_SPKI_PARTIAL is used to read from dummy
 			   contexts used as placeholders for external crypto hardware
@@ -614,7 +577,7 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #ifdef USE_PGPKEYS 
 		case CRYPT_IATTRIBUTE_PGPVALIDITY:
 			{
-			const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 			
 			REQUIRES( contextType == CONTEXT_PKC );
 			REQUIRES( msgData->length == sizeof( time_t ) );
@@ -640,7 +603,7 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		case CRYPT_IATTRIBUTE_KDFPARAMS:
 			{
 			const GENERIC_INFO *genericInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
+						DATAPTR_GET_GENERIC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_GENERIC );
 			REQUIRES( genericInfo != NULL );
@@ -654,7 +617,7 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		case CRYPT_IATTRIBUTE_ENCPARAMS:
 			{
 			const GENERIC_INFO *genericInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
+						DATAPTR_GET_GENERIC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_GENERIC );
 			REQUIRES( genericInfo != NULL );
@@ -668,7 +631,7 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		case CRYPT_IATTRIBUTE_MACPARAMS:
 			{
 			const GENERIC_INFO *genericInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
+						DATAPTR_GET_GENERIC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_GENERIC );
 			REQUIRES( genericInfo != NULL );
@@ -681,8 +644,7 @@ int getContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_IATTRIBUTE_ICV:
 			{
-			const CONV_INFO *convInfo = \
-						DATAPTR_GET( contextInfoPtr->keyingInfo );
+			const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_CONV );
 			REQUIRES( convInfo != NULL );
@@ -748,8 +710,7 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_CTXINFO_MODE:
 			{
-			const CONV_INFO *convInfo = \
-						DATAPTR_GET( contextInfoPtr->keyingInfo );
+			const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_CONV );
 			REQUIRES( convInfo != NULL );
@@ -837,7 +798,7 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 				case CONTEXT_PKC:
 					{
-					PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+					PKC_INFO *pkcInfo = ( PKC_INFO * ) keyingInfo;
 			
 					REQUIRES( pkcInfo != NULL );
 
@@ -855,8 +816,7 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 				case CONTEXT_GENERIC:
 					{
-					GENERIC_INFO *genericInfo = \
-									DATAPTR_GET( contextInfoPtr->keyingInfo );
+					GENERIC_INFO *genericInfo = ( GENERIC_INFO * ) keyingInfo;
 			
 					REQUIRES( genericInfo != NULL );
 
@@ -937,11 +897,9 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 		case CRYPT_OPTION_KEYING_ALGO:
 			{
 			CRYPT_ALGO_TYPE *algoValuePtr;
-			void *keyingInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 
 			REQUIRES( contextType == CONTEXT_CONV || \
 					  contextType == CONTEXT_MAC );
-			REQUIRES( keyingInfo != NULL );
 
 			/* The kernel only allows (potentially) valid values to be set,
 			   but these may be disabled at the algorithm level so we have 
@@ -955,13 +913,18 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 			if( contextType == CONTEXT_CONV )
 				{
-				CONV_INFO *convInfo = ( CONV_INFO * ) keyingInfo;
+				CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL );
 
 				algoValuePtr = &convInfo->keySetupAlgorithm;
 				}
 			else
 				{
-				MAC_INFO *macInfo = ( MAC_INFO * ) keyingInfo;
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
+
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
 				algoValuePtr = &macInfo->keySetupAlgorithm;
 				}
@@ -973,22 +936,20 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_CTXINFO_KEYING_ITERATIONS:
 		case CRYPT_OPTION_KEYING_ITERATIONS:
-			{
-			void *keyingInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-
-			REQUIRES( contextType == CONTEXT_CONV || \
-					  contextType == CONTEXT_MAC );
-			REQUIRES( keyingInfo != NULL );
-
 			if( contextType == CONTEXT_CONV )
 				{
-				CONV_INFO *convInfo = ( CONV_INFO * ) keyingInfo;
+				CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL );
 
 				valuePtr = &convInfo->keySetupIterations;
 				}
 			else
 				{
-				MAC_INFO *macInfo = ( MAC_INFO * ) keyingInfo;
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
+
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
 				valuePtr = &macInfo->keySetupIterations;
 				}
@@ -999,25 +960,22 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 			*valuePtr = value;
 			return( CRYPT_OK );
-			}
 
 		case CRYPT_IATTRIBUTE_KEYING_ALGO_PARAM:
-			{
-			void *keyingInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-
-			REQUIRES( contextType == CONTEXT_CONV || \
-					  contextType == CONTEXT_MAC );
-			REQUIRES( keyingInfo != NULL );
-
 			if( contextType == CONTEXT_CONV )
 				{
-				CONV_INFO *convInfo = ( CONV_INFO * ) keyingInfo;
+				CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL );
 
 				valuePtr = &convInfo->keySetupParam;
 				}
 			else
 				{
-				MAC_INFO *macInfo = ( MAC_INFO * ) keyingInfo;
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
+
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
 				valuePtr = &macInfo->keySetupParam;
 				}
@@ -1028,7 +986,6 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 			*valuePtr = value;
 			return( CRYPT_OK );
-			}
 
 		case CRYPT_CTXINFO_PERSISTENT:
 			/* The is-object-persistent attribute functions as follows:
@@ -1207,7 +1164,7 @@ int setContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				case CONTEXT_GENERIC:
 					{
 					const GENERIC_INFO *genericInfo = \
-								( GENERIC_INFO * ) keyingInfo;
+								( const GENERIC_INFO * ) keyingInfo;
 
 					REQUIRES( isShortIntegerRangeMin( \
 									genericInfo->genericSecretLength, \
@@ -1258,17 +1215,13 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	switch( attribute )
 		{
 		case CRYPT_CTXINFO_KEYING_SALT:
-			{
-			void *keyingInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-			
-			REQUIRES( contextType == CONTEXT_CONV || \
-					  contextType == CONTEXT_MAC );
-			REQUIRES( keyingInfo != NULL );
 			REQUIRES( dataLength > 0 && dataLength <= CRYPT_MAX_HASHSIZE );
 
 			if( contextType == CONTEXT_CONV )
 				{
-				CONV_INFO *convInfo = ( CONV_INFO * ) keyingInfo;
+				CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL );
 
 				if( convInfo->saltLength > 0 )
 					{
@@ -1281,7 +1234,10 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 			else
 				{
-				MAC_INFO *macInfo = ( MAC_INFO * ) keyingInfo;
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
+
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
 				if( macInfo->saltLength > 0 )
 					{
@@ -1293,7 +1249,6 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				macInfo->saltLength = dataLength;
 				}
 			return( CRYPT_OK );
-			}
 
 		case CRYPT_CTXINFO_KEYING_VALUE:
 			return( deriveKey( contextInfoPtr, data, dataLength ) );
@@ -1341,8 +1296,7 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_CTXINFO_IV:
 			{
-			const CONV_INFO *convInfo = \
-						DATAPTR_GET( contextInfoPtr->keyingInfo );
+			const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 			REQUIRES( convInfo != NULL );
 			REQUIRES( contextType == CONTEXT_CONV );
@@ -1491,7 +1445,7 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #ifdef USE_PGPKEYS 
 		case CRYPT_IATTRIBUTE_KEYID_OPENPGP:
 			{
-			PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_PKC );
 			REQUIRES( capabilityInfoPtr->cryptAlgo == CRYPT_ALGO_RSA || \
@@ -1535,7 +1489,7 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #ifdef USE_PGPKEYS 
 		case CRYPT_IATTRIBUTE_PGPVALIDITY:
 			{
-			PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_PKC );
 			REQUIRES( dataLength == sizeof( time_t ) );
@@ -1561,8 +1515,7 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_IATTRIBUTE_KDFPARAMS:
 			{
-			GENERIC_INFO *genericInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
+			GENERIC_INFO *genericInfo = DATAPTR_GET_GENERIC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_GENERIC );
 			REQUIRES( genericInfo != NULL );
@@ -1576,8 +1529,7 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_IATTRIBUTE_ENCPARAMS:
 			{
-			GENERIC_INFO *genericInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
+			GENERIC_INFO *genericInfo = DATAPTR_GET_GENERIC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_GENERIC );
 			REQUIRES( genericInfo != NULL );
@@ -1591,8 +1543,7 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_IATTRIBUTE_MACPARAMS:
 			{
-			GENERIC_INFO *genericInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
+			GENERIC_INFO *genericInfo = DATAPTR_GET_GENERIC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_GENERIC );
 			REQUIRES( genericInfo != NULL );
@@ -1606,8 +1557,7 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case CRYPT_IATTRIBUTE_AAD:
 			{
-			const CONV_INFO *convInfo = \
-							DATAPTR_GET( contextInfoPtr->keyingInfo );
+			const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_CONV );
 			REQUIRES( convInfo != NULL );
@@ -1626,7 +1576,7 @@ int setContextAttributeS( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			const CTX_LOADKEY_FUNCTION loadKeyFunction = \
 						( CTX_LOADKEY_FUNCTION ) \
 						FNPTR_GET( contextInfoPtr->loadKeyFunction );
-			MAC_INFO *macInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+			MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_MAC );
 			REQUIRES( !needsKey( contextInfoPtr ) );
@@ -1687,16 +1637,11 @@ int deleteContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	switch( attribute )
 		{
 		case CRYPT_CTXINFO_KEYING_ALGO:
-			{
-			void *keyingInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-
-			REQUIRES( contextType == CONTEXT_CONV || \
-					  contextType == CONTEXT_MAC );
-			REQUIRES( keyingInfo != NULL );
-			
 			if( contextType == CONTEXT_CONV )
 				{
-				CONV_INFO *convInfo = ( CONV_INFO * ) keyingInfo;
+				CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL );
 
 				if( convInfo->keySetupAlgorithm == CRYPT_ALGO_NONE )
 					{
@@ -1707,7 +1652,10 @@ int deleteContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 			else
 				{
-				MAC_INFO *macInfo = ( MAC_INFO * ) keyingInfo;
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
+
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
 				if( macInfo->keySetupAlgorithm == CRYPT_ALGO_NONE )
 					{
@@ -1717,19 +1665,13 @@ int deleteContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				macInfo->keySetupAlgorithm = CRYPT_ALGO_NONE;
 				}
 			return( CRYPT_OK );
-			}
 
 		case CRYPT_CTXINFO_KEYING_ITERATIONS:
-			{
-			void *keyingInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-
-			REQUIRES( contextType == CONTEXT_CONV || \
-					  contextType == CONTEXT_MAC );
-			REQUIRES( keyingInfo != NULL );
-
 			if( contextType == CONTEXT_CONV )
 				{
-				CONV_INFO *convInfo = ( CONV_INFO * ) keyingInfo;
+				CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL );
 
 				if( convInfo->keySetupIterations == 0 )
 					{
@@ -1740,7 +1682,10 @@ int deleteContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 			else
 				{
-				MAC_INFO *macInfo = ( MAC_INFO * ) keyingInfo;
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
+
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
 				if( macInfo->keySetupIterations == 0 )
 					{
@@ -1750,19 +1695,13 @@ int deleteContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				macInfo->keySetupIterations = 0;
 				}
 			return( CRYPT_OK );
-			}
 
 		case CRYPT_CTXINFO_KEYING_SALT:
-			{
-			void *keyingInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-
-			REQUIRES( contextType == CONTEXT_CONV || \
-					  contextType == CONTEXT_MAC );
-			REQUIRES( keyingInfo != NULL );
-
 			if( contextType == CONTEXT_CONV )
 				{
-				CONV_INFO *convInfo = ( CONV_INFO * ) keyingInfo;
+				CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL );
 
 				if( convInfo->saltLength == 0 )
 					{
@@ -1774,7 +1713,10 @@ int deleteContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				}
 			else
 				{
-				MAC_INFO *macInfo = ( MAC_INFO * ) keyingInfo;
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
+
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
 				if( macInfo->saltLength == 0 )
 					{
@@ -1785,11 +1727,10 @@ int deleteContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				macInfo->saltLength = 0;
 				}
 			return( CRYPT_OK );
-			}
 
 		case CRYPT_CTXINFO_IV:
 			{
-			CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+			CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 			REQUIRES( contextType == CONTEXT_CONV );
 			REQUIRES( convInfo != NULL );
@@ -1819,36 +1760,26 @@ int deleteContextAttribute( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			return( CRYPT_OK );
 
 		case CRYPT_CTXINFO_HASHVALUE:
-			{
-			void *keyingInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
-
-			REQUIRES( keyingInfo != NULL );
-
-			switch( contextType )
+			if( contextType == CONTEXT_HASH )
 				{
-				case CONTEXT_HASH:
-					{
-					HASH_INFO *hashInfo = ( HASH_INFO * ) keyingInfo;
+				HASH_INFO *hashInfo = DATAPTR_GET_HASH( contextInfoPtr );
+				
+				REQUIRES( hashInfo != NULL );
 
-					zeroise( hashInfo->hash, CRYPT_MAX_HASHSIZE );
-					break;
-					}
+				zeroise( hashInfo->hash, CRYPT_MAX_HASHSIZE );
+				}
+			else
+				{
+				MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 
-				case CONTEXT_MAC:
-					{
-					MAC_INFO *macInfo = ( MAC_INFO * ) keyingInfo;
+				REQUIRES( contextType == CONTEXT_MAC );
+				REQUIRES( macInfo != NULL );
 
-					zeroise( macInfo->mac, CRYPT_MAX_HASHSIZE );
-					break;
-					}
-
-				default:
-					retIntError();
+				zeroise( macInfo->mac, CRYPT_MAX_HASHSIZE );
 				}
 			CLEAR_FLAGS( contextInfoPtr->flags, 
 						 CONTEXT_FLAG_HASH_INITED | CONTEXT_FLAG_HASH_DONE );
 			return( CRYPT_OK );
-			}
 		}
 
 	retIntError();

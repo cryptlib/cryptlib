@@ -730,11 +730,11 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 						 IN_BUFFER( nameLength ) const char *name,
 						 IN_LENGTH_SHORT const int nameLength )
 	{
+	TPM_INFO *tpmInfo = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 #ifdef USE_TPM_EXT
 	const DEV_STORAGE_FUNCTIONS *storageFunctions = \
 					DATAPTR_GET( deviceInfoPtr->storageFunctions );
 #endif /* USE_TPM_EXT */
-	TPM_INFO *tpmInfo = deviceInfoPtr->deviceTPM;
 	FAPI_CONTEXT *fapiContext;
 	MESSAGE_DATA msgData;
 	BYTE buffer[ 32 + 8 ];
@@ -745,6 +745,7 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	assert( isWritePtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
 
 	REQUIRES( name == NULL && nameLength == 0 );
+	REQUIRES( tpmInfo != NULL );
 #ifdef USE_TPM_EXT
 	REQUIRES( storageFunctions != NULL );
 #endif /* USE_TPM_EXT */
@@ -882,7 +883,7 @@ static int controlFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 							INOUT_PTR_OPT \
 								MESSAGE_FUNCTION_EXTINFO *messageExtInfo )
 	{
-	TPM_INFO *tpmInfo = deviceInfoPtr->deviceTPM;
+	TPM_INFO *tpmInfo = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 	FAPI_CONTEXT *fapiContext = \
 			( FAPI_CONTEXT * ) deviceInfoPtr->contextHandle;
 	int status;
@@ -890,6 +891,7 @@ static int controlFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	assert( isWritePtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
 
 	REQUIRES( isAttribute( type ) || isInternalAttribute( type ) );
+	REQUIRES( tpmInfo != NULL );
 	REQUIRES( fapiContext != NULL );
 
 	/* Handle authorisation value changes.  These can only be set when the

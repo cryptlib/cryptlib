@@ -379,56 +379,67 @@ static int sessionMessageFunction( INOUT_PTR TYPECAST( SESSION_INFO * ) \
 			{
 			krnlSendNotifier( sessionInfoPtr->iKeyexCryptContext,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->iKeyexCryptContext = CRYPT_ERROR;
 			}
 		if( sessionInfoPtr->iKeyexAuthContext != CRYPT_ERROR )
 			{
 			krnlSendNotifier( sessionInfoPtr->iKeyexAuthContext,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->iKeyexAuthContext = CRYPT_ERROR;
 			}
 		if( sessionInfoPtr->iCryptInContext != CRYPT_ERROR )
 			{
 			krnlSendNotifier( sessionInfoPtr->iCryptInContext,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->iCryptInContext = CRYPT_ERROR;
 			}
 		if( sessionInfoPtr->iCryptOutContext != CRYPT_ERROR )
 			{
 			krnlSendNotifier( sessionInfoPtr->iCryptOutContext,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->iCryptOutContext = CRYPT_ERROR;
 			}
 		if( sessionInfoPtr->iAuthInContext != CRYPT_ERROR )
 			{
 			krnlSendNotifier( sessionInfoPtr->iAuthInContext,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->iAuthInContext = CRYPT_ERROR;
 			}
 		if( sessionInfoPtr->iAuthOutContext != CRYPT_ERROR )
 			{
 			krnlSendNotifier( sessionInfoPtr->iAuthOutContext,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->iAuthOutContext = CRYPT_ERROR;
 			}
 		if( sessionInfoPtr->iCertRequest != CRYPT_ERROR )
 			{
 			krnlSendNotifier( sessionInfoPtr->iCertRequest,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->iCertRequest = CRYPT_ERROR;
 			}
 		if( sessionInfoPtr->iCertResponse != CRYPT_ERROR )
 			{
 			krnlSendNotifier( sessionInfoPtr->iCertResponse,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->iCertResponse = CRYPT_ERROR;
 			}
 		if( sessionInfoPtr->privateKey != CRYPT_ERROR )
 			{
 			krnlSendNotifier( sessionInfoPtr->privateKey,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->privateKey = CRYPT_ERROR;
 			}
 		if( sessionInfoPtr->cryptKeyset != CRYPT_ERROR )
 			{
 			krnlSendNotifier( sessionInfoPtr->cryptKeyset,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->cryptKeyset = CRYPT_ERROR;
 			}
 		if( sessionInfoPtr->privKeyset != CRYPT_ERROR )
 			{
 			krnlSendNotifier( sessionInfoPtr->privKeyset,
 							  IMESSAGE_DECREFCOUNT );
+			sessionInfoPtr->privKeyset = CRYPT_ERROR;
 			}
 
 		return( CRYPT_OK );
@@ -600,7 +611,7 @@ static int sessionMessageFunction( INOUT_PTR TYPECAST( SESSION_INFO * ) \
 
 		/* Write the data */
 		clearObjectErrorInfo( sessionInfoPtr );
-		clearErrorInfo( &sessionInfoPtr->errorInfo );
+		clearErrorInfo( SESSION_ERRINFO );
 		status = putSessionData( sessionInfoPtr, msgData->data, length, 
 								 &bytesCopied );
 		if( cryptStatusOK( status ) )
@@ -643,7 +654,7 @@ static int sessionMessageFunction( INOUT_PTR TYPECAST( SESSION_INFO * ) \
 
 		/* Read the data */
 		clearObjectErrorInfo( sessionInfoPtr );
-		clearErrorInfo( &sessionInfoPtr->errorInfo );
+		clearErrorInfo( SESSION_ERRINFO );
 		status = getSessionData( sessionInfoPtr, msgData->data, length,
 								 &bytesCopied );
 		if( cryptStatusOK( status ) )
@@ -839,53 +850,10 @@ static int openSession( OUT_HANDLE_OPT CRYPT_SESSION *iCryptSession,
 		}
 	else
 		INIT_FLAGS( sessionInfoPtr->flags, SESSION_FLAG_NONE );
+	setVarStruct( sessionInfoPtr, storageSize, sessionInfo );
 	INIT_FLAGS( sessionInfoPtr->protocolFlags, 0 );
 	DATAPTR_SET( sessionInfoPtr->attributeList, NULL );
 	DATAPTR_SET( sessionInfoPtr->attributeListCurrent, NULL );
-	if( storageSize > 0 )
-		{
-		sessionInfoPtr->storageSize = storageSize;
-		switch( sessionBaseType )
-			{
-#ifdef USE_CMP
-			case CRYPT_SESSION_CMP:
-				sessionInfoPtr->sessionCMP = \
-								( CMP_INFO * ) sessionInfoPtr->storage;
-				break;
-#endif /* USE_CMP */
-
-#ifdef USE_SCEP
-			case CRYPT_SESSION_SCEP:
-				sessionInfoPtr->sessionSCEP = \
-								( SCEP_INFO * ) sessionInfoPtr->storage;
-				break;
-#endif /* USE_SCEP */
-
-#ifdef USE_SSH
-			case CRYPT_SESSION_SSH:
-				sessionInfoPtr->sessionSSH = \
-								( SSH_INFO * ) sessionInfoPtr->storage;
-				break;
-#endif /* USE_SSH */
-
-#ifdef USE_TLS
-			case CRYPT_SESSION_TLS:
-				sessionInfoPtr->sessionTLS = \
-								( TLS_INFO * ) sessionInfoPtr->storage;
-				break;
-#endif /* USE_TLS */
-
-#ifdef USE_TSP
-			case CRYPT_SESSION_TSP:
-				sessionInfoPtr->sessionTSP = \
-								( TSP_INFO * ) sessionInfoPtr->storage;
-				break;
-#endif /* USE_TSP */
-
-			default:
-				retIntError();
-			}
-		}
 
 	/* Set up any internal objects to contain invalid handles */
 	sessionInfoPtr->iKeyexCryptContext = \
@@ -991,11 +959,12 @@ static int openSession( OUT_HANDLE_OPT CRYPT_SESSION *iCryptSession,
 		sessionType == CRYPT_SESSION_TLS_SERVER )
 		{
 		void *scoreboardInfo = getBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD );
+		TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 		REQUIRES( checkBuiltinStorage( BUILTIN_STORAGE_SCOREBOARD ) );
+		REQUIRES( tlsInfo != NULL );
 
-		DATAPTR_SET( sessionInfoPtr->sessionTLS->scoreboardInfoPtr, 
-					 scoreboardInfo );
+		DATAPTR_SET( tlsInfo->scoreboardInfoPtr, scoreboardInfo );
 		}
 #endif /* USE_TLS */
 

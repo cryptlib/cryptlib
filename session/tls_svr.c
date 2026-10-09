@@ -44,6 +44,7 @@ static int readCheckClientCerts( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 INOUT_PTR TLS_HANDSHAKE_INFO *handshakeInfo,
 								 INOUT_PTR STREAM *stream )
 	{
+	static const int ekuValue = CRYPT_CERTINFO_EXTKEY_CLIENTAUTH;
 #ifdef CONFIG_SUITEB
 	int length;
 #endif /* CONFIG_SUITEB */
@@ -94,6 +95,19 @@ static int readCheckClientCerts( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		return( CRYPT_OK );
 		}
 #endif /* !CONFIG_SUITEB_TESTS */
+
+	/* Check whether the certificate is valid for this purpose using the
+	   usual PKIX fail-open checking mechanism */
+	status = krnlSendMessage( sessionInfoPtr->iKeyexAuthContext, 
+							  IMESSAGE_COMPARE, ( MESSAGE_CAST ) &ekuValue,
+							  MESSAGE_COMPARE_EKU );
+	if( cryptStatusError( status ) )
+		{
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, SESSION_ERRINFO,
+				  "Client key isn't valid for TLS client authentication" ) );
+		}
+
 
 	/* Make sure that the key is of the appropriate size for the Suite B 
 	   security level.  At the 128-bit level both P256 and P384 are allowed, 
@@ -295,9 +309,9 @@ static int processSessionResume( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 									SCOREBOARD_ENTRY_INFO *scoreboardEntryInfo,
 								 OUT_INT_Z int *resumedSessionID )
 	{
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	BYTE sessionIDbuffer[ SESSIONID_SIZE + 8 ];
-	void *scoreboardInfoPtr = \
-				DATAPTR_GET( sessionInfoPtr->sessionTLS->scoreboardInfoPtr );
+	void *scoreboardInfoPtr;
 	const BYTE *sessionIDptr = handshakeInfo->sessionID;
 	int sessionIDlength = handshakeInfo->sessionIDlength, status;
 
@@ -306,11 +320,16 @@ static int processSessionResume( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( scoreboardEntryInfo, sizeof( SCOREBOARD_ENTRY_INFO ) ) );
 	assert( isWritePtr( resumedSessionID, sizeof( int ) ) );
 
-	REQUIRES( scoreboardInfoPtr != NULL );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return values */
 	memset( scoreboardEntryInfo, 0, sizeof( SCOREBOARD_ENTRY_INFO ) );
 	*resumedSessionID = CRYPT_ERROR;
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	scoreboardInfoPtr = DATAPTR_GET( tlsInfo->scoreboardInfoPtr );
+	REQUIRES( scoreboardInfoPtr != NULL );
 
 	/* If there's an SNI present, generate a pseudo-session ID that includes 
 	   it.  This is used for the session cache lookup, but the original 

@@ -295,12 +295,15 @@ static int addUrl( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				urlInfo.locationLen );
 		status = addSessionInfoS( sessionInfoPtr, CRYPT_SESSINFO_SERVER_NAME, 
 								  urlBuffer, 
-								  urlInfo.hostLen + urlInfo.locationLen );
+								  urlInfo.hostLen + urlInfo.locationLen,
+								  ATTR_FLAG_NONE );
 		}
 	else
 		{
-		status = addSessionInfoS( sessionInfoPtr, CRYPT_SESSINFO_SERVER_NAME, 
-								  urlInfo.host, urlInfo.hostLen );
+		status = addSessionInfoS( sessionInfoPtr, 
+								  CRYPT_SESSINFO_SERVER_NAME, 
+								  urlInfo.host, urlInfo.hostLen, 
+								  ATTR_FLAG_NONE );
 		}
 	if( cryptStatusError( status ) )
 		{
@@ -375,7 +378,6 @@ static int addCredential( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	const SESSION_ATTRIBUTE_LIST *attributeListPtr;
 	int flags = isServer( sessionInfoPtr ) ? \
 				ATTR_FLAG_MULTIVALUED : ATTR_FLAG_NONE;
-	int credentialMaxLength = credentialLength;
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -391,10 +393,22 @@ static int addCredential( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* If we're using fixed-size credential storage in case the value later 
 	   gets replaced, modify the maximum credential size value */
-	if( ( protocolInfo->flags & SESSION_PROTOCOL_FIXEDSIZECREDENTIALS ) && \
-		( attribute == CRYPT_SESSINFO_USERNAME || \
-		  attribute == CRYPT_SESSINFO_PASSWORD ) )
-		credentialMaxLength = CRYPT_MAX_TEXTSIZE;
+	if( attribute == CRYPT_SESSINFO_USERNAME || \
+		attribute == CRYPT_SESSINFO_PASSWORD )
+		{
+		if( isServer( sessionInfoPtr ) )
+			{
+			if( protocolInfo->flags & \
+						SESSION_PROTOCOL_FIXEDSIZECREDENTIALS_SVR ) 
+				flags |= ATTR_FLAG_FIXEDWIDTHTEXT;
+			}
+		else
+			{
+			if( protocolInfo->flags & \
+						SESSION_PROTOCOL_FIXEDSIZECREDENTIALS_CLI ) 
+				flags |= ATTR_FLAG_FIXEDWIDTHTEXT;
+			}
+		}
 
 	/* If this is a client session then we can only have a single instance 
 	   of this attribute */
@@ -567,26 +581,34 @@ static int addCredential( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 
 	/* Remember the value */
-	return( addSessionInfoEx( sessionInfoPtr, attribute, credential, 
-							  credentialLength, credentialMaxLength, 
-							  flags ) );
+	return( addSessionInfoS( sessionInfoPtr, attribute, credential, 
+							  credentialLength, flags ) );
 	}
 
-/* Add a private key to a session */
+/* Add a private key to a session.  We have an externally-visible function
+   to check the key because adding other session attributes may change the
+   requirements for the key between adding the key and session activation,
+   so we have to check it twice, once when it's added and a second time just
+   before activation.  For example for SCEP or CMP the sequence:
+
+	cryptSetAttribute( cryptSession, CRYPT_SESSINFO_PRIVATEKEY, privKey );
+	cryptSetAttribute( session, CRYPT_SESSINFO_CMP_REQUESTTYPE,
+	                   CRYPT_REQUESTTYPE_CERTIFICATE ); 
+
+   will retroactively change the checks that need to be applied after the 
+   private key is added */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-static int addPrivateKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
-						  IN_HANDLE const CRYPT_CONTEXT privateKey )
+int checkPrivateKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+					 IN_HANDLE const CRYPT_CONTEXT privateKey )
 	{
 	const int requiredAttributeFlags = \
 		isServer( sessionInfoPtr ) ? sessionInfoPtr->serverReqAttrFlags : \
 									 sessionInfoPtr->clientReqAttrFlags;
-	int privateKeyAlgo;		/* int vs. enum */
 	int status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
-	REQUIRES( sanityCheckSession( sessionInfoPtr ) );
 	REQUIRES( isHandleRangeValid( privateKey ) );
 
 	/* Make sure that it's a private key */
@@ -676,6 +698,26 @@ static int addPrivateKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( CRYPT_ARGERROR_NUM1 );
 			}
 		}
+	
+	return( CRYPT_OK );
+	}
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int addPrivateKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+						  IN_HANDLE const CRYPT_CONTEXT privateKey )
+	{
+	int privateKeyAlgo;		/* int vs. enum */
+	int status;
+
+	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+
+	REQUIRES( sanityCheckSession( sessionInfoPtr ) );
+	REQUIRES( isHandleRangeValid( privateKey ) );
+
+	/* Make sure that the private key is in order */
+	status = checkPrivateKey( sessionInfoPtr, privateKey );
+	if( cryptStatusError( status ) )
+		return( status );
 
 	/* Get any additional information that we may need for the private key */
 	status = krnlSendMessage( privateKey, IMESSAGE_GETATTRIBUTE, 
@@ -1063,8 +1105,10 @@ int setSessionAttribute( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			/* If the session is in the partially-open state while we wait 
 			   for the caller to allow or disallow the session authentication 
 			   they have to provide a clear yes or no indication by setting 
-			   CRYPT_SESSINFO_AUTHRESPONSE to TRUE or FALSE before they can 
-			   try to continue the session activation */
+			   CRYPT_SESSINFO_AUTHRESPONSE to TRUE or FALSE (translated to
+			   AUTHRESPONSE_SUCCESS or AUTHRESPONSE_FAILURE in the session
+			   authResponse variable) before they can try to continue the 
+			   session activation */
 			if( TEST_FLAG( sessionInfoPtr->flags, 
 						   SESSION_FLAG_PARTIALOPEN ) && \
 				sessionInfoPtr->authResponse == AUTHRESPONSE_NONE )
@@ -1184,10 +1228,13 @@ int setSessionAttribute( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   values should get here because of the kernel
 							   check so this check is just to document what's 
 							   going on */
+			const int authResponseInt = authResponse;	/* int vs. enum */
 
 			REQUIRES( setAttributeFunction != NULL );
 			REQUIRES( protocolInfo != NULL );
 
+			/* If we don't need to reflect the authentication response down
+			   to lower protocol layers, we're done */
 			if( !( protocolInfo->flags & SESSION_PROTOCOL_REFLECTAUTHOK ) )
 				{
 				sessionInfoPtr->authResponse = authResponse;
@@ -1201,7 +1248,7 @@ int setSessionAttribute( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			   that the operation has succeeded, since the handler may have 
 			   to complete preconditions needed for the authResponse setting 
 			   to be valid for the session */
-			status = setAttributeFunction( sessionInfoPtr, &authResponse,
+			status = setAttributeFunction( sessionInfoPtr, &authResponseInt,
 										   CRYPT_SESSINFO_AUTHRESPONSE );
 			if( cryptStatusError( status ) )
 				return( status );
@@ -1294,7 +1341,7 @@ int setSessionAttributeS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		case CRYPT_SESSINFO_SERVER_FINGERPRINT_SHA2:
 			/* Remember the value */
 			return( addSessionInfoS( sessionInfoPtr, attribute, data, 
-									 dataLength ) );
+									 dataLength, ATTR_FLAG_NONE ) );
 
 		case CRYPT_SESSINFO_SERVER_NAME:
 			return( addUrl( sessionInfoPtr, data, dataLength ) );
@@ -1396,10 +1443,11 @@ int deleteSessionAttribute( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifdef USE_TSP
 		case CRYPT_SESSINFO_TSP_MSGIMPRINT:
 			{
-			TSP_INFO *tspInfo = sessionInfoPtr->sessionTSP;
+			TSP_INFO *tspInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 			
 			REQUIRES( sessionInfoPtr->type == CRYPT_SESSION_TSP || \
 					  sessionInfoPtr->type == CRYPT_SESSION_TSP_SERVER );
+			REQUIRES( tspInfo != NULL );
 		
 			if( tspInfo->imprintAlgo == CRYPT_ALGO_NONE || \
 				tspInfo->imprintSize <= 0 )

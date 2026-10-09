@@ -392,9 +392,9 @@ int initMemPool( OUT_PTR void *statePtr,
 				 IN_BUFFER( memPoolSize ) void *memPool, 
 				 IN_LENGTH_SHORT_MIN( 64 ) const int memPoolSize )
 	{
-	MEMPOOL_INFO *state = ( MEMPOOL_INFO * ) statePtr;
+	MEMPOOL_INFO *mempoolState = ( MEMPOOL_INFO * ) statePtr;
 
-	assert( isWritePtr( state, sizeof( MEMPOOL_INFO ) ) );
+	assert( isWritePtr( mempoolState, sizeof( MEMPOOL_INFO ) ) );
 	assert( isWritePtrDynamic( memPool, memPoolSize ) );
 
 	static_assert( sizeof( MEMPOOL_STATE ) >= sizeof( MEMPOOL_INFO ),
@@ -408,11 +408,11 @@ int initMemPool( OUT_PTR void *statePtr,
 			     DECLARE_VARSTRUCT_VARS which takes care of the alignment */
 	REQUIRES( isShortIntegerRangeMin( memPoolSize, 64 ) );
 
-	memset( state, 0, sizeof( MEMPOOL_INFO ) );
-	state->storage = memPool;
-	state->storageSize = memPoolSize;
+	memset( mempoolState, 0, sizeof( MEMPOOL_INFO ) );
+	mempoolState->storage = memPool;
+	mempoolState->storageSize = memPoolSize;
 
-	ENSURES( sanityCheckMempool( state ) );
+	ENSURES( sanityCheckMempool( mempoolState ) );
 
 	return( CRYPT_OK );
 	}
@@ -517,7 +517,7 @@ void freeMemPool( INOUT_PTR void *statePtr,
 #if defined( CONFIG_DEBUG_MALLOC ) && defined( CONFIG_FAULT_MALLOC )
   /* These have different internal memory layouts so calls to the two
      arent interchangeable */
-  #error CONFIG_DEBUG_MALLOC and CONFIG_FAULT_MALLOC can't both be defined
+  #error CONFIG_DEBUG_MALLOC and CONFIG_FAULT_MALLOC cant both be defined
 #endif /* CONFIG_DEBUG_MALLOC && CONFIG_FAULT_MALLOC */
 
 #ifdef CONFIG_DEBUG_MALLOC

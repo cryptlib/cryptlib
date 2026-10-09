@@ -588,6 +588,7 @@ int pnpPkiSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	CRYPT_CONTEXT iPrivateKey1;
 #ifdef USE_CMP
 	CRYPT_CONTEXT iPrivateKey2;
+	CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 #endif /* USE_CMP */
 	CRYPT_CERTIFICATE iCertReq, iCACert DUMMY_INIT;
 	const SESSION_ATTRIBUTE_LIST *attributeListPtr;
@@ -607,6 +608,9 @@ int pnpPkiSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	REQUIRES( sanityCheckSession( sessionInfoPtr ) );
 	REQUIRES( passwordPtr != NULL );
+#ifdef USE_CMP
+	REQUIRES( cmpInfo != NULL );
+#endif /* USE_CMP */
 
 	transactFunction = ( SES_TRANSACT_FUNCTION ) \
 					   FNPTR_GET( sessionInfoPtr->transactFunction );
@@ -656,7 +660,7 @@ int pnpPkiSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 #ifdef USE_CMP
 	if( sessionInfoPtr->type == CRYPT_SESSION_CMP )
 		{
-		sessionInfoPtr->sessionCMP->requestType = CRYPT_REQUESTTYPE_PKIBOOT;
+		cmpInfo->requestType = CRYPT_REQUESTTYPE_PKIBOOT;
 		SET_FLAG( sessionInfoPtr->protocolFlags, 
 				  CMP_PFLAG_RETAINCONNECTION );
 		}
@@ -745,8 +749,7 @@ int pnpPkiSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		{
 		/* If it's CMP, start with an ir.  The second certificate will be 
 		   fetched with a cr */
-		sessionInfoPtr->sessionCMP->requestType = \
-										CRYPT_REQUESTTYPE_INITIALISATION;
+		cmpInfo->requestType = CRYPT_REQUESTTYPE_INITIALISATION;
 		}
 #endif /* USE_CMP */
 	sessionInfoPtr->iCertRequest = iCertReq;
@@ -894,7 +897,7 @@ int pnpPkiSession( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	   an encryption-only key).  In addition since this is the last 
 	   transaction we turn off the retain-connection flag */
 	CLEAR_FLAG( sessionInfoPtr->protocolFlags, CMP_PFLAG_RETAINCONNECTION );
-	sessionInfoPtr->sessionCMP->requestType = CRYPT_REQUESTTYPE_CERTIFICATE;
+	cmpInfo->requestType = CRYPT_REQUESTTYPE_CERTIFICATE;
 	sessionInfoPtr->iCertRequest = iCertReq;
 	status = updateSessionPrivateKey( sessionInfoPtr, iPrivateKey2 );
 	if( cryptStatusOK( status ) )

@@ -864,6 +864,17 @@ static int copyToEnvelope( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr,
 	if( envelopeInfoPtr->bufPos >= envelopeInfoPtr->bufSize )
 		return( ( length > 0 ) ? 0 : CRYPT_ERROR_OVERFLOW );
 
+	/* If we're using compression and we've reached the end of the 
+	   compressed data stream then we can't continue */
+#ifdef USE_COMPRESSION
+	if( envelopeInfoPtr->usage == ACTION_COMPRESS && \
+		TEST_FLAGS( envelopeInfoPtr->flags, ENVELOPE_FLAG_ZSTREAMINITED | \
+											ENVELOPE_FLAG_ZSTREAMCOMPLETE,
+					ENVELOPE_FLAG_ZSTREAMINITED | \
+					ENVELOPE_FLAG_ZSTREAMCOMPLETE ) )
+		return( CRYPT_ERROR_COMPLETE );
+#endif /* USE_COMPRESSION */
+
 	/* If we're generating a detached signature just hash the data and exit */
 	if( TEST_FLAG( envelopeInfoPtr->flags, ENVELOPE_FLAG_DETACHED_SIG ) )
 		{

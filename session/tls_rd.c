@@ -116,6 +116,7 @@ int processVersionInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						OUT_OPT int *clientVersion,
 						IN_BOOL const BOOLEAN generalCheckOnly )
 	{
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int version, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -125,6 +126,7 @@ int processVersionInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( isBooleanValue( generalCheckOnly ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return value */
 	if( clientVersion != NULL )
@@ -288,20 +290,19 @@ int processVersionInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   also means that a TLS 1.3-only peer has to accept a connection from
 	   a TLS 1.2 peer because it can't tell at this point whether it's
 	   TLS 1.3 or not */
-	if( sessionInfoPtr->sessionTLS->minVersion > 0 )
+	if( tlsInfo->minVersion > 0 )
 		{
 #ifdef USE_TLS13
-		if( version < sessionInfoPtr->sessionTLS->minVersion && \
+		if( version < tlsInfo->minVersion && \
 			version != TLS_MINOR_VERSION_TLS12 )
 #else
-		if( version < sessionInfoPtr->sessionTLS->minVersion )
+		if( version < tlsInfo->minVersion )
 #endif /* USE_TLS13 */
 			{
 			retExt( CRYPT_ERROR_BADDATA,
 					( CRYPT_ERROR_BADDATA, SESSION_ERRINFO, 
 					  "Invalid version number 3.%d, should be at least "
-					  "3.%d", version, 
-					  sessionInfoPtr->sessionTLS->minVersion ) );
+					  "3.%d", version, tlsInfo->minVersion ) );
 			}
 		}
 
@@ -501,13 +502,8 @@ static int checkPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  IN_DATALENGTH const int maxLength,
 							  IN_BOOL const BOOLEAN isFirstMessage )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
-	const int ivLength = \
-		( TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_READ ) && \
-		  ( sessionInfoPtr->version == TLS_MINOR_VERSION_TLS11 || \
-			sessionInfoPtr->version == TLS_MINOR_VERSION_TLS12 ) ) ? \
-		tlsInfo->ivSize : 0;
-	int value, length, status;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
+	int value, ivLength, length, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -519,6 +515,15 @@ static int checkPacketHeader( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  isBufsizeRangeNZ( minLength ) );
 	REQUIRES( isBufsizeRangeNZ( maxLength ) && maxLength >= minLength );
 	REQUIRES( isBooleanValue( isFirstMessage ) );
+	REQUIRES( tlsInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	ivLength = \
+		( TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_READ ) && \
+		  ( sessionInfoPtr->version == TLS_MINOR_VERSION_TLS11 || \
+			sessionInfoPtr->version == TLS_MINOR_VERSION_TLS12 ) ) ? \
+		tlsInfo->ivSize : 0;
 
 	/* Clear return value */
 	*packetLength = 0;
@@ -1019,7 +1024,7 @@ static int unwrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										 TLS_PACKETTYPE_LAST ) \
 									const int packetType )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int length = dataMaxLength, totalLength = length, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) && \
@@ -1033,6 +1038,7 @@ static int unwrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  dataMaxLength < MAX_BUFFER_SIZE );
 	REQUIRES( packetType >= TLS_PACKETTYPE_FIRST && \
 			  packetType <= TLS_PACKETTYPE_LAST );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return value */
 	*dataLength = 0;
@@ -1790,7 +1796,17 @@ int processAlert( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		/* If we timed out before we could get all of the alert data, bail
 		   out without trying to perform any further processing.  We're 
 		   about to shut down the session anyway so there's no point in 
-		   potentially stalling for ages trying to find a lost byte */
+		   potentially stalling for ages trying to find a lost byte.
+		   
+		   Note that this treats an incompletely-read alert, and in the 
+		   secure state one that hasn't been authenticated yet, as a proper
+		   alert, but if an attacker wants to shut down the connection then 
+		   they  can just send a TCP RST or other malformed TCP packet so 
+		   it's not really introducing any vulnerability, and in the 
+		   presence of things that don't handle alerts properly (see the 
+		   comments before and in processAlertData()), or where the alert 
+		   isn't fully read, it at least allows the session to end 
+		   cleanly */
 		sendCloseAlert( sessionInfoPtr, TRUE );
 		SET_FLAG( sessionInfoPtr->flags, SESSION_FLAG_SENDCLOSED );
 		retExt( CRYPT_ERROR_TIMEOUT, 

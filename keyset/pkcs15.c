@@ -740,8 +740,9 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 						 STDC_UNUSED const int nameLength,
 						 IN_ENUM( CRYPT_KEYOPT ) const CRYPT_KEYOPT_TYPE options )
 	{
+	FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	PKCS15_INFO *pkcs15info;
-	STREAM *stream = &keysetInfoPtr->keysetFile->stream;
+	STREAM *stream;
 	int endPos DUMMY_INIT, status;
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
@@ -752,6 +753,11 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( name == NULL && nameLength == 0 );
 	REQUIRES( options == CRYPT_KEYOPT_NONE || \
 			  options == CRYPT_KEYOPT_CREATE );
+	REQUIRES( fileInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	stream = &fileInfo->stream;
 
 	/* If we're opening an existing keyset skip the outer header, optional
 	   keyManagementInfo, and inner header.  We do this before we perform any
@@ -795,9 +801,8 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	ENSURES( options != CRYPT_KEYOPT_CREATE );
 
 	/* Read all of the keys in the keyset */
-	status = readPkcs15Keyset( &keysetInfoPtr->keysetFile->stream, 
-							   pkcs15info, MAX_PKCS15_OBJECTS, endPos, 
-							   KEYSET_ERRINFO );
+	status = readPkcs15Keyset( stream, pkcs15info, MAX_PKCS15_OBJECTS, 
+							   endPos, KEYSET_ERRINFO );
 	if( cryptStatusError( status ) )
 		{
 		clFree( "initFunction", pkcs15info );
@@ -821,6 +826,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	{
+	FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	PKCS15_INFO *pkcs15info = DATAPTR_GET( keysetInfoPtr->keyData );
 	int status = CRYPT_OK;
 
@@ -831,21 +837,21 @@ static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	REQUIRES( sanityCheckKeyset( keysetInfoPtr ) );
 	REQUIRES( keysetInfoPtr->type == KEYSET_FILE && \
 			  keysetInfoPtr->subType == KEYSET_SUBTYPE_PKCS15 );
+	REQUIRES( fileInfo != NULL );
 	REQUIRES( DATAPTR_ISVALID( keysetInfoPtr->keyData ) );
+			  /* pkcs15info may be NULL */
 
 	/* If the contents have been changed, allocate a working I/O buffer for 
 	   the duration of the flush and commit the changes to disk */
 	if( TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_DIRTY ) )
 		{
-		STREAM *stream = &keysetInfoPtr->keysetFile->stream;
+		STREAM *stream = &fileInfo->stream;
 
 		REQUIRES( pkcs15info != NULL );
 
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
 		if( TEST_FLAG( keysetInfoPtr->flags, KEYSET_FLAG_MEMMAPPED ) )
 			{
-			FILE_INFO *fileInfo = keysetInfoPtr->keysetFile;
-
 			sMemOpen( stream, fileInfo->storage, 
 					  fileInfo->storageTotalSize );
 			status = pkcs15Flush( stream, pkcs15info, 

@@ -396,6 +396,7 @@ int checkHostNameTLS( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int checkTLSCertificateInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
+	static const int ekuValue = CRYPT_CERTINFO_EXTKEY_SERVERAUTH;
 	const CRYPT_CERTIFICATE iCryptCert = sessionInfoPtr->iKeyexAuthContext;
 	const SESSION_ATTRIBUTE_LIST *serverNamePtr = \
 				findSessionInfo( sessionInfoPtr, CRYPT_SESSINFO_SERVER_NAME );
@@ -442,6 +443,19 @@ int checkTLSCertificateInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 								   SESSION_ERRINFO );
 		if( cryptStatusError( status ) )
 			return( status );
+		}
+
+	/* There's one additional check that we can do, check whether the 
+	   certificate is valid for this purpose using the usual PKIX fail-open 
+	   checking mechanism */
+	status = krnlSendMessage( iCryptCert, IMESSAGE_COMPARE,
+							  ( MESSAGE_CAST ) &ekuValue,
+							  MESSAGE_COMPARE_EKU );
+	if( cryptStatusError( status ) )
+		{
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, SESSION_ERRINFO,
+				  "Server key isn't valid for TLS server authentication" ) );
 		}
 
 	/* If certificate verification hasn't been disabled, make sure that the 

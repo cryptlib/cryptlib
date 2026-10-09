@@ -26,7 +26,18 @@
    only enable them at USE_CERTLEVEL_PKIX_FULL in order to say that we're 
    compliant with at least one guess at what's required, and the manual 
    warns against both their use and relying on them and has recommendations
-   for what to do to provide effective controls */
+   for what to do to provide effective controls.
+   
+   For anyone reading this code, if you think the processing is convoluted
+   and difficult to follow then try reading the 18-page-long version in the
+   RFC, augmented by dozens of pages of additional comments and 
+   requirements, many vague or contradictory, scattered throughout the rest
+   of the RFC.  This is why the code makes numerous judgement calls to try
+   and apply the principle of least surprise and reduce the chances of
+   complexity-induced unexpected behaviour.
+   
+   "Everybody knows you never go full PKIX [...] You went full PKIX, man. 
+    Never go full PKIX" - Robert Downey Jr (sort of) */
 
 #ifdef USE_CERTIFICATES
 
@@ -129,7 +140,7 @@ static BOOLEAN isPathKludge( IN_PTR const CERT_INFO *certInfoPtr )
 	status = getAttributeFieldValue( certInfoPtr->attributes, 
 									 CRYPT_CERTINFO_CA, 
 									 CRYPT_ATTRIBUTE_NONE, &value );
-	return( ( cryptStatusOK( status ) && value ) ? TRUE : FALSE );
+	return( ( cryptStatusOK( status ) && value > 0 ) ? TRUE : FALSE );
 	}
 #endif /* USE_CERTLEVEL_PKIX_FULL */
 
@@ -196,6 +207,56 @@ static int checkVersion( INOUT_PTR CERT_INFO *certInfoPtr,
 	return( CRYPT_OK );
 	}
 
+/* Check that the validity period is in order.  If we're checking an 
+   existing certificate then the start time has to be valid, if we're 
+   creating a new certificate then it doesn't have to be valid since the 
+   certificate could be created for use in the future */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int checkCertValidityPeriod( INOUT_PTR CERT_INFO *certInfoPtr )
+	{
+	CRYPT_ATTRIBUTE_TYPE *errorLocus = &certInfoPtr->errorLocus;
+	CRYPT_ERRTYPE_TYPE *errorType = &certInfoPtr->errorType;
+	const time_t currentTime = getTime( GETTIME_NONE );
+
+	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
+
+	/* If the time is broken then we can't reliably check for expiry times */
+	if( currentTime <= MIN_TIME_VALUE )
+		{
+		setErrorValues( CRYPT_CERTINFO_VALIDFROM, CRYPT_ERRTYPE_CONSTRAINT );
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO, 
+				  "System time is broken, can't check %s validity",
+				  getCertTypeNameLC( certInfoPtr->type ) ) );
+		}
+
+	/* Check that the object is within its validity period */
+	if( certInfoPtr->startTime >= certInfoPtr->endTime || \
+		( certInfoPtr->certificate != NULL && \
+		  currentTime < certInfoPtr->startTime ) )
+		{
+		/* We fold the shouldn't-occur time value check into the can-occur
+		   not-valid-yet check to save having to add an extra error report
+		   for something that should never actually happen */
+		setErrorValues( CRYPT_CERTINFO_VALIDFROM, CRYPT_ERRTYPE_CONSTRAINT );
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO, 
+				  "%s isn't valid yet", 
+				  getCertTypeName( certInfoPtr->type ) ) );
+		}
+	if( currentTime > certInfoPtr->endTime )
+		{
+		setErrorValues( CRYPT_CERTINFO_VALIDTO, CRYPT_ERRTYPE_CONSTRAINT );
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO, 
+				  "%s has expired", 
+				  getCertTypeName( certInfoPtr->type ) ) );
+		}
+		
+	return( CRYPT_OK );
+	}
+
 /* Check that the subject issuer name and issuer subject name chain 
    properly */
 
@@ -234,7 +295,8 @@ static int checkNameChaining( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 					CRYPT_ERRTYPE_CONSTRAINT );
 	retExt( CRYPT_ERROR_INVALID,
 			( CRYPT_ERROR_INVALID, SUBJECTCERT_ERRINFO, 
-			  "Subject and issuer DNs don't chain" ) );
+			  "%s's issuer name doesn't match the name in the issuing "
+			  "certificate", getCertTypeName( subjectCertInfoPtr->type ) ) );
 	}
 
 /* Check all the blob (unrecognised) attributes to see if any are marked 
@@ -444,10 +506,25 @@ static BOOLEAN wildcardMatch( IN_DATAPTR const DATAPTR constrainedAttribute,
 			   constraining hostname rather than merely within that domain, 
 			   i.e. user@foo.bar.com is a valid match for .bar.com but not 
 			   for bar.com, which would require user@bar.com to match */
-			ENSURES_B( startPos <= constrainedStringLength );
-			if( !isWildcardMatch && \
-				( startPos < 1 || constrainedString[ startPos - 1 ] != '@' ) )
-				return( FALSE );
+			if( !isWildcardMatch )
+				{
+				if( strFindCh( constrainingString, 
+							   constrainingStringLength, '@' ) >= 0 )
+					{
+					/* It's a complete mail address, it has to match the
+					   entire constrained string */
+					if( startPos != 0 )
+						return( FALSE );
+					}
+				else
+					{
+					/* It's a bare host name, the mailbox has to be located
+					   directly on that host */
+					if( startPos < 1 || \
+						constrainedString[ startPos - 1 ] != '@' )
+						return( FALSE );
+					}
+				}
 			break;
 
 		case MATCH_URI:
@@ -697,6 +774,7 @@ int checkNameConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	CRYPT_ERRTYPE_TYPE *errorType;
 	DATAPTR_ATTRIBUTE subjectAttributes = subjectCertInfoPtr->attributes;
 	DATAPTR_ATTRIBUTE attributePtr;
+	const char *errorDescription = isExcluded ? "excluded" : "not permitted";
 	BOOLEAN isMatch = FALSE;
 
 	assert( isWritePtr( subjectCertInfoPtr, sizeof( CERT_INFO ) ) );
@@ -735,9 +813,10 @@ int checkNameConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 
 	/* Check the subject DN if constraints exist.  If it's an excluded 
 	   subtree then none can match, if it's a permitted subtree then at 
-	   least one must match.  We also check for the special case of an
-	   empty subject DN, which acts as a wildcard that matches/doesn't
-	   match permitted/excluded as required */
+	   least one must match.  We don't perform the check in the special 
+	   case of an empty subject DN, which acts as a wildcard that 
+	   matches/doesn't match permitted/excluded as required (RFC 5280
+	   section 4.2.1.10) */
 	REQUIRES( DATAPTR_ISVALID( subjectCertInfoPtr->subjectName ) );
 	attributePtr = findAttributeField( issuerAttributes, constraintType, 
 									   CRYPT_CERTINFO_DIRECTORYNAME );
@@ -773,8 +852,9 @@ int checkNameConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 							CRYPT_ERRTYPE_CONSTRAINT );
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, SUBJECTCERT_ERRINFO,
-					  "%s subject name is excluded by name constraint",
-					  getCertTypeName( subjectCertInfoPtr->type ) ) );
+					  "%s subject name is %s by name constraint",
+					  getCertTypeName( subjectCertInfoPtr->type ),
+					  errorDescription ) );
 			}
 		}
 
@@ -788,8 +868,9 @@ int checkNameConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 						CRYPT_ERRTYPE_CONSTRAINT );
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, SUBJECTCERT_ERRINFO,
-				  "%s alternative name DN is excluded by name constraint",
-				  getCertTypeName( subjectCertInfoPtr->type ) ) );
+				  "%s alternative name DN is %s by name constraint",
+				  getCertTypeName( subjectCertInfoPtr->type ),
+				  errorDescription ) );
 		}
 
 	/* Compare the Internet-related names if constraints exist.  We don't
@@ -808,9 +889,10 @@ int checkNameConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 						CRYPT_ERRTYPE_CONSTRAINT );
 		retExt( CRYPT_ERROR_INVALID,
 				( CRYPT_ERROR_INVALID, SUBJECTCERT_ERRINFO,
-				  "%s alternative email/DNS/URL name is excluded by name "
+				  "%s alternative email/DNS/URL name is %s by name "
 				  "constraint",
-				  getCertTypeName( subjectCertInfoPtr->type ) ) );
+				  getCertTypeName( subjectCertInfoPtr->type ),
+				  errorDescription ) );
 		}
 
 	return( CRYPT_OK );
@@ -830,7 +912,8 @@ typedef struct {
 	} MATCH_TEST_INFO;
 
 static const MATCH_TEST_INFO matchTestInfo[] = {
-	/* RFC 5280 worked examples (section 4.2.1.10) */
+	/* RFC 5280 worked examples (section 4.2.1.10), more in the email 
+	   section */
 	{ "www.foo.bar.com", 15, "foo.bar.com", 11, MATCH_NONE, TRUE },
 	{ "foo1.bar.com", 12, "foo.bar.com", 11, MATCH_NONE, FALSE },
 
@@ -856,6 +939,25 @@ static const MATCH_TEST_INFO matchTestInfo[] = {
 	{ "http://foo.com/path", 19, "foo.com", 7, MATCH_URI, TRUE },
 	{ "http://www.foo.com/xyz", 22, ".foo.com", 8, MATCH_URI, TRUE },	
 
+	/* Complete-email-address match */
+	{ "root@example.com", 16, "root@example.com", 16, MATCH_EMAIL, TRUE },
+	{ "toor@example.com", 16, "root@example.com", 16, MATCH_EMAIL, FALSE },
+	{ "notroot@example.com", 19, "root@example.com", 16, MATCH_EMAIL, FALSE },
+	{ "root@example.com", 16, "ROOT@EXAMPLE.COM", 16, MATCH_EMAIL, TRUE },
+
+	/* Email host-name match where the mailbox has to be located directly on 
+	   the constraining host */
+	{ "root@example.com", 16, "example.com", 11, MATCH_EMAIL, TRUE },
+	{ "root@mail.example.com", 21, "example.com", 11, MATCH_EMAIL, FALSE },
+	{ "root@badexample.com", 19, "example.com", 11, MATCH_EMAIL, FALSE },
+	{ "example.com", 11, "example.com", 11, MATCH_EMAIL, FALSE },
+
+	/* Email domain match which matches subdomains but not the domain 
+	   itself */
+	{ "root@mail.example.com", 21, ".example.com", 12, MATCH_EMAIL, TRUE },
+	{ "root@example.com", 16, ".example.com", 12, MATCH_EMAIL, FALSE },
+	{ "root@badexample.com", 19, ".example.com", 12, MATCH_EMAIL, FALSE },
+
 	/* More tests TBD */
 	{ "a@b.com", 7, "*@b.com", 7, MATCH_EMAIL, FALSE },
 		{ NULL, 0 }, { NULL, 0 }
@@ -871,10 +973,10 @@ BOOLEAN checkNameMatch( void )
 	int status;
 	
 	/* This code is still under development pending the LAMPS WG's attempt 
-	   to resolve the PKIX name-matching mess.  At the moment it doesn't 
-	   test anything much beyond basic DNS name handling, which is what
-	   approximately 100% of cases will be, because it's unclear what 
-	   correct behaviour for the rest actually is */
+	   to resolve the PKIX name-matching mess.  At the moment it just tests
+	   basic DNS name handling, which is what approximately 100% of cases 
+	   will be, and email, because it's unclear what correct behaviour for 
+	   the rest will actually be */
 	clearErrorInfo( &errorInfo );
 	LOOP_MED( i = 0, i < FAILSAFE_ARRAYSIZE( matchTestInfo, \
 											 MATCH_TEST_INFO ) && \
@@ -885,7 +987,7 @@ BOOLEAN checkNameMatch( void )
 		
 		ENSURES( LOOP_INVARIANT_MED( i, 0, 
 									 FAILSAFE_ARRAYSIZE( matchTestInfo, \
-														 MATCH_TEST_INFO ) ) );
+														 MATCH_TEST_INFO ) - 1 ) );
 
 		DATAPTR_SET( constrainedName, NULL );
 		status = addAttributeFieldString( &constrainedName, 
@@ -1031,10 +1133,12 @@ static BOOLEAN checkPolicyType( IN_DATAPTR const DATAPTR_ATTRIBUTE attributePtr,
 /* Check whether a given policy is present in a certificate */
 
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 2 ) ) \
-BOOLEAN isPolicyPresent( const DATAPTR_ATTRIBUTE subjectAttributes,
-						 IN_BUFFER( issuerPolicyValueLength ) \
-								const void *issuerPolicyValue,
-						 IN_LENGTH_OID const int issuerPolicyValueLength )
+static BOOLEAN isPolicyPresent( IN_DATAPTR \
+									const DATAPTR_ATTRIBUTE subjectAttributes,
+								IN_BUFFER( issuerPolicyValueLength ) \
+									const void *issuerPolicyValue,
+								IN_LENGTH_OID \
+									const int issuerPolicyValueLength )
 	{
 	LOOP_INDEX_PTR DATAPTR_ATTRIBUTE attributeCursor;
 	int status;
@@ -1252,7 +1356,8 @@ int checkPolicyConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int checkPathConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
-						  IN_LENGTH_SHORT_Z const int pathLength )
+						  IN_LENGTH_SHORT_Z const int pathLength,
+						  IN_BOOL const BOOLEAN issuerIsSubject )
 	{
 	CRYPT_ATTRIBUTE_TYPE *errorLocus;
 	CRYPT_ERRTYPE_TYPE *errorType;
@@ -1280,13 +1385,10 @@ int checkPathConstraints( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	if( pathLength > 0 )
 		return( CRYPT_OK );
 
-	/* If the certificate is self-signed (i.e. the certificate is applying 
-	   the constraint to itself) then a path length constraint of zero is 
-	   valid.  Checking only the subject certificate information is safe 
-	   because the calling code has guaranteed that if the certificate is 
-	   self-signed then the issuer attributes are the attributes from the 
-	   subject certificate */
-	if( TEST_FLAG( subjectCertInfoPtr->flags, CERT_FLAG_SELFSIGNED ) )
+	/* If the path length came from the subject certificate's own attributes,
+	   meaning that the certificate is being checked against itself, then a 
+	   path length constraint of zero is valid */
+	if( issuerIsSubject )
 		return( CRYPT_OK );
 
 	/* The path length constraint is in effect, the next certificate down 
@@ -1674,22 +1776,34 @@ static int checkCrlConsistency( INOUT_PTR CERT_INFO *crlInfoPtr,
 	if( issuerCertInfoPtr == NULL )
 		return( CRYPT_OK );
 
+	/* Check that the validity period is in order */
+	status = checkCertValidityPeriod( crlInfoPtr );
+	if( cryptStatusError( status ) )
+		return( status );
+
 	/* Make sure that the issuer can sign CRLs and that the issuer 
 	   certificate in general is in order */
 	status = checkKeyUsage( issuerCertInfoPtr, 
 							CHECKKEY_FLAG_CA | CHECKKEY_FLAG_GENCHECK, 
 							CRYPT_KEYUSAGE_CRLSIGN, complianceLevel,
 							crlInfoPtr );
-	if( cryptStatusOK( status ) )
-		return( CRYPT_OK );
+	if( cryptStatusError( status ) )
+		{
+		/* There's a problem with the issuer certificate, set a general
+		   error status indicating this for the CRL */
+		setErrorValues( CRYPT_CERTINFO_KEYUSAGE,
+						CRYPT_ERRTYPE_ISSUERCONSTRAINT );
+		retExtErr( status,
+				   ( status, CRL_ERRINFO, CRL_ERRINFO,
+					 "Issuer certificate isn't capable of CRL signing" ) );
+		}
 
-	/* There's a problem with the issuer certificate, set a general
-	   error status indicating this for the CRL */
-	setErrorValues( CRYPT_CERTINFO_KEYUSAGE,
-					CRYPT_ERRTYPE_ISSUERCONSTRAINT );
-	retExt( status,
-			( status, CRL_ERRINFO,
-			  "Issuer certificate isn't capable of CRL signing" ) );
+	/* Make sure that the issuer actually issued this CRL */
+	status = checkNameChaining( crlInfoPtr, issuerCertInfoPtr );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	return( CRYPT_OK );
 	}
 #endif /* USE_CERTREV */
 
@@ -1702,90 +1816,80 @@ static int checkCrlConsistency( INOUT_PTR CERT_INFO *crlInfoPtr,
    untrusted in the meantime */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
-int checkCertBasic( INOUT_PTR CERT_INFO *certInfoPtr )
+int checkCertBasic( INOUT_PTR CERT_INFO *certInfoPtr,
+					IN_BOOL const BOOLEAN fullComplianceCheck )
 	{
 	CRYPT_ATTRIBUTE_TYPE *errorLocus;
 	CRYPT_ERRTYPE_TYPE *errorType;
-	const time_t currentTime = getTime( GETTIME_NONE );
-	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 	int complianceLevel, status;
+	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
 	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 			  certInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
-			  certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN );
+			  certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN || \
+			  certInfoPtr->type == CRYPT_CERTTYPE_CRL );
+	REQUIRES( isBooleanValue( fullComplianceCheck ) );
 
 	/* Get references to the certificate's error information */
 	errorLocus = &certInfoPtr->errorLocus;
 	errorType = &certInfoPtr->errorType;
 
-	/* Determine how much checking we need to perform */
-	status = krnlSendMessage( certInfoPtr->ownerHandle, 
-							  IMESSAGE_GETATTRIBUTE, &complianceLevel, 
-							  CRYPT_OPTION_CERT_COMPLIANCELEVEL );
-	if( cryptStatusError( status ) )
-		return( status );
-	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE" );
+	/* Determine how much checking we need to perform.  If this is a 
+	   currently-under-construction certificate then we use the maximum 
+	   compliance level to ensure that cryptlib never produces broken 
+	   certificates */
+	if( fullComplianceCheck )
+		complianceLevel = CRYPT_COMPLIANCELEVEL_PKIX_FULL;
+	else
+		{
+		status = krnlSendMessage( certInfoPtr->ownerHandle, 
+								  IMESSAGE_GETATTRIBUTE, &complianceLevel, 
+								  CRYPT_OPTION_CERT_COMPLIANCELEVEL );
+		if( cryptStatusError( status ) )
+			return( status );
+		}
 
 	/* There is one universal case in which a certificate is regarded as 
 	   invalid and that's when it's explicitly not trusted */
-	if( certInfoPtr->cCertCert->trustedUsage == 0 )
+	if( certInfoPtr->type != CRYPT_CERTTYPE_CRL )
 		{
-		setErrorValues( CRYPT_CERTINFO_TRUSTED_USAGE,
-						CRYPT_ERRTYPE_CONSTRAINT );
-		retExt( CRYPT_ERROR_INVALID,
-				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO, 
-				  "%s isn't trusted for any usage",
-				  getCertTypeName( certInfoPtr->type ) ) );
+		const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+		REQUIRES( certInfo != NULL );
+
+		if( certInfo->trustedUsage == 0 )
+			{
+			setErrorValues( CRYPT_CERTINFO_TRUSTED_USAGE,
+							CRYPT_ERRTYPE_CONSTRAINT );
+			retExt( CRYPT_ERROR_INVALID,
+					( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO, 
+					  "%s isn't trusted for any usage",
+					  getCertTypeName( certInfoPtr->type ) ) );
+			}
 		}
+	CFI_CHECK_UPDATE( "trustedUsage" );
 
 	/* If we're running in oblivious mode, we're done */
 	if( complianceLevel < CRYPT_COMPLIANCELEVEL_REDUCED )
 		{
-		ENSURES( CFI_CHECK_SEQUENCE_1( "IMESSAGE_GETATTRIBUTE" ) );
+		ENSURES( CFI_CHECK_SEQUENCE_1( "trustedUsage" ) );
 
 		return( CRYPT_OK );
 		}
 	CFI_CHECK_UPDATE( "CRYPT_COMPLIANCELEVEL_REDUCED" );
 
-	/* Check that the validity period is in order.  If we're checking an 
-	   existing certificate then the start time has to be valid, if we're 
-	   creating a new certificate then it doesn't have to be valid since the 
-	   certificate could be created for use in the future */
-	if( currentTime <= MIN_TIME_VALUE )
-		{
-		/* Time is broken, we can't reliably check for expiry times */
-		setErrorValues( CRYPT_CERTINFO_VALIDFROM, CRYPT_ERRTYPE_CONSTRAINT );
-		retExt( CRYPT_ERROR_INVALID,
-				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO, 
-				  "System time is broken, can't check %s validity",
-				  getCertTypeNameLC( certInfoPtr->type ) ) );
-		}
-	if( certInfoPtr->startTime >= certInfoPtr->endTime || \
-		( certInfoPtr->certificate != NULL && \
-		  currentTime < certInfoPtr->startTime ) )
-		{
-		setErrorValues( CRYPT_CERTINFO_VALIDFROM, CRYPT_ERRTYPE_CONSTRAINT );
-		retExt( CRYPT_ERROR_INVALID,
-				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO, 
-				  "%s isn't valid yet", 
-				  getCertTypeName( certInfoPtr->type ) ) );
-		}
-	if( currentTime > certInfoPtr->endTime )
-		{
-		setErrorValues( CRYPT_CERTINFO_VALIDTO, CRYPT_ERRTYPE_CONSTRAINT );
-		retExt( CRYPT_ERROR_INVALID,
-				( CRYPT_ERROR_INVALID, CERTIFICATE_ERRINFO, 
-				  "%s has expired", 
-				  getCertTypeName( certInfoPtr->type ) ) );
-		}
-	CFI_CHECK_UPDATE( "timeCheck" );
+	/* Check that the validity period is in order */
+	status = checkCertValidityPeriod( certInfoPtr );
+	if( cryptStatusError( status ) )
+		return( status );
+	CFI_CHECK_UPDATE( "validityPeriod" );
 
-	ENSURES( CFI_CHECK_SEQUENCE_3( "IMESSAGE_GETATTRIBUTE", 
+	ENSURES( CFI_CHECK_SEQUENCE_3( "trustedUsage", 
 								   "CRYPT_COMPLIANCELEVEL_REDUCED", 
-								   "timeCheck" ) );
+								   "validityPeriod" ) );
 
 	return( CRYPT_OK );
 	}
@@ -1804,7 +1908,11 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	{
 	CRYPT_ATTRIBUTE_TYPE *errorLocus;
 	CRYPT_ERRTYPE_TYPE *errorType;
+	const CERT_CERT_INFO *issuerCertInfo;
+	CERT_CERT_INFO *subjectCertInfo;
 	DATAPTR_ATTRIBUTE subjectAttributes;
+	const BOOLEAN issuerIsSubject = \
+			( issuerCertInfoPtr == subjectCertInfoPtr ) ? TRUE : FALSE;
 	BOOLEAN subjectSelfSigned;
 #ifdef USE_CERTLEVEL_PKIX_PARTIAL
 	DATAPTR_ATTRIBUTE issuerAttributes, attributePtr;
@@ -1825,7 +1933,8 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	errorLocus = &subjectCertInfoPtr->errorLocus;
 	errorType = &subjectCertInfoPtr->errorType;
 
-	/* Get certificate information */
+	/* Get certificate information.  For the significance of the self-signed
+	   flag, see the long comment in cert/read.c:readCertInfo() */
 	subjectAttributes = subjectCertInfoPtr->attributes;
 	subjectSelfSigned = TEST_FLAG( subjectCertInfoPtr->flags, 
 								   CERT_FLAG_SELFSIGNED ) ? TRUE : FALSE;
@@ -1882,7 +1991,10 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 			   is incorporated into a chain or a future-dated validity time 
 			   or a CA keyUsage for which the CA provides the appropriate 
 			   matching basicConstraints value(s) so we can't really perform 
-			   much checking here */
+			   much checking here as it would reject inconsistent but valid
+			   requests.  This means that the actual checking only occurs at
+			   the cryptSignCert() stage once the data in the certificate has
+			   been reconciled by the CA */
 			ENSURES( CFI_CHECK_SEQUENCE_1( "IMESSAGE_GETATTRIBUTE" ) );
 			return( CRYPT_OK );
 
@@ -1919,9 +2031,31 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 		case CRYPT_CERTTYPE_RTCS_RESPONSE:
 		case CRYPT_CERTTYPE_OCSP_REQUEST:
 		case CRYPT_CERTTYPE_OCSP_RESPONSE:
-			/* These aren't normal certificate types, there's nothing to 
-			   check - we can't even check the issuer since they're not 
-			   normally issued by CAs */
+			/* These aren't normal certificate types, none of the standard
+			   certificate checks apply.  We can't even check the issuer 
+			   since they're not normally issued by CAs, however for OCSP
+			   responses the one thing that we do need to check is whether
+			   they're allowed to sign responses */
+			if( subjectCertInfoPtr->type == CRYPT_CERTTYPE_OCSP_RESPONSE )
+				{
+				static const int ekuValue = CRYPT_CERTINFO_EXTKEY_OCSPSIGNING;
+
+				REQUIRES( issuerCertInfoPtr != NULL )
+
+				/* Check whether the certificate is valid for this purpose 
+				   using the usual PKIX fail-open checking mechanism */
+				status = krnlSendMessage( issuerCertInfoPtr->objectHandle, 
+										  IMESSAGE_COMPARE,
+										  ( MESSAGE_CAST ) &ekuValue,
+										  MESSAGE_COMPARE_EKU );
+				if( cryptStatusError( status ) )
+					{
+					retExt( CRYPT_ERROR_INVALID,
+							( CRYPT_ERROR_INVALID, SUBJECTCERT_ERRINFO,
+							  "Signing certificate isn't valid for OCSP "
+							  "signing" ) );
+					}
+				}
 			ENSURES( CFI_CHECK_SEQUENCE_1( "IMESSAGE_GETATTRIBUTE" ) );
 			return( CRYPT_OK );
 
@@ -1932,9 +2066,15 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	ENSURES( subjectCertInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
 			 subjectCertInfoPtr->type == CRYPT_CERTTYPE_ATTRIBUTE_CERT || \
 			 subjectCertInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN );
+	subjectCertInfo = DATAPTR_GET_CERT( subjectCertInfoPtr );
+	REQUIRES( subjectCertInfo != NULL );
+	issuerCertInfo = DATAPTR_GET_CERT( issuerCertInfoPtr );
+	REQUIRES( issuerCertInfo != NULL );
 
 	/* Perform a basic check for obvious invalidity issues */
-	status = checkCertBasic( subjectCertInfoPtr );
+	status = checkCertBasic( subjectCertInfoPtr, 
+				( complianceLevel == CRYPT_COMPLIANCELEVEL_PKIX_FULL ) ? \
+				  TRUE : FALSE );
 	if( cryptStatusError( status ) )
 		return( status );
 	CFI_CHECK_UPDATE( "checkCertBasic" );
@@ -1943,7 +2083,7 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	   invalid and that's when the issuing certificate isn't trusted as an 
 	   issuer.  We perform the check in oblivious mode to ensure that only 
 	   the basic trusted usage gets checked at this point */
-	if( issuerCertInfoPtr->cCertCert->trustedUsage != CRYPT_ERROR )
+	if( issuerCertInfo->trustedUsage != CRYPT_ERROR )
 		{
 		status = checkKeyUsage( issuerCertInfoPtr, CHECKKEY_FLAG_CA, 
 								CRYPT_KEYUSAGE_KEYCERTSIGN,
@@ -1973,35 +2113,75 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 		}
 	CFI_CHECK_UPDATE( "CRYPT_COMPLIANCELEVEL_REDUCED" );
 
-	/* If the certificate isn't self-signed, check name chaining.  This 
-	   check is placed here because the cached-check-result early-exit below
-	   is associated with the certificate being checked, not the combination 
+	/* Check name chaining.  We do this even for self-signed certificates 
+	   because a caller could in theory pass us a self-signed subject 
+	   certificate as the one to check and something else as the issuer 
+	   certificate which leads to an undefined result since it's not clear
+	   whether we're being asked to check the subject certificate, which 
+	   will be valid since it's self-signed, or the subject certificate in
+	   the context of the issuer certificate, which won't be valid.
+	   
+	   We can't use the other alternative of always requiring that the 
+	   issuer certificate is set to CRYPT_UNUSED if the subject is self-
+	   signed because cryptlib checks created (self-signed) certificates 
+	   by passing them as both the subject and issuer.
+	   
+	   The chaining check and the issuer-is-CA check that follows it are 
+	   placed here because the cached-check-result early-exit below is 
+	   associated with the certificate being checked, not the combination 
 	   of certificate and issuer, so in theory if a certificate is checked 
 	   against issuer1, the check result recorded, and it's then checked 
 	   against issuer2 identifying as issuer1, the result would be the 
-	   cached result from the issuer1 check rather than a new issuer2 check.
-	   It's not clear how such a situation could ever arise apart from as a 
-	   programming error, but the check is cheap so we place it here rather
-	   than after the already-checked early exit */
-	if( !subjectSelfSigned )
-		{
-		status = checkNameChaining( subjectCertInfoPtr, issuerCertInfoPtr );
-		if( cryptStatusError( status ) )
-			return( status );
-		}
+	   cached result from the issuer1 check rather than a new issuer2 
+	   check.
+	   
+	   It's not clear how these situations could ever arise apart from as a 
+	   programming error, but the checks are cheap so we place them here 
+	   rather than after the already-checked early exit */
+	status = checkNameChaining( subjectCertInfoPtr, issuerCertInfoPtr );
+	if( cryptStatusError( status ) )
+		return( status );
 	CFI_CHECK_UPDATE( "checkNameChaining" );
 
-	/* If it's a self-signed certificate or if we're doing a short-circuit 
-	   check of a certificate in a chain that's already been checked and 
-	   we've already checked it at the appropriate level then there's no 
-	   need to perform any further checks */
-	if( ( subjectSelfSigned || shortCircuitCheck ) && \
-		( subjectCertInfoPtr->cCertCert->maxCheckLevel >= complianceLevel ) )
+	/* Check that the issuer is a CA if required.  The only exception is for 
+	   a self-signed certificate being checked against itself as it's being
+	   created, which requires both conditions below to hold.  Testing only
+	   issuerIsSubject would also skip the check when the same object is 
+	   passed for both but the certificate isn't self-signed, and testing 
+	   only subjectSelfSigned would skip it for a self-signed certificate 
+	   being checked against a different issuer certificate, which would 
+	   allow a non-CA certificate to appear to be an issuer */
+	if( !( issuerIsSubject && subjectSelfSigned ) )
 		{
-		ENSURES( CFI_CHECK_SEQUENCE_5( "IMESSAGE_GETATTRIBUTE", 
+		status = checkKeyUsage( issuerCertInfoPtr, CHECKKEY_FLAG_CA, 
+								CRYPT_KEYUSAGE_KEYCERTSIGN, complianceLevel,
+								subjectCertInfoPtr );
+		if( cryptStatusError( status ) )
+			{
+			/* There's a problem with the issuer certificate, set a general
+			   error status indicating this for the subject certificate */
+			setErrorValues( CRYPT_CERTINFO_KEYUSAGE,
+							CRYPT_ERRTYPE_ISSUERCONSTRAINT );
+			retExtErr( status,
+					   ( status, SUBJECTCERT_ERRINFO, SUBJECTCERT_ERRINFO,
+						 "Issuer certificate isn't valid for signing "
+						 "this %s",
+						 getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
+			}
+		}
+	CFI_CHECK_UPDATE( "checkKeyUsageIssuer" );
+
+	/* If we're doing a short-circuit check of a certificate in a chain 
+	   that's already been checked and we've already checked it at the 
+	   appropriate level then there's no need to perform any further checks */
+	if( shortCircuitCheck && \
+		( subjectCertInfo->maxCheckLevel >= complianceLevel ) )
+		{
+		ENSURES( CFI_CHECK_SEQUENCE_6( "IMESSAGE_GETATTRIBUTE", 
 									   "checkCertBasic", "checkKeyUsage",
 									   "CRYPT_COMPLIANCELEVEL_REDUCED",
-									   "checkNameChaining" ) );
+									   "checkNameChaining", 
+									   "checkKeyUsageIssuer" ) );
 		return( CRYPT_OK );
 		}
 
@@ -2014,12 +2194,14 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	/* If we're doing a reduced level of checking, we're done */
 	if( complianceLevel < CRYPT_COMPLIANCELEVEL_STANDARD )
 		{
-		if( subjectCertInfoPtr->cCertCert->maxCheckLevel < complianceLevel )
-			subjectCertInfoPtr->cCertCert->maxCheckLevel = complianceLevel;
-		ENSURES( CFI_CHECK_SEQUENCE_6( "IMESSAGE_GETATTRIBUTE", 
+		if( subjectCertInfo->maxCheckLevel < complianceLevel )
+			subjectCertInfo->maxCheckLevel = complianceLevel;
+		ENSURES( CFI_CHECK_SEQUENCE_7( "IMESSAGE_GETATTRIBUTE", 
 									   "checkCertBasic", "checkKeyUsage", 
 									   "CRYPT_COMPLIANCELEVEL_REDUCED", 
-									   "checkNameChaining", "checkVersion" ) );
+									   "checkNameChaining", 
+									   "checkKeyUsageIssuer", 
+									   "checkVersion" ) );
 		return( CRYPT_OK );
 		}
 	CFI_CHECK_UPDATE( "CRYPT_COMPLIANCELEVEL_STANDARD" );
@@ -2028,7 +2210,7 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	   The key usage checking level ranges up to 
 	   CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL so we re-do the check even if it's 
 	   already been done at a lower level */
-	if( subjectCertInfoPtr->cCertCert->maxCheckLevel < CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL && \
+	if( subjectCertInfo->maxCheckLevel < CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL && \
 		subjectCertInfoPtr->type != CRYPT_CERTTYPE_ATTRIBUTE_CERT )
 		{
 		status = checkKeyUsage( subjectCertInfoPtr, CHECKKEY_FLAG_GENCHECK, 
@@ -2038,26 +2220,6 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 			return( status );
 		}
 	CFI_CHECK_UPDATE( "checkKeyUsage" );
-
-	/* If the certificate isn't self-signed check that the issuer is a CA */
-	if( !subjectSelfSigned )
-		{
-		status = checkKeyUsage( issuerCertInfoPtr, CHECKKEY_FLAG_CA, 
-								CRYPT_KEYUSAGE_KEYCERTSIGN, complianceLevel,
-								subjectCertInfoPtr );
-		if( cryptStatusError( status ) )
-			{
-			/* There's a problem with the issuer certificate, set a general
-			   error status indicating this for the subject certificate */
-			setErrorValues( CRYPT_CERTINFO_KEYUSAGE,
-							CRYPT_ERRTYPE_ISSUERCONSTRAINT );
-			retExt( status,
-					( status, SUBJECTCERT_ERRINFO,
-					  "Issuer certificate isn't valid for signing this %s",
-					  getCertTypeNameLC( subjectCertInfoPtr->type ) ) );
-			}
-		}
-	CFI_CHECK_UPDATE( "checkKeyUsageIssuer" );
 
 	/* Check all the blob (unrecognised) attributes to see if any are marked 
 	   critical.  We only do this if it's an existing certificate that we've
@@ -2076,14 +2238,15 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	/* If we're not doing at least partial PKIX checking, we're done */
 	if( complianceLevel < CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL )
 		{
-		if( subjectCertInfoPtr->cCertCert->maxCheckLevel < complianceLevel )
-			subjectCertInfoPtr->cCertCert->maxCheckLevel = complianceLevel;
+		if( subjectCertInfo->maxCheckLevel < complianceLevel )
+			subjectCertInfo->maxCheckLevel = complianceLevel;
 		ENSURES( CFI_CHECK_SEQUENCE_10( "IMESSAGE_GETATTRIBUTE", 
 										"checkCertBasic", "checkKeyUsage", 
 										"CRYPT_COMPLIANCELEVEL_REDUCED", 
-										"checkNameChaining", "checkVersion",  
+										"checkNameChaining", 
+										"checkKeyUsageIssuer", "checkVersion",
 										"CRYPT_COMPLIANCELEVEL_STANDARD", 
-										"checkKeyUsage", "checkKeyUsageIssuer",
+										"checkKeyUsage", 
 										"checkAttributeProperty" ) );
 		return( CRYPT_OK );
 		}
@@ -2148,7 +2311,8 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 									 CRYPT_ATTRIBUTE_NONE, &value );
 	if( cryptStatusOK( status ) && !shortCircuitCheck )
 		{
-		status = checkPathConstraints( subjectCertInfoPtr, value );
+		status = checkPathConstraints( subjectCertInfoPtr, value, 
+									   issuerIsSubject );
 		if( cryptStatusError( status ) )
 			{
 			retExt( status,
@@ -2195,8 +2359,6 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 		checkAttributePresent( subjectAttributes, \
 							   CRYPT_CERTINFO_AUTONOMOUSSYSIDS ) )
 		{
-		ANALYSER_HINT( subjectAttributes != NULL );
-
 		status = checkRPKIAttributes( subjectCertInfoPtr, subjectIsCA,
 									  subjectSelfSigned );
 		if( cryptStatusError( status ) )
@@ -2212,14 +2374,15 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	if( complianceLevel < CRYPT_COMPLIANCELEVEL_PKIX_FULL || \
 		shortCircuitCheck )
 		{
-		if( subjectCertInfoPtr->cCertCert->maxCheckLevel < complianceLevel )
-			subjectCertInfoPtr->cCertCert->maxCheckLevel = complianceLevel;
+		if( subjectCertInfo->maxCheckLevel < complianceLevel )
+			subjectCertInfo->maxCheckLevel = complianceLevel;
 		ENSURES( CFI_CHECK_SEQUENCE_15( "IMESSAGE_GETATTRIBUTE", 
 										"checkCertBasic", "checkKeyUsage", 
 										"CRYPT_COMPLIANCELEVEL_REDUCED", 
-										"checkNameChaining", "checkVersion", 
+										"checkNameChaining", 
+										"checkKeyUsageIssuer", "checkVersion", 
 										"CRYPT_COMPLIANCELEVEL_STANDARD", 
-										"checkKeyUsage", "checkKeyUsageIssuer",
+										"checkKeyUsage", 
 										"checkAttributeProperty", 
 										"CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL",
 										"invalidAttributesPresent", 
@@ -2229,11 +2392,22 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 		}
 	CFI_CHECK_UPDATE( "CRYPT_COMPLIANCELEVEL_PKIX_FULL" );
 
-	/* If the issuing certificate has name constraints and isn't 
-	   self-signed make sure that the subject name and altName fall within 
-	   the constrained subtrees.  Since excluded subtrees override permitted 
-	   subtrees we check these first */
-	if( !subjectSelfSigned )
+	/* If the issuing certificate has name constraints and we're not 
+	   checking a certificate against itself, make sure that the subject 
+	   name and altName fall within the constrained subtrees.  Since 
+	   excluded subtrees override permitted subtrees we check these first.
+	   
+	   The exception to the checking is for a certificate being checked 
+	   against itself, not for self-signed certificates in general.  RFC 
+	   5280 (section 6.1.3) skips name constraints for self-signed 
+	   certificates only when they aren't the final certificate in the path, 
+	   and that part of the rule is handled inside checkNameConstraints() 
+	   via the path-kludge check.  The certificate-chain assembly code marks 
+	   chain-internal self-signed certificates as path kludges but leaves 
+	   the leaf alone.  If we made the check conditional on 
+	   CERT_FLAG_SELFSIGNED it wouldn't check a self-signed leaf 
+	   certificate */
+	if( !issuerIsSubject )
 		{
 		attributePtr = findAttributeField( issuerAttributes, 
 										   CRYPT_CERTINFO_EXCLUDEDSUBTREES,
@@ -2270,7 +2444,7 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 
 		/* Check whether use of the the wildcard anyPolicy has been 
 		   disallowed */
-		attributePtr = findAttribute( issuerCertInfoPtr->attributes, 
+		attributePtr = findAttribute( issuerAttributes, 
 									  CRYPT_CERTINFO_INHIBITANYPOLICY, 
 									  TRUE );
 		if( DATAPTR_ISSET( attributePtr ) && \
@@ -2314,16 +2488,17 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 #endif /* USE_CERTLEVEL_PKIX_FULL */
 #endif /* USE_CERTLEVEL_PKIX_PARTIAL */
 
-	if( subjectCertInfoPtr->cCertCert->maxCheckLevel < complianceLevel )
-		subjectCertInfoPtr->cCertCert->maxCheckLevel = complianceLevel;
+	if( subjectCertInfo->maxCheckLevel < complianceLevel )
+		subjectCertInfo->maxCheckLevel = complianceLevel;
 
 #if defined( USE_CERTLEVEL_PKIX_FULL )
 	ENSURES( CFI_CHECK_SEQUENCE_20( "IMESSAGE_GETATTRIBUTE", 
 									"checkCertBasic", "checkKeyUsage", 
 									"CRYPT_COMPLIANCELEVEL_REDUCED", 
-									"checkNameChaining", "checkVersion", 
+									"checkNameChaining", 
+									"checkKeyUsageIssuer", "checkVersion", 
 									"CRYPT_COMPLIANCELEVEL_STANDARD", 
-									"checkKeyUsage", "checkKeyUsageIssuer",
+									"checkKeyUsage", 
 									"checkAttributeProperty", 
 									"CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL",
 									"invalidAttributesPresent", 
@@ -2338,9 +2513,10 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	ENSURES( CFI_CHECK_SEQUENCE_15( "IMESSAGE_GETATTRIBUTE", 
 									"checkCertBasic", "checkKeyUsage", 
 									"CRYPT_COMPLIANCELEVEL_REDUCED", 
-									"checkNameChaining", "checkVersion", 
+									"checkNameChaining", 
+									"checkKeyUsageIssuer", "checkVersion", 
 									"CRYPT_COMPLIANCELEVEL_STANDARD", 
-									"checkKeyUsage", "checkKeyUsageIssuer",
+									"checkKeyUsage",
 									"checkAttributeProperty", 
 									"CRYPT_COMPLIANCELEVEL_PKIX_PARTIAL",
 									"invalidAttributesPresent", 
@@ -2350,9 +2526,10 @@ int checkCert( INOUT_PTR CERT_INFO *subjectCertInfoPtr,
 	ENSURES( CFI_CHECK_SEQUENCE_10( "IMESSAGE_GETATTRIBUTE", 
 									"checkCertBasic", "checkKeyUsage", 
 									"CRYPT_COMPLIANCELEVEL_REDUCED", 
-									"checkNameChaining", "checkVersion", 
+									"checkNameChaining", 
+									"checkKeyUsageIssuer", "checkVersion", 
 									"CRYPT_COMPLIANCELEVEL_STANDARD", 
-									"checkKeyUsage", "checkKeyUsageIssuer",
+									"checkKeyUsage", 
 									"checkAttributeProperty" ) );
 #endif /* CFI checks based on PKIX compliance levels */
 

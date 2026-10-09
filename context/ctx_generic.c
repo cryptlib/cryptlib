@@ -49,7 +49,7 @@ static int initKey( CONTEXT_INFO *contextInfoPtr,
 					IN_BUFFER( keyLength ) const void *key, 
 					IN_LENGTH_KEY const int keyLength )
 	{
-	GENERIC_INFO *genericInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	GENERIC_INFO *genericInfo = DATAPTR_GET_GENERIC( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isReadPtrDynamic( key, keyLength ) );

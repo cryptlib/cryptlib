@@ -67,7 +67,7 @@
 	invalidityDate					   -		  -			Rev | Req
 	ipAddrBlocks (RPKI)				   -		  -				-
 	issuerAltName					   -		  -				-
-	issuingDistributionPoint		   -		Partial		   Rev
+	issuingDistributionPoint		   -		 Full		   Rev
 	keyFeatures						   -		  -				-
 	keyUsage						  Yes		  -				-
 	monetaryLimit (SigG)			   -		Partial		 Obscure
@@ -1361,7 +1361,8 @@ static const ATTRIBUTE_INFO extensionInfo[] = {
 	  0, RANGE_TIME },
 #endif /* USE_CERTREV || USE_CERTREQ */
 
-#if defined( USE_CERTREV ) && defined( USE_CERTLEVEL_PKIX_PARTIAL )
+#ifdef USE_CERTREV 
+  #ifdef USE_CERTLEVEL_PKIX_PARTIAL
 	/* deltaCRLIndicator:
 
 		OID = 2 5 29 27
@@ -1384,7 +1385,9 @@ static const ATTRIBUTE_INFO extensionInfo[] = {
 	  ATTR_TYPEINFO_CRITICAL( CRL, PKIX_PARTIAL ) | FL_ATTR_ATTREND,
 	  0, RANGE( 0, MAX_INTLENGTH ) },
   #endif /* CONFIG_CUSTOM_1 */
+  #endif /* USE_CERTLEVEL_PKIX_PARTIAL */
 
+  #ifdef USE_CERTLEVEL_PKIX_FULL
 	/* issuingDistributionPoint:
 
 		OID = 2 5 29 28
@@ -1439,7 +1442,8 @@ static const ATTRIBUTE_INFO extensionInfo[] = {
 	  DESCRIPTION( "issuingDistributionPoint.indirectCRL" )
 	  ENCODING_TAGGED( BOOLEAN, 4 ),
 	  FL_ATTR_ATTREND, FL_OPTIONAL | FL_DEFAULT | FL_SEQEND /* NONE */, RANGE_BOOLEAN },
-#endif /* USER_CERTREV && USE_CERTLEVEL_PKIX_PARTIAL */
+  #endif /* USE_CERTLEVEL_PKIX_FULL */
+#endif /* USER_CERTREV */
 
 #if defined( USE_CERTREV ) && defined( USE_CERTLEVEL_PKIX_FULL )
 	/* certificateIssuer:
@@ -4576,8 +4580,9 @@ static int checkRFC822( const ATTRIBUTE_LIST *attributeListPtr )
 	{
 	assert( isReadPtr( attributeListPtr, sizeof( ATTRIBUTE_LIST ) ) );
 
-	return( checkURLString( attributeListPtr->dataValue,
-							attributeListPtr->dataValueLength, URL_RFC822 ) );
+	return( checkURLString( attributeListPtr->attrDataValue,
+							attributeListPtr->attrDataValueLength, 
+							URL_RFC822 ) );
 	}
 
 CHECK_RETVAL_ENUM( CRYPT_ERRTYPE ) STDC_NONNULL_ARG( ( 1 ) ) \
@@ -4585,8 +4590,9 @@ static int checkDNS( const ATTRIBUTE_LIST *attributeListPtr )
 	{
 	assert( isReadPtr( attributeListPtr, sizeof( ATTRIBUTE_LIST ) ) );
 
-	return( checkURLString( attributeListPtr->dataValue,
-							attributeListPtr->dataValueLength, URL_DNS ) );
+	return( checkURLString( attributeListPtr->attrDataValue,
+							attributeListPtr->attrDataValueLength, 
+							URL_DNS ) );
 	}
 
 CHECK_RETVAL_ENUM( CRYPT_ERRTYPE ) STDC_NONNULL_ARG( ( 1 ) ) \
@@ -4594,8 +4600,9 @@ static int checkURL( const ATTRIBUTE_LIST *attributeListPtr )
 	{
 	assert( isReadPtr( attributeListPtr, sizeof( ATTRIBUTE_LIST ) ) );
 
-	return( checkURLString( attributeListPtr->dataValue,
-							attributeListPtr->dataValueLength, URL_ANY ) );
+	return( checkURLString( attributeListPtr->attrDataValue,
+							attributeListPtr->attrDataValueLength, 
+							URL_ANY ) );
 	}
 
 #ifdef USE_CERT_OBSOLETE
@@ -4605,8 +4612,9 @@ static int checkHTTP( const ATTRIBUTE_LIST *attributeListPtr )
 	{
 	assert( isReadPtr( attributeListPtr, sizeof( ATTRIBUTE_LIST ) ) );
 
-	return( checkURLString( attributeListPtr->dataValue,
-							attributeListPtr->dataValueLength, URL_HTTP ) );
+	return( checkURLString( attributeListPtr->attrDataValue,
+							attributeListPtr->attrDataValueLength, 
+							URL_HTTP ) );
 	}
 #endif /* USE_CERT_OBSOLETE */
 

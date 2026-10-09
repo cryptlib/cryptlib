@@ -538,7 +538,7 @@ static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo,
 	   series of small primes p, i.e. checking whether n^((p-1)/2) = 1 (mod 
 	   p).  If n is a perfect square then n mod p will be a quadratic 
 	   residue, if not then the probability of it being a quadratic residue 
-	   is around 0.5, so we have to repeat the test a number of times.  What 
+	   is around 0.5 so we have to repeat the test a number of times.  What 
 	   we're actually checking for is a quadratic nonresidue (thus the 
 	   Legendre) which allows us an early-out.  However this is an awful lot 
 	   of work to perform for every public key we encounter:
@@ -555,7 +555,7 @@ static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo,
 			}
 
 	   and it's not clear what we'd be gaining by checking for this one 
-	   particular case when there's a million other ways generate broken 
+	   particular case when there's a million other ways to generate broken 
 	   keys that aren't detectable.  
 	   
 	   A better option is to apply Fermat's factorisation algorithm to look 
@@ -582,12 +582,14 @@ static int checkRSAPublicKeyComponents( INOUT_PTR PKC_INFO *pkcInfo,
 	   ridiculously large e values */
 	if( eWord < MIN_PUBLIC_EXPONENT || bitsToBytes( eLen ) > RSAPARAM_MAX_E )
 		{
-		DEBUG_DIAG(( "RSA e value %ul is invalid/insecure, should be "
+		DEBUG_DIAG(( "RSA e value %lu is invalid/insecure, should be "
 					 "%d...%d", eWord, MIN_PUBLIC_EXPONENT, 
 					 ( RSAPARAM_MAX_E == 1 ) ? 0x0FF : \
 					 ( RSAPARAM_MAX_E == 2 ) ? 0x0FFFF : \
 					 ( RSAPARAM_MAX_E == 3 ) ? 0x0FFFFFF : INT_MAX - 1 ));
-		assert_nofuzz( DEBUG_WARN );	/* Warn in debug build */
+		/* We can't assert_nofuzz( DEBUG_WARN ) here because one of the 
+		   S/MIME test files uses e=3, which means we'd get an assertion
+		   failure on any run of the self-tests in debug mode */
 		return( CRYPT_ARGERROR_STR1 );
 		}
 
@@ -835,7 +837,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int generateRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr, 
 					IN_LENGTH_SHORT_MIN( MIN_PKCSIZE * 8 ) const int keyBits )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BIGNUM *d, *p, *q, *tmp;
 	int pBits, qBits, bnStatus = BN_STATUS, status;
 
@@ -973,7 +975,7 @@ int generateRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int initCheckRSAkey( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const BIGNUM *n, *e, *d, *p, *q;
 	const BOOLEAN isPrivateKey = TEST_FLAG( contextInfoPtr->flags,
 											CONTEXT_FLAG_ISPUBLICKEY ) ? \

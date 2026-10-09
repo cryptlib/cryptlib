@@ -3964,7 +3964,7 @@ static int openFile( INOUT_PTR STREAM *stream, IN_STRING const char *fileName,
 		{
 		ENSURES( LOOP_INVARIANT_SMALL( count, 0, 3 ) );
 
-		fd = open( fileName, flags, openMode | O_NONBLOCK | O_NOFOLLOW );
+		fd = open( fileName, flags | O_NONBLOCK | O_NOFOLLOW, openMode );
 		if( fd < 0 )
 			{
 			/* If we're creating the file, the only error condition is a

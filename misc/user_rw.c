@@ -438,6 +438,7 @@ int readConfig( IN_HANDLE const CRYPT_USER iCryptUser,
 		}
 #endif /* USE_CERTIFICATES */
 	krnlSendNotifier( iCryptKeyset, IMESSAGE_DECREFCOUNT );
+	iCryptKeyset = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		dynDestroy( &configDB );

@@ -1,7 +1,7 @@
 /****************************************************************************
 *																			*
 *							cryptlib Kernel Header File						*
-*						Copyright Peter Gutmann 1992-2020					*
+*						Copyright Peter Gutmann 1992-2025					*
 *																			*
 ****************************************************************************/
 
@@ -142,7 +142,7 @@ typedef struct {
 	OBJECT_TYPE type;			/* Object type */
 	OBJECT_SUBTYPE subType;		/* Object subtype */
 	DATAPTR objectPtr;			/* Object data */
-	int objectSize;				/* Object data size */
+	SAFE_INT objectSize;		/* Object data size */
 
 	/* Object properties */
 	SAFE_FLAGS flags;			/* Internal-only, locked, etc */
@@ -153,7 +153,6 @@ typedef struct {
 	THREAD_HANDLE lockOwner;	/* Lock owner if lockCount > 0 */
 #endif /* USE_THREADS */
 	int uniqueID;				/* Unique ID for this object */
-/*	time_t lastAccess;			// Last access time */
 
 	/* Object security properties */
 	int forwardCount;			/* Number of times ownership can be transferred */

@@ -47,7 +47,7 @@ static int getRandomFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 								MESSAGE_FUNCTION_EXTINFO *messageExtInfo )
 	{
 	CK_RV status;
-	PKCS11_INFO *pkcs11Info = deviceInfoPtr->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 
 	assert( isWritePtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
 	assert( isWritePtrDynamic( data, length ) );
@@ -55,6 +55,7 @@ static int getRandomFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 
 	REQUIRES( sanityCheckDevice( deviceInfoPtr ) );
 	REQUIRES( isShortIntegerRangeNZ( length ) );
+	REQUIRES( pkcs11Info != NULL );
 
 	status = C_GenerateRandom( pkcs11Info->hSession, data, length );
 	return( pkcs11MapError( status, CRYPT_ERROR_FAILED ) );
@@ -436,9 +437,11 @@ static CAPABILITY_INFO capabilityTemplates[] = {
 /* Query a given capability for a device and fill out a capability 
    information record for it if present */
 
-static CAPABILITY_INFO *getCapability( const DEVICE_INFO *deviceInfoPtr,
-									   const PKCS11_MECHANISM_INFO *mechanismInfoPtr,
-									   const int maxMechanisms )
+CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1, 2 ) ) \
+static CAPABILITY_INFO *getCapability( IN_PTR const DEVICE_INFO *deviceInfoPtr,
+									   IN_ARRAY( maxMechanisms ) \
+											const PKCS11_MECHANISM_INFO *mechanismInfoPtr,
+									   IN_INT_SHORT const int maxMechanisms )
 	{
 	VARIABLE_CAPABILITY_INFO *capabilityInfo;
 	CK_MECHANISM_INFO pMechanism;
@@ -446,7 +449,7 @@ static CAPABILITY_INFO *getCapability( const DEVICE_INFO *deviceInfoPtr,
 	const CRYPT_ALGO_TYPE cryptAlgo = mechanismInfoPtr->cryptAlgo;
 	const BOOLEAN isPKC = isPkcAlgo( cryptAlgo ) ? TRUE : FALSE;
 	const CK_FLAGS keyGenFlag = isPKC ? CKF_GENERATE_KEY_PAIR : CKF_GENERATE;
-	PKCS11_INFO *pkcs11Info = deviceInfoPtr->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 	BOOLEAN_INT hardwareOnly;
 	LOOP_INDEX i;
 	int noMechanisms;
@@ -454,6 +457,9 @@ static CAPABILITY_INFO *getCapability( const DEVICE_INFO *deviceInfoPtr,
 	assert( isReadPtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
 	assert( isReadPtrDynamic( mechanismInfoPtr, \
 							  maxMechanisms * sizeof( PKCS11_MECHANISM_INFO ) ) );
+
+	REQUIRES_N( isShortIntegerRangeNZ( maxMechanisms ) );
+	REQUIRES_N( pkcs11Info != NULL );
 
 	/* Set up canary values for the mechanism information in case the driver
 	   blindly reports success for every mechanism that we ask for */
@@ -1033,9 +1039,11 @@ static int getCapabilities( DEVICE_INFO *deviceInfoPtr,
 STDC_NONNULL_ARG( ( 1 ) ) \
 static void shutdownFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr )
 	{
-	PKCS11_INFO *pkcs11Info = deviceInfoPtr->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 
 	assert( isWritePtr( deviceInfoPtr, sizeof( DEVICE_INFO ) ) );
+
+	REQUIRES_V( pkcs11Info != NULL );
 
 	/* Log out and close the session with the device */
 	if( TEST_FLAG( deviceInfoPtr->flags, DEVICE_FLAG_LOGGEDIN ) )
@@ -1062,7 +1070,7 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	CK_SLOT_INFO slotInfo;
 	CK_TOKEN_INFO tokenInfo;
 	CK_RV status;
-	PKCS11_INFO *pkcs11Info = deviceInfoPtr->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 	const PKCS11_MECHANISM_INFO *mechanismInfoPtr;
 	const char *labelPtr;
 	int tokenSlot = DEFAULT_SLOT, labelLength, mechanismInfoSize;
@@ -1073,6 +1081,7 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	assert( isReadPtrDynamic( name, nameLength ) );
 
 	REQUIRES( isShortIntegerRangeNZ( nameLength ) );
+	REQUIRES( pkcs11Info != NULL );
 
 	/* Get information on all available slots */
 	memset( slotList, 0, MAX_PKCS11_SLOTS * sizeof( CK_SLOT_ID ) );
@@ -1404,7 +1413,7 @@ int initPKCS11Init( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 					IN_BUFFER( nameLength ) const char *name, 
 					IN_LENGTH_SHORT const int nameLength )
 	{
-	PKCS11_INFO *pkcs11Info = deviceInfoPtr->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfoPtr->deviceInfo );
 	LOOP_INDEX i;
 	int driverNameLength = nameLength;
 
@@ -1412,6 +1421,7 @@ int initPKCS11Init( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	assert( isReadPtrDynamic( name, nameLength ) );
 
 	REQUIRES( isShortIntegerRangeNZ( nameLength ) );
+	REQUIRES( pkcs11Info != NULL );
 
 	/* Make sure that the PKCS #11 driver DLL's are loaded */
 	if( !pkcs11Initialised )
@@ -1442,7 +1452,7 @@ int initPKCS11Init( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	   check the first device and fail if there's a problem.  If they
 	   explicitly want a secondary slot, they can specify it by name */
 	if( driverNameLength == 12 && \
-		strSame( "[Autodetect]", name, driverNameLength ) )
+		strSame( name, "[Autodetect]", driverNameLength ) )
 		{
 		if( !pkcs11InfoTbl[ 0 ].name[ 0 ] )
 			return( CRYPT_ERROR_NOTFOUND );
@@ -1455,7 +1465,7 @@ int initPKCS11Init( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 			{
 			ENSURES( LOOP_INVARIANT_MED( i, 0, MAX_PKCS11_DRIVERS - 1 ) );
 
-			if( strSame( pkcs11InfoTbl[ i ].name, name, 
+			if( strSame( name, pkcs11InfoTbl[ i ].name, 
 						 driverNameLength ) )
 				break;
 			}
@@ -1468,7 +1478,7 @@ int initPKCS11Init( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 	/* Set up remaining function and access information */
 	FNPTR_SET( deviceInfoPtr->initFunction, initFunction );
 	FNPTR_SET( deviceInfoPtr->shutdownFunction, shutdownFunction );
-	deviceInfoPtr->devicePKCS11->functionListPtr = \
+	pkcs11Info->functionListPtr = \
 					pkcs11InfoTbl[ pkcs11Info->deviceNo ].functionListPtr;
 
 	return( CRYPT_OK );

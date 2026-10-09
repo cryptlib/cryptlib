@@ -772,7 +772,14 @@ int processRADIUSTLVs( INOUT_PTR STREAM *stream,
 				   anything since all we're doing is using it as untrusted 
 				   transport for the TLS negotiation, and in any case it's
 				   the long-obsolete HMAC-MD5 (see the comment in 
-				   io/eap_wr.c), so for now we just skip it */
+				   io/eap_wr.c), so for now we just skip it.
+				   
+				   We could in theory require that it at least has the 
+				   correct length, that it's present, and that only one copy
+				   is present, but since we're not checking it as the TLS
+				   layer provides all of the sevurity it's not clear what 
+				   this would achieve beyond increasing the code 
+				   complexity */
 				status = sSkip( stream, tlvLength, MAX_INTLENGTH_SHORT );
 				break;
 
@@ -856,7 +863,7 @@ int processRADIUSTLVs( INOUT_PTR STREAM *stream,
    inside a RADIUS packet, we can only read the header at this point but 
    have to leave payload processing to the calling code.
    
-   Technically an implementation could frament an EAP header across RADIUS 
+   Technically an implementation could fragment an EAP header across RADIUS 
    packets but that would mean that we'd have to interrupt the EAP header 
    read, pop back up to the RADIUS level and read the RADIUS header for the 
    next fragment, and then resume the EAP header read where we were 

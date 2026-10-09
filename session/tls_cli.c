@@ -26,7 +26,7 @@
 #if defined( _MSC_VER ) && \
 	( ( _MSC_VER == 1500 ) || \
 	  ( _MSC_VER == VS_LATEST_VERSION && defined( CRYPTLIB_BUILD ) ) ) && \
-	!defined( NDEBUG ) && 0
+	!defined( NDEBUG ) && 1
   #define NO_SESSION_CACHE
 #endif /* VC++ debug build */
 
@@ -1154,6 +1154,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 #ifndef NO_SESSION_CACHE
 	const SESSION_ATTRIBUTE_LIST *attributeListPtr;
 #endif /* NO_SESSION_CACHE */
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM *stream = &handshakeInfo->stream;
 	SCOREBOARD_ENTRY_INFO scoreboardEntryInfo = { 0 };
 	MESSAGE_DATA msgData;
@@ -1169,6 +1170,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( sanityCheckTLSHandshakeInfo( handshakeInfo ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Check whether we have (potentially) cached data available for the
 	   server.  If we've had the connection to the remote system provided
@@ -1181,8 +1183,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 										CRYPT_SESSINFO_SERVER_NAME );
 	if( attributeListPtr != NULL )
 		{
-		void *scoreboardInfoPtr = \
-				DATAPTR_GET( sessionInfoPtr->sessionTLS->scoreboardInfoPtr );
+		void *scoreboardInfoPtr = DATAPTR_GET( tlsInfo->scoreboardInfoPtr );
 		int resumedSessionID;
 
 		REQUIRES( scoreboardInfoPtr != NULL );
@@ -1283,7 +1284,7 @@ static int beginClientHandshake( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		sessionIDsent = TRUE;
 		}
 	status = writeCipherSuiteList( stream, sessionInfoPtr->version,
-						sessionInfoPtr->sessionTLS->minVersion,
+						tlsInfo->minVersion,
 						findSessionInfo( sessionInfoPtr,
 										 CRYPT_SESSINFO_USERNAME ) != NULL ? \
 							TRUE : FALSE,

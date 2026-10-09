@@ -329,7 +329,7 @@ const char *getCertTypeNameLC( IN_ENUM( CRYPT_CERTTYPE ) \
 	static const OBJECT_NAME_INFO objectNameInfo[] = {
 		{ CRYPT_CERTTYPE_CERTIFICATE, "certificate" },
 		{ CRYPT_CERTTYPE_ATTRIBUTE_CERT, "attribute certificate" },
-		{ CRYPT_CERTTYPE_CERTCHAIN, "PKCS #7/CMS certificate chain" },
+		{ CRYPT_CERTTYPE_CERTCHAIN, "certificate chain" },
 		{ CRYPT_CERTTYPE_CERTREQUEST, "PKCS #10 certification request" },
 		{ CRYPT_CERTTYPE_REQUEST_CERT, "CRMF certification request" },
 		{ CRYPT_CERTTYPE_REQUEST_REVOCATION, "CRMF revocation request" },
@@ -532,39 +532,40 @@ static int getCertHash( INOUT_PTR CERT_INFO *certInfoPtr,
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
 static int getESSCertID( INOUT_PTR CERT_INFO *certInfoPtr, 
-						 OUT_BUFFER_OPT( certInfoMaxLength, \
-										 *certInfoLength ) void *certInfo, 
-						 IN_LENGTH_SHORT_Z const int certInfoMaxLength, 
-						 OUT_LENGTH_BOUNDED_Z( certInfoMaxLength ) \
-							int *certInfoLength )
+						 OUT_BUFFER_OPT( dataMaxLength, *dataLength ) \
+							void *data, 
+						 IN_LENGTH_SHORT_Z const int dataMaxLength, 
+						 OUT_LENGTH_BOUNDED_Z( dataMaxLength ) \
+							int *dataLength )
 	{
+	const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 	STREAM stream;
 	BYTE certHash[ CRYPT_MAX_HASHSIZE + 8 ];
 	int certHashSize, issuerSerialDataSize, status;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
-	assert( certInfo == NULL || \
-			isWritePtrDynamic( certInfo, certInfoMaxLength ) );
-	assert( isWritePtr( certInfoLength, sizeof( int ) ) );
+	assert( data == NULL || \
+			isWritePtrDynamic( data, dataMaxLength ) );
+	assert( isWritePtr( dataLength, sizeof( int ) ) );
 
-	REQUIRES( ( certInfo == NULL && certInfoMaxLength == 0 ) || \
-			  ( certInfo != NULL && \
-				isShortIntegerRangeNZ( certInfoMaxLength ) ) );
+	REQUIRES( ( data == NULL && dataMaxLength == 0 ) || \
+			  ( data != NULL && isShortIntegerRangeNZ( dataMaxLength ) ) );
+	REQUIRES( certInfo != NULL );
 
 	/* Clear return values */
-	if( certInfo != NULL )
+	if( data != NULL )
 		{
-		REQUIRES( isShortIntegerRangeNZ( certInfoMaxLength ) ); 
-		memset( certInfo, 0, min( 16, certInfoMaxLength ) );
+		REQUIRES( isShortIntegerRangeNZ( dataMaxLength ) ); 
+		memset( data, 0, min( 16, dataMaxLength ) );
 		}
-	*certInfoLength = 0;
+	*dataLength = 0;
 
 	/* Get the certificate ID */
 	status = getCertHash( certInfoPtr, CRYPT_CERTINFO_FINGERPRINT_SHA1, 
 						  certHash, CRYPT_MAX_HASHSIZE, &certHashSize );
 	if( cryptStatusError( status ) )
 		return( status );
-	REQUIRES( certInfoPtr->cCertCert->serialNumber != NULL );
+	REQUIRES( certInfo->serialNumber != NULL );
 
 	/* Write the ESSCertID:
 
@@ -578,16 +579,16 @@ static int getESSCertID( INOUT_PTR CERT_INFO *certInfoPtr,
 	issuerSerialDataSize = \
 			sizeofShortObject( \
 				sizeofShortObject( certInfoPtr->issuerDNsize ) ) + \
-			sizeofInteger( certInfoPtr->cCertCert->serialNumber,
-						   certInfoPtr->cCertCert->serialNumberLength );
-	*certInfoLength = \
+			sizeofInteger( certInfo->serialNumber,
+						   certInfo->serialNumberLength );
+	*dataLength = \
 			sizeofShortObject( sizeofShortObject( certHashSize ) + \
 							   sizeofShortObject( issuerSerialDataSize ) );
-	if( certInfo == NULL )
+	if( data == NULL )
 		return( CRYPT_OK );
-	if( *certInfoLength <= 0 || *certInfoLength > certInfoMaxLength )
+	if( *dataLength <= 0 || *dataLength > dataMaxLength )
 		return( CRYPT_ERROR_OVERFLOW );
-	sMemOpen( &stream, certInfo, *certInfoLength );
+	sMemOpen( &stream, data, *dataLength );
 	writeSequence( &stream, sizeofShortObject( certHashSize ) + \
 							sizeofShortObject( issuerSerialDataSize ) );
 	writeOctetString( &stream, certHash, certHashSize, DEFAULT_TAG );
@@ -595,9 +596,8 @@ static int getESSCertID( INOUT_PTR CERT_INFO *certInfoPtr,
 	writeSequence( &stream, sizeofShortObject( certInfoPtr->issuerDNsize ) );
 	writeConstructed( &stream, certInfoPtr->issuerDNsize, 4 );
 	swrite( &stream, certInfoPtr->issuerDNptr, certInfoPtr->issuerDNsize );
-	status = writeInteger( &stream, certInfoPtr->cCertCert->serialNumber,
-						   certInfoPtr->cCertCert->serialNumberLength, 
-						   DEFAULT_TAG );
+	status = writeInteger( &stream, certInfo->serialNumber,
+						   certInfo->serialNumberLength, DEFAULT_TAG );
 	sMemDisconnect( &stream );
 	ENSURES( cryptStatusOK( status ) );
 
@@ -617,22 +617,23 @@ static int getESSCertID( INOUT_PTR CERT_INFO *certInfoPtr,
 CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1 ) ) \
 static time_t *getValidityTimePtr( const CERT_INFO *certInfoPtr )
 	{
-	CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
+	CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 	VALIDITY_INFO *validityInfoPtr;
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES_N( sanityCheckCert( certInfoPtr ) );
 	REQUIRES_N( certInfoPtr->type == CRYPT_CERTTYPE_RTCS_RESPONSE );
+	REQUIRES_N( valInfo != NULL );
 
 	/* If there's a specific validity entry selected get its invalidity time, 
 	   otherwise if there are invalid certificates present get the first 
 	   certificate's invalidity time, otherwise get the default invalidity 
 	   time */
-	validityInfoPtr = DATAPTR_GET( certValInfo->currentValidity );
+	validityInfoPtr = DATAPTR_GET( valInfo->currentValidity );
 	if( validityInfoPtr != NULL )
 		return( &validityInfoPtr->invalidityTime );
-	validityInfoPtr = DATAPTR_GET( certValInfo->validityInfo );
+	validityInfoPtr = DATAPTR_GET( valInfo->validityInfo );
 	if( validityInfoPtr != NULL )
 		return( &validityInfoPtr->invalidityTime );
 
@@ -659,7 +660,7 @@ static int getCrlEntry( INOUT_PTR CERT_INFO *certInfoPtr,
 						OUT_LENGTH_BOUNDED_Z( certInfoMaxLength ) \
 							int *certInfoLength )
 	{
-	const CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+	const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 	STREAM stream;
 	WRITECERT_FUNCTION writeCertFunction;
 	int crlEntrySize DUMMY_INIT, status;
@@ -673,6 +674,7 @@ static int getCrlEntry( INOUT_PTR CERT_INFO *certInfoPtr,
 			  ( certInfo != NULL && \
 				isShortIntegerRangeNZ( certInfoMaxLength ) ) );
 	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_CRL );
+	REQUIRES( revInfo != NULL );
 
 	/* Clear return values */
 	if( certInfo != NULL )
@@ -682,7 +684,7 @@ static int getCrlEntry( INOUT_PTR CERT_INFO *certInfoPtr,
 		}
 	*certInfoLength = 0;
 
-	if( DATAPTR_ISNULL( certRevInfo->currentRevocation ) )
+	if( DATAPTR_ISNULL( revInfo->currentRevocation ) )
 		return( CRYPT_ERROR_NOTFOUND );
 
 	/* Determine how big the encoded CRL entry will be.  Doing it directly
@@ -718,7 +720,7 @@ static int getCrlEntry( INOUT_PTR CERT_INFO *certInfoPtr,
 CHECK_RETVAL_PTR STDC_NONNULL_ARG( ( 1 ) ) \
 time_t *getRevocationTimePtr( IN_PTR const CERT_INFO *certInfoPtr )
 	{
-	CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+	CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 	REVOCATION_INFO *revInfoPtr;
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
@@ -727,19 +729,20 @@ time_t *getRevocationTimePtr( IN_PTR const CERT_INFO *certInfoPtr )
 	REQUIRES_N( certInfoPtr->type == CRYPT_CERTTYPE_CRL || \
 				certInfoPtr->type == CRYPT_CERTTYPE_OCSP_REQUEST || \
 				certInfoPtr->type == CRYPT_CERTTYPE_OCSP_RESPONSE );
+	REQUIRES_N( revInfo != NULL );
 
 	/* If there's a specific revocation entry selected, get its revocation 
 	   time, otherwise if there are revoked certificates present get the 
 	   first certificate's revocation time, otherwise get the default 
 	   revocation time */
-	revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+	revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 	if( revInfoPtr != NULL )
 		return( &revInfoPtr->revocationTime );
-	revInfoPtr = DATAPTR_GET( certRevInfo->revocations );
+	revInfoPtr = DATAPTR_GET( revInfo->revocations );
 	if( revInfoPtr != NULL )
 		return( &revInfoPtr->revocationTime );
-	if( certRevInfo->revocationTime > MIN_TIME_VALUE )
-		return( &certRevInfo->revocationTime );
+	if( revInfo->revocationTime > MIN_TIME_VALUE )
+		return( &revInfo->revocationTime );
 
 	return( NULL );
 	}
@@ -755,63 +758,91 @@ time_t *getRevocationTimePtr( IN_PTR const CERT_INFO *certInfoPtr )
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
 static int getIAndS( const CERT_INFO *certInfoPtr, 
-					 OUT_BUFFER_OPT( certInfoMaxLength, \
-									 *certInfoLength ) void *certInfo, 
-					 IN_LENGTH_SHORT_Z const int certInfoMaxLength, 
-					 OUT_LENGTH_BOUNDED_Z( certInfoMaxLength ) \
-						int *certInfoLength )
+					 OUT_BUFFER_OPT( dataMaxLength, *dataLength ) \
+						void *data, 
+					 IN_LENGTH_SHORT_Z const int dataMaxLength, 
+					 OUT_LENGTH_BOUNDED_Z( dataMaxLength ) \
+						int *dataLength )
 	{
 	STREAM stream;
 	void *serialNumber;
 	int serialNumberLength, status;
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
-	assert( certInfo == NULL || \
-			isWritePtrDynamic( certInfo, certInfoMaxLength ) );
-	assert( isWritePtr( certInfoLength, sizeof( int ) ) );
+	assert( data == NULL || \
+			isWritePtrDynamic( data, dataMaxLength ) );
+	assert( isWritePtr( dataLength, sizeof( int ) ) );
 
-	REQUIRES( ( certInfo == NULL && certInfoMaxLength == 0 ) || \
-			  ( certInfo != NULL && \
-				isShortIntegerRangeNZ( certInfoMaxLength ) ) );
+	REQUIRES( ( data == NULL && dataMaxLength == 0 ) || \
+			  ( data != NULL && isShortIntegerRangeNZ( dataMaxLength ) ) );
 
 	/* Clear return values */
-	if( certInfo != NULL )
+	if( data != NULL )
 		{
-		REQUIRES( isShortIntegerRangeNZ( certInfoMaxLength ) ); 
-		memset( certInfo, 0, min( 16, certInfoMaxLength ) );
+		REQUIRES( isShortIntegerRangeNZ( dataMaxLength ) ); 
+		memset( data, 0, min( 16, dataMaxLength ) );
 		}
-	*certInfoLength = 0;
+	*dataLength = 0;
+
+	switch( certInfoPtr->type )
+		{
+		case CRYPT_CERTTYPE_CERTIFICATE:
+		case CRYPT_CERTTYPE_ATTRIBUTE_CERT:
+		case CRYPT_CERTTYPE_CERTCHAIN:
+			{
+			const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+			REQUIRES( certInfo != NULL );
+
+			serialNumber = certInfo->serialNumber;
+			serialNumberLength = certInfo->serialNumberLength;
+			break;
+			}
+
+#ifdef USE_CERTREQ
+		case CRYPT_CERTTYPE_REQUEST_REVOCATION:
+			{
+			CERT_REQ_INFO *reqInfo = DATAPTR_GET_REQ( certInfoPtr );
+
+			REQUIRES( reqInfo != NULL );
+
+			serialNumber = reqInfo->serialNumber;
+			serialNumberLength = reqInfo->serialNumberLength;
+			break;
+			}
+#endif /* USE_CERTREQ */
 
 #ifdef USE_CERTREV
-	/* If it's a CRL, use the serial number of the currently selected CRL 
-	   entry */
-	if( certInfoPtr->type == CRYPT_CERTTYPE_CRL )
-		{
-		const CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
-		const REVOCATION_INFO *revInfoPtr;
+		case CRYPT_CERTTYPE_CRL:
+			{
+			const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
+			const REVOCATION_INFO *revInfoPtr;
 
-		revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
-		REQUIRES( revInfoPtr != NULL );
+			REQUIRES( revInfo != NULL );
 
-		serialNumber = revInfoPtr->id;
-		serialNumberLength = revInfoPtr->idLength;
-		}
-	else
+			/* For CRLs we use the serial number of the currently selected 
+			   CRL entry */
+			revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
+			REQUIRES( revInfoPtr != NULL );
+
+			serialNumber = revInfoPtr->id;
+			serialNumberLength = revInfoPtr->idLength;
+			break;
+			}
 #endif /* USE_CERTREV */
-		{
-		serialNumber = certInfoPtr->cCertCert->serialNumber;
-		serialNumberLength = certInfoPtr->cCertCert->serialNumberLength;
+
+		default:
+			retIntError();
 		}
 	ENSURES( serialNumber != NULL );
-	*certInfoLength = sizeofShortObject( \
-								certInfoPtr->issuerDNsize + \
-								sizeofInteger( serialNumber, \
-											   serialNumberLength ) );
-	if( certInfo == NULL )
+	*dataLength = sizeofShortObject( certInfoPtr->issuerDNsize + \
+									 sizeofInteger( serialNumber, \
+													serialNumberLength ) );
+	if( data == NULL )
 		return( CRYPT_OK );
-	if( *certInfoLength <= 0 || *certInfoLength > certInfoMaxLength )
+	if( *dataLength <= 0 || *dataLength > dataMaxLength )
 		return( CRYPT_ERROR_OVERFLOW );
-	sMemOpen( &stream, certInfo, *certInfoLength );
+	sMemOpen( &stream, data, *dataLength );
 	writeSequence( &stream, certInfoPtr->issuerDNsize + \
 				   sizeofInteger( serialNumber, serialNumberLength ) );
 	swrite( &stream, certInfoPtr->issuerDNptr, certInfoPtr->issuerDNsize );
@@ -996,6 +1027,18 @@ static int getHolderName( const CERT_INFO *certInfoPtr,
 		}
 	*certInfoLength = 0;
 
+	/* Revocation requests are identified by issuerAndSerialNumber so 
+	   there's no holder name to return, however the name will be used in 
+	   a message of type "object $x owned by '$holdername' experienced 
+	   error type $y" so we return a placeholder string that sort-of fills 
+	   the gap */
+	if( certInfoPtr->type == CRYPT_CERTTYPE_REQUEST_REVOCATION )
+		{
+		return( attributeCopyParams( certInfo, certInfoMaxLength, 
+									 certInfoLength,
+									 "(revocation ID)", 15 ) );
+		}
+
 	/* First we try for a CN */
 	status = getDNComponentValue( certInfoPtr->subjectName, 
 								  CRYPT_CERTINFO_COMMONNAME, 0, certInfo, 
@@ -1127,7 +1170,7 @@ static int getPkiUserInfo( const CERT_INFO *certInfoPtr,
 						   OUT_LENGTH_BOUNDED_Z( certInfoMaxLength ) \
 								int *certInfoLength )
 	{
-	CERT_PKIUSER_INFO *certUserInfo = certInfoPtr->cCertUser;
+	CERT_PKIUSER_INFO *pkiUserInfo = DATAPTR_GET_PKIUSER( certInfoPtr );
 	char encUserInfo[ CRYPT_MAX_TEXTSIZE + 8 ];
 	BYTE userInfo[ 128 + 8 ];
 	const BYTE *userInfoPtr = userInfo;
@@ -1144,6 +1187,7 @@ static int getPkiUserInfo( const CERT_INFO *certInfoPtr,
 	REQUIRES( ( certInfo == NULL && certInfoMaxLength == 0 ) || \
 			  ( certInfo != NULL && \
 				isShortIntegerRangeNZ( certInfoMaxLength ) ) );
+	REQUIRES( pkiUserInfo != NULL );
 
 	/* Clear return values */
 	if( certInfo != NULL )
@@ -1163,7 +1207,7 @@ static int getPkiUserInfo( const CERT_INFO *certInfoPtr,
 	else
 		{
 		userInfoPtr = ( certInfoType == CRYPT_CERTINFO_PKIUSER_ISSUEPASSWORD ) ? \
-					  certUserInfo->pkiIssuePW : certUserInfo->pkiRevPW;
+						pkiUserInfo->pkiIssuePW : pkiUserInfo->pkiRevPW;
 		userInfoLength = PKIUSER_AUTHENTICATOR_SIZE;
 		}
 	status = encodePKIUserValue( encUserInfo, CRYPT_MAX_TEXTSIZE, 
@@ -1197,34 +1241,32 @@ static int getPkiUserInfo( const CERT_INFO *certInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
 int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 							IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE certInfoType,
-							OUT_BUFFER_OPT( certInfoMaxLength, \
-											*certInfoLength ) void *certInfo, 
-							IN_LENGTH_SHORT_Z const int certInfoMaxLength, 
-							OUT_LENGTH_BOUNDED_Z( certInfoMaxLength ) \
-								int *certInfoLength )
+							OUT_BUFFER_OPT( dataMaxLength, \
+											*dataLength ) void *data, 
+							IN_LENGTH_SHORT_Z const int dataMaxLength, 
+							OUT_LENGTH_BOUNDED_Z( dataMaxLength ) \
+								int *dataLength )
 	{
-	const void *data = NULL;
-	int dataLength = 0, status;
+	const void *attributeDataPtr = NULL;
+	int attributeDataLength = 0, status;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
-	assert( certInfo == NULL || \
-			isWritePtrDynamic( certInfo, certInfoMaxLength ) );
-	assert( isWritePtr( certInfoLength, sizeof( int ) ) );
+	assert( data == NULL || isWritePtrDynamic( data, dataMaxLength ) );
+	assert( isWritePtr( dataLength, sizeof( int ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
 	REQUIRES( isAttribute( certInfoType ) || \
 			  isInternalAttribute( certInfoType ) );
-	REQUIRES( ( certInfo == NULL && certInfoMaxLength == 0 ) || \
-			  ( certInfo != NULL && \
-				isShortIntegerRangeNZ( certInfoMaxLength ) ) );
+	REQUIRES( ( data == NULL && dataMaxLength == 0 ) || \
+			  ( data != NULL && isShortIntegerRangeNZ( dataMaxLength ) ) );
 
 	/* Clear return values */
-	if( certInfo != NULL )
+	if( data != NULL )
 		{
-		REQUIRES( isShortIntegerRangeNZ( certInfoMaxLength ) ); 
-		memset( certInfo, 0, min( 16, certInfoMaxLength ) );
+		REQUIRES( isShortIntegerRangeNZ( dataMaxLength ) ); 
+		memset( data, 0, min( 16, dataMaxLength ) );
 		}
-	*certInfoLength = 0;
+	*dataLength = 0;
 
 	/* If it's a GeneralName or DN component, return it.  These are 
 	   special-case attribute values so they have to come before the 
@@ -1233,27 +1275,29 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 		{
 		SELECTION_STATE selectionState;
 		DATAPTR_ATTRIBUTE attributePtr DUMMY_INIT_STRUCT;
-		void *dataPtr;
 
 		/* Find the requested GeneralName component and return it to the
 		   caller.  Since selectGeneralNameComponent() changes the current
 		   selection within the GeneralName, we save the selection state
 		   around the call */
-		saveSelectionState( selectionState, certInfoPtr );
+		saveSelectionState( &selectionState, certInfoPtr );
 		status = selectGeneralNameComponent( certInfoPtr, certInfoType );
 		if( cryptStatusOK( status ) )
 			attributePtr = certInfoPtr->attributeCursor;
-		restoreSelectionState( selectionState, certInfoPtr );
+		restoreSelectionState( &selectionState, certInfoPtr );
 		if( cryptStatusError( status ))
 			return( status );
 		ENSURES( DATAPTR_ISSET( attributePtr ) );
 
 		/* Get the attribute component data */
-		status = getAttributeDataPtr( attributePtr, &dataPtr, &dataLength );
+		status = getAttributeDataPtr( attributePtr, 
+									  ( void ** ) &attributeDataPtr, 
+									  &attributeDataLength );
 		if( cryptStatusError( status ) )
 			return( status );
-		return( attributeCopyParams( certInfo, certInfoMaxLength, 
-									 certInfoLength, dataPtr, dataLength ) );
+		return( attributeCopyParams( data, dataMaxLength, dataLength, 
+									 attributeDataPtr, 
+									 attributeDataLength ) );
 		}
 	if( isDNComponent( certInfoType ) )
 		{
@@ -1271,16 +1315,16 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 			return( status );
 		ENSURES( certInfoPtr->currentSelection.dnPtr != NULL );
 		return( getDNComponentValue( *certInfoPtr->currentSelection.dnPtr,
-									 certInfoType, count, certInfo, 
-									 certInfoMaxLength, certInfoLength ) );
+									 certInfoType, count, data, 
+									 dataMaxLength, dataLength ) );
 		}
 
 	/* If it's standard certificate or CMS attribute, return it */
 	if( isValidExtension( certInfoType ) )
 		{
 		return( getCertAttributeComponent( certInfoPtr, certInfoType,
-										   certInfo, certInfoMaxLength, 
-										   certInfoLength ) );
+										   data, dataMaxLength, 
+										   dataLength ) );
 		}
 
 	/* If it's anything else, handle it specially */
@@ -1293,8 +1337,7 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 
 			if( errorInfo->errorStringLength > 0 )
 				{
-				return( attributeCopyParams( certInfo, certInfoMaxLength, 
-											 certInfoLength, 
+				return( attributeCopyParams( data, dataMaxLength, dataLength, 
 											 errorInfo->errorString,
 											 errorInfo->errorStringLength ) );
 				}
@@ -1305,8 +1348,8 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 		case CRYPT_CERTINFO_FINGERPRINT_SHA1:
 		case CRYPT_CERTINFO_FINGERPRINT_SHA2:
 		case CRYPT_CERTINFO_FINGERPRINT_SHAng:
-			return( getCertHash( certInfoPtr, certInfoType, certInfo, 
-								 certInfoMaxLength, certInfoLength ) );
+			return( getCertHash( certInfoPtr, certInfoType, data, 
+								 dataMaxLength, dataLength ) );
 
 		case CRYPT_CERTINFO_SERIALNUMBER:
 			switch( certInfoPtr->type )
@@ -1314,16 +1357,19 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 #ifdef USE_CERTREV
 				case CRYPT_CERTTYPE_CRL:
 					{
-					const CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+					const CERT_REV_INFO *revInfo = \
+								DATAPTR_GET_REV( certInfoPtr );
 					const REVOCATION_INFO *revInfoPtr;
 
-					revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+					REQUIRES( revInfo != NULL );
+
+					revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 					if( revInfoPtr == NULL )
-						revInfoPtr = DATAPTR_GET( certRevInfo->revocations );
+						revInfoPtr = DATAPTR_GET( revInfo->revocations );
 					if( revInfoPtr != NULL )
 						{
-						data = revInfoPtr->id;
-						dataLength = revInfoPtr->idLength;
+						attributeDataPtr = revInfoPtr->id;
+						attributeDataLength = revInfoPtr->idLength;
 						}
 					break;
 					}
@@ -1331,54 +1377,69 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 
 #ifdef USE_CERTREQ
 				case CRYPT_CERTTYPE_REQUEST_REVOCATION:
-					data = certInfoPtr->cCertReq->serialNumber;
-					dataLength = certInfoPtr->cCertReq->serialNumberLength;
+					{
+					const CERT_REQ_INFO *reqInfo = \
+								DATAPTR_GET_REQ( certInfoPtr );
+
+					REQUIRES( reqInfo != NULL );
+					
+					attributeDataPtr = reqInfo->serialNumber;
+					attributeDataLength = reqInfo->serialNumberLength;
 					break;
+					}
 #endif /* USE_CERTREQ */
 
 				case CRYPT_CERTTYPE_CERTIFICATE:
 				case CRYPT_CERTTYPE_ATTRIBUTE_CERT:
 				case CRYPT_CERTTYPE_CERTCHAIN:
-					data = certInfoPtr->cCertCert->serialNumber;
-					dataLength = certInfoPtr->cCertCert->serialNumberLength;
+					{
+					const CERT_CERT_INFO *certInfo = \
+								DATAPTR_GET_CERT( certInfoPtr );
+
+					REQUIRES( certInfo != NULL );
+
+					attributeDataPtr = certInfo->serialNumber;
+					attributeDataLength = certInfo->serialNumberLength;
 					break;
+					}
 
 				default:
 					retIntError();
 				}
-			return( attributeCopyParams( certInfo, certInfoMaxLength, 
-										 certInfoLength, data, dataLength ) );
+			return( attributeCopyParams( data, dataMaxLength, dataLength, 
+										 attributeDataPtr, 
+										 attributeDataLength ) );
 
 		case CRYPT_CERTINFO_VALIDFROM:
 		case CRYPT_CERTINFO_THISUPDATE:
 			if( certInfoPtr->startTime > MIN_CERT_TIME_VALUE )
 				{
-				data = &certInfoPtr->startTime;
-				dataLength = sizeof( time_t );
+				attributeDataPtr = &certInfoPtr->startTime;
+				attributeDataLength = sizeof( time_t );
 				}
-			return( attributeCopyParams( certInfo, certInfoMaxLength, 
-										 certInfoLength, data, dataLength ) );
+			return( attributeCopyParams( data, dataMaxLength, dataLength, 
+										 attributeDataPtr, 
+										 attributeDataLength ) );
 
 		case CRYPT_CERTINFO_VALIDTO:
 		case CRYPT_CERTINFO_NEXTUPDATE:
 			if( certInfoPtr->endTime > MIN_CERT_TIME_VALUE )
 				{
-				data = &certInfoPtr->endTime;
-				dataLength = sizeof( time_t );
+				attributeDataPtr = &certInfoPtr->endTime;
+				attributeDataLength = sizeof( time_t );
 				}
-			return( attributeCopyParams( certInfo, certInfoMaxLength, 
-										 certInfoLength, data, dataLength ) );
+			return( attributeCopyParams( data, dataMaxLength, dataLength, 
+										 attributeDataPtr, 
+										 attributeDataLength ) );
 
 #ifdef USE_CERT_OBSOLETE 
 		case CRYPT_CERTINFO_ISSUERUNIQUEID:
-			return( attributeCopyParams( certInfo, certInfoMaxLength, 
-										 certInfoLength, 
+			return( attributeCopyParams( data, dataMaxLength, dataLength, 
 										 certInfoPtr->cCertCert->issuerUniqueID, 
 										 certInfoPtr->cCertCert->issuerUniqueIDlength ) );
 
 		case CRYPT_CERTINFO_SUBJECTUNIQUEID:
-			return( attributeCopyParams( certInfo, certInfoMaxLength, 
-										 certInfoLength, 
+			return( attributeCopyParams( data, dataMaxLength, dataLength, 
 										 certInfoPtr->cCertCert->subjectUniqueID, 
 										 certInfoPtr->cCertCert->subjectUniqueIDlength ) );
 #endif /* USE_CERT_OBSOLETE */
@@ -1389,23 +1450,24 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 #ifdef USE_CERTREV
 				case CRYPT_CERTTYPE_CRL:
 				case CRYPT_CERTTYPE_OCSP_RESPONSE:
-					data = getRevocationTimePtr( certInfoPtr );
+					attributeDataPtr = getRevocationTimePtr( certInfoPtr );
 					break;
 #endif /* USE_CERTREV */
 
 #ifdef USE_CERTVAL 
 				case CRYPT_CERTTYPE_RTCS_RESPONSE:
-					data = getValidityTimePtr( certInfoPtr );
+					attributeDataPtr = getValidityTimePtr( certInfoPtr );
 					break;
 #endif /* USE_CERTVAL */
 
 				default:
 					retIntError();
 				}
-			if( data != NULL )
-				dataLength = sizeof( time_t );
-			return( attributeCopyParams( certInfo, certInfoMaxLength, 
-										 certInfoLength, data, dataLength ) );
+			if( attributeDataPtr != NULL )
+				attributeDataLength = sizeof( time_t );
+			return( attributeCopyParams( data, dataMaxLength, dataLength, 
+										 attributeDataPtr, 
+										 attributeDataLength ) );
 
 #ifdef USE_CERT_DNSTRING
 		case CRYPT_CERTINFO_DN:
@@ -1419,7 +1481,7 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 			if( cryptStatusError( status ) )
 				return( status );
 			ENSURES( certInfoPtr->currentSelection.dnPtr != NULL );
-			sMemOpenOpt( &stream, certInfo, certInfoMaxLength );
+			sMemOpenOpt( &stream, data, dataMaxLength );
 			status = writeDNstring( &stream, 
 									*certInfoPtr->currentSelection.dnPtr );
 			if( cryptStatusOK( status ) )
@@ -1427,7 +1489,7 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 			sMemDisconnect( &stream );
 			if( cryptStatusError( status ) )
 				return( status );
-			*certInfoLength = position;
+			*dataLength = position;
 
 			return( CRYPT_OK );
 			}
@@ -1437,14 +1499,14 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 		case CRYPT_CERTINFO_PKIUSER_ID:
 		case CRYPT_CERTINFO_PKIUSER_ISSUEPASSWORD:
 		case CRYPT_CERTINFO_PKIUSER_REVPASSWORD:
-			return( getPkiUserInfo( certInfoPtr, certInfoType, certInfo, 
-									certInfoMaxLength, certInfoLength ) );
+			return( getPkiUserInfo( certInfoPtr, certInfoType, data, 
+									dataMaxLength, dataLength ) );
 #endif /* USE_PKIUSER */
 
 #ifdef USE_CERTREV
 		case CRYPT_IATTRIBUTE_CRLENTRY:
-			return( getCrlEntry( certInfoPtr, certInfo, certInfoMaxLength, 
-								 certInfoLength ) );
+			return( getCrlEntry( certInfoPtr, data, dataMaxLength, 
+								 dataLength ) );
 #endif /* USE_CERTREV */
 
 		case CRYPT_IATTRIBUTE_SUBJECT:
@@ -1458,35 +1520,32 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 			assert( ( certInfoPtr->type == CRYPT_CERTTYPE_REQUEST_REVOCATION && \
 					  certInfoPtr->certificate == NULL ) || \
 					certInfoPtr->certificate != NULL  );
-			return( attributeCopyParams( certInfo, certInfoMaxLength, 
-										 certInfoLength, 
+			return( attributeCopyParams( data, dataMaxLength, dataLength, 
 										 certInfoPtr->subjectDNptr, 
 										 certInfoPtr->subjectDNsize ) );
 
 		case CRYPT_IATTRIBUTE_ISSUER:
-			return( attributeCopyParams( certInfo, certInfoMaxLength, 
-										 certInfoLength, 
+			return( attributeCopyParams( data, dataMaxLength, dataLength, 
 										 certInfoPtr->issuerDNptr, 
 										 certInfoPtr->issuerDNsize ) );
 
 		case CRYPT_IATTRIBUTE_ISSUERANDSERIALNUMBER:
-			return( getIAndS( certInfoPtr, certInfo, certInfoMaxLength, 
-							  certInfoLength ) );
+			return( getIAndS( certInfoPtr, data, dataMaxLength, 
+							  dataLength ) );
 
 		case CRYPT_IATTRIBUTE_HOLDERNAME:
-			return( getHolderName( certInfoPtr, certInfo, certInfoMaxLength, 
-								   certInfoLength ) );
+			return( getHolderName( certInfoPtr, data, dataMaxLength, 
+								   dataLength ) );
 
 		case CRYPT_IATTRIBUTE_HOLDERURI:
-			return( getHolderURI( certInfoPtr, certInfo, certInfoMaxLength, 
-								  certInfoLength ) );
+			return( getHolderURI( certInfoPtr, data, dataMaxLength, 
+								  dataLength ) );
 
 		case CRYPT_IATTRIBUTE_SPKI:
 			{
-			BYTE *dataStartPtr = certInfo;
+			BYTE *dataStartPtr = data;
 
-			status = attributeCopyParams( certInfo, certInfoMaxLength, 
-										  certInfoLength, 
+			status = attributeCopyParams( data, dataMaxLength, dataLength, 
 										  certInfoPtr->publicKeyInfo, 
 										  certInfoPtr->publicKeyInfoSize );
 			if( cryptStatusError( status ) )
@@ -1511,22 +1570,34 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 				{
 #ifdef USE_CERTREV
 				case CRYPT_CERTTYPE_OCSP_REQUEST:
-					if( certInfoPtr->cCertRev->responderUrl == NULL )
+					{
+					const CERT_REV_INFO *revInfo = \
+								DATAPTR_GET_REV( certInfoPtr );
+
+					REQUIRES( revInfo != NULL );
+
+					if( revInfo->responderUrl == NULL )
 						return( CRYPT_ERROR_NOTFOUND );
-					return( attributeCopyParams( certInfo, certInfoMaxLength, 
-								certInfoLength, 
-								certInfoPtr->cCertRev->responderUrl, 
-								certInfoPtr->cCertRev->responderUrlSize ) );
+					return( attributeCopyParams( data, dataMaxLength, 
+									dataLength, revInfo->responderUrl, 
+									revInfo->responderUrlSize ) );
+					}
 #endif /* USE_CERTREV */
 
 #ifdef USE_CERTVAL 
 				case CRYPT_CERTTYPE_RTCS_REQUEST:
-					if( certInfoPtr->cCertVal->responderUrl == NULL )
+					{
+					const CERT_VAL_INFO *valInfo = \
+								DATAPTR_GET_VAL( certInfoPtr );
+
+					REQUIRES( valInfo != NULL );
+
+					if( valInfo->responderUrl == NULL )
 						return( CRYPT_ERROR_NOTFOUND );
-					return( attributeCopyParams( certInfo, certInfoMaxLength, 
-								certInfoLength, 
-								certInfoPtr->cCertVal->responderUrl, 
-								certInfoPtr->cCertVal->responderUrlSize ) );
+					return( attributeCopyParams( data, dataMaxLength, 
+									dataLength, valInfo->responderUrl, 
+									valInfo->responderUrlSize ) );
+					}
 #endif /* USE_CERTVAL */
 
 				default:
@@ -1534,23 +1605,9 @@ int getCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 				}
 #endif /* USE_CERTREV || USE_CERTVAL */
 
-#ifdef USE_CERTREQ
-		case CRYPT_IATTRIBUTE_AUTHCERTID:
-			/* An authorising certificate identifier will be present if
-			   the request was handled by cryptlib but not if it came from
-			   an external source so we have to make sure that there's 
-			   something actually present before we try to return it */
-			if( isEmptyData( certInfoPtr->cCertReq->authCertID, 0 ) )
-				return( CRYPT_ERROR_NOTFOUND );
-			return( attributeCopyParams( certInfo, certInfoMaxLength, 
-										 certInfoLength, 
-										 certInfoPtr->cCertReq->authCertID, 
-										 KEYID_SIZE ) );
-#endif /* USE_CERTREQ */
-
 		case CRYPT_IATTRIBUTE_ESSCERTID:
-			return( getESSCertID( certInfoPtr, certInfo, certInfoMaxLength, 
-								  certInfoLength ) );
+			return( getESSCertID( certInfoPtr, data, dataMaxLength, 
+								  dataLength ) );
 		}
 
 	retIntError();

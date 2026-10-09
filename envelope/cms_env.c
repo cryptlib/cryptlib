@@ -1318,7 +1318,42 @@ static int writeSignatures( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )
 	return( CRYPT_OK );
 	}
 
-/* Write MAC value */
+/* Write the AuthenticatedData/AuthEnvData MAC value.  Note that this isn't 
+   quite compliant with the standard, which says (originally RFC 2630 section 
+   9.1):
+
+	The authenticatedAttributes structure is optional, but it must be 
+	present if the content type of the EncapsulatedContentInfo value being 
+	authenticated is not id-data [...] If the authenticatedAttributes field 
+	is present, it must contain, at a minimum, the following two attributes: 
+	A content-type attribute [...] A message-digest attribute.
+
+   However this doesn't have any obvious purpose because all that the 
+   content-type attribute does is direct processing to the appropriate 
+   handler.  Changing the type from (say) Data to SignedData doesn't make 
+   the content SignedData, so the processing will fail if the content-type 
+   is changed in any way.  The change appears to have been introduced in 
+   PKCS #7 with the move from PEM (PKCS #7 section 9.5) where the content-
+   type was always data and there were no authenticated attributes to PKCS 
+   #7 with authenticated attributes and other types of content, and then 
+   over time (RFC 2630, RFC 3369, RFC 5652, all section 11.1) it's become 
+   more and more emphatic without ever explaining why it's so important.  
+   The principal use for authenticated attributes in the SignerInfo isn't 
+   to protect the ContentType but to provide a location to store the message 
+   time as a SigningTime attribute, so that's the real motivation for having 
+   authenticated attributes present.
+
+   After this the text for SignedData was copied verbatim to 
+   AuthenticatedData even though the SigningTime is essentially never used 
+   there, leaving just the (apparently pointless) ContentType and the extra-
+   level-of-indirection MessageDigest attributes present.  Adding handling 
+   for this for AuthenticatedData would add a pile of extra complexity and 
+   attack surface for something that seems to serve no purpose, so for now 
+   we don't bother with it.  
+   
+   The code has done this since cryptlib 3.0.0 in 2002 without anyone 
+   complaining so it's unlikely that anyone is enforcing this unnecessary 
+   requirement */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int writeMAC( INOUT_PTR ENVELOPE_INFO *envelopeInfoPtr )

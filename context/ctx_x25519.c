@@ -256,6 +256,7 @@ static const X25519_KEY x25519TestKey1 = {
 	  0xDF, 0x4C, 0x2F, 0x87, 0xEB, 0xC0, 0x99, 0x2A,
 	  0xB1, 0x77, 0xFB, 0xA5, 0x1D, 0xB9, 0x2C, 0x6A }
 	};
+#if 0	/* Present for testing but not used */
 static const X25519_KEY x25519TestKey2 = {
 	/* pub */
 	{ 0xDE, 0x9E, 0xDB, 0x7D, 0x7B, 0x7D, 0xC1, 0xB4,
@@ -274,6 +275,7 @@ static const X25519_KEY x25519TestKey2 = {
 	  0x6F, 0x3B, 0xB1, 0x29, 0x26, 0x18, 0xB6, 0xFD,
 	  0x1C, 0x2F, 0x8B, 0x27, 0xFF, 0x88, 0xE0, 0x6B }
 	};
+#endif /* 0 */
 
 /* Perform a pairwise consistency test on a public/private key pair */
 
@@ -281,8 +283,7 @@ CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
 	CONTEXT_INFO checkContextInfo;
-	PKC_INFO contextData, *pkcInfo = &contextData;
-	BERNSTEIN_KEY_INFO *bernsteinKey;
+	PKC_INFO contextData;
 	KEYAGREE_PARAMS keyAgreeParams1, keyAgreeParams2;
 	const CAPABILITY_INFO *capabilityInfoPtr;
 	int status;
@@ -297,7 +298,6 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 								sizeof( PKC_INFO ), NULL );
 	if( cryptStatusError( status ) )
 		return( FALSE );
-	bernsteinKey = pkcInfo->bernsteinKey;
 
 	/* Perform the pairwise test using the check key */
 	capabilityInfoPtr = DATAPTR_GET( checkContextInfo.capabilityInfo );
@@ -445,7 +445,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					  INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					  IN_LENGTH_FIXED( sizeof( KEYAGREE_PARAMS ) ) int noBytes )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BERNSTEIN_KEY_INFO *bernsteinKey;
 	KEYAGREE_PARAMS *keyAgreeParams = ( KEYAGREE_PARAMS * ) buffer;
 
@@ -482,7 +482,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					  IN_LENGTH_FIXED( sizeof( KEYAGREE_PARAMS ) ) int noBytes )
 	{
 	KEYAGREE_PARAMS *keyAgreeParams = ( KEYAGREE_PARAMS * ) buffer;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BERNSTEIN_KEY_INFO *bernsteinKey;
 	int osslStatus;
 
@@ -565,7 +565,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( key != NULL )
 		{
 		const CRYPT_PKCINFO_DJB *x25519Key = ( CRYPT_PKCINFO_DJB * ) key;
-		PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+		PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 		BERNSTEIN_KEY_INFO *bernsteinKey;
 
 		REQUIRES( pkcInfo != NULL );

@@ -263,7 +263,7 @@ static int hash( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	HASH_INFO *hashInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	HASH_INFO *hashInfo = DATAPTR_GET_HASH( contextInfoPtr );
 	sha2_ctx *shaInfo;
 #ifdef HAS_DEVCRYPTO
 	const int hwCryptInfo = getSysVar( SYSVAR_HWCRYPT );

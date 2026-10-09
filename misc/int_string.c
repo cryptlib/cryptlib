@@ -702,7 +702,7 @@ BOOLEAN strSame( IN_STRING_LEN( length ) const char *src,
 	LOOP_INDEX i;
 
 	assert( isReadPtrDynamic( src, length ) );
-	assert( isReadPtrDynamic( dest, 2 ) );
+	assert( isReadPtrDynamic( dest, length ) );
 
 	if( !rangeCheck( length, 1, MAX_ATTRIBUTE_SIZE ) )
 		{
@@ -725,10 +725,11 @@ BOOLEAN strSame( IN_STRING_LEN( length ) const char *src,
 			return( FALSE );
 		if( srcCh == '\0' )
 			{
-			/* We've run out of source string without finding a mis-match, 
-			   we're done.  Note that this also checks destCh, since we
-			   wouldn't have got here if they weren't the same */
-			break;
+			/* If we've run out of characters to match without hitting the 
+			   end of the string, it's a mis-match.  Note that this also 
+			   checks destCh since we wouldn't have got here if they weren't 
+			   the same */
+			return( FALSE );
 			}
 		}
 	ENSURES_B( LOOP_BOUND_OK );
@@ -1124,8 +1125,8 @@ BOOLEAN testIntString( void )
 	if( !strSame( "abcdefgh", "abcdefgh", 8 ) || \
 		!strSame( "ABCdefgh", "abcdefgh", 8 ) || \
 		!strSame( "abcdefgh", "abc", 3 ) || \
-		!strSame( "ABCdefgh", "abc", 3 ) || \
-		!strSame( "abc", "abc", 8 ) || \
+		strSame( "abcdefgh", "abc", 8 ) || \
+		strSame( "abc", "abc", 8 ) || \
 		strSame( "abc", "abd", 3 ) || strSame( "ab", "abc", 3 ) )
 		return( FALSE );
 

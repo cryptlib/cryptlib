@@ -75,11 +75,11 @@ typedef struct {
 ****************************************************************************/
 
 /* The internal fields in a device that hold data for the various device
-   types.   These are implemented as a union to conserve memory with some of 
+   types.  These are implemented as a union to conserve memory with some of 
    the more data-intensive types.  In addition the structures provide a 
    convenient way to group the device type-specific parameters */
 
-#define NONCERNG_PRIVATE_STATESIZE		8
+#define NONCERNG_PRIVATE_STATESIZE		16
 
 typedef struct {
 	/* CSPRNG information */
@@ -87,7 +87,7 @@ typedef struct {
 
 	/* Nonce PRNG information.  This uses a nonce RNG state consisting of a
 	   block of data of the same size as the nonce hash function followed
-	   by 64 bits of private state that's mixed into the hashed data, see
+	   by 128 bits of private state that's mixed into the hashed data, see
 	   the comment in getNonce() in device/system.c for details */
 	BUFFER_FIXED( CRYPT_MAX_HASHSIZE + NONCERNG_PRIVATE_STATESIZE ) \
 	BYTE nonceData[ ( CRYPT_MAX_HASHSIZE + \
@@ -183,14 +183,6 @@ typedef struct {
 	BOOLEAN discardData;				/* Discard keyset data on init/zeroise */
 	} HARDWARE_INFO;
 #endif /* USE_HARDWARE */
-
-/* Defines to make access to the union fields less messy */
-
-#define deviceSystem	deviceInfo.systemInfo
-#define devicePKCS11	deviceInfo.pkcs11Info
-#define deviceCryptoAPI	deviceInfo.cryptoapiInfo
-#define deviceTPM		deviceInfo.tpmInfo
-#define deviceHardware	deviceInfo.hardwareInfo
 
 /* The structure which stores information on a device */
 
@@ -301,21 +293,7 @@ typedef struct DI {
 	DATAPTR capabilityInfoList;
 
 	/* Device type-specific information */
-	union {
-		SYSTEMDEV_INFO *systemInfo;
-#ifdef USE_PKCS11
-		PKCS11_INFO *pkcs11Info;
-#endif /* USE_PKCS11 */
-#ifdef USE_CRYPTOAPI
-		CRYPTOAPI_INFO *cryptoapiInfo;
-#endif /* USE_CRYPTOAPI */
-#ifdef USE_TPM
-		TPM_INFO *tpmInfo;
-#endif /* USE_TPM */
-#ifdef USE_HARDWARE
-		HARDWARE_INFO *hardwareInfo;
-#endif /* USE_HARDWARE */
-		} deviceInfo;
+	DATAPTR deviceInfo;
 
 	/* Pointers to device access methods */
 	FNPTR initFunction, shutdownFunction, controlFunction;

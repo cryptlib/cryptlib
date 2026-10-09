@@ -41,7 +41,7 @@ enum { OCSP_STATUS_NOTREVOKED, OCSP_STATUS_REVOKED, OCSP_STATUS_UNKNOWN };
 
 /****************************************************************************
 *																			*
-*								Utility Functions							*
+*								Utility Routines							*
 *																			*
 ****************************************************************************/
 
@@ -65,12 +65,15 @@ BOOLEAN sanityCheckRevInfo( IN_PTR const REVOCATION_INFO *revocationInfo )
 		DEBUG_PUTS(( "sanityCheckRevInfo: VarStruct" ));
 		return( FALSE );
 		}
+	if( !isEnumRangeOpt( revocationInfo->status, CRYPT_OCSPSTATUS ) )
+		{
+		DEBUG_PUTS(( "sanityCheckRevInfo: Status" ));
+		return( FALSE );
+		}
 
 	/* Check ID type */
 	if( revocationInfo->idType != CRYPT_KEYID_NONE && \
-		revocationInfo->idType != CRYPT_IKEYID_CERTID && \
-		revocationInfo->idType != CRYPT_IKEYID_ISSUERANDSERIALNUMBER && \
-		revocationInfo->idType != CRYPT_IKEYID_ISSUERID )
+		revocationInfo->idType != CRYPT_IKEYID_ISSUERANDSERIALNUMBER )
 		{
 		DEBUG_PUTS(( "sanityCheckRevInfo: ID type" ));
 		return( FALSE );
@@ -83,6 +86,21 @@ BOOLEAN sanityCheckRevInfo( IN_PTR const REVOCATION_INFO *revocationInfo )
 					  revocationInfo->idLength ) != revocationInfo->idCheck )
 		{
 		DEBUG_PUTS(( "sanityCheckRevInfo: ID" ));
+		return( FALSE );
+		}
+	if( !( ( revocationInfo->serialNumberStart == 0 && \
+			 revocationInfo->serialNumberLength == 0 && \
+			 revocationInfo->serialNumberCheck == 0 ) || \
+		   ( isShortIntegerRange( revocationInfo->serialNumberStart ) && \
+		     isShortIntegerRange( revocationInfo->serialNumberLength ) && \
+			 boundsCheckZ( revocationInfo->serialNumberStart,
+						   revocationInfo->serialNumberLength, 
+						   revocationInfo->idLength ) && \
+			 checksumData( revocationInfo->id + revocationInfo->serialNumberStart, 
+						   revocationInfo->serialNumberLength ) == \
+										revocationInfo->serialNumberCheck ) ) )
+		{
+		DEBUG_PUTS(( "sanityCheckRevInfo: serialNumber" ));
 		return( FALSE );
 		}
 
@@ -110,20 +128,22 @@ BOOLEAN sanityCheckRevInfo( IN_PTR const REVOCATION_INFO *revocationInfo )
    mega-CRLs (or with CRLs in general) is in more trouble than basic search
    algorithm choice.  In other words it doesn't really make much difference
    whether we have an optimal or suboptimal implementation of a
-   fundamentally broken mechanism like CRLs.
+   fundamentally broken mechanism like CRLs */
 
-   When performing a check (sortEntries == FALSE), the value is a serial
-   number.  When looking for the location to insert a new entry
-   (sortEntries == TRUE) the value is either a serialNumber or a hash of 
-   some form (issuerID, certHash), we don't bother distinguishing the exact 
-   type since the chances of a hash collision are virtually nonexistent */
+typedef enum {
+	FINDREV_NONE,				/* No find-rev type */
+	FINDREV_FIND_INSERTPOINT,	/* Find point to insert new CRL entry */
+	FINDREV_SERIALNO,			/* Find by ID = serialNumber */
+	FINDREV_OCSPID,				/* Find by ID = ocspID */
+	FINDREV_LAST				/* Last possible find-rev type */
+	} FINDREV_TYPE;
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 2, 3 ) ) \
 static int findRevocationEntry( IN_DATAPTR const DATAPTR listHead,
 								OUT_PTR_PTR_OPT REVOCATION_INFO **insertPoint,
 								IN_BUFFER( valueLength ) const void *value, 
 								IN_LENGTH_SHORT const int valueLength,
-								IN_BOOL const BOOLEAN sortEntries )
+								IN_ENUM( FINDREV ) const FINDREV_TYPE findType )
 	{
 	const REVOCATION_INFO *prevElement = NULL;
 	LOOP_INDEX_PTR const REVOCATION_INFO *listPtr;
@@ -134,7 +154,7 @@ static int findRevocationEntry( IN_DATAPTR const DATAPTR listHead,
 	assert( isReadPtrDynamic( value, valueLength ) );
 
 	REQUIRES( isShortIntegerRangeNZ( valueLength ) );
-	REQUIRES( isBooleanValue( sortEntries ) );
+	REQUIRES( isEnumRange( findType, FINDREV ) );
 
 	/* Clear return value */
 	*insertPoint = NULL;
@@ -147,7 +167,8 @@ static int findRevocationEntry( IN_DATAPTR const DATAPTR listHead,
 	   calculate an alternative idCheck value that omits the zero at the 
 	   start, to match the ID value in the list which will have been 
 	   canonicalised on read */
-	if( !sortEntries && *( ( BYTE * ) value ) == 0 && valueLength > 1 )
+	if( findType == FINDREV_SERIALNO && \
+		*( ( BYTE * ) value ) == 0 && valueLength > 1 )
 		{
 		const BYTE *valuePtr = value;
 
@@ -172,7 +193,7 @@ static int findRevocationEntry( IN_DATAPTR const DATAPTR listHead,
 
 		ENSURES( LOOP_INVARIANT_MAX_GENERIC() );
 
-		if( sortEntries ) 
+		if( findType == FINDREV_FIND_INSERTPOINT ) 
 			{
 			/* We're adding entries in sorted order, find the appropriate 
 			   place to add the new entry */
@@ -196,23 +217,35 @@ static int findRevocationEntry( IN_DATAPTR const DATAPTR listHead,
 			}
 		else
 			{
-			/* We're checking for a straight match */
-			if( idCheck == listPtr->idCheck && \
-				listPtr->idLength == valueLength && \
-				!memcmp( listPtr->id, value, valueLength ) )
-				foundMatch = TRUE;
+			if( findType == FINDREV_SERIALNO )
+				{
+				/* We're checking for a serial number match */
+				if( listPtr->serialNumberCheck == idCheck && \
+					listPtr->serialNumberLength == valueLength && \
+					!memcmp( listPtr->id + listPtr->serialNumberStart, 
+							 value, valueLength ) )
+					foundMatch = TRUE;
+				else
+					{
+					/* We're checking for a match of an ASN.1 integer 
+					   against a canonicalised ASN.1 integer */
+					if( idCheckAlt != CRYPT_ERROR && \
+						idCheckAlt == listPtr->idCheck && \
+						listPtr->idLength == valueLength - 1 )
+						{
+						if( compareSerialNumber( listPtr->id, listPtr->idLength,
+												 value, valueLength ) )
+							foundMatch = TRUE;
+						}
+					}
+				}
 			else
 				{
-				/* We're checking for a match of an ASN.1 integer against a 
-				   canonicalised ASN.1 integer */
-				if( idCheckAlt != CRYPT_ERROR && \
-					idCheckAlt == listPtr->idCheck && \
-					listPtr->idLength == valueLength - 1 )
-					{
-					if( compareSerialNumber( listPtr->id, listPtr->idLength,
-											 value, valueLength ) )
-						foundMatch = TRUE;
-					}
+				/* We're checking for a straight match */
+				if( listPtr->idCheck == idCheck && \
+					listPtr->idLength == valueLength && \
+					!memcmp( listPtr->id, value, valueLength ) )
+					foundMatch = TRUE;
 				}
 			}
 		if( foundMatch )
@@ -251,9 +284,10 @@ int addRevocationEntry( INOUT_PTR_DATAPTR DATAPTR *listHeadPtr,
 	assert( isReadPtrDynamic( value, valueLength ) );
 	
 	REQUIRES( valueType == CRYPT_KEYID_NONE || \
-			  valueType == CRYPT_IKEYID_CERTID || \
-			  valueType == CRYPT_IKEYID_ISSUERID || \
 			  valueType == CRYPT_IKEYID_ISSUERANDSERIALNUMBER );
+			  /* The 'none' ID is the useless OCSP ID, the 
+			     issuerAndSerialNumber is actually a CRL serialNumber but 
+			     we don't have an ID value for that */
 	REQUIRES( isShortIntegerRangeNZ( valueLength ) );
 	REQUIRES( isBooleanValue( noCheck ) );
 
@@ -270,7 +304,8 @@ int addRevocationEntry( INOUT_PTR_DATAPTR DATAPTR *listHeadPtr,
 		int status;
 
 		status = findRevocationEntry( listHead, &insertPoint, value, 
-									  valueLength, TRUE );
+									  valueLength, 
+									  FINDREV_FIND_INSERTPOINT );
 		if( cryptStatusOK( status ) )
 			{
 			/* If we get an OK status it means that we've found an existing
@@ -296,6 +331,13 @@ int addRevocationEntry( INOUT_PTR_DATAPTR DATAPTR *listHeadPtr,
 	memcpy( newElement->id, value, valueLength );
 	newElement->idLength = valueLength;
 	newElement->idCheck = checksumData( value, valueLength );
+	if( valueType == CRYPT_IKEYID_ISSUERANDSERIALNUMBER )
+		{
+		/* The ID is a serial number, point the serialNumber entries at it */
+		newElement->serialNumberStart = 0;
+		newElement->serialNumberLength = newElement->idLength;
+		newElement->serialNumberCheck = newElement->idCheck;
+		}
 	DATAPTR_SET( newElement->attributes, NULL );
 	DATAPTR_SET( newElement->prev, NULL );
 	DATAPTR_SET( newElement->next, NULL );
@@ -497,7 +539,8 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int checkRevocationCRL( IN_PTR const CERT_INFO *certInfoPtr, 
 							   INOUT_PTR CERT_INFO *revInfoPtr )
 	{
-	CERT_REV_INFO *certRevInfo = revInfoPtr->cCertRev;
+	const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+	CERT_REV_INFO *revInfo = DATAPTR_GET_REV( revInfoPtr );
 	REVOCATION_INFO *revEntry;
 #ifdef USE_CERTLEVEL_PKIX_PARTIAL
 	DATAPTR_ATTRIBUTE revAKID;
@@ -508,10 +551,88 @@ static int checkRevocationCRL( IN_PTR const CERT_INFO *certInfoPtr,
 	assert( isWritePtr( revInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( revInfoPtr->type == CRYPT_CERTTYPE_CRL );
+	REQUIRES( certInfo != NULL && revInfo != NULL );
+
+	/* There is one special-case situation that we have to check for first 
+	   and that's if the CRL has an issuingDistributionPoint extension which 
+	   indicates that it's meant only for CA or EE certificates, something 
+	   which exists for no known reason and has its own special-snowflake 
+	   behaviour that violates the normal handling of extensions (RFC 3280 
+	   section 5.2.5, "Although the extension is critical, conforming 
+	   implementations are not required to support this extension").  One of 
+	   the things the CRL can do, again for no known reason, is to declare 
+	   itself only valid for EE certificates or only valid for CA 
+	   certificates or only valid for attribute certificates.  The logical 
+	   way to do this would be to have an enum { EE_only, CA_only, AC_only }, 
+	   so what PKIX instead does is have three optional booleans, one for 
+	   each condition, and tell you not to set more than one at a time.
+
+	   While there's no obvious purpose to any of this, it does introduce a 
+	   theoretical vulnerability where someone can submit a CA-only CRL that 
+	   contains no revocations for EE certificates to an EE certificate 
+	   check so an EE certificate appears not-revoked.  The reason why it's 
+	   theoretical is because a CRL can only say "revoked", so both "not on 
+	   the CRL" and "wrong type of CRL" (alongside "couldn't find CRL", 
+	   "invalid format for CRL", and many others) produce the same result of 
+	   "not revoked".
+
+	   To make things even worse, there's also an onlySomeReasons field 
+	   which confines the CRL to only some reason codes.  What this means is 
+	   that it's possible to create further CRLs, one per reason code, and a 
+	   relying party then has to somehow collect and examine the Cartesian 
+	   product of every CRL with every possible revocation type and reason 
+	   code to find out whether a certificate has been revoked or not.
+
+	   This is, obviously, insane, so we both confine it to 
+	   USE_CERTLEVEL_PKIX_FULL where the manual warns people to expect crazy 
+	   behaviour and only go so far as checking the CRL type (EE vs. CA) 
+	   rather than trying to guess whether more CRLs with different reason 
+	   codes may exist somewhere, and how to report this to the caller in 
+	   any kind of way that makes sense */
+#ifdef USE_CERTLEVEL_PKIX_FULL
+	if( checkAttributePresent( revInfoPtr->attributes, 
+							   CRYPT_CERTINFO_ISSUINGDISTRIBUTIONPOINT ) )
+		{
+		BOOLEAN eeOnly = FALSE, caOnly  = FALSE, isCA = FALSE;
+		int value;
+
+		/* Get the necessary CA flags from the certificate and CRL */
+		status = getAttributeFieldValue( certInfoPtr->attributes, 
+								CRYPT_CERTINFO_CA, 
+								CRYPT_ATTRIBUTE_NONE, &value );
+		if( cryptStatusOK( status ) )
+			isCA = ( value > 0 ) ? TRUE : FALSE;
+		status = getAttributeFieldValue( revInfoPtr->attributes, 
+								CRYPT_CERTINFO_ISSUINGDIST_USERCERTSONLY, 
+								CRYPT_ATTRIBUTE_NONE, &value );
+		if( cryptStatusOK( status ) )
+			eeOnly = ( value > 0 ) ? TRUE : FALSE;
+		status = getAttributeFieldValue( revInfoPtr->attributes, 
+								CRYPT_CERTINFO_ISSUINGDIST_CACERTSONLY, 
+								CRYPT_ATTRIBUTE_NONE, &value );
+		if( cryptStatusOK( status ) )
+			caOnly = ( value > 0 ) ? TRUE : FALSE;
+
+		/* Make sure that everything is consistent */
+		if( eeOnly && caOnly )
+			{
+			retExt( CRYPT_ERROR_INVALID,
+					( CRYPT_ERROR_INVALID, REVOCATION_ERRINFO,
+					  "CRL contains conflicting CA/EE-only indicators" ) );
+			}
+		if( ( eeOnly && isCA ) || ( caOnly && !isCA ) )
+			{
+			retExt( CRYPT_ERROR_INVALID,
+					( CRYPT_ERROR_INVALID, REVOCATION_ERRINFO,
+					  "%s-only CRL doesn't apply to %s certificates",
+					  eeOnly ? "EE" : "CA", isCA ? "CA" : "EE" ) );
+			}
+		}
+#endif /* USE_CERTLEVEL_PKIX_FULL */
 
 	/* If there's no revocation information present then the certificate 
 	   can't have been revoked */
-	if( DATAPTR_ISNULL( certRevInfo->revocations ) )
+	if( DATAPTR_ISNULL( revInfo->revocations ) )
 		return( CRYPT_OK );
 
 	/* If the issuers differ then the certificate can't be in this CRL */
@@ -562,10 +683,10 @@ static int checkRevocationCRL( IN_PTR const CERT_INFO *certInfoPtr,
 #endif /* USE_CERTLEVEL_PKIX_PARTIAL */
 
 	/* Check whether there's an entry for this certificate in the list */
-	status = findRevocationEntry( certRevInfo->revocations, &revEntry,
-								  certInfoPtr->cCertCert->serialNumber,
-								  certInfoPtr->cCertCert->serialNumberLength,
-								  FALSE );
+	status = findRevocationEntry( revInfo->revocations, &revEntry,
+								  certInfo->serialNumber,
+								  certInfo->serialNumberLength, 
+								  FINDREV_SERIALNO );
 	if( cryptStatusError( status ) )
 		{
 		/* No CRL entry, the certificate is OK */
@@ -576,16 +697,19 @@ static int checkRevocationCRL( IN_PTR const CERT_INFO *certInfoPtr,
 
 	/* Select the entry that contains the revocation information and return
 	   the certificate's status */
-	DATAPTR_SET( certRevInfo->currentRevocation, revEntry );
+	DATAPTR_SET( revInfo->currentRevocation, revEntry );
 
-	return( CRYPT_ERROR_INVALID );
+	retExt( CRYPT_ERROR_INVALID,
+			( CRYPT_ERROR_INVALID, REVOCATION_ERRINFO,
+			  "Certificate has been revoked" ) );
 	}
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int checkRevocationOCSP( IN_PTR const CERT_INFO *certInfoPtr, 
 							    INOUT_PTR CERT_INFO *revInfoPtr )
 	{
-	CERT_REV_INFO *certRevInfo = revInfoPtr->cCertRev;
+	const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+	CERT_REV_INFO *revInfo = DATAPTR_GET_REV( revInfoPtr );
 	REVOCATION_INFO *revEntry;
 	int status;
 
@@ -593,20 +717,23 @@ static int checkRevocationOCSP( IN_PTR const CERT_INFO *certInfoPtr,
 	assert( isWritePtr( revInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( revInfoPtr->type == CRYPT_CERTTYPE_OCSP_RESPONSE );
+	REQUIRES( certInfo != NULL && revInfo != NULL );
 
 	/* If there's no revocation information present then the certificate 
 	   can't have been revoked */
-	if( DATAPTR_ISNULL( certRevInfo->revocations ) )
+	if( DATAPTR_ISNULL( revInfo->revocations ) )
 		return( CRYPT_OK );
 
 	/* Check whether there's an entry for this certificate in the list */
-	status = findRevocationEntry( certRevInfo->revocations, &revEntry,
-								  certInfoPtr->cCertCert->serialNumber,
-								  certInfoPtr->cCertCert->serialNumberLength,
-								  FALSE );
+	status = findRevocationEntry( revInfo->revocations, &revEntry,
+								  certInfo->serialNumber,
+								  certInfo->serialNumberLength, 
+								  FINDREV_SERIALNO );
 	if( cryptStatusError( status ) )
 		{
-		/* No revocation entry, the certificate is OK */
+		/* No revocation entry, the certificate is OK in OCSP terms, meaning 
+		   we have no idea whether it's actually good to use or not but at 
+		   least it's not revoked */
 		return( CRYPT_OK );
 		}
 	ENSURES( revEntry != NULL );
@@ -615,10 +742,15 @@ static int checkRevocationOCSP( IN_PTR const CERT_INFO *certInfoPtr,
 	/* Select the entry that contains the revocation information and return
 	   the certificate's revocation status.  Because of the inability of a
 	   blocklist to return a proper status, we have to map anything other
-	   than "revoked" to "OK" */
-	DATAPTR_SET( certRevInfo->currentRevocation, revEntry );
-	return( ( revEntry->status == CRYPT_OCSPSTATUS_REVOKED ) ? \
-			CRYPT_ERROR_INVALID : CRYPT_OK );
+	   than "revoked", i.e. not-revoked and unknown, to "OK" */
+	DATAPTR_SET( revInfo->currentRevocation, revEntry );
+	if( revEntry->status == CRYPT_OCSPSTATUS_REVOKED )
+		{
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, REVOCATION_ERRINFO,
+				  "Certificate has been revoked" ) );
+		}
+	return( CRYPT_OK );
 	}
 
 /* Check a certificate against a CRL or OCSP response (effectively the same 
@@ -628,11 +760,17 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int checkCertAgainstCRL( INOUT_PTR CERT_INFO *certInfoPtr, 
 								INOUT_PTR CERT_INFO *crlInfoPtr )
 	{
+	CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 	LOOP_INDEX i;
 	int status;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 	assert( isWritePtr( crlInfoPtr, sizeof( CERT_INFO ) ) );
+
+	REQUIRES( certInfo != NULL );
+
+	/* Clear any residual error information from a previous check */
+	clearErrorInfo( CRL_ERRINFO );
 
 	/* Check that the CRL/OCSP response is a complete signed CRL/response 
 	   and not just a newly-created object */
@@ -646,11 +784,7 @@ static int checkCertAgainstCRL( INOUT_PTR CERT_INFO *certInfoPtr,
 	else
 		status = checkRevocationOCSP( certInfoPtr, crlInfoPtr );
 	if( cryptStatusError( status ) )
-		{
-		retExt( status,
-				( status, CERTIFICATE_ERRINFO,
-				  "Certificate has been revoked" ) );
-		}
+		return( status );
 
 	/* If this is just a single certificate then we're done */
 	if( certInfoPtr->type != CRYPT_CERTTYPE_CERTCHAIN )
@@ -664,17 +798,16 @@ static int checkCertAgainstCRL( INOUT_PTR CERT_INFO *certInfoPtr,
 	   certificate was pointless).  In any case it's easier to just do the 
 	   check for all certificates than to determine which certificate the 
 	   CRL applies to so we check for all certificates */
-	LOOP_EXT( i = 0, i < certInfoPtr->cCertCert->chainEnd, i++, 
+	LOOP_EXT( i = 0, i < certInfo->chainEnd, i++, 
 			  MAX_CHAINLENGTH )
 		{
 		CERT_INFO *certChainInfoPtr;
 
-		ENSURES( LOOP_INVARIANT_EXT( i, 0, \
-									 certInfoPtr->cCertCert->chainEnd - 1,
+		ENSURES( LOOP_INVARIANT_EXT( i, 0, certInfo->chainEnd - 1,
 									 MAX_CHAINLENGTH ) );
 
 		/* Check this certificate against the CRL/OCSP response */
-		status = krnlAcquireObject( certInfoPtr->cCertCert->chain[ i ],
+		status = krnlAcquireObject( certInfo->chain[ i ],
 									OBJECT_TYPE_CERTIFICATE,
 									( MESSAGE_PTR_CAST ) &certChainInfoPtr,
 									CRYPT_ERROR_SIGNALLED );
@@ -693,7 +826,7 @@ static int checkCertAgainstCRL( INOUT_PTR CERT_INFO *certInfoPtr,
 		   revoked certificate and exit */
 		if( cryptStatusError( status ) )
 			{
-			certInfoPtr->cCertCert->chainPos = i;
+			certInfo->chainPos = i;
 			break;
 			}
 		}
@@ -1053,6 +1186,46 @@ int writeCRLentries( INOUT_PTR STREAM *stream,
 *																			*
 ****************************************************************************/
 
+/* Check a revocation list in a request against the one in the response */
+
+CHECK_RETVAL \
+int checkRevocationEntries( IN_DATAPTR const DATAPTR reqList,
+							IN_DATAPTR const DATAPTR respList )
+	{
+	LOOP_INDEX_PTR const REVOCATION_INFO *reqListCursor;
+	int status;
+
+	REQUIRES( DATAPTR_ISSET( reqList ) && DATAPTR_ISSET( respList ) );
+
+	/* Check all request entries against the response entries */
+	LOOP_LARGE( reqListCursor = DATAPTR_GET( reqList ), 
+				reqListCursor != NULL, 
+				reqListCursor = DATAPTR_GET( reqListCursor->next ) )
+		{
+		REVOCATION_INFO *dummy;
+		
+		REQUIRES( sanityCheckRevInfo( reqListCursor ) );
+
+		ENSURES( LOOP_INVARIANT_LARGE_GENERIC() );
+
+		/* Make sure that there's a matching entry in the response */
+		status = findRevocationEntry( respList, &dummy, reqListCursor->id, 
+									  reqListCursor->idLength, 
+									  FINDREV_OCSPID );
+		if( cryptStatusError( status ) )
+			{
+			/* We've got back a response that doesn't match the entries in 
+			   the request as per the RFC, section 2.2 "A definitive 
+			   response message is composed of [...] responses for each of 
+			   the certificates in a request" */
+			return( CRYPT_ERROR_INVALID );
+			}
+		}
+	ENSURES( LOOP_BOUND_OK );
+
+	return( CRYPT_OK );
+	}
+
 /* Copy a revocation list from an OCSP request to a response */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -1087,6 +1260,7 @@ int copyRevocationEntries( INOUT_PTR_DATAPTR DATAPTR *destListHeadPtr,
 							 sizeof( REVOCATION_INFO ) + \
 								srcListCursor->idLength ) ) == NULL )
 			return( CRYPT_ERROR_MEMORY );
+		REQUIRES( checkVarStruct( srcListCursor ) );
 		copyVarStruct( newElement, srcListCursor, REVOCATION_INFO, id );
 		DATAPTR_SET( newElement->attributes, NULL );
 		DATAPTR_SET( newElement->prev, NULL );
@@ -1116,11 +1290,68 @@ int copyRevocationEntries( INOUT_PTR_DATAPTR DATAPTR *destListHeadPtr,
    the response even though technically it's the request data that's being 
    checked */
 
+static int compareOCSPID( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert,
+						  IN_BUFFER( ocspIDlength ) const BYTE *ocspID,
+						  IN_LENGTH_SHORT const int ocspIDlength )
+	{
+	MESSAGE_DATA msgData;
+	STREAM stream;
+	BYTE certSerialNumber[ MAX_SERIALNO_SIZE + 8 ];
+	BYTE ocspIDSerialNumber[ MAX_SERIALNO_SIZE + 8 ];	
+	int certSerialNumberLength, ocspIDSerialNumberLength DUMMY_INIT;
+	int status;
+	
+	assert( isReadPtr( ocspID, ocspIDlength ) );
+	
+	REQUIRES( isHandleRangeValid( iCryptCert ) );
+
+	/* Get the certificate's serial number, the sole piece of information in
+	   an OCSP ID that we can do anything with */
+	setMessageData( &msgData, certSerialNumber, MAX_SERIALNO_SIZE );
+	status = krnlSendMessage( iCryptCert, IMESSAGE_GETATTRIBUTE_S, 
+							  &msgData, CRYPT_CERTINFO_SERIALNUMBER );
+	if( cryptStatusError( status ) )
+		return( status );
+	certSerialNumberLength = msgData.length;
+
+	/* Extract the serial number from the OCSP ID and make sure that it
+	   matches the certificate being queried:
+	   
+		certID ::= SEQUENCE {
+			hashAlgo	AlgorithmIdentifier,
+			iNameHash	OCTET STRING,	-- Hash of issuerName
+			iKeyHash	OCTET STRING,	-- Hash of issuer SPKI w/o tag+len
+			serialNo	INTEGER
+			}
+	   
+	   See the long comment in cert/cert_rev.c: readOcspRequestEntry() for 
+	   the reasoning behind this */
+	sMemConnect( &stream, ocspID, ocspIDlength );
+	readSequence( &stream, NULL );	
+	readUniversal( &stream );			/* algorithmIdentifier */
+	readUniversal( &stream );			/* issuerNameHash */
+	status = readUniversal( &stream );	/* issuerKeyHash */
+	if( cryptStatusOK( status ) )
+		{
+		status = readInteger( &stream, ocspIDSerialNumber, 
+							  MAX_SERIALNO_SIZE, 
+							  &ocspIDSerialNumberLength );
+		}
+	sMemDisconnect( &stream );
+	if( cryptStatusError( status ) || \
+		!compareSerialNumber( certSerialNumber, certSerialNumberLength,
+							  ocspIDSerialNumber, 
+							  ocspIDSerialNumberLength ) )
+		return( CRYPT_ERROR_NOTFOUND );
+	
+	return( CRYPT_OK );
+	}
+
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int checkOCSPResponse( INOUT_PTR CERT_INFO *certInfoPtr,
 					   IN_HANDLE const CRYPT_KEYSET iCryptKeyset )
 	{
-	const CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+	const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 	LOOP_INDEX_PTR REVOCATION_INFO *revocationInfo;
 	BOOLEAN isRevoked = FALSE;
 
@@ -1128,10 +1359,11 @@ int checkOCSPResponse( INOUT_PTR CERT_INFO *certInfoPtr,
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
 	REQUIRES( isHandleRangeValid( iCryptKeyset ) );
+	REQUIRES( revInfo != NULL );
 
 	/* Walk down the list of revocation entries fetching status information
 	   on each one from the certificate store */
-	LOOP_LARGE( revocationInfo = DATAPTR_GET( certRevInfo->revocations ), 
+	LOOP_LARGE( revocationInfo = DATAPTR_GET( revInfo->revocations ), 
 				revocationInfo != NULL, 
 				revocationInfo = DATAPTR_GET( revocationInfo->next ) )
 		{
@@ -1142,16 +1374,15 @@ int checkOCSPResponse( INOUT_PTR CERT_INFO *certInfoPtr,
 		int status;
 
 		REQUIRES( sanityCheckRevInfo( revocationInfo ) );
-		REQUIRES( revocationInfo->idType == CRYPT_KEYID_NONE || \
-				  revocationInfo->idType == CRYPT_IKEYID_CERTID || \
-				  revocationInfo->idType == CRYPT_IKEYID_ISSUERID );
+		REQUIRES( revocationInfo->idType == CRYPT_KEYID_NONE );
 
 		ENSURES( LOOP_INVARIANT_LARGE_GENERIC() );
 
-		/* If it's an OCSPv1 ID and there's no alternate ID information 
-		   present we can't really do anything with it because the one-way 
-		   hashing process required by the standard destroys the certificate
-		   identifying information */
+		/* If it's an OCSP ID and there's no alternate ID information 
+		   present then we can't really do anything with it because the one-
+		   way hashing process required by the standard destroys the 
+		   certificate identifying information, see the long comment in
+		   cert/cert_rev.c: readOcspRequestEntry() */
 		if( revocationInfo->idType == CRYPT_KEYID_NONE )
 			{
 			if( revocationInfo->altIdType == CRYPT_KEYID_NONE )
@@ -1185,11 +1416,40 @@ int checkOCSPResponse( INOUT_PTR CERT_INFO *certInfoPtr,
 		   assume that a not-revoked status will be the most common and if 
 		   that fails fall back to a revoked status check */
 		setMessageKeymgmtInfo( &getkeyInfo, idType, id, KEYID_SIZE, 
-							   NULL, 0, KEYMGMT_FLAG_CHECK_ONLY );
+							   NULL, 0, KEYMGMT_FLAG_NONE );
 		status = krnlSendMessage( iCryptKeyset, IMESSAGE_KEY_GETKEY,
 								  &getkeyInfo, KEYMGMT_ITEM_PUBLICKEY );
 		if( cryptStatusOK( status ) )
 			{
+			/* If we've fetched the certificate by its certID (coming from
+			   an ESSCertID attached to the request), make sure that it 
+			   matches OCSP's garbled ID as best we can */
+			if( id == revocationInfo->altID )
+				{
+				status = compareOCSPID( getkeyInfo.cryptHandle, 
+										revocationInfo->id, 
+										revocationInfo->idLength );
+				}
+			krnlSendNotifier( getkeyInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+			getkeyInfo.cryptHandle = CRYPT_ERROR;
+			if( cryptStatusError( status ) )
+				{
+				/* We successfully fetched the certificate by its certID but
+				   a check against the garbled OCSP ID failed.  It's not 
+				   clear what the best thing to do here is because this
+				   situation should never (legitimately) occur, the only
+				   obvious reason why we'd encounter it is if someone is 
+				   trying to exploit the gap between the (usable) ESSCertID
+				   and the (mostly unusable) OCSP ID, so they submit a 
+				   query with ESSCertID = valid certificate, OCSP ID = 
+				   non-valid certificate and use the OCSP ID by itself as 
+				   "proof" that the certificate is valid.  In this case the
+				   best response is to always report it as revoked */
+				revocationInfo->status = CRYPT_OCSPSTATUS_REVOKED;
+				isRevoked = TRUE;
+				continue;
+				}
+			
 			/* The certificate is present and not revoked/OK, we're done */
 			revocationInfo->status = CRYPT_OCSPSTATUS_NOTREVOKED;
 			continue;
@@ -1225,13 +1485,16 @@ int checkOCSPResponse( INOUT_PTR CERT_INFO *certInfoPtr,
 									CRYPT_ERROR_SIGNALLED );
 		if( cryptStatusOK( status ) )
 			{
+			const CERT_REV_INFO *revEntryInfo = \
+						DATAPTR_GET_REV( crlEntryInfoPtr );
 			const REVOCATION_INFO *crlRevocationInfo;
 
 			REQUIRES_OBJECT( sanityCheckCert( crlEntryInfoPtr ),
 							 crlEntryInfoPtr->objectHandle );
+			REQUIRES_OBJECT( revEntryInfo != NULL,
+							 crlEntryInfoPtr->objectHandle );
 
-			crlRevocationInfo = \
-					DATAPTR_GET( crlEntryInfoPtr->cCertRev->revocations );
+			crlRevocationInfo = DATAPTR_GET( revEntryInfo->revocations );
 			if( crlRevocationInfo != NULL )
 				{
 				revocationInfo->revocationTime = \
@@ -1248,6 +1511,7 @@ int checkOCSPResponse( INOUT_PTR CERT_INFO *certInfoPtr,
 			krnlReleaseObject( crlEntryInfoPtr->objectHandle );
 			}
 		krnlSendNotifier( getkeyInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+		getkeyInfo.cryptHandle = CRYPT_ERROR;
 
 		/* Record the fact that we've seen at least one revoked certificate */
 		revocationInfo->status = CRYPT_OCSPSTATUS_REVOKED;
@@ -1309,9 +1573,6 @@ static int readOcspID( INOUT_PTR STREAM *stream,
 					   IN_LENGTH_SHORT_MIN( 20 ) const int idMaxLen,
 					   OUT_LENGTH_BOUNDED_Z( idMaxLen ) int *idLen )
 	{
-	HASH_FUNCTION_ATOMIC hashFunctionAtomic;
-	void *dataPtr DUMMY_INIT_PTR;
-	const int hashedIDlen = min( idMaxLen, KEYID_SIZE );
 	int length DUMMY_INIT, tag, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -1320,8 +1581,6 @@ static int readOcspID( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( idLen, sizeof( int ) ) );
 
 	REQUIRES( isShortIntegerRangeMin( idMaxLen, 20 ) );
-
-	getHashAtomicParameters( CRYPT_ALGO_SHA1, 0, &hashFunctionAtomic, NULL );
 
 	/* Clear return values */
 	*idType = CRYPT_KEYID_NONE;
@@ -1336,12 +1595,11 @@ static int readOcspID( INOUT_PTR STREAM *stream,
 	switch( tag )
 		{
 		case BER_SEQUENCE:
-			/* We can't really do anything with v1 IDs since the one-way
+			/* We can't really do anything with OCSP IDs since the one-way
 			   hashing process destroys any chance of being able to work
 			   with them and the fact that no useful certificate information 
 			   is hashed means that we can't use them to identify a 
-			   certificate.  As a result the following ID type will always 
-			   produce a result of "unknown" */
+			   certificate */
 			*idType = CRYPT_KEYID_NONE;
 			status = getStreamObjectLength( stream, &length, 8 );
 			if( cryptStatusError( status ) )
@@ -1351,6 +1609,13 @@ static int readOcspID( INOUT_PTR STREAM *stream,
 			*idLen = length;
 			REQUIRES( rangeCheck( length, 1, idMaxLen ) );
 			return( sread( stream, id, length ) );
+
+#if 0	/* 18/8/26 These are from the never-published OCSPv2 */
+		HASH_FUNCTION_ATOMIC hashFunctionAtomic;
+		void *dataPtr DUMMY_INIT_PTR;
+		const int hashedIDlen = min( idMaxLen, KEYID_SIZE );
+
+		getHashAtomicParameters( CRYPT_ALGO_SHA1, 0, &hashFunctionAtomic, NULL );
 
 		case MAKE_CTAG( CTAG_OI_CERTIFICATE ):
 			/* Convert the certificate to a certID */
@@ -1370,9 +1635,10 @@ static int readOcspID( INOUT_PTR STREAM *stream,
 
 		case MAKE_CTAG( CTAG_OI_CERTIDWITHSIG ):
 			/* A bizarro ID dreamed up by Denis Pinkas that manages to carry
-			   over all the problems of the v1 ID without being compatible
-			   with it.  It's almost as unworkable as the v1 original but we 
-			   can convert the iAndS to an issuerID and use that */
+			   over all the problems of the original OCSP ID without being 
+			   compatible with it.  It's almost as unworkable as the 
+			   original but we can convert the iAndS to an issuerID and use 
+			   that */
 			*idType = CRYPT_IKEYID_ISSUERID;
 			*idLen = hashedIDlen;
 			readConstructed( stream, NULL, CTAG_OI_CERTIDWITHSIG );
@@ -1388,6 +1654,7 @@ static int readOcspID( INOUT_PTR STREAM *stream,
 			sSkip( stream, length, MAX_INTLENGTH_SHORT );	/* issuerAndSerialNumber */
 			readUniversal( stream );			/* tbsCertificateHash */
 			return( readUniversal( stream ) );	/* certSignature */
+#endif /* 0 */
 		}
 
 	return( CRYPT_ERROR_BADDATA );
@@ -1401,6 +1668,75 @@ static int writeOcspID( INOUT_PTR STREAM *stream,
 	assert( isReadPtr( ocspEntry, sizeof( REVOCATION_INFO ) ) );
 
 	return( swrite( stream, ocspEntry->id, ocspEntry->idLength ) );
+	}
+
+/* Extract the only useful information in an OCSP ID, the serial number, 
+   and remember it */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+static int processOcspID( INOUT_PTR REVOCATION_INFO *ocspEntry )
+	{
+	STREAM stream;
+	int integerDataLength DUMMY_INIT, integerTotalLength DUMMY_INIT;
+	int position DUMMY_INIT, delta, status;
+
+	assert( isWritePtr( ocspEntry, sizeof( REVOCATION_INFO ) ) );
+
+	/* Dig down into the OCSP ID to extract the serial number:
+	
+		certID ::= SEQUENCE {
+			hashAlgo	AlgorithmIdentifier,
+			iNameHash	OCTET STRING,	-- Hash of issuerName
+			iKeyHash	OCTET STRING,	-- Hash of issuer SPKI w/o tag+len
+			serialNo	INTEGER
+			} */
+	sMemConnect( &stream, ocspEntry->id, ocspEntry->idLength );
+	readSequence( &stream, NULL );
+	readUniversal( &stream );			/* AlgorithIdentifier */
+	readUniversal( &stream );			/* Hashed issuer DN */
+	status = readUniversal( &stream );	/* Hashed partial issuer key */
+	if( cryptStatusOK( status ) )
+		status = position = stell( &stream );
+	if( !cryptStatusError( status ) )
+		status = integerTotalLength = sMemDataLeft( &stream );
+	if( !cryptStatusError( status ) )
+		{
+		status = readInteger( &stream, NULL, MAX_SERIALNO_SIZE, 
+							  &integerDataLength );
+		}
+	if( cryptStatusOK( status ) && sMemDataLeft( &stream ) != 0 )
+		{
+		/* The serialNo doesn't go to the end of the OCSP ID, which is
+		   both invalid and will cause the calculation below to fail */
+		status = CRYPT_ERROR_BADDATA;
+		}
+	sMemDisconnect( &stream );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* We've got the overall serial number data and the integer data
+	   inside it, this allows us to calculate the start of the serial
+	   number within the OCSP ID:
+
+				position
+					|<---- intTotalLen ---->|
+					v						|
+		+-----------+-+-+-+-----------------+
+		|			|T|L|0|/////////////////|
+		+-----------+-+-+-+-----------------+
+					|<--->|<-- intDataLen ->| 
+					 delta */
+	delta = integerTotalLength - integerDataLength;
+	ENSURES( rangeCheck( delta, 1, 8 ) );	/* From readInteger() */
+	ocspEntry->serialNumberStart = position + delta;
+	ocspEntry->serialNumberLength = integerDataLength;
+	ENSURES( ocspEntry->serialNumberStart + \
+				ocspEntry->serialNumberLength == ocspEntry->idLength );
+	ocspEntry->serialNumberCheck = \
+			checksumData( ocspEntry->id + ocspEntry->serialNumberStart, 
+						  ocspEntry->serialNumberLength );
+
+	return( CRYPT_OK );
 	}
 
 /****************************************************************************
@@ -1458,10 +1794,13 @@ static int readOcspRequestEntry( INOUT_PTR STREAM *stream,
 		retExt( status,
 				( status, errorInfo, "Couldn't read OCSP ID" ) );
 		}
+	ENSURES( idType == CRYPT_KEYID_NONE );
 
 	/* Add the entry to the revocation information list */
 	status = addRevocationEntry( listHeadPtr, &currentEntry, idType,
 								 idBuffer, length, FALSE );
+	if( cryptStatusOK( status ) )
+		status = processOcspID( currentEntry );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -1486,12 +1825,45 @@ static int readOcspRequestEntry( INOUT_PTR STREAM *stream,
 	if( cryptStatusError( status ) )
 		return( status );
 
-	/* OCSPv1 uses a braindamaged certificate identification method that 
-	   breaks the certificate information up into bits and pieces and hashes 
-	   some while leaving others intact, making it impossible to identify 
-	   the certificate from it.  To try and fix this, if the request 
-	   includes an ESSCertID we use that to make it look like there was a 
-	   proper ID present */
+	/* OCSP uses a braindamaged certificate identification method that 
+	   requires both the certificate being queried and the original CA 
+	   certificate that was used to issue it (!!), and then breaks them up
+	   into bits and pieces and hashes some while leaving others intact, 
+	   making it impossible both to query just a certificate by itself and
+	   to identify a certificate from the OCSP ID.  In particular it hashes 
+	   the issuer name and key (like many other things in OCSP, no-one knows 
+	   why this is done since the standard ID for certificates is either the 
+	   CMS issuerAndSerialNumber from the certificate itself or the 
+	   certificate fingerprint) but leaves the serial number as is.
+
+	   Because of this it's impossible to tell, from the OCSP CertID, who 
+	   issued a particular certificate.  If you're querying (say) Verisign's 
+	   responder then it's assumed that you're querying it for a Verisign-
+	   issued certificate, but if not then you'd need to be able to reverse 
+	   a SHA-1 hash in order to figure out whose certificate is being queried.  
+	   For this reason cryptlib uses an ESSCertID, because this uniquely 
+	   identifies an individual certificate.
+	   
+	   This OCSP design braindamage is mitigated by two factors, the first 
+	   being that a client is unlikely to be querying the Versign responder 
+	   for a GoDaddy certificate, the second being that the serialNumber is 
+	   typically a unique OCTET STRING encoded as an INTEGER, pseudo-
+	   specified in the PKIX RFCs as a (20-byte) SHA-1 hash and strongly 
+	   encouraged after the 2020 SHAmbles attack which relied on low-entropy 
+	   predictable serial numbers.  For example the CAB Forum rules require 
+	   that it be "a non-sequential number [...] containing at least 64 bits 
+	   of output from a CSPRNG" with CAB-compliant serial numbers in 
+	   practice being 16-20 bytes which greatly reduces the chances of two 
+	   certificates having a duplicate serial number.
+	   
+	   In any case though it doesn't affect cryptlib since we're querying a 
+	   certificate as a whole, not an ID.  So the caller submits a 
+	   certificate to query, cryptlib generates two IDs for it, a useless 
+	   one (CertID) and a useful one (ESSCertID), and queries the responder, 
+	   which responds for the ESSCertID, and the certificate status is 
+	   reported to the caller as revoked/not revoked.  We also check the
+	   one thing in the OCSP ID that we can check, the serialNumber, see
+	   the comments in checkOCSPResponse() */
 	if( currentEntry->idType != CRYPT_KEYID_NONE )
 		return( CRYPT_OK );		/* Proper ID present, we're done */
 	attributePtr = findAttribute( currentEntry->attributes, 
@@ -1587,6 +1959,12 @@ int readOcspRequestEntries( INOUT_PTR STREAM *stream,
 				     length going negative will exit the loop */
 		}
 	ENSURES( LOOP_BOUND_OK );
+	if( noRequestEntries <= 0 )
+		{
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, errorInfo, 
+				  "OCSP request contains no entries" ) );
+		}
 	if( noRequestEntries >= 100 )
 		{
 		/* We allow reasonable numbers of entries in a request, but one with 
@@ -1803,56 +2181,13 @@ static int readOcspResponseEntry( INOUT_PTR STREAM *stream,
 		retExt( status,
 				( status, errorInfo, "Couldn't read OCSP ID" ) );
 		}
-
-	/* If we're reading an OCSPv1 ID then the ability to recover any useful 
-	   elements in it apart from the serial number has been destroyed by 
-	   passing them through a one-way hash function, so we dig down into the
-	   ID to extract just the serial number.  See the comment in 
-	   checkRevocationOCSP() on the implications of this */
-	if( idType == CRYPT_KEYID_NONE )
-		{
-		STREAM memStream;
-		BYTE integer[ MAX_SERIALNO_SIZE + 8 ];
-		int integerLength DUMMY_INIT;
-
-		static_assert( MAX_SERIALNO_SIZE <= MAX_ID_SIZE, "Buffer size" );
-
-		/* Dig down into the ID to extract the serial number and replace the
-		   overall ID with that */
-		sMemConnect( &memStream, idBuffer, length );
-		readSequence( &memStream, NULL );
-		readUniversal( &memStream );			/* AlgoID */
-		readUniversal( &memStream );			/* Hashed issuer DN */
-		status = readUniversal( &memStream );	/* Hashed partial issuer key */
-		if( cryptStatusOK( status ) )
-			{
-			status = readInteger( &memStream, integer, MAX_SERIALNO_SIZE, 
-								  &integerLength );
-			}
-		sMemDisconnect( &memStream );
-		if( cryptStatusError( status ) )
-			return( status );
-		if( integerLength <= 0 )
-			{
-			/* Some certificates may have a serial number of zero, which is 
-			   turned into a zero-length integer by the ASN.1 read code 
-			   since it truncates leading zeroes that are added due to ASN.1 
-			   encoding requirements.  If we get a zero-length integer we 
-			   turn it into a single zero byte */
-			idBuffer[ 0 ] = 0;
-			length = 1;
-			}
-		else
-			{
-			REQUIRES( rangeCheck( integerLength, 1, MAX_ID_SIZE ) );
-			memcpy( idBuffer, integer, integerLength );
-			length = integerLength;
-			}
-		}
+	ENSURES( idType == CRYPT_KEYID_NONE );
 
 	/* Add the entry to the revocation information list */
 	status = addRevocationEntry( listHeadPtr, &currentEntry, idType,
 								 idBuffer, length, FALSE );
+	if( cryptStatusOK( status ) )
+		status = processOcspID( currentEntry );
 	if( cryptStatusError( status ) )
 		return( status );
 
@@ -2017,6 +2352,18 @@ int readOcspResponseEntries( INOUT_PTR STREAM *stream,
 				     length going negative will exit the loop */
 		}
 	ENSURES( LOOP_BOUND_OK );
+	if( noResponseEntries <= 0 )
+		{
+		/* The RFC never explicitly says that there needs to be at least one 
+		   entry in a response and it is in theory valid if the responder is
+		   saying "I dunno", but then section 2.2 says "A definitive 
+		   response message is composed of [...] responses for each of the 
+		   certificates in a request" which means there should be at least
+		   one response present */
+		retExt( CRYPT_ERROR_OVERFLOW,
+				( CRYPT_ERROR_OVERFLOW, errorInfo, 
+				  "OCSP response contains no entries" ) );
+		}
 	if( noResponseEntries >= 100 )
 		{
 		/* We allow reasonable numbers of entries in a response, but one with 
@@ -2127,7 +2474,7 @@ static int writeOcspResponseEntry( INOUT_PTR STREAM *stream,
 	if( ocspEntry->status == CRYPT_OCSPSTATUS_REVOKED )
 		{
 		writeConstructed( stream, sizeofGeneralizedTime(),
-						  CRYPT_OCSPSTATUS_REVOKED );
+						  OCSP_STATUS_REVOKED );
 		status = writeGeneralizedTime( stream, ocspEntry->revocationTime,
 									   DEFAULT_TAG );
 		}
@@ -2138,7 +2485,10 @@ static int writeOcspResponseEntry( INOUT_PTR STREAM *stream,
 		   For no known reason this portion of OCSP uses implicit tagging, 
 		   since it's the one part of the PDU in which an explicit tag would 
 		   actually make sense */
-		status = writeNull( stream, ocspEntry->status );
+		status = writeNull( stream, 
+							( ocspEntry->status == \
+									CRYPT_OCSPSTATUS_NOTREVOKED ) ? \
+							  OCSP_STATUS_NOTREVOKED : OCSP_STATUS_UNKNOWN );
 		}
 	if( cryptStatusError( status ) )
 		return( status );

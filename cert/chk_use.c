@@ -22,7 +22,10 @@
 /* The following keyUsage settings are used based on extendedKeyUsage and
    Netscape key usage extensions.  In the following 'Y' = required, 'w' =
    written but apparently not required, 'S' = for signature keys only, 'E' = 
-   for encryption keys only, 'KA' = for key agreement keys only.
+   for encryption keys only, 'KA' = for key agreement keys only.  Note that
+   this table documents the mappings for all of the possible eKUs that we
+   support, since some certificate types like (EC)DH are never used the
+   corresponding mappings aren't present in the code.
 
 						dig	non	key	dat	key	cer	crl	enc	dec
 						sig	rep	enc	enc	agt	sig	sig	onl	onl
@@ -71,6 +74,16 @@
 								  CRYPT_KEYUSAGE_KEYCERTSIGN | \
 								  CRYPT_KEYUSAGE_CRLSIGN )
 
+/* Mask for key usages that don't apply, meaning that they don't denote any
+   usable capability for the certificate, either because the key will never
+   be used that way (dataEncipherment) or because certificates with that 
+   usage are never used (keyAgreement et al) */
+
+#define USAGE_MASK_UNUSABLE		( CRYPT_KEYUSAGE_DATAENCIPHERMENT | \
+								  CRYPT_KEYUSAGE_KEYAGREEMENT | \
+								  CRYPT_KEYUSAGE_ENCIPHERONLY | \
+								  CRYPT_KEYUSAGE_DECIPHERONLY )
+
 /* Flags to denote the algorithm type */
 
 #define ALGO_TYPE_NONE			0x00
@@ -80,7 +93,10 @@
 #define ALGO_TYPE_FLAG_NONE		0x00	/* Defines for range checking */
 #define ALGO_TYPE_FLAG_MAX		0x07
 
-/* Table mapping extended key usage values to key usage flags */
+/* Table mapping extended key usage values to key usage flags.  Note that 
+   this covers the key types in certificates that we support, not all
+   theoretically possible key types like the ones in (nonexistent) (EC)DH
+   certificates */
 
 typedef struct {
 	const CRYPT_ATTRIBUTE_TYPE usageType;
@@ -101,19 +117,24 @@ static const EXT_USAGE_INFO extendedUsageInfo[] = {
 	{ CRYPT_CERTINFO_EXTKEY_MS_ENCRYPTEDFILESYSTEM,	/* encrypedFileSystem */
 	  CRYPT_KEYUSAGE_KEYENCIPHERMENT },
 	{ CRYPT_CERTINFO_EXTKEY_SERVERAUTH,				/* serverAuth */
-	  CRYPT_KEYUSAGE_DIGITALSIGNATURE },
+	  CRYPT_KEYUSAGE_DIGITALSIGNATURE | \
+	  CRYPT_KEYUSAGE_KEYENCIPHERMENT },
 	{ CRYPT_CERTINFO_EXTKEY_CLIENTAUTH,				/* clientAuth */
 	  CRYPT_KEYUSAGE_DIGITALSIGNATURE },
 	{ CRYPT_CERTINFO_EXTKEY_CODESIGNING,			/* codeSigning */
 	  CRYPT_KEYUSAGE_DIGITALSIGNATURE },
 	{ CRYPT_CERTINFO_EXTKEY_EMAILPROTECTION,		/* emailProtection */
-	  KEYUSAGE_SIGN },
+	  KEYUSAGE_SIGN | \
+	  CRYPT_KEYUSAGE_KEYENCIPHERMENT },
 	{ CRYPT_CERTINFO_EXTKEY_IPSECENDSYSTEM,			/* ipsecEndSystem */
-	  CRYPT_KEYUSAGE_DIGITALSIGNATURE },
+	  CRYPT_KEYUSAGE_DIGITALSIGNATURE | \
+	  CRYPT_KEYUSAGE_KEYENCIPHERMENT },
 	{ CRYPT_CERTINFO_EXTKEY_IPSECTUNNEL,			/* ipsecTunnel */
-	  CRYPT_KEYUSAGE_DIGITALSIGNATURE },
+	  CRYPT_KEYUSAGE_DIGITALSIGNATURE | \
+	  CRYPT_KEYUSAGE_KEYENCIPHERMENT },
 	{ CRYPT_CERTINFO_EXTKEY_IPSECUSER,				/* ipsecUser */
-	  CRYPT_KEYUSAGE_DIGITALSIGNATURE },
+	  CRYPT_KEYUSAGE_DIGITALSIGNATURE | \
+	  CRYPT_KEYUSAGE_KEYENCIPHERMENT },
 	{ CRYPT_CERTINFO_EXTKEY_TIMESTAMPING,			/* timeStamping */
 	  KEYUSAGE_SIGN },
 	{ CRYPT_CERTINFO_EXTKEY_OCSPSIGNING,			/* ocspSigning */
@@ -247,7 +268,7 @@ static int getExtendedKeyUsageFlags( IN_DATAPTR const DATAPTR_ATTRIBUTE attribut
 /* Build up key usage flags consistent with the Netscape certificate-type 
    purpose */
 
-CHECK_RETVAL_RANGE( CRYPT_KEYUSAGE_FLAG_NONE, CRYPT_KEYUSAGE_FLAG_MAX ) STDC_NONNULL_ARG( ( 1, 3 ) ) \
+CHECK_RETVAL_RANGE( CRYPT_KEYUSAGE_FLAG_NONE, CRYPT_KEYUSAGE_FLAG_MAX ) STDC_NONNULL_ARG( ( 3 ) ) \
 static int getNetscapeCertTypeFlags( IN_DATAPTR const DATAPTR_ATTRIBUTE attributes,
 									 IN_FLAGS( ALGO_TYPE ) const int algorithmType,
 									 OUT_ENUM_OPT( CRYPT_ATTRIBUTE ) \
@@ -439,9 +460,9 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 	BOOLEAN keyUsageCritical = FALSE;
 	int rawExtKeyUsage;
 #endif /* USE_CERTLEVEL_PKIX_PARTIAL */
-	BOOLEAN isCA = FALSE;
+	BOOLEAN isCA = FALSE, isCertObject;
 	CFI_CHECK_TYPE CFI_CHECK_VALUE = CFI_CHECK_INIT;
-	int trustedUsage = CRYPT_UNUSED, keyUsage, rawKeyUsage;
+	int trustedUsage = CRYPT_ERROR, keyUsage, rawKeyUsage;
 	int extKeyUsage, caKeyUsage, value, status;
 
 	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
@@ -461,6 +482,12 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 									  CRYPT_KEYUSAGE_KEYAGREEMENT ) ) || \
 				  ( specificUsage == CRYPT_KEYUSAGE_NONE ) ) ) );
 
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	isCertObject = ( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
+					 certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN ) ? \
+					 TRUE : FALSE;
+
 	/* Get references to the certificate's error information */
 	errorLocus = &errorCertInfoPtr->errorLocus;
 	errorType = &errorCertInfoPtr->errorType;
@@ -476,10 +503,13 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 	   later check (in reduced mode or higher) in that in oblivious mode we 
 	   ignore the certificate's actual key usage and check only the 
 	   requested usage against the trusted usage */
-	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE || \
-		certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
+	if( isCertObject )
 		{
-		trustedUsage = certInfoPtr->cCertCert->trustedUsage;
+		const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+		REQUIRES( certInfo != NULL );
+
+		trustedUsage = certInfo->trustedUsage;
 		if( specificUsage != CRYPT_KEYUSAGE_NONE && \
 			!( trustedUsage & specificUsage ) )
 			{
@@ -495,7 +525,8 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 		}
 	CFI_CHECK_UPDATE( "trustedUsage" );
 
-	/* If we're running in oblivious mode there's nothing else to check */
+	/* If we're running in oblivious mode then there's nothing else to 
+	   check */
 	if( complianceLevel < CRYPT_COMPLIANCELEVEL_REDUCED )
 		{
 		ENSURES( CFI_CHECK_SEQUENCE_1( "trustedUsage" ) );
@@ -618,13 +649,22 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 #ifdef USE_CERTLEVEL_PKIX_PARTIAL
 	rawExtKeyUsage = extKeyUsage;
 #endif /* USE_CERTLEVEL_PKIX_PARTIAL */
-	if( trustedUsage != CRYPT_UNUSED )
+	if( trustedUsage >= 0 )
 		{
 		keyUsage &= trustedUsage;
 		extKeyUsage &= trustedUsage;
 		}
 
 	/* Phase 2: Strict usability check */
+
+	/* If there are no usable key usages present then the key can't be used */
+	if( ( keyUsage & ~USAGE_MASK_UNUSABLE ) == 0 )
+		{
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, errorInfo, 
+				  "%s contains a keyUsage %d that makes it unusable",
+				  getCertTypeName( certInfoPtr->type ), keyUsage ) );
+		}
 
 	/* If we're looking for a CA certificate make sure that the 
 	   basicConstraints CA flag is set and the keyUsage indicates a CA usage 
@@ -639,8 +679,8 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 			setErrorValues( CRYPT_CERTINFO_CA, CRYPT_ERRTYPE_CONSTRAINT );
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, errorInfo, 
-					  "Non-CA %s contains CA keyUsage attributes",
-					  getCertTypeNameLC( certInfoPtr->type ) ) );
+					  "%s isn't marked as a CA certificate",
+					  getCertTypeName( certInfoPtr->type ) ) );
 			}
 		if( !( caKeyUsage & specificUsage ) )
 			{
@@ -648,17 +688,31 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 							CRYPT_ERRTYPE_CONSTRAINT );
 			retExt( CRYPT_ERROR_INVALID,
 					( CRYPT_ERROR_INVALID, errorInfo, 
-					  "Key in CA %s isn't trusted for the requested usage",
+					  "CA %s keyUsage doesn't permit the requested usage",
 					  getCertTypeNameLC( certInfoPtr->type ) ) );
 			}
 		}
 	CFI_CHECK_UPDATE( "caKeyUsage" );
 
+	/* Make sure that the certificate's key usage permits the requested 
+	   usage.  This is only checked for certificates since other object 
+	   types like certificate requests don't have a meaningful keyUsage 
+	   until they've been converted into a certificate */
+	if( specificUsage != CRYPT_KEYUSAGE_NONE && isCertObject && \
+		!( specificUsage & rawKeyUsage ) )
+		{
+		setErrorValues( CRYPT_CERTINFO_KEYUSAGE, CRYPT_ERRTYPE_CONSTRAINT );
+		retExt( CRYPT_ERROR_INVALID,
+				( CRYPT_ERROR_INVALID, errorInfo, 
+				  "Key in %s isn't valid for the requested usage",
+				  getCertTypeNameLC( certInfoPtr->type ) ) );
+		}
+
 	/* There is one universal case in which a key is regarded as invalid for
 	   the requested use and that's when it's explicitly not trusted for the 
 	   purpose */
-	if( specificUsage != CRYPT_KEYUSAGE_NONE && \
-		trustedUsage != CRYPT_UNUSED && !( specificUsage & keyUsage ) )
+	if( specificUsage != CRYPT_KEYUSAGE_NONE && trustedUsage >= 0 && \
+		!( specificUsage & keyUsage ) )
 		{
 		setErrorValues( CRYPT_CERTINFO_TRUSTED_USAGE,
 						CRYPT_ERRTYPE_CONSTRAINT );
@@ -967,8 +1021,18 @@ int checkKeyUsage( IN_PTR const CERT_INFO *certInfoPtr,
 	CFI_CHECK_UPDATE( "checkAttributeProperty" );
 
 	/* Make sure that the extended key usage-based key usage is consistent 
-	   with the actual key usage */
-	if( ( keyUsage & extKeyUsage ) != extKeyUsage )
+	   with the actual key usage.  Note that this is a check for at least 
+	   one usage in common as per RFC 3280 section 4.2.1.13, "if a 
+	   certificate contains both a key usage extension and an extended key 
+	   usage extension, then both extensions MUST be processed 
+	   independently and the certificate MUST only be used for a purpose 
+	   consistent with both extensions" rather than the extended usage
+	   being a subset of the key usage, because for an algorithm that's 
+	   capable of both signing and encryption the flags built up from the 
+	   extended usage contain the union of the signature and encryption 
+	   usages for that eKU, of which only one need be present (see the 
+	   annotations for 'S'/'E' in the table at the start of this module) */
+	if( !( keyUsage & extKeyUsage ) )
 		{
 		setErrorValues( CRYPT_CERTINFO_KEYUSAGE, CRYPT_ERRTYPE_CONSTRAINT );
 		retExt( CRYPT_ERROR_INVALID,

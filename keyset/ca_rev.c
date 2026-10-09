@@ -85,9 +85,11 @@ static int getCertToRevoke( INOUT_PTR DBMS_INFO *dbmsInfo,
 										delete request
 										fail -> no action ) */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 6 ) ) \
 int revokeCertDirect( INOUT_PTR DBMS_INFO *dbmsInfo,
 					  IN_HANDLE const CRYPT_CERTIFICATE iCertificate,
+					  IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+					  IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
 					  IN_ENUM( CRYPT_CERTACTION ) \
 						const CRYPT_CERTACTION_TYPE action,
 					  INOUT_PTR ERROR_INFO *errorInfo )
@@ -100,6 +102,8 @@ int revokeCertDirect( INOUT_PTR DBMS_INFO *dbmsInfo,
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
 
 	REQUIRES( isHandleRangeValid( iCertificate ) );
+	REQUIRES( iAuthCert == CRYPT_UNUSED || isHandleRangeValid( iAuthCert ) );
+	REQUIRES( iPkiUser == CRYPT_UNUSED || isHandleRangeValid( iPkiUser ) );
 	REQUIRES( action == CRYPT_CERTACTION_REVOKE_CERT || \
 			  action == CRYPT_CERTACTION_CERT_CREATION_REVERSE );
 	REQUIRES( errorInfo != NULL );
@@ -166,17 +170,23 @@ int revokeCertDirect( INOUT_PTR DBMS_INFO *dbmsInfo,
 		status = krnlSendMessage( iLocalCRL, IMESSAGE_SETATTRIBUTE_S, 
 							&msgData, CRYPT_CERTINFO_REVOCATIONDATE );
 		if( cryptStatusOK( status ) )
+			{
 			status = krnlSendMessage( iLocalCRL, IMESSAGE_SETATTRIBUTE_S, 
 							&msgData, CRYPT_CERTINFO_INVALIDITYDATE );
+			}
 		if( cryptStatusOK( status ) )
+			{
 			status = krnlSendMessage( iLocalCRL, IMESSAGE_SETATTRIBUTE, 
 							( MESSAGE_CAST ) &crlReason, 
 							CRYPT_CERTINFO_CRLREASON );
+			}
 		}
 	if( cryptStatusOK( status ) )
+		{
 		status = krnlSendMessage( iLocalCRL, IMESSAGE_SETATTRIBUTE, 
 								  MESSAGE_VALUE_UNUSED, 
 								  CRYPT_IATTRIBUTE_INITIALISED );
+		}
 	if( cryptStatusError( status ) )
 		{
 		krnlSendNotifier( iLocalCRL, IMESSAGE_DECREFCOUNT );
@@ -185,33 +195,35 @@ int revokeCertDirect( INOUT_PTR DBMS_INFO *dbmsInfo,
 				  "Couldn't add revocation status information to CRL for "
 				  "certificate revocation" ) );
 		}
-	status = caRevokeCert( dbmsInfo, iLocalCRL, iCertificate, action, 
-						   errorInfo );
+	status = caRevokeCert( dbmsInfo, iLocalCRL, iCertificate, iAuthCert, 
+						   iPkiUser, action, errorInfo );
 	krnlSendNotifier( iLocalCRL, IMESSAGE_DECREFCOUNT );
 	return( status );
 	}
 
 /* Revoke a certificate from a revocation request */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 7 ) ) \
 int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo, 
 				  IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
 				  IN_HANDLE_OPT const CRYPT_CERTIFICATE iCertificate,
+				  IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+				  IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
 				  IN_ENUM( CRYPT_CERTACTION ) const CRYPT_CERTACTION_TYPE action,
 				  INOUT_PTR ERROR_INFO *errorInfo )
 	{
 	CRYPT_CERTIFICATE iLocalCertificate = iCertificate;
 	CRYPT_CERTIFICATE iLocalCRL = iCertRequest;
 	BOUND_DATA boundData[ BOUND_DATA_MAXITEMS ], *boundDataPtr = boundData;
+	CERTID_INFO certIDinfo;
 	BYTE certData[ MAX_CERT_SIZE + 8 ];
 	char reqCertID[ ENCODED_DBXKEYID_SIZE + 8 ], *reqCertIDptr = reqCertID;
-	char subjCertID[ ENCODED_DBXKEYID_SIZE + 8 ];
 	char specialCertID[ ENCODED_DBXKEYID_SIZE + 8 ];
 	const BOOLEAN reqPresent = \
 					( action == CRYPT_CERTACTION_RESTART_REVOKE_CERT || \
 					  ( action == CRYPT_CERTACTION_REVOKE_CERT && \
 						iCertificate == CRYPT_UNUSED ) ) ? TRUE : FALSE;
-	int certDataLength DUMMY_INIT, reqCertIDlength, subjCertIDlength;
+	int certDataLength DUMMY_INIT, reqCertIDlength;
 	int specialCertIDlength DUMMY_INIT, status = CRYPT_OK;
 
 	assert( isWritePtr( dbmsInfo, sizeof( DBMS_INFO ) ) );
@@ -219,6 +231,8 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 	REQUIRES( isHandleRangeValid( iCertRequest ) );
 	REQUIRES( iCertificate == CRYPT_UNUSED || \
 			  isHandleRangeValid( iCertificate ) );
+	REQUIRES( iAuthCert == CRYPT_UNUSED || isHandleRangeValid( iAuthCert ) );
+	REQUIRES( iPkiUser == CRYPT_UNUSED || isHandleRangeValid( iPkiUser ) );
 	REQUIRES( action == CRYPT_CERTACTION_REVOKE_CERT || \
 			  action == CRYPT_CERTACTION_RESTART_REVOKE_CERT || \
 			  action == CRYPT_CERTACTION_CERT_CREATION_REVERSE );
@@ -260,8 +274,10 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 		status = getKeyID( reqCertID, ENCODED_DBXKEYID_SIZE, &reqCertIDlength, 
 						   iCertRequest, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
 		if( cryptStatusOK( status ) )
+			{
 			status = getCertToRevoke( dbmsInfo, &iLocalCertificate,
 									  iCertRequest, errorInfo );
+			}
 		if( cryptStatusError( status ) )
 			{
 			retExtErr( status, 
@@ -269,6 +285,37 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 						 "Couldn't find certificate to revoke in "
 						 "certificate store" ) );
 			}
+
+		/* There's an additional check that we could perform here to ensure
+		   that revRequest.pkiUser == certificate.pkiUser, but this then 
+		   leads to a problem where certificates whose private key has been
+		   lost, probably the most common problem with them, can't be 
+		   revoked.
+		   
+		   When CMP was being designed there were two schools of thought 
+		   about revocation, one being the denial-of-service model in which 
+		   it was made as hard as possible to revoke a certificate, with one 
+		   summary being "the user is expected to fly to the CA's place of 
+		   business and beg them on their knees to revoke the certificate"
+		   (a milder form was "better to get the users to pick up a phone 
+		   and call a help center", completely defeating the point of CMP as 
+		   well as being trivial to social-engineer), the other being the 
+		   break-glass-in-emergency model in which someone's private key has 
+		   been lost or stolen and they need to get the certificate revoked 
+		   by yesterday at the latest.
+		   
+		   OpenPGP deals with this through pre-generated revocation 
+		   certificates (signatures), but X.509 assumes that you can 
+		   generate a revocation request with the private key that you've 
+		   just lost access to.  In the standard PKIX tradition there was a 
+		   50:50 split over how to do it and the whole thing was swept under 
+		   the very crowded rug marked "policy".
+		   
+		   cryptlib's policy is to use the break-glass model for revocation, 
+		   backed by the fact that approximately 100% of real-world issues 
+		   around key invalidation have been caused by keys not being able 
+		   to be invalidated when they should be and approximately 0% have 
+		   been caused by keys invalidated when they shouldn't be */
 
 		/* Create the CRL to contain the revocation information */
 		setMessageCreateObjectInfo( &createInfo, CRYPT_CERTTYPE_CRL );
@@ -283,7 +330,10 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 									  ( MESSAGE_CAST ) &iCertRequest,
 									  CRYPT_IATTRIBUTE_REVREQUEST );
 			if( cryptStatusError( status ) )
+				{
 				krnlSendNotifier( iLocalCRL, IMESSAGE_DECREFCOUNT );
+				iLocalCRL = CRYPT_ERROR;
+				}
 			}
 		if( cryptStatusError( status ) )
 			{
@@ -303,11 +353,13 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 		reqCertIDptr = NULL;
 		reqCertIDlength = 0;
 		}
-	status = getKeyID( subjCertID, ENCODED_DBXKEYID_SIZE, &subjCertIDlength, 
-					   iLocalCertificate, CRYPT_CERTINFO_FINGERPRINT_SHA1 );
+	status = getCertIDinfo( &certIDinfo, iLocalCertificate, iAuthCert, 
+							iPkiUser );
 	if( cryptStatusOK( status ) )
+		{
 		status = extractCertData( iLocalCRL, CRYPT_IATTRIBUTE_CRLENTRY,
 								  certData, MAX_CERT_SIZE, &certDataLength );
+		}
 	if( cryptStatusError( status ) )
 		{
 		/* If we created the necessary objects locally rather than having
@@ -329,16 +381,13 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 	   special-case certificate data */
 	if( action == CRYPT_CERTACTION_CERT_CREATION_REVERSE )
 		{
-		/* Turn the general certID into the form required for special-case
-		   certificate data by overwriting the first two bytes with an out-
-		   of-band value */
-		REQUIRES( rangeCheck( subjCertIDlength, KEYID_ESC_SIZE + 1, 
-							  ENCODED_DBXKEYID_SIZE ) );
-		memcpy( specialCertID, KEYID_ESC1, KEYID_ESC_SIZE );
-		REQUIRES( !checkOverflowSub( subjCertIDlength, KEYID_ESC_SIZE ) );
-		memcpy( specialCertID + KEYID_ESC_SIZE, subjCertID + KEYID_ESC_SIZE, 
-				subjCertIDlength - KEYID_ESC_SIZE );
-		specialCertIDlength = subjCertIDlength;
+		/* Modify the certID to identify an item from part one of a two-part
+		   operation */
+		REQUIRES( certIDinfo.certIDlength == ENCODED_DBXKEYID_SIZE );
+		memcpy( specialCertID, certIDinfo.certID, ENCODED_DBXKEYID_SIZE );
+		modifyCertIssueID( specialCertID, ENCODED_DBXKEYID_SIZE,
+						   IDMOD_CERTISSUE_STD );
+		specialCertIDlength = ENCODED_DBXKEYID_SIZE;
 		}
 
 	/* Update the certificate store.  This is the ugliest CA operation since 
@@ -352,10 +401,23 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 					 DBMS_UPDATE_BEGIN, errorInfo );
 	if( cryptStatusOK( status ) )
 		{
-		status = updateCertLog( dbmsInfo, action, NULL, 0, reqCertIDptr, 
-								reqCertIDlength, subjCertID, 
-								subjCertIDlength, certData, certDataLength, 
-								DBMS_UPDATE_CONTINUE );
+		char certIDmod[ ENCODED_DBXKEYID_SIZE + 8 ];
+
+		/* This certID is already recorded in the log from when the 
+		   certificate was issued so we modify it for the revocation log 
+		   entry */
+		REQUIRES( certIDinfo.certIDlength == ENCODED_DBXKEYID_SIZE );
+		memcpy( certIDmod, certIDinfo.certID, certIDinfo.certIDlength );
+		modifyUniqueID( certIDmod, certIDinfo.certIDlength, 
+				( action == CRYPT_CERTACTION_CERT_CREATION_REVERSE ) ? \
+				  IDMOD_CERTISSUE_COMPLETE : IDMOD_REVOCATION );
+		status = updateCertLogEx( dbmsInfo, action, certIDmod, 
+								  certIDinfo.certIDlength, reqCertIDptr, 
+								  reqCertIDlength, certIDinfo.authCertIDptr,
+								  certIDinfo.authCertIDlength, 
+								  certIDinfo.pkiUserIDptr, 
+								  certIDinfo.pkiUserIDlength, certData, 
+								  certDataLength, DBMS_UPDATE_CONTINUE );
 		}
 	if( cryptStatusOK( status ) && reqPresent )
 		{
@@ -378,7 +440,8 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 			}
 		else
 			{
-			setBoundData( boundDataPtr, 0, subjCertID, subjCertIDlength );
+			setBoundData( boundDataPtr, 0, certIDinfo.certID, 
+						  certIDinfo.certIDlength );
 			status = dbmsUpdate( 
 				"DELETE FROM certificates WHERE certID = ?",
 								 boundDataPtr, DBMS_UPDATE_COMMIT );
@@ -410,8 +473,7 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 						"Revocation of certificate to be replaced failed, "
 							"performing straight delete" :
 						"Certificate revocation operation failed",
-						NULL, 0, reqCertIDptr, reqCertIDlength, NULL, 0, 
-						NULL, 0 );
+						reqCertIDptr, reqCertIDlength );
 
 	/* If it was a user-initiated operation we can't try and clean up the 
 	   operation internally */
@@ -445,7 +507,8 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 		}
 	else
 		{
-		setBoundData( boundDataPtr, 0, subjCertID, subjCertIDlength );
+		setBoundData( boundDataPtr, 0, certIDinfo.certID, 
+					  certIDinfo.certIDlength );
 		status = dbmsUpdate( 
 					"DELETE FROM certificates WHERE certID = ?",
 							 boundDataPtr, DBMS_UPDATE_NORMAL );
@@ -455,7 +518,7 @@ int caRevokeCert( INOUT_PTR DBMS_INFO *dbmsInfo,
 		/* The fallback straight delete succeeded, exit with a warning */
 		setErrorString( errorInfo, "Warning: Direct certificate revocation "
 						"operation failed, revocation was handled via "
-						"straight delete", 99);
+						"straight delete", 99 );
 		return( CRYPT_OK ); 
 		}
 
@@ -537,7 +600,31 @@ int caIssueCRL( INOUT_PTR DBMS_INFO *dbmsInfo,
 	   it to the CRL.  We only stop once we've run out of entries or we hit 
 	   too many errors which ensures that some minor error at some point 
 	   won't prevent the CRL from being issued, however if there was a 
-	   problem somewhere we create a log entry to record it */
+	   problem somewhere we create a log entry to record it.
+	   
+	   This is a tradeoff based around the probability of someone using 
+	   cryptlib at a scale where more than 500 revocations are present 
+	   (essentially zero) vs. something causing a query to stall and re-
+	   fetch the same entry (very much non-zero, this has happened in 
+	   testing with some Unix ODBC drivers).  So we assume that if more 
+	   than 500 results are returned that it's a database interface error 
+	   rather than someone actually trying to create a CRL with 500 entries 
+	   (thus the 'DEBUG_DIAG(( "CRL-entry-fetch loop detected" ))').
+
+	   What we're doing is attempting a best-effort CRL creation with what 
+	   we've got rather than failing the creation entirely because of a 
+	   database backend glitch.  For the same reason we allow up to 5 
+	   database fetch errors before failing the CRL creation, because while 
+	   any other certificate operation is a simple pass/fail, for a CRL the 
+	   inability to read any single entry out of the entire set of entries 
+	   would make it impossible to issue any CRL at all.
+
+	   It's unclear what the least bad option is here, produce a CRL with at 
+	   least some entries for revoked certificates (which is what the code 
+	   currently does) or don't produce a CRL at all.  Given that the 
+	   chances of someone using cryptlib to create a legitimate CRL with 
+	   more than 500 entries is essentially zero, continuing on a best-
+	   effort basis seems to be the least bad option */
 	LOOP_LARGE( ( errorCount = 0, noCrlEntries = 0 ),
 				status != CRYPT_ERROR_COMPLETE && errorCount < 5 && \
 					noCrlEntries < 500, 
@@ -550,7 +637,9 @@ int caIssueCRL( INOUT_PTR DBMS_INFO *dbmsInfo,
 		ENSURES( LOOP_INVARIANT_SECONDARY( errorCount, 0, 4 ) );
 
 		/* Read the CRL entry data */
-		status = dbmsQuery( NULL, crlEntryPtr, MAX_QUERY_RESULT_SIZE, 
+		status = dbmsQuery( NULL, crlEntryPtr, 
+							hasBinaryBlobs( dbmsInfo ) ? \
+								MAX_CERT_SIZE : MAX_QUERY_RESULT_SIZE, 
 							&crlEntryLength, NULL, DBMS_CACHEDQUERY_NONE, 
 							DBMS_QUERY_CONTINUE );
 		if( status == CRYPT_ERROR_COMPLETE )
@@ -612,16 +701,27 @@ int caIssueCRL( INOUT_PTR DBMS_INFO *dbmsInfo,
 	if( errorCount >= 5 || noCrlEntries >= 500 )
 		{
 		/* It's hard to tell what type of error an iterationCount-exceeded
-		   situation really is, in theory it's a software error (either in
-		   cryptlib's fetch logic or in the dabatase) but because of the
-		   practice of creating mega-CRLs with thousands of entries it's
-		   entirely possible that this is "normal", or at least "normal" in
-		   the alternative reality of X.509.  Because of this we don't flag
-		   it as an internal error but simply warn in the debug build, 
-		   although we do bail out rather than trying to construct some
-		   monster CRL */
+		   situation really is, it's almost certainly a software error, most
+		   likely in the dabatase driver where it's been encountered in some
+		   Unix ODBC drivers.  Because of this we don't bail out but produce
+		   a best-effort CRL with what we've got rather than no CRL at all,
+		   while also warning in the debug build and recording an entry in
+		   the error log */
 		DEBUG_DIAG(( "CRL-entry-fetch loop detected" ));
 		assert( DEBUG_WARN );
+		if( errorCount >= 5 )
+			{
+			operationStatus = CRYPT_ERROR_READ;
+			operationString = "More than 5 database fetch errors occurred "
+							  "while assembling CRL entries";
+			}
+		else
+			{
+			operationStatus = CRYPT_ERROR_OVERFLOW;
+			operationString = "More than 500 CRL entries fetched from "
+							  "database, possible CRL-entry-fetch loop "
+							  "detected";
+			}
 		}
 	if( cryptStatusError( operationStatus ) )
 		{
@@ -652,15 +752,14 @@ int caIssueCRL( INOUT_PTR DBMS_INFO *dbmsInfo,
 		if( status == CRYPT_ARGERROR_VALUE )
 			status = CAMGMT_ARGERROR_CAKEY;	/* Map to correct error code */
 		krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
-		updateCertErrorLogMsg( dbmsInfo, operationStatus,
-							   "CRL creation failed" );
+		updateCertErrorLogMsg( dbmsInfo, status, "CRL creation failed" );
 		retExtArg( status, 
 				   ( status, errorInfo, 
 					 "Couldn't sign CRL to be issued" ) );
 		}
 	*iCryptCRL = createInfo.cryptHandle;
 	updateCertLog( dbmsInfo, CRYPT_CERTACTION_ISSUE_CRL, 
-				   NULL, 0, NULL, 0, NULL, 0, NULL, 0, DBMS_UPDATE_NORMAL );
+				   NULL, 0, NULL, 0, NULL, 0, DBMS_UPDATE_NORMAL );
 	return( CRYPT_OK );
 	}
 #endif /* USE_DBMS */

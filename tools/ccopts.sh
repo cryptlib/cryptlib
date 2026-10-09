@@ -558,9 +558,15 @@ fi
 #
 # In addition to the warnings, we disable clang's emulation of gcc
 # braindamage around two's-complement maths and null pointer checks, see the
-# comment for gcc further down.  In the clang case -fwrapv is the same as
+# comment for gcc further down.  In the clang case -fwrapv was the same as
 # -fno-strict-overflow unlike gcc where the two have different levels of
-# braindamage so we can take care of things with that.
+# braindamage, however in clang version 21, to copy a change in gcc
+# braindamage, clang also restricted -fwrapv to only affect integers and
+# added a new -fwrapv-pointer flag so that you had to remember to use two
+# different ways to disable the braindamage.  -fno-strict-overflow now
+# implicitly enables both, and hopefully also disables any future attempts
+# to quietly re-enable braindamaged behaviour around twos-complement
+# arithmetic, so we switch to that instead of just -fwrapv.
 
 hasStackClashProtection()
 	{
@@ -625,7 +631,7 @@ if [ $ISCLANG -gt 0 ] ; then
 	if [ $ISDEVELOPMENT -le 0 ] || [ $ISSPECIAL -gt 0 ] ; then
 		CCARGS="$CCARGS -Wno-pointer-sign -Wno-switch" ;
 	fi
-	CCARGS="$CCARGS -fwrapv" ;
+	CCARGS="$CCARGS -fno-strict-overflow" ;
 	if [ $COMPILER_VER -ge 45 ] ; then
 		CCARGS="$CCARGS -fno-delete-null-pointer-checks" ;
 	fi
@@ -816,6 +822,7 @@ fi
 # don't need to special-case the use of -fPIE if it's available.
 
 if [ $SHARED -gt 0 ] ; then
+	# OS-specific shared-library args, generate PIC.
 	case $OSNAME in
 		'Darwin')
 			CCARGS="$CCARGS -fPIC -fno-common" ;;
@@ -842,6 +849,11 @@ if [ $SHARED -gt 0 ] ; then
 		*)
 			CCARGS="$CCARGS -fPIC" ;;
 	esac ;
+
+	# Compiler-specific shared-library args, don't expose internal symbols.
+	if [ $ISGCC -gt 0 ] || [ $ISCLANG -gt 0 ] ; then
+		CCARGS="$CCARGS -fvisibility=hidden" ;
+	fi ;
 fi
 
 # Conversely, if we're building a static lib and the system requires it, set
@@ -1388,22 +1400,32 @@ fi
 # checks (behaviour that's so totally stupid that it's incredible that you
 # actually need to specify an option to fix it).
 #
+# (As an aside, the bloodymindedness about breaking code is so ingrained
+# that -fstrict-overflow means you want the code to not handle overflow the
+# way the underlying hardware does and you need to use -fnostrict-overflow
+# to get correct overflow handling).
+#
 # There are actually two variants of the overflow-braindamage-limiting
-# mechanism, -fwrapv and -fno-strict-overflow, which do more or less the
-# same thing but in subtly different ways that no-one is quite clear on.
+# mechanism, -fwrapv and -fno-strict-overflow, which did more or less the
+# same thing but in subtly different ways that no-one was quite clear on.
 # One explanation is that -fwrapv tells the compiler that integer overflow
 # wraps while -fno-strict-overflow tells the compiler that integer overflow
 # can happen, but not what happens (in other words it tells it not to remove
-# code based on this).  Since we know that we're running on a two's-
-# complement machine even if the gcc developers don't, we use -fwrapv to
-# reflect this.
+# code based on this).  Since we knew that we're running on a two's-
+# complement machine even if the gcc developers don't, we used -fwrapv to
+# reflect this.  However at some point around gcc 11 it restricted -fwrapv
+# to only affect integers and added a new -fwrapv-pointer flag so that you
+# had to remember to use two different ways to disable the braindamage.
+# -fno-strict-overflow implicitly enables both, and hopefully also disables
+# any future attempts to quietly re-enable braindamaged behaviour around
+# twos-complement arithmetic, so we switch to that instead of just -fwrapv.
 #
 # Specifying -fwrapv possibly disables diagnostics from -Wstrict-overflow
 # (see the comment further down for the warnings) so we only enable it for
 # non-development builds.
 
 if [ "$COMPILER_VER" -ge 40 ] && [ "$ISDEVELOPMENT" -le 0 ] ; then
-	CCARGS="$CCARGS -fwrapv -fno-delete-null-pointer-checks" ;
+	CCARGS="$CCARGS -fno-strict-overflow -fno-delete-null-pointer-checks" ;
 fi
 
 # The AES code uses 64-bit data types, which older versions of gcc don't
@@ -1788,12 +1810,12 @@ fi
 # brokenness we undefine NDEBUG to enable the use of assertion checks that
 # will catch the problem.
 #
-# Starting at gcc 10, gcc added a basic static-analysis capability via
-# -fanalyzer, however this is just a huge mass of false positives (in five
-# years' use it's never produced a true positive) and nothing like clang's
-# static analyser.  Since it's pure noise we only enable it on the latest
-# version of gcc on any system we use, and only for one particular system
-# to avoid drowning in avalanches of false-positive warnings.
+# Starting at gcc 10 in 2020, gcc added a basic static-analysis capability
+# via -fanalyzer, however this is just a huge mass of false positives (in
+# five years' use it's never produced a true positive) and nothing like
+# clang's static analyser.  Since it's pure noise we only enable it on the
+# latest version of gcc on any system we use, and only for one particular
+# system to avoid drowning in avalanches of false-positive warnings.
 #
 # Alongside the warnings, we also enable various sanitisers if they're
 # available.  We can't use -fsanitize=thread because it's incompatible
@@ -1819,6 +1841,7 @@ fi
 if [ $ANALYSE -gt 0 ] ; then
 	CCARGS="$CCARGS -DUSE_GCC_ATTRIBUTES" ;
 	if [ "$COMPILER_VER" -ge 100 ] ; then
+		echo "  (Enabling gcc analyzer, this will produce vast amounts of false-positive ouput)." >&2 ;
 		CCARGS="$CCARGS -fanalyzer" ;
 	else
 		echo "gcc version is too old to support code analysis." >&2 ;
@@ -1864,11 +1887,12 @@ elif [ $ISDEVELOPMENT -gt 0 ] ; then
 		echo "  (Enabling additional compiler options for gcc 8.x)." >&2 ;
 		CCARGS="$CCARGS -Wmultistatement-macros" ;
 	fi ;
-	if [ "$COMPILER_VER" -ge 130 ] ; then
+	if [ "$COMPILER_VER" -ge 140 ] ; then
 		# See the note above on why we enable the analyser only on the latest
 		# version of gcc that we recognise rather than for gcc 10 where it
 		# first appeared.
 		echo "  (Enabling additional compiler options for gcc 13.x)." >&2 ;
+		echo "  (Enabling gcc analyzer, this will produce vast amounts of false-positive ouput)." >&2 ;
 		CCARGS="$CCARGS -fanalyzer" ;
 	fi ;
 	if [ "$ARCH" != "x86_64" ] ; then

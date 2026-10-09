@@ -177,7 +177,7 @@ static ATTRIBUTE_LIST *getNextEncodedAttribute( const ATTRIBUTE_LIST *attributeL
 		sseek( &stream, 0 );
 		writeSequence( &stream, 
 					   sizeofOID( attributeListPtr->oid ) + \
-					   sizeofShortObject( attributeListPtr->dataValueLength ) );
+					   sizeofShortObject( attributeListPtr->attrDataValueLength ) );
 		status = swrite( &stream, attributeListPtr->oid,
 						 sizeofOID( attributeListPtr->oid ) );
 		ENSURES_N( cryptStatusOK( status ) );
@@ -323,10 +323,10 @@ static int calculateAttributeSizes( IN_PTR const ATTRIBUTE_LIST *attributeListPt
 		REQUIRES( \
 			!checkOverflowAdd( sizeofOID( attributeListPtr->oid ), 
 							   sizeofShortObject( \
-									attributeListPtr->dataValueLength ) ) );
+									attributeListPtr->attrDataValueLength ) ) );
 		attributeDataSize = sizeofOID( attributeListPtr->oid ) + \
 							sizeofShortObject( \
-								attributeListPtr->dataValueLength );
+								attributeListPtr->attrDataValueLength );
 		if( TEST_FLAG( attributeListPtr->flags, ATTR_FLAG_CRITICAL ) )
 			attributeDataSize += sizeofBoolean();
 		attributeDataSize = sizeofShortObject( attributeDataSize );
@@ -444,7 +444,7 @@ static int calculateFieldSize( const ATTRIBUTE_LIST *attributeListPtr,
 		case FIELDTYPE_BLOB_BITSTRING:
 		case FIELDTYPE_BLOB_SEQUENCE:
 		case BER_OBJECT_IDENTIFIER:
-			return( attributeListPtr->dataValueLength );
+			return( attributeListPtr->attrDataValueLength );
 
 		case FIELDTYPE_DN:
 			{
@@ -463,19 +463,19 @@ static int calculateFieldSize( const ATTRIBUTE_LIST *attributeListPtr,
 			   however the size is the same as standard-tagged ones so 
 			   there's no need to special-case a call to writeAlgoIDex() for
 			   this */
-			return( sizeofAlgoID( attributeListPtr->intValue ) );
+			return( sizeofAlgoID( attributeListPtr->attrIntValue ) );
 
 		case BER_BITSTRING:
-			return( sizeofBitString( attributeListPtr->intValue ) );
+			return( sizeofBitString( attributeListPtr->attrIntValue ) );
 
 		case BER_BOOLEAN:
 			return( sizeofBoolean() );
 
 		case BER_ENUMERATED:
-			return( sizeofEnumerated( attributeListPtr->intValue ) );
+			return( sizeofEnumerated( attributeListPtr->attrIntValue ) );
 
 		case BER_INTEGER:
-			return( sizeofShortInteger( attributeListPtr->intValue ) );
+			return( sizeofShortInteger( attributeListPtr->attrIntValue ) );
 
 		case BER_NULL:
 			/* This is stored as a pseudo-numeric value CRYPT_UNUSED so we 
@@ -489,17 +489,17 @@ static int calculateFieldSize( const ATTRIBUTE_LIST *attributeListPtr,
 		case BER_STRING_NUMERIC:
 		case BER_STRING_PRINTABLE:
 		case BER_STRING_UTF8:
-			return( sizeofShortObject( attributeListPtr->dataValueLength ) );
+			return( sizeofShortObject( attributeListPtr->attrDataValueLength ) );
 
 		case BER_OCTETSTRING:
 			if( isEncodingAlias( attributeInfoPtr->fieldType, 
 								 attributeInfoPtr->fieldEncodedType ) ) 
 				{
 				/* It's an aliased encoding, specifically an INTEGER hole */
-				return( sizeofInteger( attributeListPtr->dataValue, 
-									   attributeListPtr->dataValueLength ) );
+				return( sizeofInteger( attributeListPtr->attrDataValue, 
+									   attributeListPtr->attrDataValueLength ) );
 				}
-			return( sizeofShortObject( attributeListPtr->dataValueLength ) );
+			return( sizeofShortObject( attributeListPtr->attrDataValueLength ) );
 
 		case BER_TIME_GENERALIZED:
 			return( sizeofGeneralizedTime() );
@@ -585,7 +585,7 @@ static int writeAttributeField( INOUT_PTR STREAM *stream,
 	{
 	const ATTRIBUTE_INFO *attributeInfoPtr;
 	const BOOLEAN isSpecial = ( attributeListPtr->fifoPos > 0 ) ? TRUE : FALSE;
-	const void *dataPtr = attributeListPtr->dataValue;
+	const void *dataPtr = attributeListPtr->attrDataValue;
 	int fieldType, tag, size, payloadSize DUMMY_INIT, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -695,12 +695,12 @@ static int writeAttributeField( INOUT_PTR STREAM *stream,
 					return( status );
 				sputc( stream, tag );
 				REQUIRES( !checkOverflowSub( \
-									attributeListPtr->dataValueLength, 1 ) );
+									attributeListPtr->attrDataValueLength, 1 ) );
 				return( swrite( stream, ( ( BYTE * ) dataPtr ) + 1,
-								attributeListPtr->dataValueLength - 1 ) );
+								attributeListPtr->attrDataValueLength - 1 ) );
 				}
 			return( swrite( stream, dataPtr, 
-					attributeListPtr->dataValueLength ) );
+					attributeListPtr->attrDataValueLength ) );
 
 		case FIELDTYPE_DN:
 			{
@@ -721,7 +721,7 @@ static int writeAttributeField( INOUT_PTR STREAM *stream,
 				int newStringLen, dummy;
 
 				status = getASN1StringInfo( dataPtr, 
-								attributeListPtr->dataValueLength, 
+								attributeListPtr->attrDataValueLength, 
 								&dummy, &tag, &newStringLen, FALSE );
 				if( cryptStatusError( status ) )
 					return( status );
@@ -729,38 +729,38 @@ static int writeAttributeField( INOUT_PTR STREAM *stream,
 				/* If the only way to encode the string is to convert it 
 				   into a wider encoding type then we can't safely emit 
 				   it */
-				if( newStringLen != attributeListPtr->dataValueLength )
+				if( newStringLen != attributeListPtr->attrDataValueLength )
 					return( CRYPT_ERROR_BADDATA );
 				}
 			return( writeCharacterString( stream, dataPtr, 
-										  attributeListPtr->dataValueLength, 
+										  attributeListPtr->attrDataValueLength, 
 										  tag ) );
 
 		case FIELDTYPE_ALGOID:
-			REQUIRES( isPkcAlgo( attributeListPtr->intValue ) || \
-					  isHashAlgo( attributeListPtr->intValue ) || \
-					  isMacAlgo( attributeListPtr->intValue ) );
-			return( writeAlgoID( stream, attributeListPtr->intValue, 
+			REQUIRES( isPkcAlgo( attributeListPtr->attrIntValue ) || \
+					  isHashAlgo( attributeListPtr->attrIntValue ) || \
+					  isMacAlgo( attributeListPtr->attrIntValue ) );
+			return( writeAlgoID( stream, attributeListPtr->attrIntValue, 
 								 tag  ) );
 
 		case BER_BITSTRING:
-			REQUIRES( isIntegerRange( attributeListPtr->intValue ) );
+			REQUIRES( isIntegerRange( attributeListPtr->attrIntValue ) );
 			return( writeBitString( stream, ( int ) \
-									attributeListPtr->intValue, tag ) );
+									attributeListPtr->attrIntValue, tag ) );
 
 		case BER_BOOLEAN:
-			REQUIRES( isIntegerRange( attributeListPtr->intValue ) );
-			return( writeBoolean( stream, attributeListPtr->intValue ? \
+			REQUIRES( isIntegerRange( attributeListPtr->attrIntValue ) );
+			return( writeBoolean( stream, attributeListPtr->attrIntValue ? \
 								  TRUE : FALSE, tag ) );
 
 		case BER_ENUMERATED:
-			REQUIRES( isIntegerRange( attributeListPtr->intValue ) );
+			REQUIRES( isIntegerRange( attributeListPtr->attrIntValue ) );
 			return( writeEnumerated( stream, ( int ) \
-									 attributeListPtr->intValue, tag ) );
+									 attributeListPtr->attrIntValue, tag ) );
 
 		case BER_INTEGER:
-			REQUIRES( isIntegerRange( attributeListPtr->intValue ) );
-			return( writeShortInteger( stream, attributeListPtr->intValue, 
+			REQUIRES( isIntegerRange( attributeListPtr->attrIntValue ) );
+			return( writeShortInteger( stream, attributeListPtr->attrIntValue, 
 									   tag ) );
 
 		case BER_NULL:
@@ -771,12 +771,12 @@ static int writeAttributeField( INOUT_PTR STREAM *stream,
 								 attributeInfoPtr->fieldEncodedType ) ) 
 				{
 				/* It's an aliased encoding, specifically an INTEGER hole */
-				return( writeInteger( stream, attributeListPtr->dataValue, 
-									  attributeListPtr->dataValueLength,
+				return( writeInteger( stream, attributeListPtr->attrDataValue, 
+									  attributeListPtr->attrDataValueLength,
 									  DEFAULT_TAG ) );
 				}
 			return( writeOctetString( stream, dataPtr, 
-									  attributeListPtr->dataValueLength, 
+									  attributeListPtr->attrDataValueLength, 
 									  tag ) );
 
 		case BER_STRING_BMP:
@@ -786,7 +786,7 @@ static int writeAttributeField( INOUT_PTR STREAM *stream,
 		case BER_STRING_PRINTABLE:
 		case BER_STRING_UTF8:
 			return( writeCharacterString( stream, dataPtr, 
-										  attributeListPtr->dataValueLength,
+										  attributeListPtr->attrDataValueLength,
 										  ( tag == DEFAULT_TAG ) ? \
 											fieldType : \
 											MAKE_CTAG_PRIMITIVE( tag ) ) );
@@ -916,21 +916,21 @@ static int writeBlobAttribute( INOUT_PTR STREAM *stream,
 	writeSequence( stream, 
 			sizeofOID( attributeListPtr->oid ) + \
 			( isCritical ? sizeofBoolean() : 0 ) + \
-			sizeofShortObject( attributeListPtr->dataValueLength ) );
+			sizeofShortObject( attributeListPtr->attrDataValueLength ) );
 	swrite( stream, attributeListPtr->oid,
 			sizeofOID( attributeListPtr->oid ) );
 	if( isCritical )
 		writeBoolean( stream, TRUE, DEFAULT_TAG );
 	if( wrapperTagSet )
-		writeSet( stream, attributeListPtr->dataValueLength );
+		writeSet( stream, attributeListPtr->attrDataValueLength );
 	else
 		{
 		writeOctetStringHole( stream, 
-							  attributeListPtr->dataValueLength, 
+							  attributeListPtr->attrDataValueLength, 
 							  DEFAULT_TAG );
 		}
-	status = swrite( stream, attributeListPtr->dataValue,
-					 attributeListPtr->dataValueLength );
+	status = swrite( stream, attributeListPtr->attrDataValue,
+					 attributeListPtr->attrDataValueLength );
 	return( status );
 	}
 

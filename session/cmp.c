@@ -32,10 +32,12 @@
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
 BOOLEAN sanityCheckSessionCMP( IN_PTR const SESSION_INFO *sessionInfoPtr )
 	{
-	const CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	const CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( cmpInfo, sizeof( CMP_INFO ) ) );
+
+	REQUIRES_B( cmpInfo != NULL );
 
 	/* Check the general session state */
 	if( !sanityCheckSession( sessionInfoPtr ) )
@@ -52,8 +54,8 @@ BOOLEAN sanityCheckSessionCMP( IN_PTR const SESSION_INFO *sessionInfoPtr )
 		return( FALSE );
 		}
 	if( !isEnumRangeOpt( cmpInfo->requestType, CRYPT_REQUESTTYPE ) || \
-		( cmpInfo->userInfo != CRYPT_ERROR && \
-		  !isHandleRangeValid( cmpInfo->userInfo ) ) || \
+		( cmpInfo->iPkiUser != CRYPT_ERROR && \
+		  !isHandleRangeValid( cmpInfo->iPkiUser ) ) || \
 		( cmpInfo->iExtraCerts != CRYPT_ERROR && \
 		  !isHandleRangeValid( cmpInfo->iExtraCerts ) ) || \
 		( cmpInfo->iSavedMacContext != CRYPT_ERROR && \
@@ -120,11 +122,14 @@ BOOLEAN sanityCheckCMPProtocolInfo( IN_PTR \
 
 	/* Check message integrity values */
 	if( !( protocolInfo->hashAlgo == CRYPT_ALGO_NONE || \
-		   isHashAlgo( protocolInfo->hashAlgo ) ) || \
+		   ( isHashAlgo( protocolInfo->hashAlgo ) && \
+		     rangeCheck( protocolInfo->hashParam, 0, 64 ) ) ) || \
 		!( protocolInfo->iMacContext == CRYPT_ERROR || \
 		   isHandleRangeValid( protocolInfo->iMacContext ) ) || \
 		protocolInfo->saltSize < 0 || \
 		protocolInfo->saltSize > CRYPT_MAX_HASHSIZE || \
+		!rangeCheck( protocolInfo->iterations, \
+					 0, CMP_MAX_PW_ITERATIONS ) || \
 		protocolInfo->altMacKeySize < 0 || \
 		protocolInfo->altMacKeySize > CRYPT_MAX_HASHSIZE || \
 		!isBooleanValue( protocolInfo->useMACsend ) || \
@@ -145,6 +150,8 @@ BOOLEAN sanityCheckCMPProtocolInfo( IN_PTR \
 	if( !( protocolInfo->confHashAlgo == CRYPT_ALGO_NONE || \
 		   isHashAlgo( protocolInfo->confHashAlgo ) ) || \
 		!isShortIntegerRange( protocolInfo->macInfoPos ) || \
+		!rangeCheck( protocolInfo->pkiFailInfo, \
+					 CMPFAILINFO_NONE, CMPFAILINFO_LAST ) || \
 		!( ( protocolInfo->senderDNPtr == NULL && \
 			 protocolInfo->senderDNlength == 0 ) || \
 		   ( protocolInfo->senderDNPtr != NULL && \
@@ -161,41 +168,42 @@ BOOLEAN sanityCheckCMPProtocolInfo( IN_PTR \
 #ifdef USE_ERRMSGS
 
 /* Get a string description of CMP message types, used for diagnostic error 
-   messages */
+   messages.  We prefix each message type with the protocol name to make the
+   context for the 2-3 letter name */
 
 CHECK_RETVAL_PTR_NONNULL \
 const char *getCMPMessageName( IN_BYTE const int messageType )
 	{
 	static const OBJECT_NAME_INFO packetNameInfo[] = {
 		/* { CTAG_PB_IR, "ir" } */	/* See comment below */
-		{ CTAG_PB_IP, "ip" },
-		{ CTAG_PB_CR, "cr" },
-		{ CTAG_PB_CP, "cp" },
-		{ CTAG_PB_P10CR, "p10cr" },
-		{ CTAG_PB_POPDECC, "popdecc" },
-		{ CTAG_PB_POPDECR, "popdecr" },
-		{ CTAG_PB_KUR, "kur" },
-		{ CTAG_PB_KUP, "kup" },
-		{ CTAG_PB_KRR, "krr" },
-		{ CTAG_PB_KRP, "krp" },
-		{ CTAG_PB_RR, "rr" },
-		{ CTAG_PB_RP, "rp" },
-		{ CTAG_PB_CCR, "ccr" },
-		{ CTAG_PB_CCP, "ccp" },
-		{ CTAG_PB_CKUANN, "ckuann" },
-		{ CTAG_PB_CANN, "cann" },
-		{ CTAG_PB_RANN, "rann" },
-		{ CTAG_PB_CRLANN, "crlann" },
-		{ CTAG_PB_PKICONF, "pkiconf" },
-		{ CTAG_PB_NESTED, "nested" },
-		{ CTAG_PB_GENM, "genm" },
-		{ CTAG_PB_GENP, "genp" },
-		{ CTAG_PB_ERROR, "error" },
-		{ CTAG_PB_CERTCONF, "certConf" },
-		{ CTAG_PB_POLLREQ, "pollReq" }, 
-		{ CTAG_PB_POLLREP, "pollRep" },
-		{ CMP_MESSAGE_NONE, "<Unknown type>" },
-			{ CMP_MESSAGE_NONE, "<Unknown type>" }
+		{ CTAG_PB_IP, "CMP ip" },
+		{ CTAG_PB_CR, "CMP cr" },
+		{ CTAG_PB_CP, "CMP cp" },
+		{ CTAG_PB_P10CR, "CMP p10cr" },
+		{ CTAG_PB_POPDECC, "CMP popdecc" },
+		{ CTAG_PB_POPDECR, "CMP popdecr" },
+		{ CTAG_PB_KUR, "CMP kur" },
+		{ CTAG_PB_KUP, "CMP kup" },
+		{ CTAG_PB_KRR, "CMP krr" },
+		{ CTAG_PB_KRP, "CMP krp" },
+		{ CTAG_PB_RR, "CMP rr" },
+		{ CTAG_PB_RP, "CMP rp" },
+		{ CTAG_PB_CCR, "CMP ccr" },
+		{ CTAG_PB_CCP, "CMP ccp" },
+		{ CTAG_PB_CKUANN, "CMP ckuann" },
+		{ CTAG_PB_CANN, "CMP cann" },
+		{ CTAG_PB_RANN, "CMP rann" },
+		{ CTAG_PB_CRLANN, "CMP crlann" },
+		{ CTAG_PB_PKICONF, "CMP pkiconf" },
+		{ CTAG_PB_NESTED, "CMP nested" },
+		{ CTAG_PB_GENM, "CMP genm" },
+		{ CTAG_PB_GENP, "CMP genp" },
+		{ CTAG_PB_ERROR, "CMP error" },
+		{ CTAG_PB_CERTCONF, "CMP certConf" },
+		{ CTAG_PB_POLLREQ, "CMP pollReq" }, 
+		{ CTAG_PB_POLLREP, "CMP pollRep" },
+		{ CMP_MESSAGE_NONE, "<Unknown CMP message type>" },
+			{ CMP_MESSAGE_NONE, "<Unknown CMP message type>" }
 		};
 
 	REQUIRES_EXT( ( messageType >= 0 && messageType <= 0xFF ),
@@ -268,7 +276,7 @@ void debugDumpCMP( IN_ENUM_OPT( CMP_MESSAGE ) const CMP_MESSAGE_TYPE type,
 
 		strcpy_s( fileName, 1024, fnStringPtr[ phase - 1 ] );
 		strlcat_s( fileName, 1024, "_" );
-		pathLength = strnlen_s( fileName, MAX_PATH_LENGTH );
+		pathLength = strnlen_s( fileName, 1024 );
 		setMessageData( &msgData, fileName + pathLength, 1024 - pathLength );
 		status = krnlSendMessage( sessionInfoPtr->privateKey, 
 								  IMESSAGE_GETATTRIBUTE_S, &msgData, 
@@ -288,6 +296,7 @@ void debugDumpCMP( IN_ENUM_OPT( CMP_MESSAGE ) const CMP_MESSAGE_TYPE type,
 				fileName[ pathLength + i ] = '_';
 			}
 		ENSURES_V( LOOP_BOUND_OK );
+		fileName[ pathLength + msgData.length ] = '\0';
 		}
 	else
 #endif /* DUMP_SERVER_MESSAGES */
@@ -407,6 +416,8 @@ int setCMPprotocolInfo( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,
 					  protocolInfo->isServer ? "SVR" : "CLI" ));
 		DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", 
 						protocolInfo->userID, protocolInfo->userIDsize );
+		DEBUG_DUMP_DATA_BASE64( protocolInfo->userID, 
+								protocolInfo->userIDsize );
 		}
 	if( flags & CMP_INIT_FLAG_TRANSID )
 		{
@@ -418,7 +429,7 @@ int setCMPprotocolInfo( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,
 		protocolInfo->transIDsize = CMP_NONCE_SIZE;
 		DEBUG_PRINT(( "%s: Set new transID.\n",
 					  protocolInfo->isServer ? "SVR" : "CLI" ));
-		DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI", 
+		DEBUG_DUMP_HEX( protocolInfo->isServer ? "SVR" : "CLI",
 						protocolInfo->transID, protocolInfo->transIDsize );
 		}
 
@@ -443,7 +454,7 @@ int setCMPprotocolInfo( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo,
 		MESSAGE_CREATEOBJECT_INFO createInfo;
 
 		REQUIRES( protocolInfo->iMacContext == CRYPT_ERROR );
-		setMessageCreateObjectInfo( &createInfo, CRYPT_ALGO_HMAC_SHA1 );
+		setMessageCreateObjectInfo( &createInfo, protocolInfo->macAlgo );
 		status = krnlSendMessage( CRYPTO_OBJECT_HANDLE, 
 								  IMESSAGE_DEV_CREATEOBJECT, &createInfo, 
 								  OBJECT_TYPE_CONTEXT );
@@ -473,7 +484,10 @@ void destroyCMPprotocolInfo( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo )
 	   reference in the protocol information avoids having to decide on the 
 	   fly which one to use */
 	if( protocolInfo->iMacContext != CRYPT_ERROR )
+		{
 		krnlSendNotifier( protocolInfo->iMacContext, IMESSAGE_DECREFCOUNT );
+		protocolInfo->iMacContext = CRYPT_ERROR;
+		}
 
 	zeroise( protocolInfo, sizeof( CMP_PROTOCOL_INFO ) );
 	}
@@ -489,19 +503,29 @@ void destroyCMPprotocolInfo( INOUT_PTR CMP_PROTOCOL_INFO *protocolInfo )
 STDC_NONNULL_ARG( ( 1 ) ) \
 static void shutdownFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
-	const CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
-	REQUIRES_V( sanityCheckSession( sessionInfoPtr ) );
+	REQUIRES_V( sanityCheckSessionCMP( sessionInfoPtr ) );
+	REQUIRES_V( cmpInfo != NULL );
 
 	/* Clean up CMP-specific objects */
-	if( cmpInfo->userInfo != CRYPT_ERROR )
-		krnlSendNotifier( cmpInfo->userInfo, IMESSAGE_DECREFCOUNT );
+	if( cmpInfo->iPkiUser != CRYPT_ERROR )
+		{
+		krnlSendNotifier( cmpInfo->iPkiUser, IMESSAGE_DECREFCOUNT );
+		cmpInfo->iPkiUser = CRYPT_ERROR;
+		}
 	if( cmpInfo->iExtraCerts != CRYPT_ERROR )
+		{
 		krnlSendNotifier( cmpInfo->iExtraCerts, IMESSAGE_DECREFCOUNT );
+		cmpInfo->iExtraCerts = CRYPT_ERROR;
+		}
 	if( cmpInfo->iSavedMacContext != CRYPT_ERROR )
+		{
 		krnlSendNotifier( cmpInfo->iSavedMacContext, IMESSAGE_DECREFCOUNT );
+		cmpInfo->iSavedMacContext = CRYPT_ERROR;
+		}
 	}
 
 /****************************************************************************
@@ -515,15 +539,16 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 INOUT_PTR void *data, 
 								 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
-	const CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
-	CRYPT_CERTIFICATE *cmpResponsePtr = ( CRYPT_CERTIFICATE * ) data;
+	const CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( data, sizeof( int ) ) );
 	
+	REQUIRES( sanityCheckSessionCMP( sessionInfoPtr ) );
 	REQUIRES( type == CRYPT_SESSINFO_RESPONSE || \
 			  type == CRYPT_SESSINFO_CMP_REQUESTTYPE || \
 			  type == CRYPT_SESSINFO_CMP_OPTIONS );
+	REQUIRES( cmpInfo != NULL );
 
 	/* If it's a general protocol-specific attribute read, return the
 	   information and exit */
@@ -537,6 +562,7 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			return( CRYPT_ERROR_NOTFOUND );
 			}
 		*( ( int * ) data ) = cmpInfo->requestType;
+
 		return( CRYPT_OK );
 		}
 	if( type == CRYPT_SESSINFO_CMP_OPTIONS )
@@ -546,6 +572,7 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		if( TEST_FLAG( sessionInfoPtr->protocolFlags, CMP_PFLAG_3GPP ) )
 			cmpOption |= CRYPT_CMPOPTION_3GPP;
 		*( ( int * ) data ) = cmpOption;
+
 		return( CRYPT_OK );
 		}
 
@@ -555,7 +582,8 @@ static int getAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	/* Return the information to the caller */
 	krnlSendNotifier( sessionInfoPtr->iCertResponse, IMESSAGE_INCREFCOUNT );
-	*cmpResponsePtr = sessionInfoPtr->iCertResponse;
+	*( ( CRYPT_CERTIFICATE * ) data ) = sessionInfoPtr->iCertResponse;
+
 	return( CRYPT_OK );
 	}
 
@@ -565,17 +593,19 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE type )
 	{
 	CRYPT_CERTIFICATE cryptCert;
-	CMP_INFO *cmpInfo = sessionInfoPtr->sessionCMP;
+	CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int certReqType, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isReadPtr( data, sizeof( int ) ) );
 
+	REQUIRES( sanityCheckSessionCMP( sessionInfoPtr ) );
 	REQUIRES( type == CRYPT_SESSINFO_REQUEST || \
 			  type == CRYPT_SESSINFO_CACERTIFICATE || \
 			  type == CRYPT_SESSINFO_CMP_REQUESTTYPE || \
 			  type == CRYPT_SESSINFO_CMP_PRIVKEYSET || \
 			  type == CRYPT_SESSINFO_CMP_OPTIONS );
+	REQUIRES( cmpInfo != NULL );
 
 	/* Standard CMP (with user-supplied request information) can't be 
 	   combined with plug-and-play CMP (with automatically-generated request 
@@ -610,7 +640,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   certificate, set it */
 	if( type == CRYPT_SESSINFO_CMP_REQUESTTYPE )
 		{
-		const int cmpReqType = *( ( int * ) data );
+		const int cmpReqType = *( ( const int * ) data );
 
 		/* Make sure that the value hasn't been set yet */
 		if( cmpInfo->requestType != CRYPT_REQUESTTYPE_NONE )
@@ -688,7 +718,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( type == CRYPT_SESSINFO_CMP_PRIVKEYSET )
 		{
-		CRYPT_KEYSET privKeyset = *( ( CRYPT_KEYSET * ) data );
+		const CRYPT_KEYSET privKeyset = *( ( const CRYPT_KEYSET * ) data );
 
 		/* Make sure that the value hasn't been set yet */
 		if( sessionInfoPtr->privKeyset != CRYPT_ERROR )
@@ -708,10 +738,14 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	if( type == CRYPT_SESSINFO_CMP_OPTIONS )
 		{
-		const int cmpOption = *( ( int * ) data );
+		const int cmpOption = *( ( const int * ) data );
 
-		/* Set protocol-specific flags based on the options the user has 
-		   provided */
+		REQUIRES( rangeCheck( cmpOption, CRYPT_CMPOPTION_NONE, 
+							  CRYPT_CMPOPTION_NONE ) );
+							  /* Enforced by the kernel */
+		
+		/* Set protocol-specific flags based on the options that the user 
+		   has provided */
 		if( cmpOption & CRYPT_CMPOPTION_3GPP )
 			{
 			SET_FLAG( sessionInfoPtr->protocolFlags, CMP_PFLAG_3GPP );
@@ -727,7 +761,7 @@ static int setAttributeFunction( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	   operation being performed.  The requirements for this are somewhat 
 	   more complex than the basic ACL-based check can manage, so we handle 
 	   it here with custom code */
-	cryptCert = *( ( CRYPT_CERTIFICATE * ) data );
+	cryptCert = *( ( const CRYPT_CERTIFICATE * ) data );
 	status = krnlSendMessage( cryptCert, IMESSAGE_GETATTRIBUTE, &certReqType, 
 							  CRYPT_CERTINFO_CERTTYPE );
 	if( cryptStatusError( status ) )
@@ -897,7 +931,8 @@ int setAccessMethodCMP( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 		/* General session information */
 		TRUE,						/* Request-response protocol */
 		SESSION_PROTOCOL_HTTPTRANSPORT | /* Flags */
-			SESSION_PROTOCOL_FIXEDSIZECREDENTIALS,
+			SESSION_PROTOCOL_FIXEDSIZECREDENTIALS_CLI | \
+			SESSION_PROTOCOL_FIXEDSIZECREDENTIALS_SVR,
 		80,							/* HTTP port */
 		0,							/* Client attributes */
 		SESSION_NEEDS_PRIVATEKEY |	/* Server attributes */
@@ -911,8 +946,11 @@ int setAccessMethodCMP( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	
 		/* Protocol-specific information */
 		};
+	CMP_INFO *cmpInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
+
+	REQUIRES( cmpInfo != NULL );
 
 	/* Set the access method pointers */
 	DATAPTR_SET( sessionInfoPtr->protocolInfo, ( void * ) &protocolInfo );
@@ -925,9 +963,8 @@ int setAccessMethodCMP( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	FNPTR_SET( sessionInfoPtr->setAttributeFunction, setAttributeFunction );
 
 	/* Initialise CMP-specific objects */
-	sessionInfoPtr->sessionCMP->userInfo = CRYPT_ERROR;
-	sessionInfoPtr->sessionCMP->iExtraCerts = \
-		sessionInfoPtr->sessionCMP->iSavedMacContext = CRYPT_ERROR;
+	cmpInfo->iPkiUser = CRYPT_ERROR;
+	cmpInfo->iExtraCerts = cmpInfo->iSavedMacContext = CRYPT_ERROR;
 
 	return( CRYPT_OK );
 	}

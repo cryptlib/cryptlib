@@ -205,7 +205,7 @@ static const FAILURE_INFO replyStatusInfo[] = {
 *																			*
 ****************************************************************************/
 
-/* Write an SCVP request:
+/* Write a SCVP request:
 
 	CVRequest ::= SEQUENCE {
 		query						SEQUENCE {

@@ -635,7 +635,8 @@ static int routeCompareMessageTarget( IN_HANDLE const CRYPT_HANDLE originalObjec
 			  messageValue == MESSAGE_COMPARE_FINGERPRINT_SHA1 || \
 			  messageValue == MESSAGE_COMPARE_FINGERPRINT_SHA2 || \
 			  messageValue == MESSAGE_COMPARE_FINGERPRINT_SHAng || \
-			  messageValue == MESSAGE_COMPARE_CERTOBJ );
+			  messageValue == MESSAGE_COMPARE_CERTOBJ || \
+			  messageValue == MESSAGE_COMPARE_EKU );
 
 	/* Clear return value */
 	*targetObjectHandle = CRYPT_ERROR;
@@ -660,6 +661,7 @@ static int routeCompareMessageTarget( IN_HANDLE const CRYPT_HANDLE originalObjec
 		case MESSAGE_COMPARE_FINGERPRINT_SHA2:
 		case MESSAGE_COMPARE_FINGERPRINT_SHAng:
 		case MESSAGE_COMPARE_CERTOBJ:
+		case MESSAGE_COMPARE_EKU:
 			targetType = OBJECT_TYPE_CERTIFICATE;
 			break;
 

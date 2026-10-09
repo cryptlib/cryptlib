@@ -165,14 +165,13 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 							IN_FLAGS( KEYMGMT ) const int flags )
 	{
 	CRYPT_CERTIFICATE iCryptCert DUMMY_INIT;
+	const FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	PKCS15_INFO *pkcs15info = DATAPTR_GET( keysetInfoPtr->keyData );
 	PKCS15_INFO *pkcs15infoPtr;
 	MESSAGE_DATA msgData;
 	BYTE iD[ CRYPT_MAX_HASHSIZE + 8 ];
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
-	const BOOLEAN isStorageObject = \
-			( keysetInfoPtr->keysetFile->iHardwareDevice != CRYPT_UNUSED ) ? \
-			TRUE : FALSE;
+	BOOLEAN isStorageObject;
 #else
 	#define isStorageObject		FALSE
 #endif /* USE_HARDWARE || USE_TPM */
@@ -204,13 +203,21 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 			  ( ( itemType == KEYMGMT_ITEM_PRIVATEKEY || \
 				  itemType == KEYMGMT_ITEM_SECRETKEY ) && \
 				password != NULL && passwordLength != 0 ) );
+	REQUIRES( flags == KEYMGMT_FLAG_NONE );
+	REQUIRES( fileInfo != NULL );
+	ENSURES( pkcs15info != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+#if defined( USE_HARDWARE ) || defined( USE_TPM )
+	isStorageObject = ( fileInfo->iHardwareDevice != CRYPT_UNUSED ) ? \
+						TRUE : FALSE;
 	REQUIRES( ( isStorageObject && \
 				( itemType == KEYMGMT_ITEM_PUBLICKEY || \
 				  itemType == KEYMGMT_ITEM_KEYMETADATA ) ) || \
 			   ( !isStorageObject && \
 			     itemType != KEYMGMT_ITEM_KEYMETADATA ) );
-	REQUIRES( flags == KEYMGMT_FLAG_NONE );
-	ENSURES( pkcs15info != NULL );
+#endif /* USE_HARDWARE || USE_TPM */
 
 	/* If we're being sent a secret key, add it to the PKCS #15 keyset and 
 	   exit */
@@ -562,10 +569,12 @@ static int setSpecialItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
 	if( dataType == CRYPT_IATTRIBUTE_HWDEVICE )
 		{
+		FILE_INFO *fileInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
+
 		REQUIRES( dataLength == sizeof( CRYPT_HANDLE ) );
+		REQUIRES( fileInfo != NULL );
 		
-		keysetInfoPtr->keysetFile->iHardwareDevice = \
-										*( ( CRYPT_HANDLE * ) data );
+		fileInfo->iHardwareDevice = *( ( CRYPT_HANDLE * ) data );
 		return( CRYPT_OK );
 		}
 #endif /* USE_HARDWARE || USE_TPM */

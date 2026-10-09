@@ -281,7 +281,7 @@ int initCryptGCMTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   IN_BOOL const BOOLEAN isRead )
 	{
 	CRYPT_CONTEXT iCryptContext;
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM stream;
 	MESSAGE_DATA msgData;
 	BYTE ivBuffer[ CRYPT_MAX_IVSIZE + 8 ];
@@ -293,6 +293,7 @@ int initCryptGCMTLS13( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES( isBooleanValue( isRead ) );						 
+	REQUIRES( tlsInfo != NULL );
 
 	/* Set up the appropriate values depending on whether it's a read or a 
 	   write */
@@ -872,7 +873,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int loadKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 IN_PTR const TLS_HANDSHAKE_INFO *handshakeInfo )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MAC_FUNCTION_ATOMIC macFunctionAtomic;
 	MESSAGE_DATA msgData;
 	BYTE hkdfLabel[ ( CRYPT_MAX_HASHSIZE * 2 ) + 8 ];
@@ -887,6 +888,7 @@ static int loadKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( handshakeInfo->cryptKeysize <= hashParam );
 			  /* Guaranteed by the TLS 1.3 suites, no key is larger than the
 			     SHA-2 output size */
+	REQUIRES( tlsInfo != NULL );
 
 	getMacAtomicFunction( CRYPT_ALGO_HMAC_SHA2, &macFunctionAtomic );
 
@@ -1073,7 +1075,7 @@ void testTLS13Zoo( void )
 
 	memset( &sessionInfo, 0, sizeof( SESSION_INFO ) );
 	memset( tlsInfo, 0, sizeof( TLS_INFO ) );
-	sessionInfo.sessionTLS = tlsInfo;
+	DATAPTR_SET( sessionInfo.sessionInfo, tlsInfo );
 	SET_FLAG( ( &sessionInfo )->flags, SESSION_FLAG_ISSERVER );
 	setMessageCreateObjectInfo( &createInfo, CRYPT_ALGO_AES );
 	status = krnlSendMessage( CRYPTO_OBJECT_HANDLE,

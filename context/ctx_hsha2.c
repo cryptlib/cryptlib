@@ -413,7 +413,7 @@ static int hmac( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	MAC_INFO *macInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 	sha2_ctx *sha2Info;
 	int status;
 
@@ -524,7 +524,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	MAC_INFO *macInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 	sha2_ctx *sha2Info;
 	int sha2DigestSize, sha2BlockSize, status;
 

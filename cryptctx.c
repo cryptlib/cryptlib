@@ -134,7 +134,8 @@ BOOLEAN sanityCheckContext( const CONTEXT_INFO *contextInfoPtr )
 		return( FALSE );
 		}
 
-	/* Check subtype-specific data */
+	/* Check subtype-specific data.  We use a typeless DATAPTR_GET() because 
+	   the type is verified via the switch statement */
 	if( !DATAPTR_ISSET( contextInfoPtr->keyingInfo ) )
 		{
 		DEBUG_PUTS(( "sanityCheckContext: Subtype-specific storage pointer" ));
@@ -445,8 +446,8 @@ static BOOLEAN checkContextFunctions( IN_PTR const CONTEXT_INFO *contextInfoPtr 
 			const PKC_INFO *pkcInfo;
 			const CAPABILITY_INFO *capabilityInfoPtr;
 
-			/* Get the various informaion for the context */
-			pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			/* Get the various information for the context */
+			pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 			REQUIRES_B( pkcInfo != NULL );
 			capabilityInfoPtr = DATAPTR_GET( contextInfoPtr->capabilityInfo );
 			REQUIRES_B( capabilityInfoPtr != NULL );
@@ -704,8 +705,7 @@ static int processCompareMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case MESSAGE_COMPARE_ICV:
 			{
-			const CONV_INFO *convInfo = \
-						DATAPTR_GET( contextInfoPtr->keyingInfo );
+			const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 			BYTE icv[ CRYPT_MAX_HASHSIZE + 8 ];
 			int status;
 
@@ -730,7 +730,7 @@ static int processCompareMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case MESSAGE_COMPARE_KEYID:
 			{
-			const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 			REQUIRES( contextInfoPtr->type == CONTEXT_PKC );
 			REQUIRES( pkcInfo != NULL );
@@ -746,7 +746,7 @@ static int processCompareMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 #if defined( USE_PGP ) || defined( USE_PGPKEYS )
 		case MESSAGE_COMPARE_KEYID_PGP:
 			{
-			const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 			REQUIRES( contextInfoPtr->type == CONTEXT_PKC );
 			REQUIRES( pkcInfo != NULL );
@@ -763,7 +763,7 @@ static int processCompareMessage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 
 		case MESSAGE_COMPARE_KEYID_OPENPGP:
 			{
-			const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 			REQUIRES( contextInfoPtr->type == CONTEXT_PKC );
 			REQUIRES( pkcInfo != NULL );
@@ -914,7 +914,9 @@ static int initContextStorage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			   of the subtype data to the type data */
 			if( DATAPTR_ISSET( contextInfoPtr->keyingInfo ) )
 				{
-				convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+				convInfo = DATAPTR_GET_CONV( contextInfoPtr );
+				
+				REQUIRES( convInfo != NULL ); 
 				
 				offset = ptr_diff( convInfo->key, convInfo );
 				ENSURES( !cryptStatusError( offset ) );
@@ -948,7 +950,9 @@ static int initContextStorage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			   of the subtype data to the type data */
 			if( DATAPTR_ISSET( contextInfoPtr->keyingInfo ) )
 				{
-				hashInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+				hashInfo = DATAPTR_GET_HASH( contextInfoPtr );
+				
+				REQUIRES( hashInfo != NULL );
 
 				offset = ptr_diff( hashInfo->hashInfo, hashInfo );
 				ENSURES( !cryptStatusError( offset ) );
@@ -982,8 +986,10 @@ static int initContextStorage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			   of the subtype data to the type data */
 			if( DATAPTR_ISSET( contextInfoPtr->keyingInfo ) )
 				{
-				macInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+				macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 
+				REQUIRES( macInfo != NULL );
+				
 				offset = ptr_diff( macInfo->macInfo, macInfo );
 				ENSURES( !cryptStatusError( offset ) );
 				}
@@ -1007,7 +1013,7 @@ static int initContextStorage( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 			}
 
 		case CONTEXT_PKC:
-			DATAPTR_SET( contextInfoPtr->ctxPKC,
+			DATAPTR_SET( contextInfoPtr->keyingInfo,
 						 ALIGN_CONTEXT_PTR( contextInfoPtr, PKC_INFO ) );
 			break;
 
@@ -1079,7 +1085,7 @@ static int contextMessageFunction( INOUT_PTR TYPECAST( CONTEXT_INFO * ) \
 		/* Perform context-type-specific cleanup */
 		if( contextType == CONTEXT_PKC )
 			{
-			PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+			PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
 
 			assert( pkcInfo != NULL );	/* Warn on error */
 			if( pkcInfo != NULL )
@@ -1298,8 +1304,7 @@ static int contextMessageFunction( INOUT_PTR TYPECAST( CONTEXT_INFO * ) \
 		}
 	if( message == MESSAGE_CTX_GENIV )
 		{
-		const CONV_INFO *convInfo = \
-					DATAPTR_GET( contextInfoPtr->keyingInfo );
+		const CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 		MESSAGE_DATA msgData;
 		BYTE iv[ CRYPT_MAX_IVSIZE + 8 ];
 		int ivSize = capabilityInfoPtr->blockSize;
@@ -1603,7 +1608,7 @@ int createContextFromCapability( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 #endif /* CONFIG_CRYPTO_HW1 || CONFIG_CRYPTO_HW2 */
 	if( contextInfoPtr->type == CONTEXT_PKC )
 		{
-		PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+		PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 		REQUIRES( pkcInfo != NULL );
 
@@ -1635,7 +1640,7 @@ int createContextFromCapability( OUT_HANDLE_OPT CRYPT_CONTEXT *iCryptContext,
 		}
 	if( contextInfoPtr->type == CONTEXT_CONV )
 		{
-		CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+		CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 		REQUIRES( convInfo != NULL );
 

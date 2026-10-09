@@ -17,7 +17,7 @@
 
 /****************************************************************************
 *																			*
-*					base64/PEM/SMIME Processing Functions					*
+*					base64/PEM/SMIME Processing Routines					*
 *																			*
 ****************************************************************************/
 
@@ -576,27 +576,43 @@ int importCert( IN_BUFFER( certObjectLength ) const void *certObject,
 		if( cryptStatusOK( status ) && \
 			baseType != CRYPT_CERTTYPE_CERTREQUEST )
 			{
-			const CRYPT_ALGO_TYPE *sigHashAlgoPtr = 
+			CRYPT_ALGO_TYPE sigHashAlgo;
+			int sigHashParam;
+
 #ifdef USE_CERTREV
-				( baseType == CRYPT_CERTTYPE_CRL ) ? \
-				&certInfoPtr->cCertRev->hashAlgo : 
+			if( baseType == CRYPT_CERTTYPE_CRL )
+				{
+				const CERT_REV_INFO *revInfo = \
+							DATAPTR_GET_REV( certInfoPtr );
+
+				REQUIRES( revInfo != NULL );
+
+				sigHashAlgo = revInfo->hashAlgo;
+				sigHashParam = revInfo->hashParam; 
+				}
+			else
 #endif /* USE_CERTREV */
-				&certInfoPtr->cCertCert->hashAlgo;
-			const int *sigHashSizePtr = 
-#ifdef USE_CERTREV
-				( baseType == CRYPT_CERTTYPE_CRL ) ? \
-				&certInfoPtr->cCertRev->hashParam : 
-#endif /* USE_CERTREV */
-				&certInfoPtr->cCertCert->hashParam;
+				{
+				const CERT_CERT_INFO *certInfo = \
+							DATAPTR_GET_CERT( certInfoPtr );
+
+				ENSURES( baseType == CRYPT_CERTTYPE_CERTIFICATE || \
+						 baseType == CRYPT_CERTTYPE_ATTRIBUTE_CERT );
+
+				REQUIRES( certInfo != NULL );
+
+				sigHashAlgo = certInfo->hashAlgo;
+				sigHashParam = certInfo->hashParam;
+				}
 
 			/* Make sure that the hash algorithm that's indicated inside the
 			   signed data matches what's specified in the unauthenticated 
-			   signature metadata.  See the comment in cert.h for why we do
-			   this.  We report a mismatch as a signature-check failure, 
-			   since it's an indication of someone messing with the 
+			   signature metadata.  See the comment in cert/cert.h for why 
+			   we do this.  We report a mismatch as a signature-check 
+			   failure, since it's an indication of someone messing with the 
 			   signature */
-			if( *sigHashAlgoPtr != algoIDparams.hashAlgo || \
-				*sigHashSizePtr != algoIDparams.hashParam )
+			if( sigHashAlgo != algoIDparams.hashAlgo || \
+				sigHashParam != algoIDparams.hashParam )
 				status = CRYPT_ERROR_SIGNATURE;
 			}
 		if( cryptStatusOK( status ) )

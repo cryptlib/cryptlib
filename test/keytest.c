@@ -16,11 +16,12 @@
   #pragma convert( 0 )
 #endif /* IBM medium iron */
 
-/* Generate test keys for CA and security protocol use.  This enables 
-   various special-case extensions such as extKeyUsages or protocol-specific 
-   AIA entries, as well as using a validity period of 5 years instead of the 
-   usual 1 year to avoid problems when users run the self-test on very old 
-   copies of the code.  The keys generated into /test/keys are:
+/* Generate test keys and certificates for CA and security protocol use.  
+   This enables various special-case extensions such as extKeyUsages or 
+   protocol-specific AIA entries, as well as using a validity period of 5 
+   years instead of the usual 1 year to avoid problems when users run the 
+   self-test on very old copies of the code.  The keys generated into 
+   /test/keys are:
 
 	File define			File			Description
 	-----------			----			-----------
@@ -85,7 +86,9 @@
 	USER_PRIVKEY_FILE	user3.p15		(Via template): User key + 
 										intermediate CA cert + root CA cert,
 										i.e. long certificate chain.
-										
+   Certificates:
+	CRLCERT_FILE		crl_cert1.der	Certificates to add to a CRL in the 
+						crl_cert2.der	CRL tests.
 
    Other keys written by the self-test process (outside of this module) are:
 
@@ -483,6 +486,50 @@ static int createPseudoCertificateFile( void )
 		}
 
 	return( CRYPT_OK );
+	}
+
+/* Create certificates to add to a CRL */
+
+static int createRevokableCertificate( const int certNo )
+	{
+	CRYPT_CONTEXT cryptContext, cryptCAKey;
+	CRYPT_CERTIFICATE cryptCert;
+	BYTE filenameBuffer[ FILENAME_BUFFER_SIZE ];
+	int status;
+
+	/* Load a fixed RSA private key */
+	if( !loadRSAContexts( CRYPT_UNUSED, NULL, &cryptContext ) )
+		return( CRYPT_ERROR_NOTAVAIL );
+
+	/* Get the CA's private key */
+	status = getCAPrivateKey( &cryptCAKey, FALSE );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	/* Create the certificate to be revoked */
+	status = cryptCreateCert( &cryptCert, CRYPT_UNUSED,
+							  CRYPT_CERTTYPE_CERTIFICATE );
+	if( cryptStatusOK( status ) )
+		{
+		status = cryptSetAttribute( cryptCert,
+							CRYPT_CERTINFO_SUBJECTPUBLICKEYINFO, cryptContext );
+		}
+	cryptDestroyContext( cryptContext );
+	if( cryptStatusOK( status ) && \
+		!addCertFields( cryptCert, userCertRequestData, __LINE__ ) )
+		return( CRYPT_ERROR_FAILED );
+	if( cryptStatusOK( status ) )
+		status = cryptSignCert( cryptCert, cryptCAKey );
+	cryptDestroyContext( cryptCAKey );
+	if( cryptStatusError( status ) )
+		return( status );
+
+	filenameFromTemplate( filenameBuffer, CRLCERT_FILE_TEMPLATE, certNo );
+	status = exportCertFile( filenameBuffer, cryptCert, 
+							 CRYPT_CERTFORMAT_CERTIFICATE );
+	cryptDestroyContext( cryptCert );
+
+	return( status );
 	}
 
 /* Build a certificate chain without the root certificate.  This gets quite 
@@ -1079,6 +1126,13 @@ int createTestKeys( void )
 									 CRYPT_CERTFORMAT_CERTCHAIN );
 			cryptDestroyCert( certificate );
 			}
+		}
+	if( cryptStatusOK( status ) )
+		{
+		printf( "done.\nRevokable certificates... " );
+		status = createRevokableCertificate( 1 );
+		if( cryptStatusOK( status ) )
+			status = createRevokableCertificate( 2 );
 		}
 	if( cryptStatusOK( status ) )
 		{

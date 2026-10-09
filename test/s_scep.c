@@ -34,7 +34,7 @@ typedef enum {
 	SCEP_TEST_NONE,				/* No SCEP test type */
 	SCEP_TEST_NORMAL,			/* Standard SCEP test */
 	SCEP_TEST_SIGONLY,			/* Get certificate for sig-only algorithm */
-	SCEP_TEST_CACERT,			/* Get CA cert instead of std.one */
+	SCEP_TEST_CACERT,			/* Explicit CA certificate read */
 	SCEP_TEST_CUSTOMEXT,		/* Add custom extension to request */
 	SCEP_TEST_RENEW,			/* Renew existing certificate */
 	SCEP_TEST_RENEW_SIGONLY,	/* Renew sig-only existing certificate */
@@ -263,6 +263,24 @@ static const CERT_DATA scepRequestData[] = {
 
 	{ CRYPT_ATTRIBUTE_NONE, IS_VOID }
 	};
+static const CERT_DATA scepRequestAltData[] = {
+	/* Identification information */
+	{ CRYPT_CERTINFO_COUNTRYNAME, IS_STRING, 0, TEXT( "NZ" ) },
+	{ CRYPT_CERTINFO_ORGANIZATIONNAME, IS_STRING, 0, TEXT( "Dave's Wetaburgers" ) },
+	{ CRYPT_CERTINFO_ORGANIZATIONALUNITNAME, IS_STRING, 0, TEXT( "Procurement" ) },
+#if ( SCEP_NO == 14 )	
+	/* EJBCA requires that the request CN == SCEP username in its default config */
+	{ CRYPT_CERTINFO_COMMONNAME, IS_STRING, 0, TEXT( EJBCA_USERNAME ) },
+#else
+	{ CRYPT_CERTINFO_COMMONNAME, IS_STRING, 0, TEXT( "Alternative SCEP PKI user" ) },
+#endif /* SCEP_NO == 14 */
+
+	/* Subject altName */
+	{ CRYPT_CERTINFO_RFC822NAME, IS_STRING, 0, TEXT( "altdave@wetas-r-us.com" ) },
+	{ CRYPT_CERTINFO_UNIFORMRESOURCEIDENTIFIER, IS_STRING, 0, TEXT( "http://www.wetas-r-us.com" ) },
+
+	{ CRYPT_ATTRIBUTE_NONE, IS_VOID }
+	};
 
 /* PKI user data to authorise the issuing of the various certs */
 
@@ -272,6 +290,15 @@ static const CERT_DATA scepPkiUserData[] = {
 	{ CRYPT_CERTINFO_ORGANIZATIONNAME, IS_STRING, 0, TEXT( "Dave's Wetaburgers" ) },
 	{ CRYPT_CERTINFO_ORGANIZATIONALUNITNAME, IS_STRING, 0, TEXT( "Procurement" ) },
 	{ CRYPT_CERTINFO_COMMONNAME, IS_STRING, 0, TEXT( "Test SCEP PKI user" ) },
+
+	{ CRYPT_ATTRIBUTE_NONE, IS_VOID }
+	};
+static const CERT_DATA scepPkiUserAltData[] = {
+	/* Identification information */
+	{ CRYPT_CERTINFO_COUNTRYNAME, IS_STRING, 0, TEXT( "NZ" ) },
+	{ CRYPT_CERTINFO_ORGANIZATIONNAME, IS_STRING, 0, TEXT( "Dave's Wetaburgers" ) },
+	{ CRYPT_CERTINFO_ORGANIZATIONALUNITNAME, IS_STRING, 0, TEXT( "Procurement" ) },
+	{ CRYPT_CERTINFO_COMMONNAME, IS_STRING, 0, TEXT( "Alternative SCEP PKI user" ) },
 
 	{ CRYPT_ATTRIBUTE_NONE, IS_VOID }
 	};
@@ -558,6 +585,7 @@ int pkiServerInit( CRYPT_CONTEXT *cryptPrivateKey,
 				   const CERT_DATA *pkiUserAltData, 
 				   const CERT_DATA *pkiUserCAData, 
 				   const CERT_DATA *pkiUserRAData, 
+				   const BOOLEAN noInitPkiUsers,
 				   const char *protocolName )
 	{
 	const BOOLEAN isSCEP = !strcmp( protocolName, "SCEP" ) ? TRUE : FALSE;
@@ -602,19 +630,24 @@ int pkiServerInit( CRYPT_CONTEXT *cryptPrivateKey,
 		return( FALSE );
 		}
 
-	/* Create the EE and CA PKI users */
-	puts( "Creating PKI users..." );
-	if( !addPKIUser( *cryptCertStore, pkiUserData, isSCEP, !isSCEP ) )
-		return( FALSE );
-	if( pkiUserAltData != NULL && \
-		!addPKIUser( *cryptCertStore, pkiUserAltData, isSCEP, FALSE ) )
-		return( FALSE );
-	if( pkiUserCAData != NULL && \
-		!addPKIUser( *cryptCertStore, pkiUserCAData, isSCEP, FALSE ) )
-		return( FALSE );
-	if( pkiUserRAData != NULL && \
-		!addPKIUser( *cryptCertStore, pkiUserRAData, isSCEP, FALSE ) )
-		return( FALSE );
+	/* Create the EE and CA PKI users if neccessary */
+	if( !noInitPkiUsers )
+		{
+		puts( "Creating PKI users..." );
+		if( !addPKIUser( *cryptCertStore, pkiUserData, isSCEP, !isSCEP ) )
+			return( FALSE );
+		if( pkiUserAltData != NULL && \
+			!addPKIUser( *cryptCertStore, pkiUserAltData, isSCEP, FALSE ) )
+			return( FALSE );
+		if( pkiUserCAData != NULL && \
+			!addPKIUser( *cryptCertStore, pkiUserCAData, isSCEP, FALSE ) )
+			return( FALSE );
+		if( pkiUserRAData != NULL && \
+			!addPKIUser( *cryptCertStore, pkiUserRAData, isSCEP, FALSE ) )
+			return( FALSE );
+		}
+	else
+		puts( "Reusing existing PKI user data." );
 
 	/* Get the CA's private key */
 	status = getPrivateKey( cryptPrivateKey, keyFileName,
@@ -664,7 +697,8 @@ static int getScepCACert( const C_STR caCertUrl,
 
 static int connectSCEP( const BOOLEAN localSession,
 						const SCEP_TEST_TYPE testType,
-						const CRYPT_ALGO_TYPE cryptAlgo )
+						const CRYPT_ALGO_TYPE cryptAlgo,
+						const BOOLEAN useAltUser )
 	{
 	CRYPT_SESSION cryptSession;
 	CRYPT_CERTIFICATE cryptRequest DUMMY_INIT, cryptResponse;
@@ -675,6 +709,9 @@ static int connectSCEP( const BOOLEAN localSession,
 	C_CHR userID[ 64 ], password[ 64 ];
 	const C_STR userPtr;
 	const C_STR passwordPtr;
+	const C_STR pkiUserID;
+	const CERT_DATA *scepUserData;
+	int scepUserInFileNo = -1, scepUserOutFileNo;
 	BYTE caKeyFingerprint[ 20 ];
 	int caKeyFingerprintSize = 0;
 #else
@@ -682,11 +719,6 @@ static int connectSCEP( const BOOLEAN localSession,
 	const C_STR passwordPtr = scepInfo[ SCEP_NO ].password;
 #endif /* cryptlib SCEP server */
 	char filenameBuffer[ FILENAME_BUFFER_SIZE ];
-#if defined( CONFIG_FAULTS ) 
-	const BOOLEAN isErrorTest = TRUE;
-#else
-	const BOOLEAN isErrorTest = FALSE;
-#endif /* CONFIG_FAULTS */
 	BOOLEAN addCACert = ( testType == SCEP_TEST_CACERT ) ? FALSE : TRUE;
 #ifdef SCEP_BROKEN_CA_CERT
 	int complianceValue;
@@ -703,6 +735,8 @@ static int connectSCEP( const BOOLEAN localSession,
 		if( cryptAlgo != CRYPT_ALGO_RSA )
 			printf( "\n  and signature-only algorithm" );
 		}
+	if( useAltUser )
+		printf( " and alternative PKI user" );
 	printf( "...\n" );
 
 	/* Wait for the server to finish initialising */
@@ -725,6 +759,74 @@ static int connectSCEP( const BOOLEAN localSession,
 		return( CRYPT_ERROR_NOTAVAIL );
 		}
 #endif /* cryptlib SCEP server */
+	switch( testType )
+		{
+		case SCEP_TEST_NORMAL:
+#if ( SCEP_NO == 1 )
+			if( useAltUser )
+				{
+				pkiUserID = TEXT( "Alternative SCEP PKI user" );
+				scepUserOutFileNo = 3;
+				scepUserData = scepRequestAltData;
+				}
+			else
+				{
+				pkiUserID = TEXT( "Test SCEP PKI user" );
+				scepUserOutFileNo = 1;
+				scepUserData = scepRequestData;
+				}
+#else
+			scepUserOutFileNo = 1;
+#endif /* cryptlib SCEP server */
+			break;
+
+		case SCEP_TEST_RENEW:
+#if ( SCEP_NO == 1 )
+			if( useAltUser )
+				{
+				/* This uses the alt user's key to (try to) request a 
+				   certificate for the main user */
+				pkiUserID = TEXT( "Test SCEP PKI user" );
+				scepUserData = scepRequestData;
+				scepUserInFileNo = 3;
+				scepUserOutFileNo = 4;
+				}
+			else
+				{
+				pkiUserID = TEXT( "Test SCEP PKI user" );
+				scepUserData = scepRequestData;
+				scepUserInFileNo = 1;
+				scepUserOutFileNo = 2;
+				}
+#else
+			scepUserInFileNo = 1;
+			scepUserOutFileNo = 2;
+#endif /* cryptlib SCEP server */
+			break;
+	
+		case SCEP_TEST_SIGONLY:
+			pkiUserID = TEXT( "Test SCEP PKI user" );
+			scepUserData = scepRequestData;
+			scepUserOutFileNo = 5;
+			break;
+
+		case SCEP_TEST_RENEW_SIGONLY:
+			pkiUserID = TEXT( "Test SCEP PKI user" );
+			scepUserData = scepRequestData;
+			scepUserInFileNo = 5;
+			scepUserOutFileNo = 6;
+			break;
+		
+		case SCEP_TEST_CACERT:
+			/* Standard test with explicit CA certificate read */
+			pkiUserID = TEXT( "Test SCEP PKI user" );
+			scepUserData = scepRequestData;
+			scepUserOutFileNo = 7;
+			break;
+		
+		default:
+			assert( 0 );
+		}
 
 #ifdef SCEP_BROKEN_CA_CERT
 	/* Some SCEP server's CA certificates are broken so we have to turn 
@@ -766,8 +868,7 @@ static int connectSCEP( const BOOLEAN localSession,
 	   passwords so we need to read the user ID and password information
 	   before we can perform any operations */
 #if ( SCEP_NO == 1 )
-	status = pkiGetUserInfo( userID, password, NULL,
-							 TEXT( "Test SCEP PKI user" ) );
+	status = pkiGetUserInfo( userID, password, NULL, pkiUserID );
 	if( !status || status == CRYPT_ERROR_NOTAVAIL )
 		{
 		if( addCACert )
@@ -786,7 +887,7 @@ static int connectSCEP( const BOOLEAN localSession,
 		testType == SCEP_TEST_RENEW_SIGONLY )
 		{
 		filenameFromTemplate( filenameBuffer, SCEP_PRIVKEY_FILE_TEMPLATE, 
-							  ( testType == SCEP_TEST_RENEW ) ? 1 : 2 );
+							  scepUserInFileNo );
 		status = getPrivateKey( &cryptRenewalKey, filenameBuffer, 
 								USER_PRIVKEY_LABEL, TEST_PRIVKEY_PASSWORD );
 		if( cryptStatusError( status ) )
@@ -843,7 +944,7 @@ static int connectSCEP( const BOOLEAN localSession,
 	/* Make sure that the SCEP client's checking for invalid transactionIDs
 	   works (this is an obscure problem caused by the SCEP protocol, see 
 	   the SCEP client code comments for more information) */
-	if( testType == SCEP_TEST_NORMAL )
+	if( testType == SCEP_TEST_NORMAL && !useAltUser )
 		{
 		status = cryptSetAttributeString( cryptSession,
 										  CRYPT_SESSINFO_USERNAME,
@@ -924,7 +1025,7 @@ static int connectSCEP( const BOOLEAN localSession,
 									cryptContext );
 		}
 	if( cryptStatusOK( status ) && \
-		!addCertFields( cryptRequest, scepRequestData, __LINE__ ) )
+		!addCertFields( cryptRequest, scepUserData, __LINE__ ) )
 		status = CRYPT_ERROR_FAILED;
 	if( cryptStatusOK( status ) && ( testType == SCEP_TEST_CUSTOMEXT ) )
 		{
@@ -993,6 +1094,7 @@ static int connectSCEP( const BOOLEAN localSession,
 		}
 	if( cryptStatusError( status ) )
 		{
+		cryptDestroyContext( cryptContext );
 		printExtError( cryptSession, "Attempt to activate SCEP client "
 					   "session", status, __LINE__ );
 #if defined( CONFIG_FAULTS )
@@ -1012,6 +1114,16 @@ static int connectSCEP( const BOOLEAN localSession,
 			  "response is correct).\n" );
 		return( TRUE );
 #endif /* CONFIG_FAULTS */
+
+		if( testType == SCEP_TEST_RENEW && useAltUser )
+			{
+			/* These tests are supposed to fail, so if this happens then the 
+			   overall test has succeeded */
+			fputs( "  (This test checks error handling, so the "
+				   "failure response is correct).\n\n", outputStream );
+			cryptDestroySession( cryptSession );
+			return( TRUE );
+			}
 		if( isServerDown( cryptSession, status ) )
 			{
 			fputs( "  (Server could be down, faking it and "
@@ -1029,13 +1141,20 @@ static int connectSCEP( const BOOLEAN localSession,
 		return( FALSE );
 		}
 #if defined( CONFIG_FAULTS )
-	if( expectedFaultType != FAULT_NONE )
-		{
-		printf( "Expected fault error %d but got success.\nHit a key...",
-				expectedFaultStatus );
-		( void ) getchar();
-		}
+		if( expectedFaultType != FAULT_NONE )
+			{
+			printf( "Expected fault error %d but got success.\nHit a key...",
+					expectedFaultStatus );
+			( void ) getchar();
+			}
 #endif /* CONFIG_FAULTS */
+		if( testType == SCEP_TEST_RENEW && useAltUser )
+			{
+			cryptDestroySession( cryptSession );
+			fprintf( outputStream, "Test type %d should have failed but "
+					 "succeeded,\nline %d.\n", testType, __LINE__  );
+			return( FALSE );
+			}
 
 #ifdef SCEP_BROKEN_CA_CERT
 	/* Restore normal certificate checking */
@@ -1096,17 +1215,17 @@ static int connectSCEP( const BOOLEAN localSession,
 		int attributeLength, i;
 
 		for( i = 0; 
-			 scepRequestData[ i ].type != CRYPT_ATTRIBUTE_NONE; 
+			 scepUserData[ i ].type != CRYPT_ATTRIBUTE_NONE; 
 			 i++ )
 			{
-			if( scepRequestData[ i ].componentType != IS_STRING )
+			if( scepUserData[ i ].componentType != IS_STRING )
 				continue;
 			status = cryptGetAttributeString( cryptResponse, 
-											  scepRequestData[ i ].type, 
+											  scepUserData[ i ].type, 
 											  attributeData, 
 											  &attributeLength );
 			if( cryptStatusOK( status ) && \
-				memcmp( scepRequestData[ i ].stringValue, attributeData,
+				memcmp( scepUserData[ i ].stringValue, attributeData,
 						attributeLength ) )
 				status = CRYPT_ERROR_BADDATA;
 			if( cryptStatusError( status ) )
@@ -1122,10 +1241,7 @@ static int connectSCEP( const BOOLEAN localSession,
 	   initialisation test where the certificate is reused to sign the
 	   message in the renewal test */
 	filenameFromTemplate( filenameBuffer, SCEP_PRIVKEY_FILE_TEMPLATE, 
-						  ( testType == SCEP_TEST_NORMAL ) ? 1 : \
-						  ( testType == SCEP_TEST_SIGONLY ) ? 2 : \
-						  ( testType == SCEP_TEST_RENEW ) ? 3 : \
-						  ( testType == SCEP_TEST_RENEW_SIGONLY ) ? 4 : 5 );
+						  scepUserOutFileNo );
 	status = cryptKeysetOpen( &cryptKeyset, CRYPT_UNUSED,
 							  CRYPT_KEYSET_FILE, filenameBuffer,
 							  CRYPT_KEYOPT_CREATE );
@@ -1157,12 +1273,12 @@ static int connectSCEP( const BOOLEAN localSession,
 
 int testSessionSCEP( void )
 	{
-	return( connectSCEP( FALSE, SCEP_TEST_NORMAL, CRYPT_ALGO_RSA ) );
+	return( connectSCEP( FALSE, SCEP_TEST_NORMAL, CRYPT_ALGO_RSA, FALSE ) );
 	}
 
 int testSessionSCEPCACert( void )
 	{
-	return( connectSCEP( FALSE, SCEP_TEST_CACERT, CRYPT_ALGO_RSA ) );
+	return( connectSCEP( FALSE, SCEP_TEST_CACERT, CRYPT_ALGO_RSA, FALSE ) );
 	}
 
 enum { MUTEX_NONE, MUTEX_ACQUIRE, MUTEX_ACQUIRE_REACQUIRE };
@@ -1205,8 +1321,8 @@ static int scepServer( const int mutexBehaviour,
 	filenameFromTemplate( filenameBuffer, SCEPCA_PRIVKEY_FILE_TEMPLATE, 
 						  ( cryptAlgo == CRYPT_ALGO_RSA ) ? 1 : 2 );
 	if( !pkiServerInit( &cryptCAKey, &cryptCertStore, filenameBuffer,
-						USER_PRIVKEY_LABEL, scepPkiUserData, NULL, NULL, 
-						NULL, "SCEP" ) )
+						USER_PRIVKEY_LABEL, scepPkiUserData, 
+						scepPkiUserAltData, NULL, NULL, FALSE, "SCEP" ) )
 		return( FALSE );
 
 	/* Create the SCEP session and add the CA key and certificate store */
@@ -1308,7 +1424,8 @@ int testSessionSCEPServer( void )
 	}
 
 static int scepClientServer( const SCEP_TEST_TYPE testType,
-							 const CRYPT_ALGO_TYPE cryptAlgo )
+							 const CRYPT_ALGO_TYPE cryptAlgo,
+							 const BOOLEAN useAltUser )
 	{
 	THREAD_HANDLE hThread;
 #ifdef __WINDOWS__
@@ -1344,7 +1461,7 @@ static int scepClientServer( const SCEP_TEST_TYPE testType,
 	THREAD_SLEEP( 1000 );
 
 	/* Connect to the local server */
-	status = connectSCEP( TRUE, testType, cryptAlgo );
+	status = connectSCEP( TRUE, testType, cryptAlgo, useAltUser );
 	waitForThread( hThread );
 	destroyMutex();
 	return( status );
@@ -1352,7 +1469,12 @@ static int scepClientServer( const SCEP_TEST_TYPE testType,
 
 int testSessionSCEPClientServer( void )
 	{
-	return( scepClientServer( SCEP_TEST_NORMAL, CRYPT_ALGO_RSA ) );
+	int status;
+
+	status = scepClientServer( SCEP_TEST_NORMAL, CRYPT_ALGO_RSA, FALSE );
+	if( status != TRUE )
+		return( status );
+	return( scepClientServer( SCEP_TEST_NORMAL, CRYPT_ALGO_RSA, TRUE ) );
 	}
 
 int testSessionSCEPSigonlyClientServer( void )
@@ -1364,7 +1486,7 @@ int testSessionSCEPSigonlyClientServer( void )
 		return( TRUE );
 		}
 
-	return( scepClientServer( SCEP_TEST_SIGONLY, CRYPT_ALGO_ECDSA ) );
+	return( scepClientServer( SCEP_TEST_SIGONLY, CRYPT_ALGO_ECDSA, FALSE ) );
 	}
 
 int testSessionSCEPCustomExtClientServer( void )
@@ -1388,7 +1510,7 @@ int testSessionSCEPCustomExtClientServer( void )
 		puts( "Couldn't enable use of custom attributes for SCEP test." );
 		return( FALSE );
 		}
-	status = scepClientServer( SCEP_TEST_CUSTOMEXT, CRYPT_ALGO_RSA );
+	status = scepClientServer( SCEP_TEST_CUSTOMEXT, CRYPT_ALGO_RSA, FALSE );
 	cryptSetAttribute( CRYPT_UNUSED, 
 					   CRYPT_OPTION_CERT_SIGNUNRECOGNISEDATTRIBUTES, oldValue );
 
@@ -1406,7 +1528,7 @@ int testSessionSCEPSHA2ClientServer( void )
 		return( FALSE );
 	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_ENCR_HASH,
 					   CRYPT_ALGO_SHA2 );
-	status = scepClientServer( SCEP_TEST_NORMAL, CRYPT_ALGO_RSA );
+	status = scepClientServer( SCEP_TEST_NORMAL, CRYPT_ALGO_RSA, FALSE );
 	cryptSetAttribute( CRYPT_UNUSED, CRYPT_OPTION_ENCR_HASH, value );
 
 	return( status );
@@ -1414,12 +1536,17 @@ int testSessionSCEPSHA2ClientServer( void )
 
 int testSessionSCEPCACertClientServer( void )
 	{
-	return( scepClientServer( SCEP_TEST_CACERT, CRYPT_ALGO_RSA ) );
+	return( scepClientServer( SCEP_TEST_CACERT, CRYPT_ALGO_RSA, FALSE ) );
 	}
 
 int testSessionSCEPRenewClientServer( void )
 	{
-	return( scepClientServer( SCEP_TEST_RENEW, CRYPT_ALGO_RSA ) );
+	int status;
+
+	status = scepClientServer( SCEP_TEST_RENEW, CRYPT_ALGO_RSA, FALSE );
+	if( status != TRUE )
+		return( status );
+	return( scepClientServer( SCEP_TEST_RENEW, CRYPT_ALGO_RSA, TRUE ) );
 	}
 
 int testSessionSCEPRenewSigonlyClientServer( void )
@@ -1431,7 +1558,7 @@ int testSessionSCEPRenewSigonlyClientServer( void )
 		return( TRUE );
 		}
 
-	return( scepClientServer( SCEP_TEST_RENEW_SIGONLY, CRYPT_ALGO_ECDSA ) );
+	return( scepClientServer( SCEP_TEST_RENEW_SIGONLY, CRYPT_ALGO_ECDSA, FALSE ) );
 	}
 
 int testSessionSCEPClientServerDebugCheck( void )

@@ -162,6 +162,7 @@ static int getRandomFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 							  INOUT_PTR_OPT \
 								MESSAGE_FUNCTION_EXTINFO *messageExtInfo )
 	{
+	SYSTEMDEV_INFO *systemInfo = DATAPTR_GET( deviceInfo->deviceInfo );
 	void *randomInfoPtr;
 	int refCount, status;
 
@@ -172,6 +173,7 @@ static int getRandomFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 	REQUIRES( deviceInfo->type == CRYPT_DEVICE_NONE );
 			  /* Used to denote the system device */
 	REQUIRES( isShortIntegerRangeNZ( length ) );
+	REQUIRES( systemInfo != NULL );
 
 	/* Clear the return value and make sure that we fail the FIPS 140 tests
 	   on the output if there's a problem */
@@ -180,7 +182,7 @@ static int getRandomFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 
 	/* Now that we've checked everything, set up the various values that
 	   we'll need */
-	randomInfoPtr = DATAPTR_GET( deviceInfo->deviceSystem->randomInfo );
+	randomInfoPtr = DATAPTR_GET( systemInfo->randomInfo );
 	REQUIRES( randomInfoPtr != NULL );
 
 	/* If the system device is already unlocked (which can happen if this 
@@ -236,7 +238,7 @@ static int getRandomFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
    strictly necessary.
 
    This simple generator divides the nonce state into a public section of
-   the same size as the hash output and a private section that contains 64
+   the same size as the hash output and a private section that contains 128
    bits of data from the crypto RNG, which influences the public section.
    The public and private sections are repeatedly hashed to produce the
    required amount of output.  Note that this leaks a small amount of
@@ -264,7 +266,7 @@ static int getNonce( INOUT_PTR DEVICE_INFO *deviceInfo,
 					 OUT_BUFFER_FIXED( dataLength ) void *data, 
 					 IN_LENGTH_SHORT const int dataLength )
 	{
-	SYSTEMDEV_INFO *systemInfo = deviceInfo->deviceSystem;
+	SYSTEMDEV_INFO *systemInfo = DATAPTR_GET( deviceInfo->deviceInfo );
 	HASH_FUNCTION_ATOMIC nonceHashFunction;
 	BYTE *noncePtr = data;
 	int nonceLength, status, LOOP_ITERATOR;
@@ -276,6 +278,7 @@ static int getNonce( INOUT_PTR DEVICE_INFO *deviceInfo,
 	REQUIRES( deviceInfo->type == CRYPT_DEVICE_NONE );
 			  /* Used to denote the system device */
 	REQUIRES( isShortIntegerRangeNZ( dataLength ) );
+	REQUIRES( systemInfo != NULL );
 
 	/* Handling of CRYPT_IATTRIBUTE_RANDOM_NONCE gets complicated because 
 	   it may trigger an entropy poll the first time that it's called, for 
@@ -329,7 +332,7 @@ static int getNonce( INOUT_PTR DEVICE_INFO *deviceInfo,
 		return( status );
 
 	/* If the nonce generator hasn't been initialised yet we set up the
-	   hashing and get 64 bits of private nonce state.  What to do if the
+	   hashing and get 128 bits of private nonce state.  What to do if the
 	   attempt to initialise the state fails is somewhat debatable.  Since
 	   nonces are only ever used in protocols alongside crypto keys and an
 	   RNG failure will be detected when the key is generated we can
@@ -353,7 +356,7 @@ static int getNonce( INOUT_PTR DEVICE_INFO *deviceInfo,
 		MESSAGE_DATA msgData;
 		int hashSize;
 
-		/* Get the 64-bit private portion of the nonce data, which follows
+		/* Get the 128-bit private portion of the nonce data, which follows
 		   the public portion at the start of the buffer.  Note that we
 		   have to set the nonceHashSize after we get the random data since
 		   the device information is sanity-checked when we send the get-
@@ -507,12 +510,14 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 						 STDC_UNUSED const char *name,
 						 STDC_UNUSED const int nameLength )
 	{
+	SYSTEMDEV_INFO *systemInfo = DATAPTR_GET( deviceInfo->deviceInfo );
 	void *randomInfoPtr;
 	int status;
 
 	assert( isWritePtr( deviceInfo, sizeof( DEVICE_INFO ) ) );
 
 	REQUIRES( name == NULL && nameLength == 0 );
+	REQUIRES( systemInfo != NULL );
 
 	/* Set up the capability information for this device */
 	status = initCapabilities();
@@ -526,7 +531,7 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 	if( cryptStatusError( status ) )
 		return( status );
 	ENSURES( checkBuiltinStorage( BUILTIN_STORAGE_RANDOM_INFO ) );
-	DATAPTR_SET( deviceInfo->deviceSystem->randomInfo, randomInfoPtr );
+	DATAPTR_SET( systemInfo->randomInfo, randomInfoPtr );
 
 	/* Complete the initialisation and mark the device as active */
 	deviceInfo->label = "cryptlib system device";
@@ -544,14 +549,20 @@ static int initFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 STDC_NONNULL_ARG( ( 1 ) ) \
 static void shutdownFunction( INOUT_PTR DEVICE_INFO *deviceInfo )
 	{
-	void *randomInfoPtr = DATAPTR_GET( deviceInfo->deviceSystem->randomInfo );
+	SYSTEMDEV_INFO *systemInfo = DATAPTR_GET( deviceInfo->deviceInfo );
+	void *randomInfoPtr;
 
 	assert( isWritePtr( deviceInfo, sizeof( DEVICE_INFO ) ) );
 
+	REQUIRES_V( systemInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	randomInfoPtr = DATAPTR_GET( systemInfo->randomInfo );
 	REQUIRES_V( randomInfoPtr != NULL );
 
 	endRandomInfo( randomInfoPtr );
-	DATAPTR_SET( deviceInfo->deviceSystem->randomInfo, NULL );
+	DATAPTR_SET( systemInfo->randomInfo, NULL );
 	}
 
 /* Handle device control functions */
@@ -564,6 +575,7 @@ static int controlFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 							INOUT_PTR_OPT \
 								MESSAGE_FUNCTION_EXTINFO *messageExtInfo )
 	{
+	SYSTEMDEV_INFO *systemInfo = DATAPTR_GET( deviceInfo->deviceInfo );
 	void *randomInfoPtr;
 	int refCount, status;
 
@@ -590,12 +602,13 @@ static int controlFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 			  ( type == CRYPT_IATTRIBUTE_ENTROPY_QUALITY && \
 				( data == NULL && isShortIntegerRange( dataLength ) ) ) );
 	REQUIRES( type == CRYPT_IATTRIBUTE_TIME || messageExtInfo != NULL );
+	REQUIRES( systemInfo != NULL );
 
 	/* Now that we've checked everything, set up the various values that
 	   we'll need.  Note that we have to get the random info pointer now
 	   rather than further down where it's used because the system object
 	   is unlocked at that point */
-	randomInfoPtr = DATAPTR_GET( deviceInfo->deviceSystem->randomInfo );
+	randomInfoPtr = DATAPTR_GET( systemInfo->randomInfo );
 	REQUIRES( randomInfoPtr != NULL );
 
 	/* Handle high-reliability time */

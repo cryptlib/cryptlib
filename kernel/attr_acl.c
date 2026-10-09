@@ -3901,7 +3901,7 @@ static const ATTRIBUTE_ACL sessionACL[] = {
 	MKACL_N(	/* CMP protocol options */
 		CRYPT_SESSINFO_CMP_OPTIONS,
 		ST_NONE, ST_NONE, ST_SESS_CMP | ST_SESS_CMP_SVR, 
-		MKPERM_TLS( Rxx_RWx ),
+		MKPERM_CMP( Rxx_RWx ),
 		ROUTE( OBJECT_TYPE_SESSION ),
 		RANGE( CRYPT_CMPOPTION_NONE, CRYPT_CMPOPTION_MAX ) ),
 
@@ -4414,6 +4414,11 @@ static const ATTRIBUTE_ACL internalACL[] = {
 		ST_CERT_OCSP_RESP, ST_NONE, ST_NONE, 
 		MKPERM_INT_CERTREV( xxx_xWx ),
 		ROUTE( OBJECT_TYPE_CERTIFICATE ), &objectCertOCSPRequest ),
+	MKACL_O(	/* Cert: OCSP resp.info checked against OCSP req.*/
+		CRYPT_IATTRIBUTE_OCSPRESPONSE,
+		ST_CERT_OCSP_REQ, ST_NONE, ST_NONE, 
+		MKPERM_INT_CERTREV( xWx_xxx ),
+		ROUTE( OBJECT_TYPE_CERTIFICATE ), &objectCertOCSPResponse ),
 	MKACL_O_EX(	/* Cert: CRMF rev.request added to CRL */
 		/* This is marked as a trigger attribute since it's used to create a
 		   CRL template from a CRMF request (i.e. to turn a CRMF revocation
@@ -4440,11 +4445,6 @@ static const ATTRIBUTE_ACL internalACL[] = {
 		ST_CERT_REQ_CERT, ST_NONE, ST_NONE, 
 		MKPERM_INT_CERTREQ( RWx_xxx ), 
 		ROUTE( OBJECT_TYPE_CERTIFICATE ) ),
-	MKACL_S(	/* Cert: Authorising cert ID for a cert/rev.request */
-		CRYPT_IATTRIBUTE_AUTHCERTID,
-		ST_CERT_REQ_CERT | ST_CERT_REQ_REV, ST_NONE, ST_NONE, 
-		MKPERM_INT_CERTREQ( RWx_xxx ),
-		ROUTE( OBJECT_TYPE_CERTIFICATE ), RANGE( 20, 20 ) ),
 	MKACL_S(	/* Cert: ESSCertID */
 		CRYPT_IATTRIBUTE_ESSCERTID,
 		ST_CERT_CERT | ST_CERT_CERTCHAIN, ST_NONE, ST_NONE, 

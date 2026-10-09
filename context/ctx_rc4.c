@@ -343,7 +343,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					  INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					  IN_LENGTH int noBytes )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtrDynamic( buffer, noBytes ) );
@@ -381,7 +381,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					IN_BUFFER( keyLength ) const void *key, 
 					IN_LENGTH_SHORT const int keyLength )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isReadPtrDynamic( key, keyLength ) );

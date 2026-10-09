@@ -37,7 +37,7 @@
 
 static const OBJECT_INFO OBJECT_INFO_TEMPLATE = {
 	OBJECT_TYPE_NONE, SUBTYPE_NONE,	/* Type, subtype */
-	DATAPTR_INIT, 0,			/* Object data and size */
+	DATAPTR_INIT, SAFEINT_INIT,	/* Object data and size */
 	SAFE_FLAGS_INIT( OBJECT_FLAG_INTERNAL | OBJECT_FLAG_NOTINITED ),	
 								/* Flags */
 	0,							/* Action flags */
@@ -144,7 +144,8 @@ int initObjects( void )
 					   "Object table param" );
 	static_assert_opt( DATAPTR_GET( OBJECT_INFO_TEMPLATE.objectPtr ) == NULL, \
 					   "Object table param" );
-	static_assert_opt( OBJECT_INFO_TEMPLATE.objectSize == 0, \
+	static_assert_opt( OBJECT_INFO_TEMPLATE.objectSize.intValue == 0 && \
+					   OBJECT_INFO_TEMPLATE.objectSize.intCheck == ~0, \
 					   "Object table param" );
 	static_assert_opt( CHECK_FLAGS( OBJECT_INFO_TEMPLATE.flags, \
 									OBJECT_FLAG_NONE, OBJECT_FLAG_MAX ), \
@@ -247,7 +248,7 @@ int destroyObjectData( IN_HANDLE const int objectHandle )
 	OBJECT_INFO *objectTable = getSystemStorage( SYSTEM_STORAGE_OBJECT_TABLE );
 	OBJECT_INFO *objectInfoPtr;
 	void *objectPtr;
-	int status = CRYPT_OK;
+	int objectSize, status = CRYPT_OK;
 
 	/* Precondition: It's a valid object */
 	REQUIRES( checkBuiltinStorage( SYSTEM_STORAGE_KRNLDATA ) );
@@ -257,10 +258,11 @@ int destroyObjectData( IN_HANDLE const int objectHandle )
 	objectInfoPtr = &objectTable[ objectHandle ];
 	REQUIRES( sanityCheckObject( objectInfoPtr ) );
 	objectPtr = DATAPTR_GET( objectInfoPtr->objectPtr );
+	objectSize = SAFEINT_GET( objectInfoPtr->objectSize );
 
 	/* Inner precondition: There's valid object data present */
 	REQUIRES( objectPtr != NULL );
-	REQUIRES( isBufsizeRangeNZ( objectInfoPtr->objectSize ) );
+	REQUIRES( isIntegerRangeMin( objectSize, 32 ) );
 
 	/* Destroy the object's data and clear the object table entry */
 	if( TEST_FLAG( objectInfoPtr->flags, OBJECT_FLAG_SECUREMALLOC ) )
@@ -270,8 +272,8 @@ int destroyObjectData( IN_HANDLE const int objectHandle )
 	else
 		{
 		/* Mors ultima linea rerum est */
-		REQUIRES( isIntegerRangeNZ( objectInfoPtr->objectSize ) ); 
-		zeroise( objectPtr, objectInfoPtr->objectSize );
+		REQUIRES( isIntegerRangeMin( objectSize, 32 ) ); 
+		zeroise( objectPtr, objectSize );
 		if( TEST_FLAG( objectInfoPtr->flags, OBJECT_FLAG_STATICALLOC ) )
 			{
 			MUTEX_LOCK( allocation );
@@ -872,7 +874,7 @@ int krnlCreateObject( OUT_HANDLE_OPT int *objectHandle,
 	REQUIRES( isIntegerRangeNZ( objectDataSize ) ); 
 	memset( *objectDataPtr, 0, objectDataSize );
 	DATAPTR_SET( objectInfo.objectPtr, *objectDataPtr );
-	objectInfo.objectSize = objectDataSize;
+	SAFEINT_SET( objectInfo.objectSize, objectDataSize );
 	if( isStaticAlloc )
 		SET_FLAG( objectInfo.flags, OBJECT_FLAG_STATICALLOC );
 	else
@@ -992,8 +994,10 @@ cleanup:
 			}
 		else
 			{
-			REQUIRES( isIntegerRangeNZ( objectInfo.objectSize ) ); 
-			zeroise( objectPtr, objectInfo.objectSize );
+			const int objectSize = SAFEINT_GET( objectInfo.objectSize );
+			
+			REQUIRES( isIntegerRangeMin( objectSize, 32 ) ); 
+			zeroise( objectPtr, objectSize );
 			if( TEST_FLAG( objectInfo.flags, OBJECT_FLAG_STATICALLOC ) )
 				{
 				int localStatus;

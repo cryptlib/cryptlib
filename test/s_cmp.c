@@ -21,6 +21,13 @@
   #include "misc/fault.h"
 #endif /* !NDEBUG */
 
+/* Define the following to TRUE to reuse existing PKI users rather than 
+   creating new ones on each run.  Without this skipping directly to later 
+   CMP operations in the test will fail because the authorising PKI users 
+   are regenerated on each run */
+
+#define REUSE_PKIUSER_FLAG		FALSE
+
 /* If we're running the test with a crypto device, we have to set an extended
    timeout because of the long time it takes many devices to generate keys */
 
@@ -498,6 +505,7 @@ static int createCmpNewKeyRequest( const CERT_DATA *requestData,
 	}
 
 static int createCmpRequest( const CERT_DATA *requestData,
+							 const CRYPT_REQUESTTYPE_TYPE requestType,
 							 const CRYPT_CONTEXT privateKey,
 							 const CRYPT_ALGO_TYPE cryptAlgo,
 							 const BOOLEAN useFixedKey,
@@ -584,17 +592,16 @@ static int createCmpRevRequest( const CRYPT_CERTIFICATE cryptCert )
 static int createCmpSession( const CRYPT_CONTEXT cryptCACert,
 							 const C_STR server, const C_STR user,
 							 const C_STR password,
+							 const CRYPT_REQUESTTYPE_TYPE requestType,
 							 const CRYPT_CONTEXT privateKey,
-							 const BOOLEAN isRevocation,
-							 const BOOLEAN isUpdate,
-							 const BOOLEAN isPKIBoot,
 							 const int options,
 							 const CRYPT_KEYSET pnpPkiKeyset )
 	{
 	CRYPT_SESSION cryptSession;
 	int status;
 
-	assert( cryptCACert == CRYPT_UNUSED || !isPKIBoot );
+	assert( cryptCACert == CRYPT_UNUSED || \
+			requestType != CRYPT_REQUESTTYPE_PKIBOOT );
 	assert( ( privateKey != CRYPT_UNUSED ) || \
 			( user != NULL && password != NULL ) );
 
@@ -613,6 +620,15 @@ static int createCmpSession( const CRYPT_CONTEXT cryptCACert,
 	if( !setLocalConnect( cryptSession, 80 ) )
 		return( FALSE );
 #endif /* SERVER_IS_CRYPTLIB */
+	status = cryptSetAttribute( cryptSession,
+								CRYPT_SESSINFO_CMP_REQUESTTYPE,
+								requestType );
+	if( cryptStatusError( status ) )
+		{
+		printf( "Addition of session information failed with error code %d, "
+				"line %d.\n", status, __LINE__ );
+		return( FALSE );
+		}
 
 	/* Set up the user and server information.  Revocation requests can be
 	   signed or MACd so we handle either.  When requesting a certificate 
@@ -623,18 +639,8 @@ static int createCmpSession( const CRYPT_CONTEXT cryptCACert,
 	if( privateKey != CRYPT_UNUSED )
 		{
 		status = cryptSetAttribute( cryptSession,
-									CRYPT_SESSINFO_CMP_REQUESTTYPE,
-									isRevocation ? \
-										CRYPT_REQUESTTYPE_REVOCATION : \
-									isUpdate ? \
-										CRYPT_REQUESTTYPE_KEYUPDATE : \
-										CRYPT_REQUESTTYPE_CERTIFICATE );
-		if( cryptStatusOK( status ) )
-			{
-			status = cryptSetAttribute( cryptSession,
-										CRYPT_SESSINFO_PRIVATEKEY,
-										privateKey );
-			}
+									CRYPT_SESSINFO_PRIVATEKEY,
+									privateKey );
 		}
 	else
 		{
@@ -653,17 +659,6 @@ static int createCmpSession( const CRYPT_CONTEXT cryptCACert,
 			status = cryptSetAttribute( cryptSession,
 										CRYPT_SESSINFO_CMP_PRIVKEYSET,
 										pnpPkiKeyset );
-			}
-		else
-			{
-			/* Standard transaction, specify the request type */
-			status = cryptSetAttribute( cryptSession,
-										CRYPT_SESSINFO_CMP_REQUESTTYPE,
-										isPKIBoot ? \
-											CRYPT_REQUESTTYPE_PKIBOOT : \
-										isRevocation ? \
-											CRYPT_REQUESTTYPE_REVOCATION : \
-											CRYPT_REQUESTTYPE_INITIALISATION );
 			}
 		}
 #ifndef SERVER_IS_CRYPTLIB
@@ -697,14 +692,15 @@ static int createCmpSession( const CRYPT_CONTEXT cryptCACert,
 
 /* Request a particular certificate type */
 
-static int requestCert( const char *description, const CA_INFO *caInfoPtr,
+static int requestCert( const CRYPT_REQUESTTYPE_TYPE requestType,
+						const char *description, const CA_INFO *caInfoPtr,
 						const C_STR readKeysetName,
 						const C_STR writeKeysetName,
 						const CERT_DATA *requestData,
 						const CRYPT_ALGO_TYPE cryptAlgo,
 						const CRYPT_CONTEXT cryptCACert,
-						const BOOLEAN isPKIBoot, const BOOLEAN isPnPPKI,
-						const int options, const int operationNo,
+						const BOOLEAN isPnPPKI, const int options, 
+						const int operationNo, 
 						CRYPT_CERTIFICATE *issuedCert )
 	{
 	CRYPT_SESSION cryptSession;
@@ -715,7 +711,6 @@ static int requestCert( const char *description, const CA_INFO *caInfoPtr,
 	BOOLEAN hasC = FALSE, hasCN = FALSE;
 	int status;
 
-	assert( !isPKIBoot || !isPnPPKI );
 	assert( !( isPnPPKI && writeKeysetName == NULL ) );
 
 	if( requestData != NULL )
@@ -730,7 +725,7 @@ static int requestCert( const char *description, const CA_INFO *caInfoPtr,
 				hasCN = TRUE;
 			}
 		}
-	if( isPKIBoot )
+	if( requestType == CRYPT_REQUESTTYPE_PKIBOOT )
 		puts( "Testing standalone PKIBoot with no certificate request" );
 	else
 		{
@@ -767,7 +762,8 @@ static int requestCert( const char *description, const CA_INFO *caInfoPtr,
 		}
 	if( writeKeysetName != NULL )
 		{
-		assert( !isPKIBoot );	/* Keyset -> PnPPKI, not just PKIBoot */
+		assert( requestType != CRYPT_REQUESTTYPE_PKIBOOT );	
+				/* Keyset -> PnPPKI, not just PKIBoot */
 		status = cryptKeysetOpen( &cryptKeyset, CRYPT_UNUSED,
 								  CRYPT_KEYSET_FILE, writeKeysetName,
 								  CRYPT_KEYOPT_CREATE );
@@ -782,8 +778,7 @@ static int requestCert( const char *description, const CA_INFO *caInfoPtr,
 	/* Create the CMP session */
 	cryptSession = createCmpSession( cryptCACert, caInfoPtr->url,
 									 caInfoPtr->user, caInfoPtr->password,
-									 privateKey, FALSE, useExistingKey,
-									 isPKIBoot, options,
+									 requestType, privateKey, options, 
 									 isPnPPKI ? cryptKeyset : CRYPT_UNUSED );
 	if( cryptSession <= 0 )
 		{
@@ -797,18 +792,19 @@ static int requestCert( const char *description, const CA_INFO *caInfoPtr,
 	   CAs probably enforce this as well) but generating a new key for each 
 	   request is time-consuming so we only do it if it's enforced by the 
 	   CA */
-	if( !isPKIBoot )
+	if( requestType != CRYPT_REQUESTTYPE_PKIBOOT )
 		{
 		CRYPT_CERTIFICATE cryptCmpRequest;
 
 #if defined( SERVER_IS_CRYPTLIB ) || defined( SERVER_FIXED_DN_1 ) || \
 	defined( SERVER_FIXED_DN_2 )
-		cryptCmpRequest = createCmpRequest( requestData,
-								useExistingKey ? privateKey : CRYPT_UNUSED,
-								cryptAlgo, FALSE, cryptKeyset );
+		cryptCmpRequest = createCmpRequest( requestData, requestType,
+							( ( requestType == CRYPT_REQUESTTYPE_KEYUPDATE ) || \
+							  !useExistingKey ) ? CRYPT_UNUSED : privateKey,
+							cryptAlgo, FALSE, cryptKeyset );
 #else
 		KLUDGE_WARN( "fixed key for request" );
-		cryptCmpRequest = createCmpRequest( requestData,
+		cryptCmpRequest = createCmpRequest( requestData, requestType,
 								useExistingKey ? privateKey : CRYPT_UNUSED,
 								cryptAlgo, TRUE, cryptKeyset );
 #endif /* cryptlib and Initech won't allow two certs for same key */
@@ -911,7 +907,7 @@ static int requestCert( const char *description, const CA_INFO *caInfoPtr,
 
 	/* If it's a PKIBoot, which just sets (implicitly) trusted certs, we're
 	   done */
-	if( isPKIBoot )
+	if( requestType == CRYPT_REQUESTTYPE_PKIBOOT )
 		{
 		cryptDestroySession( cryptSession );
 		return( TRUE );
@@ -1015,8 +1011,8 @@ static int revokeCert( const char *description, const CA_INFO *caInfoPtr,
 
 		/* Create the CMP session and revocation request */
 		cryptSession = createCmpSession( cryptCACert, caInfoPtr->url, NULL, 
-										 NULL, privateKey, TRUE, FALSE, 
-										 FALSE, CRYPT_CMPOPTION_NONE, 
+										 NULL, CRYPT_REQUESTTYPE_REVOCATION, 
+										 privateKey, CRYPT_CMPOPTION_NONE, 
 										 CRYPT_UNUSED );
 		if( privateKey != CRYPT_UNUSED )
 			cryptDestroyContext( privateKey );
@@ -1025,9 +1021,11 @@ static int revokeCert( const char *description, const CA_INFO *caInfoPtr,
 		{
 		/* Create the CMP session and revocation request */
 		cryptSession = createCmpSession( cryptCACert, caInfoPtr->url,
-										 caInfoPtr->user, caInfoPtr->revPassword,
-										 CRYPT_UNUSED, TRUE, FALSE, FALSE,
-										 CRYPT_CMPOPTION_NONE, CRYPT_UNUSED );
+										 caInfoPtr->user, 
+										 caInfoPtr->revPassword,
+										 CRYPT_REQUESTTYPE_REVOCATION, 
+										 CRYPT_UNUSED, CRYPT_CMPOPTION_NONE, 
+										 CRYPT_UNUSED );
 		}
 	if( cryptSession <= 0 )
 		return( cryptSession );
@@ -1202,11 +1200,13 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 		return( FALSE );
 		}
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
-	status = requestCert( "certificate init.request (ir)", &caInfo, NULL, 
+	status = requestCert( usePKIBoot ? CRYPT_REQUESTTYPE_PKIBOOT : \
+									   CRYPT_REQUESTTYPE_INITIALISATION, 
+						  "certificate init.request (ir)", &caInfo, NULL, 
 						  usePKIBoot ? NULL : writeFileName,
 						  cmpCryptlibRequestNoDNData, cryptAlgo, 
-						  cryptCACert, usePKIBoot, FALSE, 
-						  CRYPT_CMPOPTION_NONE, 1, NULL );
+						  cryptCACert, FALSE, CRYPT_CMPOPTION_NONE, 1, 
+						  NULL );
 	if( status != TRUE )
 		{
 		if( isErrorTest )
@@ -1248,18 +1248,20 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 		return( FALSE );
 		}
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
-	status = requestCert( "certificate init.request (ir)", &caInfo, NULL, 
+	status = requestCert( CRYPT_REQUESTTYPE_INITIALISATION,
+						  "certificate init.request (ir)", &caInfo, NULL, 
 						  writeFileName, cmpCryptlibRequestData, cryptAlgo, 
-						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 2,
+						  cryptCACert, FALSE, CRYPT_CMPOPTION_NONE, 2,
 						  &cryptCert );
 	if( status != TRUE )
 		return( FALSE );
 #ifdef TEST_DUP_IR
 	/* Attempt a second ir using the same PKI user data.  This should fail,
 	   since the certificate store only allows a single ir per user */
-	if( requestCert( "Duplicate init.request", &caInfo, NULL, NULL,
+	if( requestCert( CRYPT_REQUESTTYPE_INITIALISATION, 
+					 "Duplicate init.request", &caInfo, NULL, NULL,
 					 cmpCryptlibRequestNoDNData, cryptAlgo, cryptCACert, 
-					 FALSE, TRUE, CRYPT_CMPOPTION_NONE, NULL ) )
+					 FALSE, CRYPT_CMPOPTION_NONE, NULL ) )
 		{
 		printf( "Duplicate init request wasn't detected by the CMP server, "
 				"line %d.\n\n", __LINE__ );
@@ -1274,9 +1276,10 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 	   once the kur has been performed */
 	filenameParamFromTemplate( readFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 2 );
-	status = requestCert( "certificate request (cr)", &caInfo, readFileName, 
+	status = requestCert( CRYPT_REQUESTTYPE_CERTIFICATE, 
+						  "certificate request (cr)", &caInfo, readFileName, 
 						  writeFileName, cmpCryptlibRequestData, cryptAlgo, 
-						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 3,
+						  cryptCACert, FALSE, CRYPT_CMPOPTION_NONE, 3,
 						  NULL );
 	if( status != TRUE )
 		{
@@ -1319,9 +1322,15 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 	   certificate is always revoked) */
 	filenameParamFromTemplate( readFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 3 );
-	status = requestCert( "certificate update (kur)", &caInfo, readFileName, 
-						  writeFileName, NULL, CRYPT_UNUSED, 
-						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 4,
+	status = requestCert( CRYPT_REQUESTTYPE_KEYUPDATE, 
+						  "certificate update (kur)", &caInfo, readFileName, 
+						  writeFileName, 
+#if 0	/* Same key, updated certificate time */
+						  NULL, CRYPT_UNUSED, 
+#else	/* Different key */
+						  cmpCryptlibRequestData, cryptAlgo,
+#endif /* 0 */
+						  cryptCACert, FALSE, CRYPT_CMPOPTION_NONE, 4,
 						  &cryptCert );
 	if( status != TRUE )
 		{
@@ -1336,9 +1345,10 @@ static int connectCryptlibCMP( const CMP_TEST_TYPE testType,
 	   certificate request whose processing has already been checked in
 	   testCertProcess() */
 	filenameParamFromTemplate( readFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
-	status = requestCert( "DSA certificate", &caInfo, readFileName, NULL,
+	status = requestCert( CRYPT_REQUESTTYPE_CERTIFICATE,
+						  "DSA certificate", &caInfo, readFileName, NULL,
 						  cmpDsaRequestData, CRYPT_ALGO_DSA, cryptCACert,
-						  FALSE, FALSE, CRYPT_CMPOPTION_NONE, NULL );
+						  FALSE, CRYPT_CMPOPTION_NONE, NULL );
 	if( status != TRUE )
 		return( status );
 	delayThread( 2 );		/* Wait for server to recycle */
@@ -1400,9 +1410,10 @@ static int connectCMP( const CRYPT_ALGO_TYPE cryptAlgo )
 	   we can revoke this one later on */
 	#define REVOKE_FIRST_CERT
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
-	status = requestCert( "certificate init.request (ir)", caInfoPtr, NULL, 
+	status = requestCert( CRYPT_REQUESTTYPE_INITIALISATION,
+						  "certificate init.request (ir)", caInfoPtr, NULL, 
 						  writeFileName, cmpRsaSignRequestData, cryptAlgo, 
-						  cryptCACert, FALSE, FALSE, options, 1, &cryptCert );
+						  cryptCACert, FALSE, options, 1, &cryptCert );
 	if( status != TRUE )
 		{
 		/* If this is the self-test and there's a non-fatal error, make sure
@@ -1423,10 +1434,10 @@ static int connectCMP( const CRYPT_ALGO_TYPE cryptAlgo )
 	#define REVOKE_SECOND_CERT
 	filenameParamFromTemplate( readFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 2 );
-	status = requestCert( "certificate request (cr)", caInfoPtr, 
+	status = requestCert( CRYPT_REQUESTTYPE_CERTIFICATE,
+						  "certificate request (cr)", caInfoPtr, 
 						  readFileName, writeFileName, cmpRsaSignRequestData,
-						  cryptAlgo, cryptCACert, FALSE, FALSE, options, 2,
-						  NULL );
+						  cryptAlgo, cryptCACert, FALSE, options, 2, NULL );
 	if( status != TRUE )
 		{
   #if defined( TEST_IR )
@@ -1454,10 +1465,10 @@ static int connectCMP( const CRYPT_ALGO_TYPE cryptAlgo )
 	   authenticate the request) we just leave it unrevoked (the first 
 	   certificate is always revoked) */
 	filenameParamFromTemplate( readFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
-	status = requestCert( "certificate update (kur)", caInfoPtr, 
+	status = requestCert( CRYPT_REQUESTTYPE_KEYUPDATE,
+						  "certificate update (kur)", caInfoPtr, 
 						  readFileName, NULL, NULL, CRYPT_UNUSED,
-						  cryptCACert, FALSE, FALSE, options, 3, 
-						  &cryptCert );
+						  cryptCACert, FALSE, options, 3, &cryptCert );
 	if( status != TRUE )
 		{
 		cryptDestroyCert( cryptCACert );
@@ -1478,10 +1489,11 @@ static int connectCMP( const CRYPT_ALGO_TYPE cryptAlgo )
 	   Note that this functionality is tested in any case by the PnP PKI 
 	   test, which creates the necessary encryption-only requests internally 
 	   and can do things that we can't do from the outside */
-	status = requestCert( "encryption-only certificate", caInfoPtr,
+	status = requestCert( CRYPT_REQUESTTYPE_CERTIFICATE,
+						  "encryption-only certificate", caInfoPtr,
 						  readFileName, writeFileName, 
 						  cmpRsaEncryptRequestData, CRYPT_ALGO_RSA, 
-						  cryptCACert, FALSE, FALSE, options, NULL );
+						  cryptCACert, FALSE, options, NULL );
 	if( status != TRUE )
 		return( status );
 #endif /* 0 */
@@ -1572,9 +1584,10 @@ static int connectCMPRA( void )
 	if( status != TRUE )
 		return( FALSE );
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
-	status = requestCert( "RA certificate request", &caInfo, NULL, 
+	status = requestCert( CRYPT_REQUESTTYPE_INITIALISATION,
+						  "RA certificate request", &caInfo, NULL, 
 						  writeFileName, cmpCryptlibRequestNoDNData, 
-						  CRYPT_ALGO_RSA, cryptCACert, FALSE, FALSE, 
+						  CRYPT_ALGO_RSA, cryptCACert, FALSE, 
 						  CRYPT_CMPOPTION_NONE, 1, NULL );
 	if( status != TRUE )
 		return( FALSE );
@@ -1584,9 +1597,10 @@ static int connectCMPRA( void )
 	   of the user's certificate from an IR */
 	filenameParamFromTemplate( readFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 2 );
-	status = requestCert( "certificate request (cr) via RA", caInfoPtr, 
+	status = requestCert( CRYPT_REQUESTTYPE_CERTIFICATE,
+						  "certificate request (cr) via RA", caInfoPtr, 
 						  readFileName, writeFileName, cmpRsaSignRequestData,
-						  CRYPT_ALGO_RSA, cryptCACert, FALSE, FALSE, 
+						  CRYPT_ALGO_RSA, cryptCACert, FALSE, 
 						  CRYPT_CMPOPTION_NONE, 2, NULL );
 	if( status != TRUE )
 		{
@@ -1641,18 +1655,20 @@ static int connectCMP3GPP( void )
 	if( status != TRUE )
 		return( FALSE );
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
-	status = requestCert( "3GPP preliminary ir to set up cr/kur", 
+	status = requestCert( CRYPT_REQUESTTYPE_INITIALISATION,
+						  "3GPP preliminary ir to set up cr/kur", 
 						  &caInfo, NULL, writeFileName,
 						  cmpCryptlibRequestData, CRYPT_ALGO_RSA, 
-						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 1,
+						  cryptCACert, FALSE, CRYPT_CMPOPTION_NONE, 1,
 						  NULL );
 	if( status != TRUE )
 		return( FALSE );
 	filenameParamFromTemplate( readFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 2 );
-	status = requestCert( "3GPP certificate request (cr)", &caInfo, 
+	status = requestCert( CRYPT_REQUESTTYPE_CERTIFICATE,
+						  "3GPP certificate request (cr)", &caInfo, 
 						  readFileName, writeFileName, cmpRsaSignRequestData,
-						  CRYPT_ALGO_RSA, cryptCACert, FALSE, FALSE, 
+						  CRYPT_ALGO_RSA, cryptCACert, FALSE, 
 						  CRYPT_CMPOPTION_3GPP, 2, NULL );
 
 	/* Clean up */
@@ -1759,9 +1775,10 @@ static int connectCMPFail( const int count )
 	filenameParamFromTemplate( writeFileName, CMP_PRIVKEY_FILE_TEMPLATE, 1 );
 	sprintf( message, "invalid request %d with %s,", count + 1,
 			 cmpFailRequestDescriptionTbl[ count ] );
-	status = requestCert( message, &caInfo, NULL, NULL, 
+	status = requestCert( CRYPT_REQUESTTYPE_INITIALISATION, message, 
+						  &caInfo, NULL, NULL, 
 						  cmpFailRequestDataTbl[ count ], CRYPT_ALGO_RSA, 
-						  cryptCACert, FALSE, FALSE, CRYPT_CMPOPTION_NONE, 1,
+						  cryptCACert, FALSE, CRYPT_CMPOPTION_NONE, 1,
 						  &cryptCert );
 	cryptDestroyCert( cryptCACert );
 	if( status )
@@ -2090,7 +2107,7 @@ static int cmpServer( void )
 	if( !pkiServerInit( &cryptCAKey, &cryptCertStore, CA_PRIVKEY_FILE,
 						CA_PRIVKEY_LABEL, cmpPkiUserFullDNData, 
 						cmpPkiUserPartialDNData, cmpPkiUserCaData, 
-						cmpPkiUserRaData, "CMP" ) )
+						cmpPkiUserRaData, REUSE_PKIUSER_FLAG, "CMP" ) )
 		return( FALSE );
 
 	/* Tell the client that we're ready to go */
@@ -2202,7 +2219,7 @@ static int cmpServerRA( void )
 	if( !pkiServerInit( &cryptCAKey, &cryptCertStore, CA_PRIVKEY_FILE,
 						CA_PRIVKEY_LABEL, cmpPkiUserFullDNData, 
 						cmpPkiUserPartialDNData, cmpPkiUserCaData, 
-						cmpPkiUserRaData, "CMP" ) )
+						cmpPkiUserRaData, FALSE, "CMP" ) )
 		return( FALSE );
 
 	/* Tell the client that we're ready to go */
@@ -2250,7 +2267,7 @@ static int cmpServer3GPP( void )
 	if( !pkiServerInit( &cryptCAKey, &cryptCertStore, ICA_PRIVKEY_FILE,
 						USER_PRIVKEY_LABEL, cmpPkiUserFullDNData, 
 						cmpPkiUserPartialDNData, cmpPkiUserCaData, 
-						cmpPkiUserRaData, "CMP" ) )
+						cmpPkiUserRaData, FALSE, "CMP" ) )
 		return( FALSE );
 
 	/* Tell the client that we're ready to go */
@@ -2297,7 +2314,7 @@ static int cmpServerFail( void )
 	if( !pkiServerInit( &cryptCAKey, &cryptCertStore, CA_PRIVKEY_FILE,
 						CA_PRIVKEY_LABEL, cmpPkiUserFullDNData, 
 						cmpPkiUserPartialDNData, cmpPkiUserCaData, 
-						cmpPkiUserRaData, "CMP" ) )
+						cmpPkiUserRaData, FALSE, "CMP" ) )
 		return( FALSE );
 
 	/* Tell the client that we're ready to go */
@@ -2353,7 +2370,8 @@ static int pnppkiServer( const PNPPKI_TEST_TYPE testType )
 		if( !pkiServerInit( &cryptCAKey, &cryptCertStore,
 							PNPCA_PRIVKEY_FILE, TEXT( "Signature key" ),
 							cmpPkiUserFullDNData, cmpPkiUserPartialDNData, 
-							cmpPkiUserCaData, cmpPkiUserRaData, "CMP" ) )
+							cmpPkiUserCaData, cmpPkiUserRaData, FALSE, 
+							"CMP" ) )
 			return( FALSE );
 		}
 	else
@@ -2361,7 +2379,7 @@ static int pnppkiServer( const PNPPKI_TEST_TYPE testType )
 		if( !pkiServerInit( &cryptCAKey, &cryptCertStore, CA_PRIVKEY_FILE,
 							CA_PRIVKEY_LABEL, cmpPkiUserFullDNData,
 							cmpPkiUserPartialDNData, cmpPkiUserCaData, 
-							cmpPkiUserRaData, "CMP" ) )
+							cmpPkiUserRaData, FALSE, "CMP" ) )
 			return( FALSE );
 		}
 

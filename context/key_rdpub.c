@@ -71,7 +71,7 @@ static int readRsaSubjectPublicKey( INOUT_PTR STREAM *stream,
 									OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
 	CRYPT_ALGO_TYPE cryptAlgo DUMMY_INIT;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -138,7 +138,7 @@ static int readDlpSubjectPublicKey( INOUT_PTR STREAM *stream,
 									OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
 	CRYPT_ALGO_TYPE readCryptAlgo DUMMY_INIT;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	ALGOID_PARAMS algoIDparams DUMMY_INIT_STRUCT;
 	int status;
 
@@ -251,7 +251,7 @@ static int readEccSubjectPublicKey( INOUT_PTR STREAM *stream,
 	{
 	CRYPT_ALGO_TYPE readCryptAlgo DUMMY_INIT;
 	CRYPT_ECCCURVE_TYPE curveType;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	ALGOID_PARAMS algoIDparams DUMMY_INIT_STRUCT;
 	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
 	int length, fieldSize, status;
@@ -363,7 +363,7 @@ static int read25519SubjectPublicKey( INOUT_PTR STREAM *stream,
 									  OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
 	CRYPT_ALGO_TYPE readCryptAlgo DUMMY_INIT;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BERNSTEIN_KEY_INFO *bernsteinKey;
 	int length, status;
 
@@ -473,7 +473,7 @@ static int readSshRsaPublicKey( INOUT_PTR STREAM *stream,
 								INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	char buffer[ CRYPT_MAX_TEXTSIZE + 8 ];
 	int length, status;
 
@@ -524,7 +524,7 @@ static int readSshDlpPublicKey( INOUT_PTR STREAM *stream,
 								IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 								OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	char buffer[ CRYPT_MAX_TEXTSIZE + 8 ];
 	const BOOLEAN isDH = ( cryptAlgo == CRYPT_ALGO_DH ) ? TRUE : FALSE;
 	int length, status;
@@ -634,7 +634,7 @@ static int readSshEccPublicKey( INOUT_PTR STREAM *stream,
 								IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 								OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
 	int length, fieldSize, status;
 
@@ -731,7 +731,7 @@ static int readSsh25519PublicKey( INOUT_PTR STREAM *stream,
 								  IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 								  OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BERNSTEIN_KEY_INFO *bernsteinKey;
 	BYTE buffer[ CRYPT_MAX_TEXTSIZE + 8 ];
 	int length, status;
@@ -822,7 +822,7 @@ static int readTlsDlpPublicKey( INOUT_PTR STREAM *stream,
 								OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags,
 								IN_BOOL const BOOLEAN readExtKey )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -905,7 +905,7 @@ static int readTlsEccPublicKey( INOUT_PTR STREAM *stream,
 								IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 								OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const MAP_TABLE *tlsCurveInfoPtr;
 	int value, curveID, tlsCurveInfoNoEntries, status;
 
@@ -969,7 +969,7 @@ static int readTlsPQCPublicKey( INOUT_PTR STREAM *stream,
 								IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 								OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	MLKEM_KEY_INFO *mlkemKey;
 	int status;
 
@@ -1101,7 +1101,7 @@ static int readPgpRsaPublicKey( INOUT_PTR STREAM *stream,
 								INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 								OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int value, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -1186,7 +1186,7 @@ static int readPgpDlpPublicKey( INOUT_PTR STREAM *stream,
 								IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 								OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int value, status;
 
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
@@ -1280,7 +1280,7 @@ static int readPgpEccPublicKey( INOUT_PTR STREAM *stream,
 								OUT_FLAGS_Z( ACTION_PERM ) int *actionFlags )
 	{
 	CRYPT_ECCCURVE_TYPE curveType;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	STREAM oidStream;
 	BYTE buffer[ MAX_PKCSIZE_ECCPOINT + 8 ];
 	BYTE oidBuffer[ MAX_OID_SIZE + 8 ];
@@ -1392,7 +1392,7 @@ static int completePubkeyRead( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 							   IN_ALGO const CRYPT_ALGO_TYPE cryptAlgo,
 							   IN_FLAGS( ACTION_PERM ) const int actionFlags )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 

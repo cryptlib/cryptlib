@@ -235,9 +235,10 @@ static int updateDependentObjectPerms( IN_HANDLE const CRYPT_HANDLE objectHandle
 			MK_ACTION_PERM( MESSAGE_CTX_DECRYPT, ACTION_PERM_NONE_EXTERNAL );
 
 	/* Inner precondition: The usage shouldn't be all-zero.  Technically it
-	   can be since there are bound to be certs out there broken enough to do
-	   this, and certainly under the stricter compliance levels this *will*
-	   happen, so we make it a warning that's only produced in debug mode */
+	   can be since there are bound to be certificates out there broken 
+	   enough to do this, and certainly under the stricter compliance levels 
+	   this *will* happen, so we make it a warning that's only produced in 
+	   debug mode */
 	if( actionFlags == 0 )
 		{
 		DEBUG_DIAG(( "Action %s is constrained by its associated",
@@ -1085,6 +1086,7 @@ int cloneObject( IN_HANDLE const int objectHandle,
 							FNPTR_GET( objectInfoPtr->messageFunction );
 	void *objectPtr = DATAPTR_GET( objectInfoPtr->objectPtr );
 	void *clonedObjectPtr = DATAPTR_GET( clonedObjectInfoPtr->objectPtr );
+	int objectSize, clonedObjectSize;
 	int actionFlags, status;
 
 	/* Preconditions */
@@ -1157,16 +1159,19 @@ int cloneObject( IN_HANDLE const int objectHandle,
 
 	/* Inner precondition: The instance data is valid and ready to be
 	   copied */
-	assert( isWritePtrDynamic( objectPtr, objectInfoPtr->objectSize ) );
-	assert( isWritePtrDynamic( clonedObjectPtr, \
-							   clonedObjectInfoPtr->objectSize ) );
-	REQUIRES( objectInfoPtr->objectSize == clonedObjectInfoPtr->objectSize );
+	objectSize = SAFEINT_GET( objectInfoPtr->objectSize );
+	clonedObjectSize = SAFEINT_GET( clonedObjectInfoPtr->objectSize );
+	REQUIRES( isIntegerRangeMin( objectSize, 32 ) && \
+			  isIntegerRangeMin( clonedObjectSize, 32 ) && \
+			  objectSize == clonedObjectSize );
+	assert( isWritePtrDynamic( objectPtr, objectSize ) );
+	assert( isWritePtrDynamic( clonedObjectPtr, clonedObjectSize ) );
 
 	/* Copy across the object contents and reset any instance-specific
 	   information.  We only update the owning object if required, in
 	   almost all cases this will be the system device so there's no need
 	   to perform the update */
-	memcpy( clonedObjectPtr, objectPtr, objectInfoPtr->objectSize );
+	memcpy( clonedObjectPtr, objectPtr, objectSize );
 	status = messageFunction( clonedObjectPtr, MESSAGE_CHANGENOTIFY,
 							  ( MESSAGE_CAST ) &clonedObject, 
 							  MESSAGE_CHANGENOTIFY_OBJHANDLE );

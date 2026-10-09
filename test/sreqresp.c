@@ -1107,17 +1107,18 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 #endif /* OCSP servers that return broken responses */
 	const BOOLEAN isServer = ( sessionType == CRYPT_SESSION_OCSP_SERVER ) ? \
 							   TRUE : FALSE;
+	const int ocspServerNo = localSession ? 1 : OCSP_SERVER_NO;
 	int status;
 
 #ifdef OCSP_SIGN_REQUEST
 	printf( "%sTesting %sOCSP session with signed request for %s "
 			"server...\n", isServer ? "SVR: " : "", 
 			localSession ? "local " : "", 
-			caInfoTbl[ OCSP_SERVER_NO ].name );
+			caInfoTbl[ ocspServerNo ].name );
 #else
 	printf( "%sTesting %sOCSP session for %s server...\n", 
 			isServer ? "SVR: " : "", localSession ? "local " : "",
-			caInfoTbl[ OCSP_SERVER_NO ].name );
+			caInfoTbl[ ocspServerNo ].name );
 #endif /* OCSP_SIGN_REQUEST */
 
 	/* If we're the client, wait for the server to finish initialising */
@@ -1225,8 +1226,7 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 		const CRYPT_CONTEXT cryptPrivateKey = CRYPT_UNUSED;
 #endif /* OCSP_SIGN_REQUEST */
 		if( !initOCSP( &cryptOCSPRequest, &cryptCert1, &cryptCert2, 
-					   localSession ? 1 : OCSP_SERVER_NO, FALSE, 
-					   revokedCert, multipleCerts,
+					   ocspServerNo, FALSE, revokedCert, multipleCerts,
 					   CRYPT_SIGNATURELEVEL_NONE, cryptPrivateKey ) )
 			return( FALSE );
 		if( cryptPrivateKey != CRYPT_UNUSED )
@@ -1242,8 +1242,19 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 									cryptOCSPRequest );
 		if( cryptStatusError( status ) )
 			{
+			cryptDestroyCert( cryptOCSPRequest );
 			return( extErrorExit( cryptSession, "cryptSetAttribute()",
 								  status, __LINE__ ) );
+			}
+		status = cryptSetAttribute( cryptSession, CRYPT_SESSINFO_REQUEST,
+									cryptOCSPRequest );
+		if( !cryptStatusError( status ) )
+			{
+			puts( "Addition of repeated request attribute wasn't "
+				  "detected.\n" );
+			cryptDestroyCert( cryptOCSPRequest );
+			cryptDestroySession( cryptSession );
+			return( FALSE );
 			}
 		cryptDestroyCert( cryptOCSPRequest );
 		if( localSession && !setLocalConnect( cryptSession, 80 ) )
@@ -1271,12 +1282,12 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
   #endif /* OCSP_SERVER_NO != 5 */
 				{
 				printf( "Setting OCSP server to %s.\n", 
-						caInfoTbl[ OCSP_SERVER_NO ].url );
+						caInfoTbl[ ocspServerNo ].url );
 				cryptDeleteAttribute( cryptSession, CRYPT_SESSINFO_SERVER_NAME );
 				status = cryptSetAttributeString( cryptSession,
 									CRYPT_SESSINFO_SERVER_NAME, 
-									caInfoTbl[ OCSP_SERVER_NO ].url,
-									paramStrlen( caInfoTbl[ OCSP_SERVER_NO ].url ) );
+									caInfoTbl[ ocspServerNo ].url,
+									paramStrlen( caInfoTbl[ ocspServerNo ].url ) );
 				if( cryptStatusError( status ) )
 					{
 					return( extErrorExit( cryptSession,
@@ -1286,17 +1297,6 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 				}
 			}
 #endif /* Kludges for incorrect/missing authorityInfoAccess values */
-		if( OCSP_SERVER_NO == 1 || localSession )
-			{
-			/* The cryptlib server doesn't handle the weird v1 certIDs */
-			status = cryptSetAttribute( cryptSession, CRYPT_SESSINFO_VERSION,
-										2 );
-			if( cryptStatusError( status ) )
-				{
-				return( extErrorExit( cryptSession, "cryptSetAttribute()",
-									  status, __LINE__ ) );
-				}
-			}
 #if OCSP_SERVER_NO == 7
 		/* Some OCSP server's responses are broken so we have to turn down 
 		   the compliance level to allow them to be processed */
@@ -1331,13 +1331,14 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 					   "SVR: Attempt to activate OCSP server session" : \
 					   "Attempt to activate OCSP client session", status,
 					   __LINE__ );
-#if OCSP_SERVER_NO == 5
-		if( status == CRYPT_ERROR_SIGNATURE || \
-			status == CRYPT_ERROR_PERMISSION )
+		if( ocspServerNo == 5 && \
+			( status == CRYPT_ERROR_SIGNATURE || \
+			  status == CRYPT_ERROR_PERMISSION ) )
 			{
 			char errorMessage[ 512 ];
 			int errorMessageLength;
 
+			/* Deal with Verisign's broken OCSP responder */
 			status = cryptGetAttributeString( cryptSession, 
 											  CRYPT_ATTRIBUTE_ERRORMESSAGE,
 											  errorMessage, 
@@ -1365,7 +1366,6 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 				return( CRYPT_ERROR_FAILED );
 				}
 			}
-#endif /* Verisign's broken OCSP responder */
 		if( !isServer && isServerDown( cryptSession, status ) )
 			{
 			puts( "  (Server could be down, faking it and continuing...)\n" );
@@ -1401,6 +1401,27 @@ static int connectOCSP( const CRYPT_SESSION_TYPE sessionType,
 		status = cryptCheckCert( cryptCert1, cryptOCSPResponse );
 		printf( "Check of certificate status against OCSP response reports "
 				"status %d.\n", status );
+		if( revokedCert )
+			{
+			/* If we get a not-revoked status for the revoked certificate 
+			   then this isn't an error, it just means that the CMP tests,
+			   which trigger the revocation, haven't been run yet */
+			if( !cryptStatusError( status ) )
+				{
+				puts( "\nRevoked certificate was reported as not-revoked, "
+					  "have the CMP tests been run?" );
+				}
+			}
+		else
+			{
+			if( cryptStatusError( status ) )
+				{
+				printf( "OCSP check failed but certificate was valid, "
+						"line %d.\n", __LINE__ );
+				cryptDestroySession( cryptSession );
+				return( FALSE );
+				}
+			}
 		if( cryptCert2 != CRYPT_UNUSED )
 			{
 			status = cryptCheckCert( cryptCert2, cryptOCSPResponse );
@@ -1527,7 +1548,7 @@ int testSessionOCSPServer( void )
 	THREAD_EXIT();
 	}
 
-int testSessionOCSPClientServer( void )
+static int ocspClientServer( const BOOLEAN isRevoked )
 	{
 	THREAD_HANDLE hThread;
 #ifdef __WINDOWS__
@@ -1555,10 +1576,17 @@ int testSessionOCSPClientServer( void )
 	THREAD_SLEEP( 1000 );
 
 	/* Connect to the local server */
-	status = connectOCSP( CRYPT_SESSION_OCSP, FALSE, FALSE, TRUE );
+	status = connectOCSP( CRYPT_SESSION_OCSP, isRevoked, FALSE, TRUE );
 	waitForThread( hThread );
 	destroyMutex();
 	return( status );
+	}
+
+int testSessionOCSPClientServer( void )
+	{
+	if( !ocspClientServer( FALSE ) )
+		return( FALSE );
+	return( ocspClientServer( TRUE ) );
 	}
 
 int testSessionOCSPMulticertClientServer( void )

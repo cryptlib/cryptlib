@@ -403,18 +403,22 @@ static const SSH_CHANNEL_INFO *getCurrentChannelInfo( IN_PTR const SESSION_INFO 
 													  IN_ENUM( CHANNEL ) \
 														const CHANNEL_TYPE channelType )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	static const SSH_CHANNEL_INFO nullChannel = \
 			{ UNUSED_CHANNEL_ID, UNUSED_CHANNEL_NO, UNUSED_CHANNEL_NO, 
 			  CHANNEL_FLAG_NONE, CRYPT_ATTRIBUTE_NONE, 0 /*...*/ };
 	const SSH_CHANNEL_INFO *channelInfoPtr;
-	const int channelID = ( channelType == CHANNEL_READ ) ? \
-							sshInfo->currReadChannel : \
-							sshInfo->currWriteChannel;
+	int channelID;
 
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES_N( isEnumRange( channelType, CHANNEL ) );
+	REQUIRES_N( sshInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	channelID = ( channelType == CHANNEL_READ ) ? \
+				  sshInfo->currReadChannel : sshInfo->currWriteChannel;
 
 	/* If there's no channel open yet, return the null channel */
 	if( channelID == UNUSED_CHANNEL_ID )
@@ -765,7 +769,7 @@ int selectChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				   const long channelNo,
 				   IN_ENUM_OPT( CHANNEL ) const CHANNEL_TYPE channelType )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	const SSH_CHANNEL_INFO *channelInfoPtr;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -778,6 +782,7 @@ int selectChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isEnumRangeOpt( channelType, CHANNEL ) );
 			  /* We allow CHANNEL_NONE to allow selection of created-but-not-
 			     yet-active channels */
+	REQUIRES( sshInfo != NULL );
 
 	/* Locate the channel and update the current channel information.  We 
 	   allow a special channel-type indicator of CHANNEL_NONE to specify the 
@@ -824,7 +829,7 @@ int addChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				IN_BUFFER_OPT( arg1Len ) const void *arg1, 
 				IN_LENGTH_SHORT_Z const int arg1Len )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	LOOP_INDEX_PTR SESSION_ATTRIBUTE_LIST *attributeListPtr;
 	SSH_CHANNEL_INFO channelInfo;
 	int channelCount, status;
@@ -841,6 +846,7 @@ int addChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( isShortIntegerRangeNZ( typeLen ) );
 	REQUIRES( ( arg1 == NULL && arg1Len == 0 ) || \
 			  ( arg1 != NULL && isShortIntegerRangeNZ( arg1Len ) ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Make sure that this channel doesn't already exist */
 	if( findChannelByChannelNo( sessionInfoPtr, channelNo ) != NULL )
@@ -918,12 +924,13 @@ int addChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int createChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int LOOP_ITERATOR;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionSSH( sessionInfoPtr ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Find an unused channel number.  Since the peer can request the
 	   creation of arbitrary-numbered channels we have to be careful to
@@ -960,7 +967,7 @@ int deleteChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				   IN_ENUM( CHANNEL ) const CHANNEL_TYPE channelType,
 				   IN_BOOL const BOOLEAN deleteLastChannel )
 	{
-	SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	SSH_CHANNEL_INFO *channelInfoPtr;
 	SESSION_ATTRIBUTE_LIST *attributeListPtr;
 	int channelID;
@@ -971,6 +978,7 @@ int deleteChannel( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( channelNo >= 0 && channelNo <= CHANNEL_MAX );
 	REQUIRES( isEnumRange( channelType, CHANNEL ) );
 	REQUIRES( isBooleanValue( deleteLastChannel ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Locate the channel information */
 	attributeListPtr = findChannelAttr( sessionInfoPtr, channelNo );
@@ -1036,7 +1044,8 @@ int enqueueResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					 const long channelNo,
 					 const int param1, const int param2, const int param3 )
 	{
-	SSH_RESPONSE_INFO *respPtr = &sessionInfoPtr->sessionSSH->response;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
+	SSH_RESPONSE_INFO *respPtr;
 	STREAM stream;
 	int position, status = CRYPT_OK;
 
@@ -1051,6 +1060,11 @@ int enqueueResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  /* channelNo is the first parameter */
 	REQUIRES( ( noParams == 0 && channelNo == CRYPT_UNUSED ) || \
 			  ( channelNo >= 0 && channelNo <= CHANNEL_MAX ) );
+	REQUIRES( sshInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	respPtr = &sshInfo->response;
 
 	/* If there's already a response enqueued then we can't enqueue another 
 	   one until it's been sent.  This shouldn't really ever happen, with
@@ -1111,7 +1125,8 @@ static int encodeSendResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							   IN_LENGTH_OPT const int offset,
 							   OUT_OPT_LENGTH_Z int *responseSize )
 	{
-	SSH_RESPONSE_INFO *respPtr = &sessionInfoPtr->sessionSSH->response;
+	SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
+	SSH_RESPONSE_INFO *respPtr;
 	STREAM stream;
 	const BOOLEAN assembleOnly = ( offset != CRYPT_UNUSED ) ? TRUE : FALSE;
 	BOOLEAN adjustedStartOffset = FALSE;
@@ -1125,9 +1140,14 @@ static int encodeSendResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( ( offset == CRYPT_UNUSED && responseSize == NULL ) || \
 			  ( offset >= 0 && offset < sessionInfoPtr->sendBufSize && \
 			    responseSize != NULL ) );
-	REQUIRES( respPtr->type > 0 && respPtr->type <= 0xFF );
 	REQUIRES( sendBufOffset >= 0 && \
 			  sendBufOffset < sessionInfoPtr->sendBufSize );
+	REQUIRES( sshInfo != NULL );
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	respPtr = &sshInfo->response;
+	REQUIRES( respPtr->type > 0 && respPtr->type <= 0xFF );
 
 	/* Make sure that there's room for at least two packets worth of 
 	   wrappers plus a short control packet, needed to handle a control 

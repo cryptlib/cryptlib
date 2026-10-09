@@ -222,15 +222,65 @@ typedef enum {
 #define TEXTCH_CERTACTION_REQUEST_RENEWAL	'8'
 #define TEXT_CERTACTION_CERT_CREATION		"10"
 
+/* When creating multiple log entries for a certificate, we have to modify 
+   the ID used on subsequent log entries to allow them to be added to a
+   UNIQUE column.  The following values denote the modification type for
+   different types of operations.
+   
+   Note that we don't provide a modification option for errors because we
+   could have multiple error log entries for a single certificate, for 
+   example if there's a collision in keyset/ca_rev.c:caRevokeCert() which
+   leaves an incomplete revocation which is then handled in 
+   keyset/ca_clean.c:caCleanup() which collides again */
+
+typedef enum {
+	IDMOD_NONE,			/* No ID modification type */
+	IDMOD_CERTISSUE_STD,	/* Start of a certificate issue */
+	IDMOD_CERTISSUE_RENEW,	/* Start of a certificate renewal */
+	IDMOD_CERTISSUE_COMPLETE,/* Completion of an issue/renew operation */
+	IDMOD_REVOCATION,	/* Revocation of an existing certificate */
+	IDMOD_LAST			/* Last possible ID modification type */
+	} IDMOD_TYPE;
+
 /* Special escape strings used in database keys to indicate that the value is
    physically but not logically present.  This is used to handle (currently-)
    incomplete certificate issues and similar events where intermediate state 
    information has to be stored in the database but the object in question 
-   isn't ready for use yet */
+   isn't ready for use yet.
+   
+   These are quite difficult to use because some are used in LIKE clauses 
+   and therefore can't contain any special-meaning characters.  There are a 
+   few universal ones like the ANSI '%' and '_', equivalent to '*' and '?' 
+   in REs, and then less universal ones like '[]' (either ranges or an exact 
+   match, not in MySQL and Postgres which only do the ANSI wildcards) with 
+   an optional '^' for negation at the start, and '{}' (escaped characters, 
+   Oracle only, which also has '()').  Finally, there are the usual special 
+   snowflakes, meaning MS Access, which uses '*' and '?' instead of '%' and 
+   '_', uses '[]' in the exact-match interpretation, and then extends things 
+   to have '#' for any numeric character, see
+   https://support.microsoft.com/en-us/access/access-wildcard-character-reference
+   
+   So what we need is characters that won't appear in base64 data but that 
+   also are as unlikely as possible to be treated specially by some database
+   backend.  Note that we can't simply use 'ESCAPE x' because this isn't 
+   supported by some backends.  In terms of punctuation, base64 uses '+/=',
+   ANSI SQL excludes '%_', and various backends further exclude '[]{}()#'.  
+   We also can't use '"' or ''' for obvious reasons, and '\' will typically
+   be used as the escape character.  So from the ASCII punctuation set of:
+   
+	" # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~
 
-#define KEYID_ESC1				"--"
-#define KEYID_ESC2				"##"
-#define KEYID_ESC_SIZE			2
+   this leaves:
+   
+		$	&			, - .	: ; <	>	@		^	`	|	~ */
+
+#define CERTID_ESC_CERTISSUE_STD		':'
+#define CERTID_ESC_CERTISSUE_RENEW		';'
+#define CERTID_ESC_CERTISSUE_COMPLETE	'-'
+#define CERTID_ESC_REVOCATION			'&'
+
+#define CERTID_LIKE_CERTISSUE_STD		"'::%'"
+#define CERTID_LIKE_CERTISSUE_RENEW		"';;%'"
 
 /* The ways in which we can add a certificate object to a table.  Normally 
    we just add the certificate as is, however if we're awaiting confirmation 
@@ -450,6 +500,19 @@ int dbmsParseName( OUT_PTR DBMS_NAME_INFO *nameInfo,
 struct DBXI;
 struct KI;
 
+/* When logging information about a certificate issue, we need ID values for
+   the associated object types, stored in a general structure to avoid 
+   passing a large number of IDs around */
+
+typedef struct {
+	char certID[ ENCODED_DBXKEYID_SIZE + 8 ], *certIDptr;
+	int certIDlength;
+	char authCertID[ ENCODED_DBXKEYID_SIZE + 8 ], *authCertIDptr;
+	int authCertIDlength;
+	char pkiUserID[ ENCODED_DBXKEYID_SIZE + 8 ], *pkiUserIDptr;
+	int pkiUserIDlength;
+	} CERTID_INFO;
+
 /* Prototypes for interface routines in DBMS modules */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
@@ -516,30 +579,50 @@ int addCRL( INOUT_PTR struct DBXI *dbmsInfo,
 /* Prototypes for routines in dbx_misc.c */
 
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 5 ) ) \
-int makeKeyID( OUT_BUFFER( keyIdMaxLen, *keyIdLen ) char *keyID, 
+int makeKeyID( OUT_BUFFER( keyIdMaxLength, *keyIdLength ) char *keyID, 
 			   IN_LENGTH_SHORT_MIN( ENCODED_DBXKEYID_SIZE ) \
-					const int keyIdMaxLen,
-			   OUT_LENGTH_BOUNDED_Z( keyIdMaxLen ) int *keyIdLen,
-			   IN_KEYID const CRYPT_KEYID_TYPE iDtype,
-			   IN_BUFFER( idValueLength ) const void *idValue,
+					const int keyIdMaxLength,
+			   OUT_LENGTH_BOUNDED_Z( keyIdMaxLength ) int *keyIdLength,
+			   IN_KEYID const CRYPT_KEYID_TYPE iDtype, 
+			   IN_BUFFER( idValueLength ) const void *idValue, 
 			   IN_LENGTH_SHORT const int idValueLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
-int getKeyID( OUT_BUFFER( keyIdMaxLen, *keyIdLen ) char *keyID, 
-			  IN_LENGTH_SHORT_MIN( 16 ) const int keyIdMaxLen, 
-			  OUT_LENGTH_BOUNDED_Z( keyIdMaxLen ) int *keyIdLen,
-			  IN_HANDLE const CRYPT_HANDLE cryptHandle,
+int getKeyID( OUT_BUFFER( keyIdMaxLength, *keyIdLength ) char *keyID, 
+			  IN_LENGTH_SHORT_MIN( 16 ) const int keyIdMaxLength, 
+			  OUT_LENGTH_BOUNDED_Z( keyIdMaxLength ) int *keyIdLength,
+			  IN_HANDLE const CRYPT_HANDLE iCryptHandle,
 			  IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE keyIDtype );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
-int getCertKeyID( OUT_BUFFER( keyIdMaxLen, *keyIdLen ) char *keyID, 
-				  IN_LENGTH_SHORT_MIN( 16 ) const int keyIdMaxLen, 
-				  OUT_LENGTH_BOUNDED_Z( keyIdMaxLen ) int *keyIdLen,
+int getCertKeyID( OUT_BUFFER( keyIdMaxLength, *keyIdLength ) char *keyID, 
+				  IN_LENGTH_SHORT_MIN( 16 ) const int keyIdMaxLength, 
+				  OUT_LENGTH_BOUNDED_Z( keyIdMaxLength ) int *keyIdLength,
 				  IN_HANDLE const CRYPT_CERTIFICATE iCryptCert );
+#ifdef USE_PKIUSER
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
-int getPkiUserKeyID( OUT_BUFFER( keyIdMaxLen, *keyIdLen ) char *keyID, 
+int getPkiUserKeyID( OUT_BUFFER( keyIdMaxLength, *keyIdLength ) char *keyID, 
 					 IN_LENGTH_SHORT_MIN( ENCODED_DBXKEYID_SIZE ) \
-						const int keyIdMaxLen, 
-					 OUT_LENGTH_BOUNDED_Z( keyIdMaxLen ) int *keyIdLen,
+						const int keyIdMaxLength, 
+					 OUT_LENGTH_BOUNDED_Z( keyIdMaxLength ) int *keyIdLength,
 					 IN_HANDLE const CRYPT_CERTIFICATE iCryptCert );
+#endif /* USE_PKIUSER */
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int getCertIDinfo( INOUT_PTR CERTID_INFO *certIDinfo,
+				   IN_HANDLE const CRYPT_CERTIFICATE iCertificate,
+				   IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+				   IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser );
+STDC_NONNULL_ARG( ( 1 ) ) \
+void modifyUniqueID( INOUT_BUFFER_FIXED( idLength ) BYTE *id,
+					 IN_LENGTH_FIXED( ENCODED_DBXKEYID_SIZE ) \
+						const int idLength,
+					 IN_ENUM( IDMOD ) const IDMOD_TYPE modType );
+STDC_NONNULL_ARG( ( 1 ) ) \
+void modifyCertIssueID( INOUT_BUFFER_FIXED( idLength ) BYTE *id,
+						IN_LENGTH_FIXED( ENCODED_DBXKEYID_SIZE ) \
+							const int idLength,
+						IN_ENUM( IDMOD ) const IDMOD_TYPE modType );
+CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1 ) ) \
+BOOLEAN isModifiedID( IN_BUFFER( idLength ) const void *id,
+					  IN_LENGTH_SHORT_MIN( 8 ) const int idLength );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 3, 5 ) ) \
 int extractCertData( IN_HANDLE const CRYPT_CERTIFICATE iCryptCert, 
 					 IN_INT const int formatType,
@@ -563,10 +646,10 @@ BOOLEAN checkRequest( IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 6 ) ) \
 int caAddCertRequest( INOUT_PTR struct DBXI *dbmsInfo, 
 					  IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
-					  IN_ENUM( CRYPT_CERTTYPE ) \
-						const CRYPT_CERTTYPE_TYPE requestType, 
-					  IN_BOOL const BOOLEAN isRenewal, 
-					  IN_BOOL const BOOLEAN isInitialOp,
+					  IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+					  IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
+					  IN_ENUM_OPT( CERTMGMT_OPTION_TYPE ) \
+						const CERTMGMT_OPTION_TYPE option,
 					  INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int caAddPKIUser( INOUT_PTR struct DBXI *dbmsInfo, 
@@ -588,36 +671,49 @@ int caCleanup( INOUT_PTR struct DBXI *dbmsInfo,
 
 /* Prototypes for routines in ca_issue.c */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
 int completeCertRenewal( INOUT_PTR struct DBXI *dbmsInfo,
 						 IN_HANDLE const CRYPT_CERTIFICATE iReplaceCertificate,
+						 IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+						 IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
 						 INOUT_PTR ERROR_INFO *errorInfo );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 6 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 9 ) ) \
 int caIssueCert( INOUT_PTR struct DBXI *dbmsInfo, 
 				 OUT_OPT_HANDLE_OPT CRYPT_CERTIFICATE *iCertificate,
 				 IN_HANDLE const CRYPT_CERTIFICATE caKey,
 				 IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
-				 IN_ENUM( CRYPT_CERTACTION ) const CRYPT_CERTACTION_TYPE action,
+				 IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+				 IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
+				 IN_ENUM( CRYPT_CERTACTION ) \
+					const CRYPT_CERTACTION_TYPE action,
+				 IN_ENUM_OPT( CERTMGMT_OPTION ) \
+					const CERTMGMT_OPTION_TYPE option,
 				 INOUT_PTR ERROR_INFO *errorInfo );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 6 ) ) \
 int caIssueCertComplete( INOUT_PTR struct DBXI *dbmsInfo, 
 						 IN_HANDLE const CRYPT_CERTIFICATE iCertificate,
+						 IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+						 IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
 						 IN_ENUM( CRYPT_CERTACTION ) \
 							const CRYPT_CERTACTION_TYPE action,
 						 INOUT_PTR ERROR_INFO *errorInfo );
 
 /* Prototypes for routines in ca_rev.c */
 
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 4 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 6 ) ) \
 int revokeCertDirect( INOUT_PTR struct DBXI *dbmsInfo,
 					  IN_HANDLE const CRYPT_CERTIFICATE iCertificate,
+					  IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+					  IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
 					  IN_ENUM( CRYPT_CERTACTION ) \
 						const CRYPT_CERTACTION_TYPE action,
 					  INOUT_PTR ERROR_INFO *errorInfo );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 5 ) ) \
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 7 ) ) \
 int caRevokeCert( INOUT_PTR struct DBXI *dbmsInfo, 
 				  IN_HANDLE const CRYPT_CERTIFICATE iCertRequest,
 				  IN_HANDLE_OPT const CRYPT_CERTIFICATE iCertificate,
+				  IN_HANDLE_OPT const CRYPT_CERTIFICATE iAuthCert,
+				  IN_HANDLE_OPT const CRYPT_CERTIFICATE iPkiUser,
 				  IN_ENUM( CRYPT_CERTACTION ) const CRYPT_CERTACTION_TYPE action,
 				  INOUT_PTR ERROR_INFO *errorInfo );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 4 ) ) \
@@ -629,29 +725,43 @@ int caIssueCRL( INOUT_PTR struct DBXI *dbmsInfo,
 /* Prototypes for routines in ca_misc.c */
 
 RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int updateCertLogEx( INOUT_PTR struct DBXI *dbmsInfo, 
+					 IN_ENUM( CRYPT_CERTACTION ) const CRYPT_CERTACTION_TYPE action, 
+					 IN_BUFFER_OPT( certIDlength ) const char *certID, 
+					 IN_LENGTH_SHORT_Z const int certIDlength,
+					 IN_BUFFER_OPT( reqCertIDlength ) const char *reqCertID, 
+					 IN_LENGTH_SHORT_Z const int reqCertIDlength,
+					 IN_BUFFER_OPT( authCertIDlength ) const char *authCertID, 
+					 IN_LENGTH_SHORT_Z const int authCertIDlength,
+					 IN_BUFFER_OPT( pkiUserIDlength ) const char *pkiUserID, 
+					 IN_LENGTH_SHORT_Z const int pkiUserIDlength,
+					 IN_BUFFER_OPT( dataLength ) const void *data, 
+					 IN_LENGTH_SHORT_Z const int dataLength, 
+					 IN_ENUM( DBMS_UPDATE ) const DBMS_UPDATE_TYPE updateType );
+RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int updateCertLog( INOUT_PTR struct DBXI *dbmsInfo, 
 				   IN_ENUM( CRYPT_CERTACTION ) const CRYPT_CERTACTION_TYPE action, 
 				   IN_BUFFER_OPT( certIDlength ) const char *certID, 
 				   IN_LENGTH_SHORT_Z const int certIDlength,
 				   IN_BUFFER_OPT( reqCertIDlength ) const char *reqCertID, 
 				   IN_LENGTH_SHORT_Z const int reqCertIDlength,
-				   IN_BUFFER_OPT( subjCertIDlength ) const char *subjCertID, 
-				   IN_LENGTH_SHORT_Z const int subjCertIDlength,
 				   IN_BUFFER_OPT( dataLength ) const void *data, 
 				   IN_LENGTH_SHORT_Z const int dataLength, 
 				   IN_ENUM( DBMS_UPDATE ) const DBMS_UPDATE_TYPE updateType );
+RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
+int updateCertErrorLogEx( INOUT_PTR struct DBXI *dbmsInfo, 
+						  IN_ERROR const int errorStatus,
+						  IN_STRING const char *errorString, 
+						  IN_BUFFER_OPT( certIDlength ) const char *certID, 
+						  IN_LENGTH_SHORT_Z const int certIDlength,
+						  IN_BUFFER_OPT( reqCertIDlength ) const char *reqCertID, 
+						  IN_LENGTH_SHORT_Z const int reqCertIDlength );
 RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int updateCertErrorLog( INOUT_PTR struct DBXI *dbmsInfo, 
 						IN_ERROR const int errorStatus,
 						IN_STRING const char *errorString, 
 						IN_BUFFER_OPT( certIDlength ) const char *certID, 
-						IN_LENGTH_SHORT_Z const int certIDlength,
-						IN_BUFFER_OPT( reqCertIDlength ) const char *reqCertID, 
-						IN_LENGTH_SHORT_Z const int reqCertIDlength,
-						IN_BUFFER_OPT( subjCertIDlength ) const char *subjCertID, 
-						IN_LENGTH_SHORT_Z const int subjCertIDlength,
-						IN_BUFFER_OPT( dataLength ) const void *data, 
-						IN_LENGTH_SHORT_Z const int dataLength );
+						IN_LENGTH_SHORT_Z const int certIDlength );
 RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int updateCertErrorLogMsg( INOUT_PTR struct DBXI *dbmsInfo, 
 						   IN_ERROR const int errorStatus,
@@ -659,9 +769,9 @@ int updateCertErrorLogMsg( INOUT_PTR struct DBXI *dbmsInfo,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2, 3, 5 ) ) \
 int caGetIssuingUser( INOUT_PTR struct DBXI *dbmsInfo, 
 					  OUT_HANDLE_OPT CRYPT_CERTIFICATE *iPkiUser,
-					  IN_BUFFER( initialCertIDlength ) const char *initialCertID, 
+					  IN_BUFFER( certIDlength ) const char *certID, 
 					  IN_LENGTH_FIXED( ENCODED_DBXKEYID_SIZE ) \
-						const int initialCertIDlength, 
+							const int certIDlength, 
 					  INOUT_PTR ERROR_INFO *errorInfo );
 
 #endif /* _DBMS_DEFINED */

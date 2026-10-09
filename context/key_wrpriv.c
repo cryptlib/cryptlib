@@ -38,7 +38,7 @@ static int getSPKIHash( const CONTEXT_INFO *contextInfoPtr,
 						IN_LENGTH_FIXED( 32 ) const int hashValueLength ) 
 	{
 	PKC_CALCULATEKEYID_FUNCTION calculateKeyIDFunction;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 
 	assert( isReadPtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
 	assert( isWritePtr( hashValue, hashValueLength ) );
@@ -84,7 +84,7 @@ static int writeRsaPrivateKey( INOUT_PTR STREAM *stream,
 							   IN_PTR const CONTEXT_INFO *contextInfoPtr,
 							   IN_BOOL const BOOLEAN useExtFormat )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	BYTE spkiHash[ CRYPT_MAX_HASHSIZE + 8 ];
 	int length, status;
 
@@ -147,7 +147,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int writeRsaPrivateKeyOld( INOUT_PTR STREAM *stream, 
 								  const CONTEXT_INFO *contextInfoPtr )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const BIGNUM *d;
 	BOOLEAN calculatedPrivateExponent = FALSE;
 	int length, status;
@@ -294,7 +294,7 @@ static int writePrivateKeyDlpFunction( INOUT_PTR STREAM *stream,
 									   IN_LENGTH_FIXED( 11 ) \
 										const int accessKeyLen )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 
@@ -364,7 +364,7 @@ static int writePrivateKeyEccFunction( INOUT_PTR STREAM *stream,
 									   IN_LENGTH_FIXED( 11 ) \
 										const int accessKeyLen )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 
@@ -423,7 +423,7 @@ static int writePrivateKey25519Function( INOUT_PTR STREAM *stream,
 										 IN_LENGTH_FIXED( 11 ) \
 											const int accessKeyLen )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const BERNSTEIN_KEY_INFO *bernsteinKey;
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
@@ -492,7 +492,7 @@ static int writePrivateKeyMlkemFunction( INOUT_PTR STREAM *stream,
 										 IN_LENGTH_FIXED( 11 ) \
 											const int accessKeyLen )
 	{
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 
@@ -550,7 +550,7 @@ static int writePrivateKeyNullFunction( INOUT_PTR STREAM *stream,
 STDC_NONNULL_ARG( ( 1 ) ) \
 void initPrivKeyWrite( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 

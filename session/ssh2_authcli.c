@@ -586,7 +586,7 @@ static int readAuthResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 OUT_LENGTH_Z int *packetLength,
 							 IN_BOOL const BOOLEAN isPAMAuth )
 	{
-	const SSH_INFO *sshInfo = sessionInfoPtr->sessionSSH;
+	const SSH_INFO *sshInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 #ifdef USE_SSH_EXTENDED
 	STREAM stream;
 #endif /* USE_SSH_EXTENDED */
@@ -599,6 +599,7 @@ static int readAuthResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( packetLength, sizeof( int ) ) );
 
 	REQUIRES( isBooleanValue( isPAMAuth ) );
+	REQUIRES( sshInfo != NULL );
 
 	/* Clear return values */
 	*type = 0;

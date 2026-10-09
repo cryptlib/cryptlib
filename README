@@ -1,3 +1,51 @@
+Changes in 3.4.9.6 release
+==========================
+
+cryptlib 3.4.9.6 is a fifth intermediate release to prepare for the cleanup
+changes in 3.5.  This release fixes a number of inconsistencies and corner
+cases discovered through analysis by LLM tools, several of which are obscure
+enough that they date back more than 20 years.  Most of them relate to pushing
+and popping data into and out of envelopes in unusual patterns rather than
+using the handling described in the manual, leading to either
+CRYPT_ERROR_BADDATA errors or triggering internal consistency checks.  These
+had never been discovered in decades of testing and fuzzing because triggering
+them required the caller to push and pop data in specific patterns to hit
+boundary conditions in the data.
+
+Alongside these, this release adds more rigorous checking for some types of
+undefined behaviour in the calling application that were also discovered with
+LLM tools, for example using cryptCheckCert() to check a self-signed
+certificate with the second parameter not being CRYPT_UNUSED (which is either
+valid or invalid depending on whether you expect cryptCheckCert() to check the
+validity of the certificate, or check its validity on the context of the
+second certificate), rejecting a client's TLS certificate authentication but
+continuing anyway with the TLS session, passing a certificate to a CMS message
+signature-check that already included signing certificates with the message
+(again, either valid or not valid depending on which certificate you expect to
+take preference), and a few others.  It also disables the ability to create
+keyAgreement (DH, ECDH, X25519) certificates, which are never used in practice
+and which led to code paths that were unable to be tested due to the non-
+availability of certificates to test them with.
+
+The only externally-noticeable change in the code is an update to the CA
+certificate store to make audit trails easier to work with.  Previously the
+authorising user for a certificate issue was identified by walking back
+through the chain of issued certificates, but this chain breaks if a database
+row is deleted or becomes corrupted.  The update adds a new table column to CA
+certificate stores that records the authorising user so that each certificate
+log entry contains all of the information needed to audit a certificate issue
+even if related rows are corrupted or deleted.  It also improves error
+handling for database backend errors, providing improved fallback handling in
+the case of database corruption and similar problems.
+
+If you're using an existing CA certificate store then you need to make
+two changes to the certLog table:
+
+1. Rename the 'subjCertID' column to 'authCertID'
+2. Add a new column required to log the authorising user:
+
+	ALTER TABLE certLog ADD pkiUserID CHAR(22);
+
 Changes in 3.4.9.5 release
 ==========================
 

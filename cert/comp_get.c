@@ -43,7 +43,7 @@ DATAPTR_ATTRIBUTE findAttributeComponent( IN_PTR const CERT_INFO *certInfoPtr,
 											const CRYPT_ATTRIBUTE_TYPE certInfoType )
 	{
 #ifdef USE_CERTREV
-	const CERT_REV_INFO *certRevInfo;
+	const CERT_REV_INFO *revInfo;
 	DATAPTR_ATTRIBUTE attributePtr;
 	const REVOCATION_INFO *currentRevocation;
 #endif /* USE_CERTREV */
@@ -76,10 +76,12 @@ DATAPTR_ATTRIBUTE findAttributeComponent( IN_PTR const CERT_INFO *certInfoPtr,
 	if( certInfoPtr->type == CRYPT_CERTTYPE_RTCS_REQUEST || \
 		certInfoPtr->type == CRYPT_CERTTYPE_RTCS_RESPONSE )
 		{
-		CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
+		CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 		const VALIDITY_INFO *validityInfoPtr;
 
-		validityInfoPtr = DATAPTR_GET( certValInfo->currentValidity );
+		REQUIRES_D( valInfo != NULL );
+
+		validityInfoPtr = DATAPTR_GET( valInfo->currentValidity );
 		if( validityInfoPtr == NULL )
 			return( DATAPTR_NULL );
 		return( findAttributeFieldEx( validityInfoPtr->attributes, 
@@ -95,8 +97,9 @@ DATAPTR_ATTRIBUTE findAttributeComponent( IN_PTR const CERT_INFO *certInfoPtr,
 
 	/* It's a CRL or OCSP per-entry attribute, get the attribute from the 
 	   currently selected entry */
-	certRevInfo = certInfoPtr->cCertRev;
-	currentRevocation = DATAPTR_GET( certRevInfo->currentRevocation );
+	revInfo = DATAPTR_GET_REV( certInfoPtr );
+	REQUIRES_D( revInfo != NULL );
+	currentRevocation = DATAPTR_GET( revInfo->currentRevocation );
 	if( currentRevocation == NULL )
 		return( DATAPTR_NULL );
 	attributePtr = findAttributeFieldEx( currentRevocation->attributes, 
@@ -249,19 +252,19 @@ static int getCertCopy( IN_PTR const CERT_INFO *certInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 					  IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE certInfoType,
-					  OUT_INT_Z int *certInfo )
+					  OUT_INT_Z int *valuePtr )
 	{
 	int status;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
-	assert( isWritePtr( certInfo, sizeof( int ) ) );
+	assert( isWritePtr( valuePtr, sizeof( int ) ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
 	REQUIRES( isAttribute( certInfoType ) || \
 			  isInternalAttribute( certInfoType ) );
 
 	/* Clear return value */
-	*certInfo = 0;
+	*valuePtr = 0;
 
 	/* If it's a GeneralName or DN component, return it.  These are 
 	   special-case attribute values so they have to come before the 
@@ -275,7 +278,7 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 		   notfound status in the return code as well as the returned value,
 		   which mirrors the behaviour when reading extension-present
 		   pseudo-attributes */
-		saveSelectionState( savedState, certInfoPtr );
+		saveSelectionState( &savedState, certInfoPtr );
 		status = selectGeneralName( certInfoPtr, certInfoType, 
 									MAY_BE_ABSENT );
 		if( cryptStatusOK( status ) )
@@ -283,8 +286,8 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 			status = selectGeneralName( certInfoPtr, CRYPT_ATTRIBUTE_NONE, 
 										MUST_BE_PRESENT );
 			}
-		restoreSelectionState( savedState, certInfoPtr );
-		*certInfo = cryptStatusOK( status ) ? TRUE : FALSE;
+		restoreSelectionState( &savedState, certInfoPtr );
+		*valuePtr = cryptStatusOK( status ) ? TRUE : FALSE;
 
 		return( status );
 		}
@@ -297,10 +300,10 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 		   status indication as above.  Since selectGeneralNameComponent() 
 		   changes the current selection within the GeneralName, we save the 
 		   selection state around the call */
-		saveSelectionState( savedState, certInfoPtr );
+		saveSelectionState( &savedState, certInfoPtr );
 		status = selectGeneralNameComponent( certInfoPtr, certInfoType );
-		restoreSelectionState( savedState, certInfoPtr );
-		*certInfo = cryptStatusOK( status ) ? TRUE : FALSE;
+		restoreSelectionState( &savedState, certInfoPtr );
+		*valuePtr = cryptStatusOK( status ) ? TRUE : FALSE;
 
 		return( status );
 		}
@@ -309,19 +312,19 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 	if( isValidExtension( certInfoType ) )
 		{
 		return( getCertAttributeComponent( certInfoPtr, certInfoType,
-										   certInfo ) );
+										   valuePtr ) );
 		}
 
 	/* If it's anything else, handle it specially */
 	switch( certInfoType )
 		{
 		case CRYPT_CERTINFO_SELFSIGNED:
-			*certInfo = TEST_FLAG( certInfoPtr->flags, 
+			*valuePtr = TEST_FLAG( certInfoPtr->flags, 
 								   CERT_FLAG_SELFSIGNED ) ? TRUE : FALSE;
 			return( CRYPT_OK );
 
 		case CRYPT_CERTINFO_IMMUTABLE:
-			*certInfo = ( certInfoPtr->certificate != NULL ) ? TRUE: FALSE;
+			*valuePtr = ( certInfoPtr->certificate != NULL ) ? TRUE: FALSE;
 			return( CRYPT_OK );
 
 		case CRYPT_CERTINFO_XYZZY:
@@ -343,18 +346,18 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 					matchOID( policyOidPtr, policyOidLength, 
 							  OID_CRYPTLIB_XYZZYCERT ) )
 					{
-					*certInfo = TRUE;
+					*valuePtr = TRUE;
 					return( CRYPT_OK );
 					}
 				}
 
 			/* It's not a XYZZY certificate */
-			*certInfo = FALSE;
+			*valuePtr = FALSE;
 			return( CRYPT_OK );
 			}
 
 		case CRYPT_CERTINFO_CERTTYPE:
-			*certInfo = certInfoPtr->type;
+			*valuePtr = certInfoPtr->type;
 			return( CRYPT_OK );
 
 		case CRYPT_CERTINFO_CURRENT_CERTIFICATE:
@@ -385,12 +388,12 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 					case CRYPT_ATTRIBUTE_CURRENT:
 						if( isSubjectNameSelected( certInfoPtr) )
 							{
-							*certInfo = CRYPT_CERTINFO_SUBJECTNAME;
+							*valuePtr = CRYPT_CERTINFO_SUBJECTNAME;
 							return( CRYPT_OK );
 							}
 						if( isIssuerNameSelected( certInfoPtr ) )
 							{
-							*certInfo = CRYPT_CERTINFO_ISSUERNAME;
+							*valuePtr = CRYPT_CERTINFO_ISSUERNAME;
 							return( CRYPT_OK );
 							}
 						break;
@@ -398,7 +401,7 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 					case CRYPT_ATTRIBUTE_CURRENT_INSTANCE:
 						if( currentSelection->dnComponent != CRYPT_ATTRIBUTE_NONE )
 							{
-							*certInfo = currentSelection->dnComponent;
+							*valuePtr = currentSelection->dnComponent;
 							return( CRYPT_OK );
 							}
 						break;
@@ -442,32 +445,44 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 					retIntError();
 				}
 			if( cryptStatusOK( status ) )
-				*certInfo = infoID;
+				*valuePtr = infoID;
 			return( status );
 			}
 
 		case CRYPT_CERTINFO_TRUSTED_USAGE:
-			if( certInfoPtr->cCertCert->trustedUsage == CRYPT_ERROR )
+			{
+			const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+			REQUIRES( certInfo != NULL );
+
+			if( certInfo->trustedUsage == CRYPT_ERROR )
 				return( CRYPT_ERROR_NOTFOUND );
-			*certInfo = certInfoPtr->cCertCert->trustedUsage;
+			*valuePtr = certInfo->trustedUsage;
  			return( CRYPT_OK );
+ 			}
 
 		case CRYPT_CERTINFO_TRUSTED_IMPLICIT:
 			status = krnlSendMessage( certInfoPtr->ownerHandle,
 									  IMESSAGE_USER_TRUSTMGMT,
 									  &certInfoPtr->objectHandle,
 									  MESSAGE_TRUSTMGMT_CHECK );
-			*certInfo = cryptStatusOK( status ) ? TRUE : FALSE;
+			*valuePtr = cryptStatusOK( status ) ? TRUE : FALSE;
 			return( CRYPT_OK );
 
 #ifdef USE_CERTREV
 		case CRYPT_CERTINFO_SIGNATURELEVEL:
-			*certInfo = certInfoPtr->cCertRev->signatureLevel;
+			{
+			const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
+
+			REQUIRES( revInfo != NULL );
+
+			*valuePtr = revInfo ->signatureLevel;
 			return( CRYPT_OK );
+			}
 #endif /* USE_CERTREV */
 
 		case CRYPT_CERTINFO_VERSION:
-			*certInfo = certInfoPtr->version;
+			*valuePtr = certInfoPtr->version;
 			return( CRYPT_OK );
 
 		case CRYPT_CERTINFO_ISSUERNAME:
@@ -479,25 +494,27 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 
 			if( DATAPTR_ISNULL( dnPtr ) ) 
 				{
-				*certInfo = FALSE;
+				*valuePtr = FALSE;
 				return( CRYPT_ERROR_NOTFOUND );
 				}
-			*certInfo = TRUE;
+			*valuePtr = TRUE;
 			return( CRYPT_OK );
 			}
 
 #ifdef USE_CERTREV
 		case CRYPT_CERTINFO_REVOCATIONSTATUS:
 			{
-			const CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+			const CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 			const REVOCATION_INFO *revInfoPtr;
 
-			revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+			REQUIRES( revInfo != NULL );
+
+			revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 			if( revInfoPtr == NULL )
-				revInfoPtr = DATAPTR_GET( certRevInfo->revocations );
+				revInfoPtr = DATAPTR_GET( revInfo->revocations );
 			if( revInfoPtr == NULL )
 				return( CRYPT_ERROR_NOTFOUND );
-			*certInfo = revInfoPtr->status;
+			*valuePtr = revInfoPtr->status;
 			return( CRYPT_OK );
 			}
 #endif /* USE_CERTREV */
@@ -505,37 +522,58 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 #ifdef USE_CERTVAL
 		case CRYPT_CERTINFO_CERTSTATUS:
 			{
-			const CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
+			const CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 			const VALIDITY_INFO *validityInfoPtr;
 
-			if( DATAPTR_ISSET( certValInfo->currentValidity ) )
+			REQUIRES( valInfo != NULL );
+			
+			if( DATAPTR_ISSET( valInfo->currentValidity ) )
 				{
-				validityInfoPtr = DATAPTR_GET( certValInfo->currentValidity );
+				validityInfoPtr = DATAPTR_GET( valInfo->currentValidity );
 				ENSURES( validityInfoPtr != NULL );
 				}
 			else
-				validityInfoPtr = DATAPTR_GET( certValInfo->validityInfo );
+				validityInfoPtr = DATAPTR_GET( valInfo->validityInfo );
 			if( validityInfoPtr == NULL )
 				return( CRYPT_ERROR_NOTFOUND );
-			*certInfo = validityInfoPtr->extStatus;
+			*valuePtr = validityInfoPtr->extStatus;
 			return( CRYPT_OK );
 			}
 #endif /* USE_CERTVAL */
 
 #ifdef USE_PKIUSER
 		case CRYPT_CERTINFO_PKIUSER_RA:
-			*certInfo = certInfoPtr->cCertUser->isRA;
+			{
+			const CERT_PKIUSER_INFO *pkiUserInfo = \
+						DATAPTR_GET_PKIUSER( certInfoPtr );
+
+			REQUIRES( pkiUserInfo != NULL );
+
+			*valuePtr = pkiUserInfo->isRA;
 			return( CRYPT_OK );
+			}
 #endif /* USE_PKIUSER */
 
 		case CRYPT_IATTRIBUTE_CERTHASHALGO:
-			*certInfo = certInfoPtr->cCertCert->hashAlgo;
+			{
+			const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+			REQUIRES( certInfo != NULL );
+
+			*valuePtr = certInfo->hashAlgo;
 			return( CRYPT_OK );
+			}
 
 #ifdef USE_CERTREQ
 		case CRYPT_IATTRIBUTE_REQFROMRA:
-			*certInfo = certInfoPtr->cCertReq->requestFromRA;
+			{
+			const CERT_REQ_INFO *reqInfo = DATAPTR_GET_REQ( certInfoPtr );
+
+			REQUIRES( reqInfo != NULL );
+			
+			*valuePtr = reqInfo->requestFromRA;
 			return( CRYPT_OK );
+			}
 #endif /* USE_CERTREQ */
 
 		case CRYPT_IATTRIBUTE_CERTCOPY:
@@ -545,7 +583,7 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 			status = getCertCopy( certInfoPtr, &certCopy, FALSE );
 			if( cryptStatusError( status ) )
 				return( status );
-			*certInfo = certCopy;
+			*valuePtr = certCopy;
 			return( CRYPT_OK );
 			}
 		case CRYPT_IATTRIBUTE_CERTCOPY_DATAONLY:
@@ -555,7 +593,7 @@ int getCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 			status = getCertCopy( certInfoPtr, &certCopy, TRUE );
 			if( cryptStatusError( status ) )
 				return( status );
-			*certInfo = certCopy;
+			*valuePtr = certCopy;
 			return( CRYPT_OK );
 			}
 		}

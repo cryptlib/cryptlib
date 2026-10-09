@@ -180,6 +180,7 @@ int getContextDeviceInfo( IN_HANDLE const CRYPT_HANDLE iCryptContext,
 	{
 	CRYPT_DEVICE iLocalDevice;
 	DEVICE_INFO *deviceInfo;
+	PKCS11_INFO *pkcs11Info;
 	int cryptStatus;
 
 	assert( isWritePtr( iCryptDevice, sizeof( CRYPT_DEVICE ) ) );
@@ -203,8 +204,10 @@ int getContextDeviceInfo( IN_HANDLE const CRYPT_HANDLE iCryptContext,
 									 CRYPT_ERROR_SIGNALLED );
 	if( cryptStatusError( cryptStatus ) )
 		return( cryptStatus );
+	pkcs11Info = DATAPTR_GET( deviceInfo->deviceInfo );
+	REQUIRES( pkcs11Info != NULL );
 	*iCryptDevice = iLocalDevice;
-	*pkcs11InfoPtrPtr = deviceInfo->devicePKCS11;
+	*pkcs11InfoPtrPtr = pkcs11Info;
 
 	return( CRYPT_OK );
 	}
@@ -295,11 +298,12 @@ static int controlFunction( INOUT_PTR DEVICE_INFO *deviceInfo,
 								MESSAGE_FUNCTION_EXTINFO *messageExtInfo )
 	{
 	CK_RV status;
-	PKCS11_INFO *pkcs11Info = deviceInfo->devicePKCS11;
+	PKCS11_INFO *pkcs11Info = DATAPTR_GET( deviceInfo->deviceInfo );
 
 	assert( isWritePtr( deviceInfo, sizeof( DEVICE_INFO ) ) );
 
 	REQUIRES( isAttribute( type ) || isInternalAttribute( type ) );
+	REQUIRES( pkcs11Info != NULL );
 
 	/* Handle token present/active checks.  Note that this doesn't 
 	   explicitly set a value for the boolean that's returned but only 

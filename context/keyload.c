@@ -74,7 +74,7 @@ int initGenericParams( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					   IN_PTR_OPT const void *data, 
 					   IN_INT const int dataLength )
 	{
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 
@@ -465,7 +465,7 @@ static int loadKeyConvFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 	int keyDataSize, status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -510,7 +510,7 @@ static int loadKeyPKCFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	int status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -557,7 +557,7 @@ static int loadKeyMacFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	MAC_INFO *macInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 	int macInfoSize, status;
 
 	assert( isWritePtr( contextInfoPtr, sizeof( CONTEXT_INFO ) ) );
@@ -648,7 +648,7 @@ int setEncodedKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	PKC_CALCULATEKEYID_FUNCTION calculateKeyIDFunction;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	STREAM stream;
 	KEYFORMAT_TYPE formatType;
 	int status;
@@ -768,7 +768,7 @@ int completeKeyLoad( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	static const int actionFlagsPGP = \
 		MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, ACTION_PERM_ALL ) | \
 		MK_ACTION_PERM( MESSAGE_CTX_ENCRYPT, ACTION_PERM_ALL );
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 				DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	const CTX_LOADKEY_FUNCTION loadKeyFunction = \
@@ -834,7 +834,7 @@ int setKeyComponents( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	static const int actionFlags = \
 		MK_ACTION_PERM( MESSAGE_CTX_SIGCHECK, ACTION_PERM_ALL ) | \
 		MK_ACTION_PERM( MESSAGE_CTX_ENCRYPT, ACTION_PERM_ALL );
-	const PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	const PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
 	const CTX_LOADKEY_FUNCTION loadKeyFunction = \
@@ -991,7 +991,7 @@ static int generateKeyConvFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	const CTX_LOADKEY_FUNCTION loadKeyFunction = \
 							( CTX_LOADKEY_FUNCTION ) \
 							FNPTR_GET( contextInfoPtr->loadKeyFunction );
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 	MESSAGE_DATA msgData;
 	int keyLength, status;
 
@@ -1041,7 +1041,7 @@ static int generateKeyPKCFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	{
 	const CAPABILITY_INFO *capabilityInfoPtr = \
 								DATAPTR_GET( contextInfoPtr->capabilityInfo );
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	PKC_CALCULATEKEYID_FUNCTION calculateKeyIDFunction;
 	int keyLength, status;
 
@@ -1112,7 +1112,7 @@ static int generateKeyMacFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	const CTX_LOADKEY_FUNCTION loadKeyFunction = \
 							( CTX_LOADKEY_FUNCTION ) \
 							FNPTR_GET( contextInfoPtr->loadKeyFunction );
-	MAC_INFO *macInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 	MESSAGE_DATA msgData;
 	int keyLength, status;
 
@@ -1165,7 +1165,7 @@ static int generateKeyGenericFunction( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 	const CTX_LOADKEY_FUNCTION loadKeyFunction = \
 							( CTX_LOADKEY_FUNCTION ) \
 							FNPTR_GET( contextInfoPtr->loadKeyFunction );
-	GENERIC_INFO *genericInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	GENERIC_INFO *genericInfo = DATAPTR_GET_GENERIC( contextInfoPtr );
 	MESSAGE_DATA msgData;
 	int keyLength, status;
 
@@ -1228,7 +1228,7 @@ static int deriveKeyConv( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	const CTX_LOADKEY_FUNCTION loadKeyFunction = \
 						( CTX_LOADKEY_FUNCTION ) \
 						FNPTR_GET( contextInfoPtr->loadKeyFunction );
-	CONV_INFO *convInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	CONV_INFO *convInfo = DATAPTR_GET_CONV( contextInfoPtr );
 	MECHANISM_DERIVE_INFO mechanismInfo;
 	CRYPT_ALGO_TYPE hmacAlgo;
 	int keySize, value DUMMY_INIT, status;
@@ -1312,7 +1312,7 @@ static int deriveKeyMAC( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	const CTX_LOADKEY_FUNCTION loadKeyFunction = \
 						( CTX_LOADKEY_FUNCTION ) \
 						FNPTR_GET( contextInfoPtr->loadKeyFunction );
-	MAC_INFO *macInfo = DATAPTR_GET( contextInfoPtr->keyingInfo );
+	MAC_INFO *macInfo = DATAPTR_GET_MAC( contextInfoPtr );
 	MECHANISM_DERIVE_INFO mechanismInfo;
 	CRYPT_ALGO_TYPE hmacAlgo;
 	int keySize, value DUMMY_INIT, status;

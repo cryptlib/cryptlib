@@ -172,7 +172,7 @@ static int readGenericSecretParams( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
 
-	REQUIRES_S( isShortIntegerRange( startOffset ) && \
+	REQUIRES_S( isIntegerRange( startOffset ) && \
 				startOffset < stell( stream ) );
 				/* Preceding algoID has already been read */
 
@@ -673,7 +673,7 @@ int readCryptAlgoParams( INOUT_PTR STREAM *stream,
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( queryInfo, sizeof( QUERY_INFO ) ) );
 
-	REQUIRES_S( isShortIntegerRange( startOffset ) && \
+	REQUIRES_S( isIntegerRange( startOffset ) && \
 				startOffset < stell( stream ) );
 				/* Preceding algoID has already been read */
 

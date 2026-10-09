@@ -112,9 +112,12 @@ BOOLEAN sanityCheckDevice( IN_PTR const DEVICE_INFO *deviceInfoPtr )
 		{
 		case CRYPT_DEVICE_NONE:
 			{
-			const SYSTEMDEV_INFO *systemInfo = deviceInfoPtr->deviceSystem;
+			const SYSTEMDEV_INFO *systemInfo = \
+						DATAPTR_GET( deviceInfoPtr->deviceInfo );
 
 			assert( isReadPtr( systemInfo, sizeof( SYSTEMDEV_INFO ) ) );
+
+			REQUIRES_B( systemInfo != NULL );
 
 			/* Check the CSPRNG data */
 			if( !DATAPTR_ISSET( systemInfo->randomInfo ) )
@@ -151,9 +154,12 @@ BOOLEAN sanityCheckDevice( IN_PTR const DEVICE_INFO *deviceInfoPtr )
 #ifdef USE_PKCS11
 		case CRYPT_DEVICE_PKCS11:
 			{
-			const PKCS11_INFO *pkcs11Info = deviceInfoPtr->devicePKCS11;
+			const PKCS11_INFO *pkcs11Info = \
+						DATAPTR_GET( deviceInfoPtr->deviceInfo );
 
 			assert( isReadPtr( pkcs11Info, sizeof( PKCS11_INFO ) ) );
+
+			REQUIRES( pkcs11Info != NULL );
 
 			/* Check general device information */
 			if( pkcs11Info->minPinSize != 0 || pkcs11Info->maxPinSize != 0 )
@@ -191,9 +197,12 @@ BOOLEAN sanityCheckDevice( IN_PTR const DEVICE_INFO *deviceInfoPtr )
 #ifdef USE_TPM
 		case CRYPT_DEVICE_TPM:
 			{
-			const TPM_INFO *tpmInfo = deviceInfoPtr->deviceTPM;
+			const TPM_INFO *tpmInfo = \
+						DATAPTR_GET( deviceInfoPtr->deviceInfo );
 
 			assert( isReadPtr( tpmInfo, sizeof( TPM_INFO ) ) );
+
+			REQUIRES_B( tpmInfo != NULL );
 
 			if( deviceInfoPtr->iCryptKeyset != CRYPT_ERROR && \
 				!isHandleRangeValid( deviceInfoPtr->iCryptKeyset ) )
@@ -218,25 +227,15 @@ BOOLEAN sanityCheckDevice( IN_PTR const DEVICE_INFO *deviceInfoPtr )
 			}
 #endif /* USE_TPM */
 
-#ifdef USE_CRYPTOAPI
-		case CRYPT_DEVICE_CRYPTOAPI:
-			{
-			const CRYPTOAPI_INFO *cryptoapiInfo = deviceInfoPtr->deviceCryptoAPI;
-
-			assert( isReadPtr( cryptoapiInfo, sizeof( CRYPTOAPI_INFO ) ) );
-
-			/* Nothing to check */
-
-			break;
-			}
-#endif /* USE_CRYPTOAPI */
-
 #ifdef USE_HARDWARE
 		case CRYPT_DEVICE_HARDWARE:
 			{
-			const HARDWARE_INFO *hardwareInfo = deviceInfoPtr->deviceHardware;
+			const HARDWARE_INFO *hardwareInfo = \
+						DATAPTR_GET( deviceInfoPtr->deviceInfo );
 
 			assert( isReadPtr( hardwareInfo, sizeof( HARDWARE_INFO ) ) );
+
+			REQUIRES_B( hardwareInfo != NULL );
 
 			if( deviceInfoPtr->iCryptKeyset == CRYPT_ERROR )
 				{
@@ -1273,51 +1272,13 @@ static int openDevice( OUT_HANDLE_OPT CRYPT_DEVICE *iCryptDevice,
 	*deviceInfoPtrPtr = deviceInfoPtr;
 	deviceInfoPtr->objectHandle = *iCryptDevice;
 	deviceInfoPtr->ownerHandle = iCryptOwner;
-	INIT_FLAGS( deviceInfoPtr->flags, DEVICE_FLAG_NONE );
 	deviceInfoPtr->type = deviceType;
+	INIT_FLAGS( deviceInfoPtr->flags, DEVICE_FLAG_NONE );
+	setVarStruct( deviceInfoPtr, storageSize, deviceInfo );
 #if defined( USE_HARDWARE ) || defined( USE_TPM )
 	deviceInfoPtr->iCryptKeyset = CRYPT_ERROR;
 	DATAPTR_SET( deviceInfoPtr->storageFunctions, NULL );
 #endif /* USE_HARDWARE || USE_TPM */
-	switch( deviceType )
-		{
-		case CRYPT_DEVICE_NONE:
-			deviceInfoPtr->deviceSystem = \
-							( SYSTEMDEV_INFO * ) deviceInfoPtr->storage;
-			break;
-
-#ifdef USE_PKCS11
-		case CRYPT_DEVICE_PKCS11:
-			deviceInfoPtr->devicePKCS11 = \
-							( PKCS11_INFO * ) deviceInfoPtr->storage;
-			break;
-#endif /* USE_PKCS11 */
-
-#ifdef USE_TPM
-		case CRYPT_DEVICE_TPM:
-			deviceInfoPtr->deviceTPM = \
-							( TPM_INFO * ) deviceInfoPtr->storage;
-			break;
-#endif /* USE_TPM */
-
-#ifdef USE_CRYPTOAPI
-		case CRYPT_DEVICE_CRYPTOAPI:
-			deviceInfoPtr->deviceCryptoAPI = \
-							( CRYPTOAPI_INFO * ) deviceInfoPtr->storage;
-			break;
-#endif /* USE_CRYPTOAPI */
-
-#ifdef USE_HARDWARE
-		case CRYPT_DEVICE_HARDWARE:
-			deviceInfoPtr->deviceHardware = \
-							( HARDWARE_INFO * ) deviceInfoPtr->storage;
-			break;
-#endif /* USE_HARDWARE */
-
-		default:
-			retIntError();
-		}
-	deviceInfoPtr->storageSize = storageSize;
 
 	/* Sanity check to make sure that the all-important system device is as 
 	   it's supposed to be.  krnlCreateObject() doesn't allow creation of a

@@ -1218,7 +1218,7 @@ int loadDHparams( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				  IN_LENGTH_PKC const int requestedKeySize,
 				  IN_BOOL const BOOLEAN useAltParams )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const DH_DOMAINPARAMS *domainParams = NULL;
 #ifdef CREATE_BIGNUM_VALUES
 	int status;
@@ -2496,7 +2496,7 @@ int loadECCparams( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 				   IN_ENUM( CRYPT_ECCCURVE ) \
 						const CRYPT_ECCCURVE_TYPE curveType )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const ECC_DOMAINPARAMS *domainParams;
 	int curveSizeBits, status;
 

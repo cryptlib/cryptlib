@@ -520,22 +520,13 @@ typedef struct AL {
 
 	/* The data payload for this attribute field or attribute.  If it's
 	   numeric data such as a simple boolean, bitstring, or small integer
-	   then we store it in the intValue member, if it's a scalar type then
-	   we store it in { dataValue, dataValueLength }, and if it's a DN we 
-	   store it in a DATAPTR */
-	union { 
-		int intValue;				/* Integer value for simple types */
-		struct {					/* Data value for scalar types */
-			BUFFER_OPT_FIXED( dataValueLength ) \
-			void *dataValue;
-			int dataValueLength;
-			} dataValueInfo;
-		DATAPTR_DN dnValue;			/* Safe pointer for DN types */
-		} data;
-	#define intValue		data.intValue
-	#define dataValue		data.dataValueInfo.dataValue
-	#define dataValueLength	data.dataValueInfo.dataValueLength
-	#define dnValue			data.dnValue
+	   then we store it in the attrIntValue member, if it's a scalar type 
+	   then we store it in { attrDataValue, attrDataValueLength 
+	   (= attrIntValue) }, and if it's a DN we store it in a DATAPTR */
+	int attrIntValue;				/* Integer value for simple types */
+	void *attrDataValue;
+	#define attrDataValueLength	attrIntValue
+	DATAPTR_DN attrDNValue;			/* Safe pointer for DN types */
 
 	/* The OID, for blob-type attributes */
 	BYTE *oid;						/* Attribute OID */

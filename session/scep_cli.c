@@ -538,10 +538,10 @@ static int getCACapabilities( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 	/* Read the GetCACaps response lines.  Alongside the close-the-
 	   connection bug in older versions of NDES, Microsoft still don't, as 
-	   of Server 2022, advertise AES support in their GetCACaps message, 
+	   of Server 2025, advertise AES support in their GetCACaps message, 
 	   sending only "POSTPKIOperation / Renewal / SHA-512 / SHA-256 / 
 	   SHA-1 / DES3" for "Server: Microsoft-IIS/10.0", which covers 2016, 
-	   2019, and 2022.
+	   2019, 2022, and 2025.
 	   
 	   In addition the "Renewal" isn't what you think, it's based on text 
 	   that changed several times but finally stabilised in the 2009 draft 
@@ -555,9 +555,10 @@ static int getCACapabilities( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	   
 	   Since we rely on server fingerprinting (see the check at the start of 
 	   clientTransact() below) we know that IIS 10 and newer support AES 
-	   even if they don't advertise it, and without the bugs that it brings 
-	   in Server 2012, so we don't perform any explicit checks for it here 
-	   since it's done via fingerprinting */
+	   even if they don't advertise it (but see the comment about the bugs
+	   that this triggers below in clientTransact()), and without the bugs 
+	   that it brings in Server 2012, so we don't perform any explicit 
+	   checks for it here since it's done via fingerprinting */
 	sMemConnect( &stream, sessionInfoPtr->receiveBuffer, 
 				 sessionInfoPtr->receiveBufEnd );
 	LOOP_MED( lineCount = 0, 
@@ -991,6 +992,7 @@ static int createScepCert( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			/* The attach of the new certificate failed, clean it up before 
 			   we exit */
 			krnlSendNotifier( iNewCert, IMESSAGE_DECREFCOUNT );
+			iNewCert = CRYPT_ERROR;
 			}
 		}
 	krnlSendNotifier( createInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
@@ -1134,7 +1136,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 static int createScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							  INOUT_PTR SCEP_PROTOCOL_INFO *protocolInfo )
 	{
-	const SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	const SCEP_INFO *scepInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	const CRYPT_CERTIFICATE iCACryptContext = \
 		( sessionInfoPtr->iCryptOutContext != CRYPT_ERROR ) ? \
 		sessionInfoPtr->iCryptOutContext : sessionInfoPtr->iAuthInContext;
@@ -1153,6 +1155,7 @@ static int createScepRequest( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	assert( isWritePtr( protocolInfo, sizeof( SCEP_PROTOCOL_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionSCEP( sessionInfoPtr ) );
+	REQUIRES( scepInfo != NULL );
 
 	/* If it's a straight issue operation, extract the request data into the 
 	   session buffer */
@@ -1467,10 +1470,6 @@ static int checkScepResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( sanityCheckSessionSCEP( sessionInfoPtr ) );
 	REQUIRES( userNamePtr != NULL );
 
-	/* Reset any issue-pending status that may have been set from a previous
-	   operation */
-	CLEAR_FLAG( sessionInfoPtr->protocolFlags, SCEP_PFLAG_PENDING );
-
 	/* Phase 1: Sig-check the data using the CA's key.  We allow an empty 
 	   message body which may be sent for error responses */
 	DEBUG_DUMP_FILE( "scep_resp2", sessionInfoPtr->receiveBuffer, 
@@ -1572,9 +1571,23 @@ static int checkScepResponse( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		}
 	CFI_CHECK_UPDATE( "IMESSAGE_GETATTRIBUTE_S" );
 
+	/* Reset any issue-pending status that may have been set from a previous
+	   operation.  Where to do this is a bit tricky, by leaving it until 
+	   after the response has been authenticated we can end up with the 
+	   session stuck in the pending state if there's a problem with the 
+	   response.  On the other hand unconditionally clearing it at the start 
+	   of this function, while resetting the session for further use in case
+	   of a problem with the response, also switches what should be a 
+	   subsequent issue-pending request back to a straight issue request.  
+	   The least bad option is probably to reset it here, we've got a 
+	   legitimate response from the server so at least both sides will be on 
+	   the same page about how to continue */
+	CLEAR_FLAG( sessionInfoPtr->protocolFlags, SCEP_PFLAG_PENDING );
+
 	/* Check that the operation succeeded */
 	status = checkScepStatus( sessionInfoPtr, iCmsAttributes );
 	krnlSendNotifier( iCmsAttributes, IMESSAGE_DECREFCOUNT );
+	iCmsAttributes = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		return( status );
 	CFI_CHECK_UPDATE( "checkScepStatus" );
@@ -1664,7 +1677,7 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	{
 	SCEP_PROTOCOL_INFO protocolInfo;
-	SCEP_INFO *scepInfo = sessionInfoPtr->sessionSCEP;
+	SCEP_INFO *scepInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM_PEER_TYPE peerSystemType;
 	const BOOLEAN isPendingRequest = TEST_FLAG( sessionInfoPtr->protocolFlags, 
 												SCEP_PFLAG_PENDING ) ? \
@@ -1676,6 +1689,7 @@ static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES( sanityCheckSessionSCEP( sessionInfoPtr ) );
+	REQUIRES( scepInfo != NULL );
 
 	/* If the user hasn't explicitly set a request type, default to an 
 	   initialisation request */
@@ -1769,7 +1783,14 @@ static int clientTransact( INOUT_PTR SESSION_INFO *sessionInfoPtr )
 
 			case STREAM_PEER_MICROSOFT_2019:
 				/* This server now finally supports HTTP POST properly as
-				   indicated in the GetCACaps response */
+				   indicated in the GetCACaps response, but still has the
+				   OAEP bug */
+#ifndef USE_OAEP
+				DEBUG_PUTS(( "Peer is Server 2019/22/25, if decryption of "
+							 "the returned message fails then this is due "
+							 "to the server erroneously using OAEP in its "
+							 "response" ));
+#endif /* USE_OAEP */
 				break;
 
 			default:

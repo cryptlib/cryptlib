@@ -369,36 +369,36 @@ typedef struct {
 static STORAGE_STRUCT systemStorage = {
 	/* System storage */
 	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* Kernel data */
-	{ 0 },									/* Object table */
+	{ { 0 } },								/* Object table */
 	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* Random info */
 #ifdef USE_CERTIFICATES
 	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* Trust info */
 #endif /* USE_CERTIFICATES */
 #ifdef USE_TCP
-	{ 0 },									/* Socket pool */
+	{ { 0 } },								/* Socket pool */
 #endif /* USE_TCP */
 #ifdef USE_TLS
 	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* Scoreboard */
 #endif /* USE_TLS */
-	{ 0 },									/* Option info */
+	{ { 0 } },								/* Option info */
 	/* Object storage */
 	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, FALSE,/* System object */
 	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, FALSE,/* User object */
 #ifdef USE_KEYSETS
   #if NO_KEYSET_OBJECTS > 1
 	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* Keyset 0 object */
-	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { 0 },/* Keyset 1 object */
+	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { { 0 } },/* Keyset 1 object */
   #else
-	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { 0 },/* Keyset 0 object */
+	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { { 0 } },/* Keyset 0 object */
   #endif /* NO_KEYSET_OBJECTS > 1 */
 #endif /* USE_KEYSETS */
 	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* AES 0 object */
-	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { 0 },/* AES 1 object */
-	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { 0 },/* SHA1 object */
+	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { { 0 } },/* AES 1 object */
+	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { { 0 } },/* SHA1 object */
 	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* SHA2 0 object */
-	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { 0 },/* SHA2 1 object */
+	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { { 0 } },/* SHA2 1 object */
 	{ 0 }, { SAFEBUFFER_COOKIE_DATA },		/* HMAC-SHA2 0 object */
-	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { 0 }/* HMAC-SHA2 1 object */
+	{ 0 }, { SAFEBUFFER_COOKIE_DATA }, { { 0 } }/* HMAC-SHA2 1 object */
 	};
 
 #ifdef _MSC_VER
@@ -1235,6 +1235,7 @@ int getBuiltinObjectStorageSize( IN_ENUM( OBJECT_TYPE ) \
 		case OBJECT_TYPE_KEYSET:
 			if( subType == SUBTYPE_KEYSET_FILE )
 				return( sizeof( KEYSET_STORAGE ) );
+			break;
 #endif /* USE_KEYSETS */
 
 		case OBJECT_TYPE_CONTEXT:

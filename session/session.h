@@ -111,6 +111,21 @@
 /* Protocol information flags for the PROTOCOL_INFO structure.  The first 
    set of flags define overall session characteristics:
 
+	PROTOCOL_FIXEDSIZECREDENTIALS: When storing username and password, store
+			them in a fixed-size buffer CRYPT_MAX_TEXTSIZE rather than the 
+			supplied data length so that they can later be replaced with 
+			client/server-provided ones, setting the ATTR_FLAG_FIXEDWIDTHTEXT
+			flag for the attribute in question.  For example with an SSH 
+			session the password could be supplied by the server to check 
+			against the user-supplied one, and then replaced with the user-
+			supplied one which may be different from the original server one.
+			This is set for SSH and SCEP servers (storing user names and 
+			passwords from the client), and both CMP clients and servers,
+			since thanks to CMP's garbled design the client can legitimately 
+			submit a request with one userID and get back a response with a
+			completely different one, see the comment in 
+			session/cmp_r.d:readUserID().
+
 	PROTOCOL_HTTPTRANSPORT: The session uses HTTP transport, for request/
 			response sessions.
 
@@ -122,15 +137,6 @@
 			indicates that the setting needs to be reflected down to the 
 			session handler via its setAttributeFunction().
 
-	PROTOCOL_FIXEDSIZECREDENTIALS: When storing username and password, store
-			them in a maximum-size buffer (typically CRYPT_MAX_TEXTSIZE) 
-			rather than the supplied data length so that they can later be 
-			replaced with client/server-provided ones.  For example with an 
-			SSH session the password could be supplied by the server to 
-			check against the user-supplied one, and then replaced with the 
-			user-supplied one which may be different from the original 
-			server one.
-
    Some of these flags, currently just the HTTP-transport flag, are copied 
    into the session information when the session is created in 
    cryptses.c:openSession() */
@@ -140,9 +146,11 @@
 									0x0001	/* Session uses HTTP transport */
 #define SESSION_PROTOCOL_REFLECTAUTHOK \
 									0x0002	/* Reflect auth-OK to protocol handler */	
-#define SESSION_PROTOCOL_FIXEDSIZECREDENTIALS \
+#define SESSION_PROTOCOL_FIXEDSIZECREDENTIALS_CLI \
 									0x0004	/* Allocate fixed-size credentials */
-#define SESSION_PROTOCOL_FLAG_MAX	0x0007	/* Maximum possible flag value */
+#define SESSION_PROTOCOL_FIXEDSIZECREDENTIALS_SVR \
+									0x0008	/* Allocate fixed-size credentials */
+#define SESSION_PROTOCOL_FLAG_MAX	0x000F	/* Maximum possible flag value */
 
 /* The second set of flags define information needed by protocol-specific 
    handlers.  These indicate that the caller must set the given attributes 
@@ -184,7 +192,7 @@
    data packets */
 
 #define PACKET_SIZE_MIN				1024
-#define PACKET_SIZE_MAX				0x100000L
+#define PACKET_SIZE_MAX				0x100000
 
 /* When reading packets for a secure session protocol, we need to 
    communicate read state information which is more complex than the usual 
@@ -455,15 +463,15 @@ typedef struct {
 typedef struct {
 	/* CMP request subtype and user information */
 	CRYPT_REQUESTTYPE_TYPE requestType;	/* CMP request subtype */
-	CRYPT_CERTIFICATE userInfo;			/* PKI user information */
+	CRYPT_CERTIFICATE iPkiUser;			/* PKI user information */
 
 	/* Any certificates that may be communicated in the unprotected 
 	   extraCerts field.  33.310 likes to do this, for example */
 	CRYPT_CERTIFICATE iExtraCerts;
 
-	/* The saved MAC context from a previous transaction (if any).  This is
-	   saved across transactions in case the same user information is used
-	   for subsequent transactions, see the comment in cmp.h for details */
+	/* The saved MAC context from an initial PKIBoot transaction (if any).  
+	   This will typically be reused for any MAC-authenticated transaction 
+	   that follows it so we save it for reuse after a PKIBoot */
 	CRYPT_CONTEXT iSavedMacContext;		/* MAC context from prev.trans */
 	} CMP_INFO;
 #endif /* USE_CMP */
@@ -529,7 +537,14 @@ typedef struct {
 
 	FLAG_EPHEMERAL: The attribute is only valid for the current session 
 			activation and is cleared between session re-activations.
-		
+
+	PFLAG_FIXEDWIDTHTEXT: When storing username and password, store them in 
+			a fixed-size buffer CRYPT_MAX_TEXTSIZE buffer to allow them to 
+			be updated later, used for storing usernames and passwords 
+			supplied by a client to a server which may change on subsequent 
+			iterations of authentication.  This changes the standard
+			VARCHAR storage strategy for attribute data to CHAR(64).
+
 	FLAG_MULTIVALUED: Multiple instances of the attribute are permitted.  
 			This complements ATTR_FLAG_OVERWRITE in that instead of 
 			overwriting the single existing instance, another instance is 
@@ -539,9 +554,10 @@ typedef struct {
 #define ATTR_FLAG_ENCODEDVALUE	0x01	/* Value uses XXX-XXX encoding */
 #define ATTR_FLAG_MULTIVALUED	0x02	/* Multiple instances permitted */
 #define ATTR_FLAG_COMPOSITE		0x04	/* Composite attribute */
-#define ATTR_FLAG_CURSORMOVED	0x08	/* Attribute virtual cursor reset */
-#define ATTR_FLAG_EPHEMERAL		0x10	/* Only valid for current sess.act.*/
-#define ATTR_FLAG_MAX			0x1F	/* Maximum possible flag value */
+#define ATTR_FLAG_FIXEDWIDTHTEXT 0x08	/* Creds.stored in fixed-size */
+#define ATTR_FLAG_CURSORMOVED	0x10	/* Attribute virtual cursor reset */
+#define ATTR_FLAG_EPHEMERAL		0x20	/* Only valid for current sess.act.*/
+#define ATTR_FLAG_MAX			0x3F	/* Maximum possible flag value */
 
 /* The helper function used to access session subtype-specific internal
    attributes within an attribute list entry */
@@ -582,14 +598,6 @@ typedef struct AL {
 	/* Variable-length storage for the attribute data */
 	DECLARE_VARSTRUCT_VARS;
 	} SESSION_ATTRIBUTE_LIST;
-
-/* Defines to make access to the union fields less messy */
-
-#define sessionCMP		sessionInfo.cmpInfo
-#define sessionSSH		sessionInfo.sshInfo
-#define sessionTLS		sessionInfo.tlsInfo
-#define sessionSCEP		sessionInfo.scepInfo
-#define sessionTSP		sessionInfo.tspInfo
 
 /* The structure that stores the information on a session */
 
@@ -652,23 +660,7 @@ typedef struct SI {
 	BOOLEAN authComplete;				/* Authentication complete check value */
 
 	/* Session type-specific information */
-	union {
-#ifdef USE_CMP
-		CMP_INFO *cmpInfo;
-#endif /* USE_CMP */
-#ifdef USE_SSH
-		SSH_INFO *sshInfo;
-#endif /* USE_SSH */
-#ifdef USE_TLS
-		TLS_INFO *tlsInfo;
-#endif /* USE_TLS */
-#ifdef USE_SCEP
-		SCEP_INFO *scepInfo;
-#endif /* USE_SCEP */
-#ifdef USE_TSP
-		TSP_INFO *tspInfo;
-#endif /* USE_TSP */
-		} sessionInfo;
+	DATAPTR sessionInfo;
 
 	/* When we add generic attributes to the session, we occasionally need to
 	   perform protocol-specific checking of the attributes being added.  The
@@ -861,14 +853,8 @@ CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int addSessionInfoS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE attributeID,
 					IN_BUFFER( dataLength ) const void *data, 
-					IN_LENGTH_SHORT const int dataLength );
-CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
-int addSessionInfoEx( INOUT_PTR SESSION_INFO *sessionInfoPtr,
-					  IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE attributeID,
-					  IN_BUFFER( dataLength ) const void *data, 
-					  IN_LENGTH_SHORT const int dataLength, 
-					  IN_LENGTH_SHORT const int dataMaxLength, 
-					  IN_FLAGS_Z( ATTR ) const int flags );
+					IN_LENGTH_SHORT const int dataLength,
+					IN_FLAGS_Z( ATTR ) const int flags );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3, 4 ) ) \
 int addSessionInfoComposite( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE attributeID,
@@ -881,7 +867,6 @@ int updateSessionInfo( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					   IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE attributeID,
 					   IN_BUFFER( dataLength ) const void *data, 
 					   IN_LENGTH_SHORT const int dataLength,
-					   IN_LENGTH_SHORT const int dataMaxLength, 
 					   IN_FLAGS_Z( ATTR ) const int flags );
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int getSessionAttributeCursor( INOUT_PTR SESSION_INFO *sessionInfoPtr,
@@ -957,6 +942,12 @@ int writeFixedsizeValue( INOUT_PTR STREAM *stream,
 						 IN_BUFFER( dataLen ) const void *data,
 						 IN_LENGTH_SHORT_MIN( 20 ) const int dataLen,
 						 IN_LENGTH_SHORT_MIN( 20 ) const int fixedSize );
+
+/* Prototypes for functions in sess_attr.c */
+
+CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
+int checkPrivateKey( INOUT_PTR SESSION_INFO *sessionInfoPtr,
+					 IN_HANDLE const CRYPT_CONTEXT privateKey );
 
 /* Prototypes for functions in sess_rd.c */
 

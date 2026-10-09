@@ -1095,8 +1095,6 @@ int toUpper( IN_BYTE const int ch );
   #pragma GCC poison stricmp strnicmp
 #endif /* GCC || clang */
 
-#pragma deprecated( strCompare, strCompareZ )
-
 CHECK_RETVAL_BOOL STDC_NONNULL_ARG( ( 1, 2 ) ) \
 BOOLEAN strSame( IN_STRING_LEN( length ) const char *src, 
 				 IN_STRING_LEN( length ) const char *dest, 

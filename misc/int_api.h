@@ -1225,45 +1225,105 @@ void freeMemPool( INOUT_PTR void *statePtr, IN_PTR void *memblock );
 	 https://www.ibm.com/docs/en/zos/2.5.0?topic=types-structures-unions,
 	 however declaring the same thing in the alternate form '[0]' instead of 
 	 '[]' results in it working without any problems */
-  #ifdef __xlC__
+  #if defined( __xlC__ )
 	#define DECLARE_VARSTRUCT_VARS \
-			int storageSize; \
+			SAFE_INT storageSize; \
 			void *_align_value; \
 			BYTE storage[ 0 ]
+  #elif 1
+  /* Neither clang nor gcc currently allow storageSize.intValue as the count 
+     value, reporting "'counted_by' argument must be a simple declaration 
+     reference" (clang) or "error: 'storageSize' undeclared here (not in a 
+     function)".  Test with: 
+     
+		struct countinfo { 
+			int totalcount, indexcount; 
+			};
+		struct thing1 {
+			int count;
+			char buffer[] __attribute__((counted_by(count)));
+			};
+		struct thing2 {
+			struct countinfo count;
+			char buffer[] __attribute__((counted_by(count.totalcount)));
+			}; */
+	#define DECLARE_VARSTRUCT_VARS \
+			SAFE_INT storageSize; \
+			BUFFER_FIXED( storageSize.intValue ) \
+			ALIGN_SPECIFIER( 16 ) BYTE storage[]
   #else
 	#define DECLARE_VARSTRUCT_VARS \
-			int storageSize; \
-			BUFFER_FIXED( storageSize ) \
-			ALIGN_SPECIFIER( 16 ) BYTE storage[] FLEXARRAY_COUNT( storageSize )
+			SAFE_INT storageSize; \
+			BUFFER_FIXED( storageSize.intValue ) \
+			ALIGN_SPECIFIER( 16 ) BYTE storage[] FLEXARRAY_COUNT( storageSize.intValue )
   #endif /* IBM C vs. everything else */
 #else
   #define DECLARE_VARSTRUCT_VARS \
-		  int storageSize; \
-		  BUFFER_FIXED( storageSize ) \
+		  SAFE_INT storageSize; \
+		  BUFFER_FIXED( storageSize.intValue ) \
 		  ALIGN_SPECIFIER( 16 ) BYTE storage[ 1 ]
 #endif /* HAS_STDC_FLEXARRAY */
 
+/* Macros for working with varStructs.  initVarStruct() takes a newly-
+   allocated memory block and sets it up, setVarStruct() just sets the
+   varStruct values.
+   
+   checkVarStruct() uses isShortIntegerRange() rather than 
+   isShortIntegerRangeNZ() since the stored data can be zero for e.g. simple 
+   attributes where the entire content is stored inside the ATTRIBUTE_LIST
+   structure.
+
+   endVarStruct() is safe in the presence of a SAFEINT_ISVALID() check 
+   failure because SAFEINT_GET() then returns 0, so we end up just zeroising 
+   the structure itself without trying to reach into the appended storage
+   space */
+
 #define initVarStruct( structure, structureType, size, valueName ) \
 		memset( structure, 0, sizeof( structureType ) ); \
-		( structure )->storageSize = size; \
+		SAFEINT_SET( ( structure )->storageSize, size ); \
 		( structure )->valueName = ( structure )->storage
 
-#define copyVarStruct( destStructure, srcStructure, structureType, valueName ) \
-		memcpy( destStructure, srcStructure, \
-				sizeof( structureType ) + ( srcStructure )->storageSize ); \
-		if( ( destStructure )->storageSize > 0 ) \
-			( destStructure )->valueName = ( destStructure )->storage;
-
-#define endVarStruct( structure, structureType ) \
-		zeroise( structure, sizeof( structureType ) + ( structure )->storageSize )
-
-#define sizeofVarStruct( structure, structureType ) \
-		( sizeof( structureType ) + ( structure )->storageSize )
-#define sizeofVarStructStorage( structure ) \
-		( structure )->storageSize
+#define setVarStruct( structure, size, valueName ) \
+		SAFEINT_SET( ( structure )->storageSize, size ); \
+		DATAPTR_SET( ( structure )->valueName, ( structure )->storage )
 
 #define checkVarStruct( structure ) \
-		isShortIntegerRange( ( structure )->storageSize )
+		( SAFEINT_ISVALID( ( structure )->storageSize ) && \
+		  isShortIntegerRange( SAFEINT_GET( ( structure )->storageSize ) ) )
+
+#define endVarStruct( structure, structureType ) \
+		zeroise( structure, sizeof( structureType ) + \
+							SAFEINT_GET( ( structure )->storageSize ) )
+
+/* Macros to copy a varStruct.  These are only used in two locations, 
+   cert/dn.c:copyDN() and cert/ext_copy.c:copyAttributeField(), where the
+   usage pattern is
+
+	checkVarStruct();		// Check that the sizeof() return is valid
+	allocate memory using sizeofVarStruct()/sizeofVarStructStorage();
+	copyVarStruct();
+
+   copyVarStruct() copies varStructs with pointers to the data portion, not
+   DATAPTRs, so it performs a direct pointer assignment rather than a
+   DATAPTR_SET().  The retIntError() in the middle of the macro is a bit 
+   ugly but we can't continue with a memcpy() or access operations if the 
+   varStruct metadata is corrupted */
+
+#define sizeofVarStruct( structure, structureType ) \
+		( sizeof( structureType ) + SAFEINT_GET( ( structure )->storageSize ) )
+#define sizeofVarStructStorage( structure ) \
+		SAFEINT_GET( ( structure )->storageSize )
+
+#define copyVarStruct( destStructure, srcStructure, structureType, valueName ) \
+		{ \
+		const int srcStorageSize = SAFEINT_GET( ( srcStructure )->storageSize ); \
+		\
+		if( !checkVarStruct( srcStructure ) ) \
+			retIntError(); \
+		memcpy( destStructure, srcStructure, \
+				sizeof( structureType ) + srcStorageSize ); \
+		( destStructure )->valueName = ( destStructure )->storage; \
+		}
 
 /****************************************************************************
 *																			*

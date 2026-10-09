@@ -476,6 +476,7 @@ static int deleteItemFunction( INOUT_PTR DEVICE_INFO *deviceInfoPtr,
 									   KEYID_SIZE, &storageRef, 
 									   storageFunctions );
 		krnlSendNotifier( getkeyInfo.cryptHandle, IMESSAGE_DECREFCOUNT );
+		getkeyInfo.cryptHandle = CRYPT_ERROR;
 		if( cryptStatusOK( status ) )
 			{
 			( void ) \

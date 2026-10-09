@@ -793,13 +793,14 @@ static int setCursorCertChain( INOUT_PTR CERT_INFO *certInfoPtr,
 										 CRYPT_CURSOR_FIRST ) \
 									const int cursorMoveType )	/* Values are -ve */
 	{
-	CERT_CERT_INFO *certChainInfo = certInfoPtr->cCertCert;
+	CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
 
 	REQUIRES( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN );
 	REQUIRES( cursorMoveType >= CRYPT_CURSOR_LAST && \
 			  cursorMoveType <= CRYPT_CURSOR_FIRST );	/* Values are -ve */
+	REQUIRES( certChainInfo != NULL );
 
 	switch( cursorMoveType )
 		{
@@ -844,7 +845,7 @@ static int setCursorValInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 									   CRYPT_CURSOR_FIRST ) \
 								const int cursorMoveType )	/* Values are -ve */
 	{
-	CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
+	CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 	VALIDITY_INFO *validityInfoPtr;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
@@ -853,36 +854,37 @@ static int setCursorValInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 			  certInfoPtr->type == CRYPT_CERTTYPE_RTCS_RESPONSE );
 	REQUIRES( cursorMoveType >= CRYPT_CURSOR_LAST && \
 			  cursorMoveType <= CRYPT_CURSOR_FIRST );	/* Values are -ve */
+	REQUIRES( valInfo != NULL );
 
 	switch( cursorMoveType )
 		{
 		case CRYPT_CURSOR_FIRST:
-			certValInfo->currentValidity = certValInfo->validityInfo;
-			if( DATAPTR_ISNULL( certValInfo->currentValidity ) )
+			valInfo->currentValidity = valInfo->validityInfo;
+			if( DATAPTR_ISNULL( valInfo->currentValidity ) )
 				return( CRYPT_ERROR_NOTFOUND );
 			break;
 
 		case CRYPT_CURSOR_PREVIOUS:
-			validityInfoPtr = DATAPTR_GET( certValInfo->currentValidity );
+			validityInfoPtr = DATAPTR_GET( valInfo->currentValidity );
 			if( validityInfoPtr == NULL || \
 				DATAPTR_ISNULL( validityInfoPtr->prev ) )
 				return( CRYPT_ERROR_NOTFOUND );
-			certValInfo->currentValidity = validityInfoPtr->prev;
+			valInfo->currentValidity = validityInfoPtr->prev;
 			break;
 
 		case CRYPT_CURSOR_NEXT:
-			validityInfoPtr = DATAPTR_GET( certValInfo->currentValidity );
+			validityInfoPtr = DATAPTR_GET( valInfo->currentValidity );
 			if( validityInfoPtr == NULL || \
 				DATAPTR_ISNULL( validityInfoPtr->next ) )
 				return( CRYPT_ERROR_NOTFOUND );
-			certValInfo->currentValidity = validityInfoPtr->next;
+			valInfo->currentValidity = validityInfoPtr->next;
 			break;
 
 		case CRYPT_CURSOR_LAST:
 			{
 			LOOP_INDEX_PTR VALIDITY_INFO *prevElementPtr;
 
-			validityInfoPtr = DATAPTR_GET( certValInfo->currentValidity );
+			validityInfoPtr = DATAPTR_GET( valInfo->currentValidity );
 			if( validityInfoPtr == NULL )
 				return( CRYPT_ERROR_NOTFOUND );
 
@@ -896,7 +898,7 @@ static int setCursorValInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 				ENSURES( LOOP_INVARIANT_LARGE_GENERIC() );
 				}
 			ENSURES( LOOP_BOUND_OK );
-			DATAPTR_SET( certValInfo->currentValidity, prevElementPtr );
+			DATAPTR_SET( valInfo->currentValidity, prevElementPtr );
 			break;
 			}
 
@@ -916,7 +918,7 @@ static int setCursorRevInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 									   CRYPT_CURSOR_FIRST )
 								const int cursorMoveType )	/* Values are -ve */
 	{
-	CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+	CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 	REVOCATION_INFO *revInfoPtr;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
@@ -926,34 +928,35 @@ static int setCursorRevInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 			  certInfoPtr->type == CRYPT_CERTTYPE_OCSP_RESPONSE );
 	REQUIRES( cursorMoveType >= CRYPT_CURSOR_LAST && \
 			  cursorMoveType <= CRYPT_CURSOR_FIRST );	/* Values are -ve */
+	REQUIRES( revInfo != NULL );
 
 	switch( cursorMoveType )
 		{
 		case CRYPT_CURSOR_FIRST:
-			certRevInfo->currentRevocation = certRevInfo->revocations;
-			if( DATAPTR_ISNULL( certRevInfo->currentRevocation ) )
+			revInfo->currentRevocation = revInfo->revocations;
+			if( DATAPTR_ISNULL( revInfo->currentRevocation ) )
 				return( CRYPT_ERROR_NOTFOUND );
 			break;
 
 		case CRYPT_CURSOR_PREVIOUS:
-			revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+			revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 			if( revInfoPtr == NULL || DATAPTR_ISNULL( revInfoPtr->prev ) )
 				return( CRYPT_ERROR_NOTFOUND );
-			certRevInfo->currentRevocation = revInfoPtr->prev;
+			revInfo->currentRevocation = revInfoPtr->prev;
 			break;
 
 		case CRYPT_CURSOR_NEXT:
-			revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+			revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 			if( revInfoPtr == NULL || DATAPTR_ISNULL( revInfoPtr->next ) )
 				return( CRYPT_ERROR_NOTFOUND );
-			certRevInfo->currentRevocation = revInfoPtr->next;
+			revInfo->currentRevocation = revInfoPtr->next;
 			break;
 
 		case CRYPT_CURSOR_LAST:
 			{
 			LOOP_INDEX_PTR REVOCATION_INFO *prevElementPtr;
 
-			revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+			revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 			if( revInfoPtr == NULL )
 				return( CRYPT_ERROR_NOTFOUND );
 
@@ -967,7 +970,7 @@ static int setCursorRevInfo( INOUT_PTR CERT_INFO *certInfoPtr,
 				ENSURES( LOOP_INVARIANT_LARGE_GENERIC() );
 				}
 			ENSURES( LOOP_BOUND_OK );
-			DATAPTR_SET( certRevInfo->currentRevocation, prevElementPtr );
+			DATAPTR_SET( revInfo->currentRevocation, prevElementPtr );
 			break;
 			}
 
@@ -998,7 +1001,10 @@ int setCertificateCursor( INOUT_PTR CERT_INFO *certInfoPtr,
 	   certificates */
 	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE )
 		{
-		REQUIRES( certInfoPtr->cCertCert->chainEnd == 0 );
+		const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+		REQUIRES( certInfo != NULL );
+		REQUIRES( certInfo->chainEnd == 0 );
 
 		return( ( cursorMoveType == CRYPT_CURSOR_FIRST || \
 				  cursorMoveType == CRYPT_CURSOR_LAST ) ? \

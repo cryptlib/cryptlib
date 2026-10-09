@@ -71,6 +71,7 @@ typedef enum {
 	SSH_VENDOR_CRYPTLIB,				/* cryptlib */
 	SSH_VENDOR_CUTEFTP,					/* CuteFTP */
 	SSH_VENDOR_DROPBEAR,				/* Dropbear */
+	SSH_VENDOR_GARMIN,					/* Garmin */
 	SSH_VENDOR_JSCAPE,					/* JSCAPE */
 	SSH_VENDOR_LIBSSH,					/* libssh */
 	SSH_VENDOR_MOBAXTERM,				/* MobaXTerm */
@@ -418,6 +419,10 @@ static int checkPreAuth( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		as the major version, otherwise we match the numeric portion.  There
 		aren't any bug workarounds required at the moment so this isn't a
 		problem for now. 
+
+	Garmin:
+		Placeholder, always "SSH-2.0-GarminSSHv1.0".  Uses Green Hills
+		Integrity SSH.
 		
 	MobaXTerm:
 		Placeholder, ID "MoTTY_Release".  Based on the PuTTY code so will
@@ -612,6 +617,8 @@ static const VENDOR_INFO vendorInfoTbl[] = {
 	  SSH_VENDOR_DROPBEAR },		/* Version as 20xx year */
 	{ "dropbear_", 9, DESCRIPTION( "Dropbear" )
 	  SSH_VENDOR_DROPBEAR },		/* Version as number */
+	{ "GarminSSHv", 10 , DESCRIPTION( "Garmin" )
+	  SSH_VENDOR_GARMIN },			/* Don't even ask */
 	{ "JSCAPE", 6, DESCRIPTION( "JSCAPE" )
 	  SSH_VENDOR_JSCAPE, SSH_VENDORFLAG_NO_VERSION },
 	{ "libssh-", 7, DESCRIPTION( "libssh" )

@@ -77,19 +77,24 @@ int loadExplicitIV( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 					INOUT_PTR STREAM *stream, 
 					OUT_INT_SHORT_Z int *ivLength )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	MESSAGE_DATA msgData;
 	BYTE iv[ CRYPT_MAX_IVSIZE + 8 ];
-	int ivSize = tlsInfo->ivSize, status;
+	int ivSize, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 	assert( isWritePtr( stream, sizeof( STREAM ) ) );
 	assert( isWritePtr( ivLength, sizeof( int ) ) );
 
 	REQUIRES( sanityCheckSessionTLS( sessionInfoPtr ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return value */
 	*ivLength = 0;
+
+	/* Now that we've checked everything, set up the various values that
+	   we'll need */
+	ivSize = tlsInfo->ivSize;
 
 	/* Read and load the IV */
 	REQUIRES( rangeCheck( tlsInfo->ivSize, 1, CRYPT_MAX_IVSIZE ) );
@@ -1017,11 +1022,13 @@ static int loadKeys( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	if( TEST_FLAG( sessionInfoPtr->protocolFlags, 
 				   TLS_PFLAG_GCM | TLS_PFLAG_BERNSTEIN ) )
 		{
-		TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+		TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 		const int ivLength = \
 					TEST_FLAG( sessionInfoPtr->protocolFlags, \
 							   TLS_PFLAG_BERNSTEIN ) ? \
 							   BERNSTEIN_IV_SIZE : GCM_SALT_SIZE;
+
+		REQUIRES( tlsInfo != NULL );
 
 		REQUIRES( rangeCheck( ivLength, 1, CRYPT_MAX_IVSIZE ) );
 		memcpy( isClient ? tlsInfo->aeadWriteSalt : tlsInfo->aeadReadSalt, 
@@ -1293,7 +1300,7 @@ int addDerivedKeydata( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			DEBUG_DUMP_DATA_LABEL( "EAP challenge:", challengeBuffer, 32 );
 			status = addSessionInfoS( sessionInfoPtr, 
 									  CRYPT_SESSINFO_TLS_EAPCHALLENGE,
-									  challengeBuffer, 32 );
+									  challengeBuffer, 32, ATTR_FLAG_NONE );
 			}
 		zeroise( challengeBuffer, 32 );
 		if( cryptStatusError( status ) )
@@ -1312,7 +1319,7 @@ int addDerivedKeydata( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 		DEBUG_DUMP_DATA_LABEL( "EAP key:", keyBuffer, 128 );
 		status = addSessionInfoS( sessionInfoPtr, 
 								  CRYPT_SESSINFO_TLS_EAPKEY,
-								  keyBuffer, 128 );
+								  keyBuffer, 128, ATTR_FLAG_NONE );
 		}
 	zeroise( keyBuffer, 128 );
 	if( cryptStatusError( status ) )

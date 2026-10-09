@@ -360,7 +360,7 @@ static void getErrorInfo( KEYSET_INFO *keysetInfoPtr, int ldapStatus )
 	{
 	ERROR_INFO *errorInfo = &keysetInfoPtr->errorInfo;
 #ifndef __WINDOWS__ 
-	LDAP_INFO *ldapInfo = keysetInfoPtr->keysetLDAP;
+	LDAP_INFO *ldapInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 #endif /* !__WINDOWS__ */
 #ifdef __WINDOWS__
 	int errorCode;
@@ -389,8 +389,10 @@ static void getErrorInfo( KEYSET_INFO *keysetInfoPtr, int ldapStatus )
 				   ldapInfo->errorMessage, MAX_ERRMSG_SIZE - 1, NULL );
   #endif /* 0 */
 #elif defined( NETSCAPE_CLIENT )
+	REQUIRES( ldapInfo != NULL );
 	ldap_get_lderrno( ldapInfo->ld, NULL, &errorMessage );
 #else
+	REQUIRES( ldapInfo != NULL );
 	ldap_get_option( ldapInfo->ld, LDAP_OPT_ERROR_STRING, &errorMessage );
 #endif /* Different LDAP client types */
 	if( errorMessage != NULL )
@@ -628,12 +630,13 @@ static int encodeDN( char *dn, const int maxDnLen, char *C, char *SP,
 STDC_NONNULL_ARG( ( 1 ) ) \
 static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	{
-	LDAP_INFO *ldapInfo = keysetInfoPtr->keysetLDAP;
+	LDAP_INFO *ldapInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
 
 	REQUIRES( sanityCheckKeyset( keysetInfoPtr ) );
 	REQUIRES( keysetInfoPtr->type == KEYSET_LDAP );
+	REQUIRES( ldapInfo != NULL );
 
 	ldap_unbind( ldapInfo->ld );
 	ldapInfo->ld = NULL;
@@ -649,7 +652,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 						 IN_LENGTH_SHORT const int nameLength,
 						 IN_ENUM( CRYPT_KEYOPT ) const CRYPT_KEYOPT_TYPE options )
 	{
-	LDAP_INFO *ldapInfo = keysetInfoPtr->keysetLDAP;
+	LDAP_INFO *ldapInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	URL_INFO urlInfo;
 	const char *ldapUser = NULL, *ldapPassword = NULL;
 	char ldapServer[ MAX_URL_SIZE + 8 ], userInfo[ CRYPT_MAX_TEXTSIZE + 8 ];
@@ -663,6 +666,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( keysetInfoPtr->type == KEYSET_LDAP );
 	REQUIRES( nameLength >= MIN_DNS_SIZE && nameLength <= MAX_DNS_SIZE );
 	REQUIRES( options == CRYPT_KEYOPT_NONE );
+	REQUIRES( ldapInfo != NULL );
 
 	/* Check the URL.  The Netscape and OpenLDAP APIs provide the function
 	   ldap_is_ldap_url() for this, but this requires a complete LDAP URL
@@ -846,7 +850,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 							STDC_UNUSED int *auxInfoLength,
 							IN_FLAGS_Z( KEYMGMT ) const int flags )
 	{
-	LDAP_INFO *ldapInfo = keysetInfoPtr->keysetLDAP;
+	LDAP_INFO *ldapInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	LDAPMessage *result DUMMY_INIT_PTR, *resultEntry;
 	BerElement *ber;
 	struct berval **valuePtrs;
@@ -867,6 +871,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 			  keyIDlength < MAX_ATTRIBUTE_SIZE );
 	REQUIRES( auxInfo == NULL && *auxInfoLength == 0 );
 	REQUIRES( isFlagRangeZ( flags, KEYMGMT ) );
+	REQUIRES( ldapInfo != NULL );
 
 	/* Clear return value */
 	*iCryptHandle = CRYPT_ERROR;
@@ -959,6 +964,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 				{
 				krnlSendNotifier( createInfo.cryptHandle, 
 								  IMESSAGE_DECREFCOUNT );
+				createInfo.cryptHandle = CRYPT_ERROR;
 				}
 			else
 				*iCryptHandle = createInfo.cryptHandle;
@@ -1341,7 +1347,7 @@ static int deleteItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 							   IN_BUFFER( keyIDlength ) const void *keyID, 
 							   IN_LENGTH_KEYID const int keyIDlength )
 	{
-	LDAP_INFO *ldapInfo = keysetInfoPtr->keysetLDAP;
+	LDAP_INFO *ldapInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	char dn[ MAX_DN_STRINGSIZE + 8 ];
 	int ldapStatus;
 
@@ -1354,6 +1360,7 @@ static int deleteItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( keyIDtype == CRYPT_KEYID_NAME || keyIDtype == CRYPT_KEYID_URI );
 	REQUIRES( keyIDlength >= MIN_NAME_LENGTH && \
 			  keyIDlength < MAX_ATTRIBUTE_SIZE );
+	REQUIRES( ldapInfo != NULL );
 
 	/* Convert the DN into a null-terminated form */
 	if( keyIDlength > MAX_DN_STRINGSIZE - 1 )
@@ -1390,7 +1397,9 @@ static BOOLEAN isBusyFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 static void *getAttributeDataPtr( KEYSET_INFO *keysetInfoPtr, 
 								  const CRYPT_ATTRIBUTE_TYPE type )
 	{
-	LDAP_INFO *ldapInfo = keysetInfoPtr->keysetLDAP;
+	LDAP_INFO *ldapInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
+
+	REQUIRES_N( ldapInfo != NULL );
 
 	switch( type )
 		{

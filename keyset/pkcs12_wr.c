@@ -805,6 +805,7 @@ static int setItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	status = writePrivateKey( keyObjectInfo, cryptHandle, 
 							  iKeyWrapContext );
 	krnlSendNotifier( iKeyWrapContext, IMESSAGE_DECREFCOUNT );
+	iKeyWrapContext = CRYPT_ERROR;
 	if( cryptStatusError( status ) )
 		{
 		pkcs12freeEntry( pkcs12info );

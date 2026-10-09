@@ -82,7 +82,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 							STDC_UNUSED int *auxInfoLength,
 							IN_FLAGS_Z( KEYMGMT ) const int flags )
 	{
-	HTTP_INFO *httpInfo = keysetInfoPtr->keysetHTTP;
+	HTTP_INFO *httpInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	HTTP_DATA_INFO httpDataInfo;
 	HTTP_REQ_INFO httpReqInfo;
 	MESSAGE_CREATEOBJECT_INFO createInfo;
@@ -103,6 +103,7 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 			  keyIDlength < MAX_ATTRIBUTE_SIZE );
 	REQUIRES( auxInfo == NULL && *auxInfoLength == 0 );
 	REQUIRES( isFlagRangeZ( flags, KEYMGMT ) );
+	REQUIRES( httpInfo != NULL );
 
 	/* Clear return value */
 	*iCryptHandle = CRYPT_ERROR;
@@ -139,7 +140,8 @@ static int getItemFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 		ENSURES( keyName != NULL );
 		memset( &httpReqInfo, 0, sizeof( HTTP_REQ_INFO ) );
 		httpReqInfo.attribute = keyName;
-		httpReqInfo.attributeLen = strnlen_s( keyName, CRYPT_MAX_TEXTSIZE );
+		httpReqInfo.attributeLen = strnlen_s( keyName, 5 );
+								   /* Longest possible string is "name" */
 		httpReqInfo.value = keyID;
 		httpReqInfo.valueLen = keyIDlength;
 		status = initHttpInfoReqEx( &httpDataInfo, &httpReqInfo );
@@ -265,7 +267,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 						 IN_LENGTH_SHORT_Z const int nameLength,
 						 IN_ENUM( CRYPT_KEYOPT ) const CRYPT_KEYOPT_TYPE options )
 	{
-	HTTP_INFO *httpInfo = keysetInfoPtr->keysetHTTP;
+	HTTP_INFO *httpInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 	NET_CONNECT_INFO connectInfo;
 	int status;
 
@@ -276,6 +278,7 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 	REQUIRES( keysetInfoPtr->type == KEYSET_HTTP );
 	REQUIRES( nameLength >= MIN_DNS_SIZE && nameLength <= MAX_DNS_SIZE );
 	REQUIRES( options == CRYPT_KEYOPT_NONE );
+	REQUIRES( httpInfo != NULL );
 
 	/* Set up the HTTP connection */
 	initNetConnectInfo( &connectInfo, keysetInfoPtr->ownerHandle, CRYPT_ERROR, 
@@ -304,12 +307,13 @@ static int initFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 static int shutdownFunction( INOUT_PTR KEYSET_INFO *keysetInfoPtr )
 	{
-	HTTP_INFO *httpInfo = keysetInfoPtr->keysetHTTP;
+	HTTP_INFO *httpInfo = DATAPTR_GET( keysetInfoPtr->keysetInfo );
 
 	assert( isWritePtr( keysetInfoPtr, sizeof( KEYSET_INFO ) ) );
 
 	REQUIRES( sanityCheckKeyset( keysetInfoPtr ) );
 	REQUIRES( keysetInfoPtr->type == KEYSET_HTTP );
+	REQUIRES( httpInfo != NULL );
 
 	sNetDisconnect( &httpInfo->stream );
 	if( DATAPTR_ISSET( keysetInfoPtr->keyData ) )

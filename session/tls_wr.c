@@ -62,7 +62,7 @@ static int startPacketStream( INOUT_PTR STREAM *stream,
 							  IN_RANGE( TLS_MSG_FIRST, \
 										TLS_MSG_LAST ) const int packetType )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	const int ivLength = \
 		( TEST_FLAG( sessionInfoPtr->flags, SESSION_FLAG_ISSECURE_WRITE ) && \
 		  ( sessionInfoPtr->version == TLS_MINOR_VERSION_TLS11 || \
@@ -74,6 +74,7 @@ static int startPacketStream( INOUT_PTR STREAM *stream,
 	assert( isReadPtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
 
 	REQUIRES( packetType >= TLS_MSG_FIRST && packetType <= TLS_MSG_LAST );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Write the packet header:
 
@@ -350,7 +351,7 @@ static int wrapPacketTLSStd( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 								int *length,
 							 IN_LENGTH_SHORT const int dataLength )
 	{
-	const TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	const TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int effectiveBufMaxLen = bufMaxLen, payloadLength, status;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -360,6 +361,7 @@ static int wrapPacketTLSStd( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 	REQUIRES( packetType >= TLS_MSG_FIRST && packetType <= TLS_MSG_LAST );
 	REQUIRES( bufMaxLen > 0 && bufMaxLen <= sessionInfoPtr->sendBufSize );
 	REQUIRES( dataLength > 0 && dataLength <= MAX_PACKET_SIZE );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return values */
 	*length = 0;
@@ -419,7 +421,7 @@ static int wrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 OUT_LENGTH_BOUNDED_Z( bufMaxLen ) int *length,
 							 IN_LENGTH_SHORT const int dataLength )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 #ifdef USE_POLY1305
 	const BOOLEAN isBernsteinSuite = \
 					TEST_FLAG( sessionInfoPtr->protocolFlags, \
@@ -447,6 +449,7 @@ static int wrapPacketTLSMAC( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  dataLength <= MAX_PACKET_SIZE + \
 					( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 ? \
 					  1 : 0 ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return values */
 	*length = 0;
@@ -611,7 +614,7 @@ static int wrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 							 OUT_LENGTH_BOUNDED_Z( bufMaxLen ) int *length,
 							 IN_LENGTH_SHORT const int dataLength )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	int payloadLength = dataLength, status = CRYPT_OK;
 
 	assert( isWritePtr( sessionInfoPtr, sizeof( SESSION_INFO ) ) );
@@ -624,6 +627,7 @@ static int wrapPacketTLSGCM( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 			  dataLength <= MAX_PACKET_SIZE + \
 					( sessionInfoPtr->version >= TLS_MINOR_VERSION_TLS13 ? \
 					  1 : 0 ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Clear return values */
 	*length = 0;
@@ -690,7 +694,7 @@ int wrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 				   INOUT_PTR STREAM *stream, 
 				   IN_LENGTH_Z const int offset )
 	{
-	TLS_INFO *tlsInfo = sessionInfoPtr->sessionTLS;
+	TLS_INFO *tlsInfo = DATAPTR_GET( sessionInfoPtr->sessionInfo );
 	STREAM lengthStream;
 	BYTE lengthBuffer[ UINT16_SIZE + 8 ];
 	BYTE *dataPtr, *headerPtr;
@@ -716,6 +720,7 @@ int wrapPacketTLS( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 						 SESSION_FLAG_ISSECURE_WRITE ) );
 	REQUIRES( sStatusOK( stream ) );
 	REQUIRES( isBufsizeRange( offset ) );
+	REQUIRES( tlsInfo != NULL );
 
 	/* Calculate the payload length information */
 	REQUIRES( !checkOverflowAdd( offset, sessionInfoPtr->sendBufStartOfs ) );
@@ -1044,9 +1049,14 @@ void sendHandshakeFailAlert( INOUT_PTR SESSION_INFO *sessionInfoPtr,
 
 	REQUIRES_V( sanityCheckSessionTLS( sessionInfoPtr ) );
 	REQUIRES_V( alertType == TLS_ALERT_HANDSHAKE_FAILURE || \
-				alertType == TLS_ALERT_INAPPROPRIATE_FALLBACK );
+				alertType == TLS_ALERT_INAPPROPRIATE_FALLBACK || \
+				alertType == TLS_ALERT_ACCESS_DENIED );
 				/* We send a generic handshake failure for everything
-				   except a single instance of inappropriate-fallback */
+				   except a single instance of inappropriate-fallback
+				   (session/tls_hello.c:handleSignallingSuite() in response
+				   to an SCSV suite) and one access-denied 
+				   (session/tls.c:commonStartup() when the server denies a 
+				   client's certificate authentication) */
 
 	/* We set the alertReceived flag to true when sending a handshake
 	   failure alert to avoid waiting to get back an ack, since this 

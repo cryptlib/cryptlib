@@ -19,6 +19,54 @@
 
 /****************************************************************************
 *																			*
+*								Utility Routines							*
+*																			*
+****************************************************************************/
+
+/* Save and restore the selection state while we're working with a 
+   certificate object */
+
+STDC_NONNULL_ARG( ( 1, 2 ) ) \
+void saveSelectionState( INOUT_PTR SELECTION_STATE *savedState,
+						 IN_PTR const CERT_INFO *certInfoPtr )
+	{
+	assert( isWritePtr( savedState, sizeof( SELECTION_STATE ) ) );
+	assert( isReadPtr( certInfoPtr, sizeof( CERT_INFO ) ) );
+
+	memset( savedState, 0, sizeof( SELECTION_STATE ) ); 
+	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
+		{
+		const CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+		REQUIRES_V( certChainInfo != NULL );
+
+		savedState->savedChainPos = certChainInfo->chainPos; 
+		}
+	savedState->savedSelectionInfo = certInfoPtr->currentSelection; 
+	savedState->savedAttributeCursor = certInfoPtr->attributeCursor; 
+	}
+
+STDC_NONNULL_ARG( ( 1, 2 ) ) \
+void restoreSelectionState( IN_PTR const SELECTION_STATE *savedState,
+							INOUT_PTR CERT_INFO *certInfoPtr )
+	{ 
+	assert( isReadPtr( savedState, sizeof( SELECTION_STATE ) ) );
+	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
+	
+	if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
+		{
+		CERT_CERT_INFO *certChainInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+		REQUIRES_V( certChainInfo != NULL );
+
+		certChainInfo->chainPos = savedState->savedChainPos; 
+		}
+	certInfoPtr->currentSelection = savedState->savedSelectionInfo; 
+	certInfoPtr->attributeCursor = savedState->savedAttributeCursor; 
+	}
+
+/****************************************************************************
+*																			*
 *							Serial-Number Routines							*
 *																			*
 ****************************************************************************/
@@ -64,27 +112,39 @@ int setSerialNumber( INOUT_PTR CERT_INFO *certInfoPtr,
 		case CRYPT_CERTTYPE_CERTIFICATE:
 		case CRYPT_CERTTYPE_ATTRIBUTE_CERT:
 		case CRYPT_CERTTYPE_CERTCHAIN:
-			if( certInfoPtr->cCertCert->serialNumber != NULL )
+			{
+			CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+			REQUIRES( certInfo != NULL );
+
+			if( certInfo->serialNumber != NULL )
 				{
 				ENSURES( serialNumber == NULL && serialNumberLength == 0 );
 
 				return( CRYPT_OK );
 				}
-			serialNumberPtr = certInfoPtr->cCertCert->serialNumberBuffer;
-			certInfoPtr->cCertCert->serialNumber = serialNumberPtr;
+			serialNumberPtr = certInfo->serialNumberBuffer;
+			certInfo->serialNumber = serialNumberPtr;
 			break;
+			}
 
 #ifdef USE_CERTREV
 		case CRYPT_CERTTYPE_REQUEST_REVOCATION:
-			if( certInfoPtr->cCertReq->serialNumber != NULL )
+			{
+			CERT_REQ_INFO *reqInfo = DATAPTR_GET_REQ( certInfoPtr );
+
+			REQUIRES( reqInfo != NULL );
+
+			if( reqInfo->serialNumber != NULL )
 				{
 				ENSURES( serialNumber == NULL && serialNumberLength == 0 );
 
 				return( CRYPT_OK );
 				}
-			serialNumberPtr = certInfoPtr->cCertReq->serialNumberBuffer;
-			certInfoPtr->cCertReq->serialNumber = serialNumberPtr;
+			serialNumberPtr = reqInfo->serialNumberBuffer;
+			reqInfo->serialNumber = serialNumberPtr;
 			break;
+			}
 #endif /* USE_CERTREV */
 
 		default:
@@ -133,14 +193,22 @@ int setSerialNumber( INOUT_PTR CERT_INFO *certInfoPtr,
 #ifdef USE_CERTREV
 		if( certInfoPtr->type == CRYPT_CERTTYPE_REQUEST_REVOCATION )
 			{
-			certInfoPtr->cCertReq->serialNumber = serialNumberPtr;
-			certInfoPtr->cCertReq->serialNumberLength = length;
+			CERT_REQ_INFO *reqInfo = DATAPTR_GET_REQ( certInfoPtr );
+
+			REQUIRES( reqInfo != NULL );
+
+			reqInfo->serialNumber = serialNumberPtr;
+			reqInfo->serialNumberLength = length;
 			}
 		else
 #endif /* USE_CERTREV */
 			{
-			certInfoPtr->cCertCert->serialNumber = serialNumberPtr;
-			certInfoPtr->cCertCert->serialNumberLength = length;
+			CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+			REQUIRES( certInfo != NULL );
+
+			certInfo->serialNumber = serialNumberPtr;
+			certInfo->serialNumberLength = length;
 			}
 
 		return( CRYPT_OK );
@@ -174,12 +242,20 @@ int setSerialNumber( INOUT_PTR CERT_INFO *certInfoPtr,
 #ifdef USE_CERTREV
 	if( certInfoPtr->type == CRYPT_CERTTYPE_REQUEST_REVOCATION )
 		{
-		certInfoPtr->cCertReq->serialNumberLength = DEFAULT_SERIALNO_SIZE;
+		CERT_REQ_INFO *reqInfo = DATAPTR_GET_REQ( certInfoPtr );
+
+		REQUIRES( reqInfo != NULL );
+
+		reqInfo->serialNumberLength = DEFAULT_SERIALNO_SIZE;
 		}
 	else
 #endif /* USE_CERTREV */
 		{
-		certInfoPtr->cCertCert->serialNumberLength = DEFAULT_SERIALNO_SIZE;
+		CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+		REQUIRES( certInfo != NULL );
+
+		certInfo->serialNumberLength = DEFAULT_SERIALNO_SIZE;
 		}
 
 	return( CRYPT_OK );
@@ -403,7 +479,7 @@ static int getEncodedDn( INOUT_PTR CERT_INFO *certInfoPtr,
 	/* If there's already a DN set then we can't do anything else.  Since 
 	   this potentially changes the DN selection state, we save the state 
 	   around the check */
-	saveSelectionState( savedState, certInfoPtr );
+	saveSelectionState( &savedState, certInfoPtr );
 	status = selectDN( certInfoPtr, CRYPT_ATTRIBUTE_NONE, MUST_BE_PRESENT );
 	if( cryptStatusOK( status ) && \
 		DATAPTR_ISNULL_PTR( certInfoPtr->currentSelection.dnPtr ) )
@@ -413,7 +489,7 @@ static int getEncodedDn( INOUT_PTR CERT_INFO *certInfoPtr,
 		   we're OK */
 		status = CRYPT_ERROR;
 		}
-	restoreSelectionState( savedState, certInfoPtr );
+	restoreSelectionState( &savedState, certInfoPtr );
 	if( cryptStatusOK( status ) )
 		{
 		retExt( CRYPT_ERROR_INITED,
@@ -462,7 +538,7 @@ static int getEncodedDn( INOUT_PTR CERT_INFO *certInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1 ) ) \
 int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 					  IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE certInfoType,
-					  const int certInfo )
+					  const int value )
 	{
 	CRYPT_CERTIFICATE addedCert;
 	int status;
@@ -502,7 +578,7 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 		if( certInfoType == CRYPT_CERTINFO_CRLREASON || \
 			certInfoType == CRYPT_CERTINFO_CRLEXTREASON )
 			{
-			localCertInfoType = ( certInfo < CRYPT_CRLREASON_LAST ) ? \
+			localCertInfoType = ( value < CRYPT_CRLREASON_LAST ) ? \
 					CRYPT_CERTINFO_CRLREASON : CRYPT_CERTINFO_CRLEXTREASON;
 			}
 
@@ -520,17 +596,19 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 				case CRYPT_CERTTYPE_RTCS_REQUEST:
 				case CRYPT_CERTTYPE_RTCS_RESPONSE:
 					{
-					CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
+					CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 					VALIDITY_INFO *validityInfoPtr;
 
-					if( DATAPTR_ISNULL( certValInfo->currentValidity ) )
+					REQUIRES( valInfo != NULL );
+
+					if( DATAPTR_ISNULL( valInfo->currentValidity ) )
 						return( CRYPT_ERROR_NOTFOUND );
-					validityInfoPtr = DATAPTR_GET( certValInfo->currentValidity );
+					validityInfoPtr = DATAPTR_GET( valInfo->currentValidity );
 					ENSURES( validityInfoPtr != NULL );
 					return( addAttributeField( &validityInfoPtr->attributes, 
 											   localCertInfoType, 
 											   CRYPT_ATTRIBUTE_NONE, 
-											   certInfo, ATTR_FLAG_NONE, 
+											   value, ATTR_FLAG_NONE, 
 											   FALSE, CERTIFICATE_ERRINFO,
 											   &certInfoPtr->errorLocus, 
 											   &certInfoPtr->errorType ) );
@@ -541,17 +619,19 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 				case CRYPT_CERTTYPE_OCSP_REQUEST:
 				case CRYPT_CERTTYPE_OCSP_RESPONSE:
 					{
-					CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+					CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 					REVOCATION_INFO *revInfoPtr;
 
-					if( DATAPTR_ISNULL( certRevInfo->currentRevocation ) )
+					REQUIRES( revInfo != NULL );
+
+					if( DATAPTR_ISNULL( revInfo->currentRevocation ) )
 						return( CRYPT_ERROR_NOTFOUND );
-					revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+					revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 					ENSURES( revInfoPtr != NULL );
 					return( addAttributeField( &revInfoPtr->attributes,
 											   localCertInfoType, 
 											   CRYPT_ATTRIBUTE_NONE,
-											   certInfo, ATTR_FLAG_NONE, 
+											   value, ATTR_FLAG_NONE, 
 											   FALSE, CERTIFICATE_ERRINFO,
 											   &certInfoPtr->errorLocus, 
 											   &certInfoPtr->errorType ) );
@@ -565,7 +645,7 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 
 		return( addAttributeField( &certInfoPtr->attributes,
 								   localCertInfoType, CRYPT_ATTRIBUTE_NONE, 
-								   certInfo, ATTR_FLAG_NONE, 
+								   value, ATTR_FLAG_NONE, 
 								   FALSE, CERTIFICATE_ERRINFO,
 								   &certInfoPtr->errorLocus, 
 								   &certInfoPtr->errorType ) );
@@ -575,7 +655,7 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 	switch( certInfoType )
 		{
 		case CRYPT_CERTINFO_SELFSIGNED:
-			if( certInfo )
+			if( value )
 				SET_FLAG( certInfoPtr->flags, CERT_FLAG_SELFSIGNED );
 			else
 				CLEAR_FLAG( certInfoPtr->flags, CERT_FLAG_SELFSIGNED );
@@ -585,26 +665,32 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 			return( setXyzzyInfo( certInfoPtr ) );
 
 		case CRYPT_CERTINFO_CURRENT_CERTIFICATE:
-			return( setCertificateCursor( certInfoPtr, certInfo ) );
+			return( setCertificateCursor( certInfoPtr, value ) );
 
 		case CRYPT_ATTRIBUTE_CURRENT_GROUP:
 		case CRYPT_ATTRIBUTE_CURRENT:
 		case CRYPT_ATTRIBUTE_CURRENT_INSTANCE:
-			return( setAttributeCursor( certInfoPtr, certInfoType, certInfo ) );
+			return( setAttributeCursor( certInfoPtr, certInfoType, value ) );
 
 		case CRYPT_CERTINFO_TRUSTED_USAGE:
-			certInfoPtr->cCertCert->trustedUsage = certInfo;
+			{
+			CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
+			REQUIRES( certInfo != NULL );
+
+			certInfo->trustedUsage = value;
 			return( CRYPT_OK );
+			}
 
 		case CRYPT_CERTINFO_TRUSTED_IMPLICIT:
 			{
-			int value;
+			int keyUsage;
 
 			/* This option is only valid for CA certificates */
 			status = getAttributeFieldValue( certInfoPtr->attributes, 
 											 CRYPT_CERTINFO_KEYUSAGE,
-											 CRYPT_ATTRIBUTE_NONE, &value );
-			if( cryptStatusError( status ) || !( value & KEYUSAGE_CA ) )
+											 CRYPT_ATTRIBUTE_NONE, &keyUsage );
+			if( cryptStatusError( status ) || !( keyUsage & KEYUSAGE_CA ) )
 				{
 				setObjectErrorInfo( certInfoPtr, CRYPT_CERTINFO_CA,
 									CRYPT_ERRTYPE_ATTR_ABSENT );
@@ -616,27 +702,33 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 			return( krnlSendMessage( certInfoPtr->ownerHandle,
 									 IMESSAGE_USER_TRUSTMGMT,
 									 &certInfoPtr->objectHandle,
-									 certInfo ? MESSAGE_TRUSTMGMT_ADD : \
-												MESSAGE_TRUSTMGMT_DELETE ) );
+									 value ? MESSAGE_TRUSTMGMT_ADD : \
+											 MESSAGE_TRUSTMGMT_DELETE ) );
 			}
 
 #ifdef USE_CERTREV
 		case CRYPT_CERTINFO_SIGNATURELEVEL:
-			certInfoPtr->cCertRev->signatureLevel = certInfo;
+			{
+			CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
+
+			REQUIRES( revInfo != NULL );
+
+			revInfo->signatureLevel = value;
 			return( CRYPT_OK );
+			}
 #endif /* USE_CERTREV */
 
 		case CRYPT_CERTINFO_VERSION:
-			certInfoPtr->version = certInfo;
+			certInfoPtr->version = value;
 			return( CRYPT_OK );
 
 		case CRYPT_CERTINFO_SUBJECTPUBLICKEYINFO:
-			return( copyPublicKeyInfo( certInfoPtr, certInfo, NULL ) );
+			return( copyPublicKeyInfo( certInfoPtr, value, NULL ) );
 
 		case CRYPT_CERTINFO_CERTIFICATE:
 			/* If it's a certificate, copy across various components or
 			   store the entire certificate where required */
-			status = krnlSendMessage( certInfo, IMESSAGE_GETDEPENDENT, 
+			status = krnlSendMessage( value, IMESSAGE_GETDEPENDENT, 
 									  &addedCert, OBJECT_TYPE_CERTIFICATE );
 			if( cryptStatusError( status ) )
 				return( status );
@@ -645,25 +737,26 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 			   certificate, just store it and exit */
 			if( certInfoPtr->type == CRYPT_CERTTYPE_CERTCHAIN )
 				{
-				CERT_CERT_INFO *certCertInfoPtr = certInfoPtr->cCertCert;
+				CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
 				LOOP_INDEX i;
 
-				if( certCertInfoPtr->chainEnd > MAX_CHAINLENGTH - 1 )
+				REQUIRES( certInfo != NULL );
+
+				if( certInfo->chainEnd > MAX_CHAINLENGTH - 1 )
 					return( CRYPT_ERROR_OVERFLOW );
 
 				/* Perform a simple check to make sure that it hasn't been
 				   added already */
 				LOOP_EXT( i = 0, 
-						  i < certCertInfoPtr->chainEnd && i < MAX_CHAINLENGTH,
+						  i < certInfo->chainEnd && i < MAX_CHAINLENGTH,
 						  i++, MAX_CHAINLENGTH + 1 )
 					{
-					ENSURES( LOOP_INVARIANT_EXT( i, 0, 
-												 certCertInfoPtr->chainEnd - 1,
+					ENSURES( LOOP_INVARIANT_EXT( i, 0, certInfo->chainEnd - 1,
 												 MAX_CHAINLENGTH + 1 ) );
 
 					if( cryptStatusOK( \
 						krnlSendMessage( addedCert, IMESSAGE_COMPARE,
-										 &certCertInfoPtr->chain[ i ],
+										 &certInfo->chain[ i ],
 										 MESSAGE_COMPARE_CERTOBJ ) ) )
 						{
 						setObjectErrorInfo( certInfoPtr,
@@ -679,10 +772,10 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 
 				/* Add the user certificate and increment its reference 
 				   count */
-				REQUIRES( rangeCheck( certCertInfoPtr->chainEnd, 
+				REQUIRES( rangeCheck( certInfo->chainEnd, 
 									  0, MAX_CHAINLENGTH - 1 ) );
-				certCertInfoPtr->chain[ certCertInfoPtr->chainEnd++ ] = addedCert;
-				ENSURES( rangeCheck( certCertInfoPtr->chainEnd, 
+				certInfo->chain[ certInfo->chainEnd++ ] = addedCert;
+				ENSURES( rangeCheck( certInfo->chainEnd, 
 									 1, MAX_CHAINLENGTH ) );
 				krnlSendNotifier( addedCert, IMESSAGE_INCREFCOUNT );
 
@@ -690,7 +783,7 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 				}
 
 			return( copyCertObject( certInfoPtr, addedCert, 
-									CRYPT_CERTINFO_CERTIFICATE, certInfo ) );
+									CRYPT_CERTINFO_CERTIFICATE, value ) );
 
 		case CRYPT_CERTINFO_CACERTIFICATE:
 			/* We can't add another CA certificate if there's already one 
@@ -710,7 +803,7 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 
 			/* Get the certificate handle and make sure that it really is a 
 			   CA certificate */
-			status = krnlSendMessage( certInfo, IMESSAGE_GETDEPENDENT, 
+			status = krnlSendMessage( value, IMESSAGE_GETDEPENDENT, 
 									  &addedCert, OBJECT_TYPE_CERTIFICATE );
 			if( cryptStatusError( status ) )
 				return( status );
@@ -744,14 +837,21 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 						  getCertTypeNameLC( certInfoPtr->type ) ) );
 				}
 
-			return( copyCertObject( certInfoPtr, certInfo, 
-									CRYPT_CERTINFO_CERTREQUEST, CRYPT_UNUSED ) );
+			return( copyCertObject( certInfoPtr, value, 
+									CRYPT_CERTINFO_CERTREQUEST, 
+									CRYPT_UNUSED ) );
 #endif /* USE_CERTREQ */
 
 #ifdef USE_PKIUSER
 		case CRYPT_CERTINFO_PKIUSER_RA:
+			{
+			CERT_PKIUSER_INFO *pkiUserInfo = \
+					DATAPTR_GET_PKIUSER( certInfoPtr );
+
+			REQUIRES( pkiUserInfo != NULL );
+
 			/* Make sure that this flag isn't already set */
-			if( certInfoPtr->cCertUser->isRA )
+			if( pkiUserInfo->isRA )
 				{
 				setObjectErrorInfo( certInfoPtr, CRYPT_CERTINFO_CERTREQUEST,
 									CRYPT_ERRTYPE_ATTR_PRESENT );
@@ -760,27 +860,35 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 						  "RA flag is already set for %s",
 						  getCertTypeNameLC( certInfoPtr->type ) ) );
 				}
-			certInfoPtr->cCertUser->isRA = certInfo;
+			pkiUserInfo->isRA = value;
 			return( CRYPT_OK );
+			}
 #endif /* USE_PKIUSER */
 
 		case CRYPT_IATTRIBUTE_CERTCOLLECTION:
-			return( copyCertChain( certInfoPtr, certInfo, TRUE ) );
+			return( copyCertChain( certInfoPtr, value, TRUE ) );
 
 		case CRYPT_IATTRIBUTE_RTCSREQUEST:
 		case CRYPT_IATTRIBUTE_OCSPREQUEST:
+		case CRYPT_IATTRIBUTE_OCSPRESPONSE:
 		case CRYPT_IATTRIBUTE_REVREQUEST:
 		case CRYPT_IATTRIBUTE_PKIUSERINFO:
 #ifdef USE_DBMS	/* Only used by CA code */
 		case CRYPT_IATTRIBUTE_BLOCKEDATTRS:
 #endif /* USE_DBMS */
-			return( copyCertObject( certInfoPtr, certInfo, certInfoType, 
+			return( copyCertObject( certInfoPtr, value, certInfoType, 
 									CRYPT_UNUSED ) );
 
 #ifdef USE_CERTREQ
 		case CRYPT_IATTRIBUTE_REQFROMRA:
-			certInfoPtr->cCertReq->requestFromRA = certInfo;
+			{
+			CERT_REQ_INFO *reqInfo = DATAPTR_GET_REQ( certInfoPtr );
+
+			REQUIRES( reqInfo != NULL );
+
+			reqInfo->requestFromRA = value;
 			return( CRYPT_OK );
+			}
 #endif /* USE_CERTREQ */
 		}
 
@@ -790,18 +898,18 @@ int addCertComponent( INOUT_PTR CERT_INFO *certInfoPtr,
 CHECK_RETVAL STDC_NONNULL_ARG( ( 1, 3 ) ) \
 int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 							IN_ATTRIBUTE const CRYPT_ATTRIBUTE_TYPE certInfoType,
-							IN_BUFFER( certInfoLength ) const void *certInfo, 
-							IN_LENGTH_SHORT const int certInfoLength )
+							IN_BUFFER( dataLength ) const void *data, 
+							IN_LENGTH_SHORT const int dataLength )
 	{
 	int status;
 
 	assert( isWritePtr( certInfoPtr, sizeof( CERT_INFO ) ) );
-	assert( isReadPtrDynamic( certInfo, certInfoLength ) );
+	assert( isReadPtrDynamic( data, dataLength ) );
 
 	REQUIRES( sanityCheckCert( certInfoPtr ) );
 	REQUIRES( isAttribute( certInfoType ) || \
 			  isInternalAttribute( certInfoType ) );
-	REQUIRES( isShortIntegerRangeNZ( certInfoLength ) );
+	REQUIRES( isShortIntegerRangeNZ( dataLength ) );
 
 	/* If we're adding data to a certificate, clear the error information */
 	if( !isPseudoInformation( certInfoType ) )
@@ -866,9 +974,9 @@ int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 		else
 			fieldID = certInfoPtr->currentSelection.generalName;
 		status = addAttributeFieldString( &certInfoPtr->attributes, fieldID, 
-										  certInfoType, certInfo, 
-										  certInfoLength, ATTR_FLAG_NONE, 
-										  FALSE, CERTIFICATE_ERRINFO,
+										  certInfoType, data, dataLength, 
+										  ATTR_FLAG_NONE, FALSE, 
+										  CERTIFICATE_ERRINFO,
 										  &certInfoPtr->errorLocus, 
 										  &certInfoPtr->errorType );
 		if( cryptStatusError( status ) )
@@ -927,8 +1035,8 @@ int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 			return( status );
 			}
 		status = insertDNComponent( certInfoPtr->currentSelection.dnPtr,
-									certInfoType, certInfo, 
-									certInfoLength, CERTIFICATE_ERRINFO,
+									certInfoType, data, dataLength, 
+									CERTIFICATE_ERRINFO,
 									&certInfoPtr->errorType );
 		if( cryptStatusOK( status ) && \
 			certInfoPtr->currentSelection.updateCursor )
@@ -966,17 +1074,19 @@ int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 				case CRYPT_CERTTYPE_RTCS_REQUEST:
 				case CRYPT_CERTTYPE_RTCS_RESPONSE:
 					{
-					CERT_VAL_INFO *certValInfo = certInfoPtr->cCertVal;
+					CERT_VAL_INFO *valInfo = DATAPTR_GET_VAL( certInfoPtr );
 					VALIDITY_INFO *validityInfoPtr;
 
-					if( DATAPTR_ISNULL( certValInfo->currentValidity ) )
+					REQUIRES( valInfo != NULL );
+
+					if( DATAPTR_ISNULL( valInfo->currentValidity ) )
 						return( CRYPT_ERROR_NOTFOUND );
-					validityInfoPtr = DATAPTR_GET( certValInfo->currentValidity );
+					validityInfoPtr = DATAPTR_GET( valInfo->currentValidity );
 					ENSURES( validityInfoPtr != NULL );
 					return( addAttributeFieldString( &validityInfoPtr->attributes,
 													 localCertInfoType, 
-													 CRYPT_ATTRIBUTE_NONE, certInfo, 
-													 certInfoLength, ATTR_FLAG_NONE,
+													 CRYPT_ATTRIBUTE_NONE, data, 
+													 dataLength, ATTR_FLAG_NONE,
 													 FALSE, CERTIFICATE_ERRINFO,
 													 &certInfoPtr->errorLocus, 
 													 &certInfoPtr->errorType ) );
@@ -987,17 +1097,19 @@ int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 				case CRYPT_CERTTYPE_OCSP_REQUEST:
 				case CRYPT_CERTTYPE_OCSP_RESPONSE:
 					{
-					CERT_REV_INFO *certRevInfo = certInfoPtr->cCertRev;
+					CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 					REVOCATION_INFO *revInfoPtr;
 
-					if( DATAPTR_ISNULL( certRevInfo->currentRevocation ) )
+					REQUIRES( revInfo != NULL );
+
+					if( DATAPTR_ISNULL( revInfo->currentRevocation ) )
 						return( CRYPT_ERROR_NOTFOUND );
-					revInfoPtr = DATAPTR_GET( certRevInfo->currentRevocation );
+					revInfoPtr = DATAPTR_GET( revInfo->currentRevocation );
 					ENSURES( revInfoPtr != NULL );
 					return( addAttributeFieldString( &revInfoPtr->attributes,
 													 localCertInfoType, 
-													 CRYPT_ATTRIBUTE_NONE, certInfo, 
-													 certInfoLength, ATTR_FLAG_NONE,
+													 CRYPT_ATTRIBUTE_NONE, data, 
+													 dataLength, ATTR_FLAG_NONE,
 													 FALSE, CERTIFICATE_ERRINFO,
 													 &certInfoPtr->errorLocus, 
 													 &certInfoPtr->errorType ) );
@@ -1011,8 +1123,8 @@ int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 
 		return( addAttributeFieldString( &certInfoPtr->attributes, 
 										 localCertInfoType, 
-										 CRYPT_ATTRIBUTE_NONE, certInfo, 
-										 certInfoLength, ATTR_FLAG_NONE, 
+										 CRYPT_ATTRIBUTE_NONE, data, 
+										 dataLength, ATTR_FLAG_NONE, 
 										 FALSE, CERTIFICATE_ERRINFO,
 										 &certInfoPtr->errorLocus, 
 										 &certInfoPtr->errorType ) );
@@ -1022,8 +1134,14 @@ int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 	switch( certInfoType )
 		{
 		case CRYPT_CERTINFO_SERIALNUMBER:
+			{
+			const CERT_CERT_INFO *certInfo = DATAPTR_GET_CERT( certInfoPtr );
+
 			ENSURES( certInfoPtr->type == CRYPT_CERTTYPE_CERTIFICATE );
-			if( certInfoPtr->cCertCert->serialNumber != NULL )
+
+			REQUIRES( certInfo != NULL );
+
+			if( certInfo->serialNumber != NULL )
 				{
 				setObjectErrorInfo( certInfoPtr, CRYPT_CERTINFO_SERIALNUMBER,
 									CRYPT_ERRTYPE_ATTR_PRESENT );
@@ -1032,14 +1150,16 @@ int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 						  "%s already contains a serial number",
 						  getCertTypeName( certInfoPtr->type ) ) );
 				}
-			return( setSerialNumber( certInfoPtr, certInfo,
-									 certInfoLength ) );
+			return( setSerialNumber( certInfoPtr, data, dataLength ) );
+			}
 
 		case CRYPT_CERTINFO_VALIDFROM:
 		case CRYPT_CERTINFO_THISUPDATE:
 			{
-			const time_t certTime = *( ( time_t * ) certInfo );
+			const time_t certTime = *( ( time_t * ) data );
 
+			REQUIRES( dataLength == sizeof( time_t ) );
+			
 			if( certInfoPtr->startTime > 0 )
 				{
 				setObjectErrorInfo( certInfoPtr, certInfoType,
@@ -1070,7 +1190,9 @@ int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 		case CRYPT_CERTINFO_VALIDTO:
 		case CRYPT_CERTINFO_NEXTUPDATE:
 			{
-			const time_t certTime = *( ( time_t * ) certInfo );
+			const time_t certTime = *( ( time_t * ) data );
+
+			REQUIRES( dataLength == sizeof( time_t ) );
 
 			if( certInfoPtr->endTime > 0 )
 				{
@@ -1102,8 +1224,10 @@ int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 #ifdef USE_CERTREV
 		case CRYPT_CERTINFO_REVOCATIONDATE:
 			{
-			const time_t certTime = *( ( time_t * ) certInfo );
+			const time_t certTime = *( ( time_t * ) data );
 			time_t *revocationTimePtr = getRevocationTimePtr( certInfoPtr );
+
+			REQUIRES( dataLength == sizeof( time_t ) );
 
 			if( revocationTimePtr == NULL )
 				return( CRYPT_ERROR_NOTFOUND );
@@ -1123,38 +1247,31 @@ int addCertComponentString( INOUT_PTR CERT_INFO *certInfoPtr,
 
 #ifdef USE_CERT_DNSTRING
 		case CRYPT_CERTINFO_DN:
-			return( getEncodedDn( certInfoPtr, certInfo, certInfoLength ) );
+			return( getEncodedDn( certInfoPtr, data, dataLength ) );
 #endif /* USE_CERT_DNSTRING */
 
 #ifdef USE_CERTREV
 		case CRYPT_IATTRIBUTE_CRLENTRY:
 			{
+			CERT_REV_INFO *revInfo = DATAPTR_GET_REV( certInfoPtr );
 			ERROR_INFO localErrorInfo;
 			STREAM stream;
 
 			ENSURES( certInfoPtr->type == CRYPT_CERTTYPE_CRL );
+			REQUIRES( revInfo != NULL );
 
 			/* The revocation information is being provided to us in pre-
 			   encoded form from a certificate store, decode it so that we 
 			   can add it to the CRL */
 			clearErrorInfo( &localErrorInfo );
-			sMemConnect( &stream, certInfo, certInfoLength );
-			status = readCRLentry( &stream,
-								   &certInfoPtr->cCertRev->revocations, 0,
+			sMemConnect( &stream, data, dataLength );
+			status = readCRLentry( &stream, &revInfo->revocations, 0,
 								   &localErrorInfo, &certInfoPtr->errorLocus,
 								   &certInfoPtr->errorType );
 			sMemDisconnect( &stream );
 			return( status );
 			}
 #endif /* USE_CERTREV */
-
-#ifdef USE_CERTREQ
-		case CRYPT_IATTRIBUTE_AUTHCERTID:
-			ENSURES( certInfoLength == KEYID_SIZE );
-			memcpy( certInfoPtr->cCertReq->authCertID, certInfo, 
-					KEYID_SIZE );
-			return( CRYPT_OK );
-#endif /* USE_CERTREQ */
 		}
 
 	retIntError();

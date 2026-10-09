@@ -18,6 +18,7 @@
    be enabled in the release-mode cryptlib */
 #include "misc/config.h"
 #ifndef NDEBUG
+  #include <limits.h>			/* Needed for analyse.h */
   #include "misc/analyse.h"		/* Needed for fault.h */
   #include "misc/fault.h"
 #endif /* !NDEBUG */

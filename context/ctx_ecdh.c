@@ -67,7 +67,7 @@ static BOOLEAN pairwiseConsistencyTest( INOUT_PTR CONTEXT_INFO *contextInfoPtr )
 
 	/* Now that we've checked everything, set up the various values that
 	   we'll need */
-	sourcePkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	sourcePkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	REQUIRES_B( sourcePkcInfo != NULL );
 
 	/* The ECDH pairwise check is a bit more complex than the one for the 
@@ -233,7 +233,7 @@ static int encryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					  INOUT_BUFFER_FIXED( noBytes ) BYTE *buffer, 
 					  IN_LENGTH_FIXED( sizeof( KEYAGREE_PARAMS ) ) int noBytes )
 	{
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	KEYAGREE_PARAMS *keyAgreeParams = ( KEYAGREE_PARAMS * ) buffer;
 	int status;
 
@@ -271,7 +271,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 					  IN_LENGTH_FIXED( sizeof( KEYAGREE_PARAMS ) ) int noBytes )
 	{
 	KEYAGREE_PARAMS *keyAgreeParams = ( KEYAGREE_PARAMS * ) buffer;
-	PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+	PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 	const ECC_DOMAINPARAMS *domainParams;
 	const EC_GROUP *ecCTX;
 	EC_POINT *q;
@@ -294,7 +294,7 @@ static int decryptFn( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	domainParams = pkcInfo->domainParams;
 	REQUIRES( domainParams != NULL );
 	ecCTX = &pkcInfo->ecCTX;
-	q = &pkcInfo->tmpPoint; x = &pkcInfo->tmp1, y = &pkcInfo->tmp2;
+	q = &pkcInfo->tmpPoint; x = &pkcInfo->tmp1; y = &pkcInfo->tmp2;
 	peer_qx = &pkcInfo->tmp3; peer_qy = &pkcInfo->eccParam_tmp4;;
 	keySize = bitsToBytes( pkcInfo->keySizeBits );
 
@@ -404,7 +404,7 @@ static int initKey( INOUT_PTR CONTEXT_INFO *contextInfoPtr,
 	if( key != NULL )
 		{
 		const CRYPT_PKCINFO_ECC *eccKey = ( CRYPT_PKCINFO_ECC * ) key;
-		PKC_INFO *pkcInfo = DATAPTR_GET( contextInfoPtr->ctxPKC );
+		PKC_INFO *pkcInfo = DATAPTR_GET_PKC( contextInfoPtr );
 		int status;
 
 		REQUIRES( pkcInfo != NULL );
